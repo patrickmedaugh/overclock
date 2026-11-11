@@ -1,6 +1,6 @@
 # Project state
 
-phase: QA
+phase: DEMO
 sprint: 0
 open_pr: (none — Sprint 0 proposal PR #1 merged after owner approval; demo PR opens in phase DEMO)
 last_owner_activity: 2026-11-11 — owner review "Approved" on PR #1; answered both questions (neon cyberpunk style, keep working title)
@@ -22,5 +22,10 @@ The work sessions are not allowed to change repository settings, so the owner mu
 3. **Branches** → add a rule for `main`: require status checks `checks` and `e2e` to pass.
 QA should verify everything else; these two criteria stay "blocked on owner" until done. Raise this at the top of the Sprint 0 demo PR.
 
+## QA result (2026-11-11) — report: docs/sprints/sprint-00-qa.md
+- 9 of 12 acceptance criteria PASS; 3 BLOCKED ON OWNER (merge-blocking needs branch protection; demo link needs Pages on). No product bugs found.
+- lint, typecheck, 100 unit tests, build, 28/28 Playwright (phone + desktop) all pass. QA added an extra originality test (art, icons, on-screen text).
+- QA observations for the backlog (not failures): no notch/safe-area padding yet (fix before Android); hand reflows from 1 to 2 rows at the 6th card; re-check load time on the real link once Pages is on.
+
 ## Next run
-Phase QA: delegate to `qa` to verify every Sprint 0 acceptance criterion (automated tests + phone-viewport Playwright screenshots), record pass/fail, loop back to devs on failures, then set `phase: DEMO`.
+Phase DEMO: try to deploy (needs the owner's Pages setting — if still off, say so at the top of the demo PR), have `pm` write docs/sprints/sprint-00-demo.md (use QA screenshots in docs/sprints/sprint-00-qa/), open PR `Sprint 0 demo — ready for you to play` (sprint-00 → main, label sprint-demo), set `phase: AWAITING_REVIEW`, stop.
