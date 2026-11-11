@@ -1,0 +1,11 @@
+{
+  "//": "Root solution file for `tsc -b`. Add every workspace (e.g. apps/client) to references.",
+  "files": [],
+  "references": [
+    { "path": "packages/cards" },
+    { "path": "packages/engine" },
+    { "path": "packages/ai" },
+    { "path": "apps/client" },
+    { "path": "apps/client/tsconfig.node.json" }
+  ]
+}

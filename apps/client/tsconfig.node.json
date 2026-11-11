@@ -1,0 +1,13 @@
+{
+  "//": "Node-side files: Vite/Vitest/Playwright configs and Playwright e2e specs.",
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "outDir": "dist-types/node",
+    "tsBuildInfoFile": "dist-types/node.tsbuildinfo",
+    "lib": ["ES2022", "DOM"],
+    "types": ["node"]
+  },
+  "include": ["vite.config.ts", "playwright.config.ts", "e2e", "src/hook-types.ts"],
+  "references": [{ "path": "../../packages/cards" }, { "path": "../../packages/engine" }]
+}
