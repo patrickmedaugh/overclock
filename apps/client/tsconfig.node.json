@@ -9,5 +9,5 @@
     "types": ["node"]
   },
   "include": ["vite.config.ts", "playwright.config.ts", "e2e", "src/hook-types.ts"],
-  "references": [{ "path": "../../packages/engine" }]
+  "references": [{ "path": "../../packages/cards" }, { "path": "../../packages/engine" }]
 }
