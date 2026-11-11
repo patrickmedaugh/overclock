@@ -16,6 +16,7 @@ last_owner_activity: 2026-11-11 — asked that agents open PRs themselves, each 
 - Architect review: approved; added lint rules enforcing package boundaries and AI "no cheating". Follow-ups logged for later sprints (move game host out of client when AI lands; per-action validator table; hide test hook behind a build flag before public release).
 
 ## NEEDS THE OWNER (blocks S-00-1 "can't merge when red" and S-00-2 demo link)
+2026-11-11: Pages turned out to be unavailable because the repo is private on a free plan (this also blocks branch protection). Owner chose to **make the repo public** (see DECISIONS.md). Owner does: Settings → General → Danger Zone → Change visibility → Public; then the steps below. Next run: check whether the repo is public and Pages is on before deploying.
 The work sessions are not allowed to change repository settings, so the owner must do these once in GitHub → Settings:
 1. **Pages** → Source: "GitHub Actions". (Until then the deploy job fails at "configure Pages" and there is no demo link.)
 2. **Environments → github-pages** → Deployment branches: allow `main` and `sprint-*`.
