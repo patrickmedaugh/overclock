@@ -68,7 +68,22 @@ One or two sentences: what you'll be able to do at the end of this sprint.
 
 ## How to respond
 Comment with: accepted / not accepted per story, plus anything you'd change.
+
+## Guide to what's in this PR
+(see "PR file guide" below)
 ```
+
+## PR file guide (required at the end of every PR description the team opens)
+
+The owner does not read code. Every PR gets a plain-language guide so they never have to open the "Files changed" tab to know what's in it. Generate it from `git diff --stat main...HEAD`, reading the files you describe; never describe a file you haven't looked at.
+
+- Open with one line saying what the PR does, then the size in plain terms (files, lines, and how much is generated/lock files, screenshots or tests).
+- Group **every** changed file (folders may be grouped when the files in them have one purpose) into three tiers:
+  - 🔍 **Worth your look**: anything with product or creative choices the owner may have opinions on (card names/text, decisions log, rules changes, test/QA results, screenshots). Say *what to look for*.
+  - 👀 **Skim**: real game/screen code, one line per file on what it does in player terms ("draws the board", "decides if a move is legal").
+  - ⏭️ **Skip**: tests, config, CI, lock files, generated files. Say why skipping is safe (e.g. "checked automatically on every push").
+- End with "Known gaps / for later" (things the owner might notice that aren't done).
+- If something is blocked on the owner, put it in a quoted box at the very top of the PR description, above everything.
 
 ## Turning feedback into backlog
 - Each piece of owner feedback becomes a backlog item with the owner's words quoted, a priority (P1 must / P2 should / P3 nice), and draft acceptance criteria.

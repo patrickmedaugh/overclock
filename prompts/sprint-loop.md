@@ -6,7 +6,7 @@ You are the lead of the team described in `CLAUDE.md`. Read `CLAUDE.md`, then `d
 
 ### Phase `PROPOSE`
 1. Delegate to the `pm` agent: read `BACKLOG.md`, the latest demo feedback, and `DECISIONS.md`; write `docs/sprints/sprint-NN-proposal.md` using the proposal template in `.claude/agents/pm.md`.
-2. Open a PR titled `Sprint NN proposal — please review` with label `sprint-proposal`. The PR body is the proposal itself (owner reads it on their phone).
+2. Open a PR titled `Sprint NN proposal — please review` with label `sprint-proposal`. The PR body is the proposal itself (owner reads it on their phone), followed by a short PR file guide (template in `.claude/agents/pm.md`).
 3. Set `phase: AWAITING_APPROVAL` and stop.
 
 ### Phase `AWAITING_APPROVAL`
@@ -30,7 +30,7 @@ You are the lead of the team described in `CLAUDE.md`. Read `CLAUDE.md`, then `d
 ### Phase `DEMO`
 1. Deploy the preview build (GitHub Pages / Vercel preview). Verify the link loads.
 2. `pm` writes `docs/sprints/sprint-NN-demo.md` using the demo template: what's new, the demo link, a 2-minute "try this" checklist mapped to each acceptance criterion, screenshots/GIF, what didn't make it and why, questions for the owner.
-3. Open PR `Sprint NN demo — ready for you to play` with label `sprint-demo`; body = demo notes.
+3. The team opens the PR itself (the owner should never have to): `Sprint NN demo — ready for you to play`, branch `sprint-NN` → `main`, label `sprint-demo`. If the owner already opened a PR for that branch, use it instead (retitle, label, fill the body) rather than opening a duplicate. Body = demo notes **plus the PR file guide** (template in `.claude/agents/pm.md`): a plain-language explainer of every file in the PR, sorted into worth-your-look / skim / skip.
 4. Set `phase: AWAITING_REVIEW` and stop.
 
 ### Phase `AWAITING_REVIEW`
