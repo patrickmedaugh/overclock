@@ -2,8 +2,8 @@
 
 phase: DEMO
 sprint: 0
-open_pr: (none — Sprint 0 proposal PR #1 merged after owner approval; demo PR opens in phase DEMO)
-last_owner_activity: 2026-11-11 — owner review "Approved" on PR #1; answered both questions (neon cyberpunk style, keep working title)
+open_pr: #2 (owner opened it for `sprint-00`; retitled "Sprint 0 demo — ready for you to play", labelled sprint-demo, body = PR file guide. DEMO phase adds the demo notes on top of the guide — do not open a second PR)
+last_owner_activity: 2026-11-11 — asked that agents open PRs themselves, each with a plain-language guide to every file in it (now in prompts/sprint-loop.md + pm.md template)
 
 ## Accepted stories
 (none yet)
@@ -28,4 +28,4 @@ QA should verify everything else; these two criteria stay "blocked on owner" unt
 - QA observations for the backlog (not failures): no notch/safe-area padding yet (fix before Android); hand reflows from 1 to 2 rows at the 6th card; re-check load time on the real link once Pages is on.
 
 ## Next run
-Phase DEMO: try to deploy (needs the owner's Pages setting — if still off, say so at the top of the demo PR), have `pm` write docs/sprints/sprint-00-demo.md (use QA screenshots in docs/sprints/sprint-00-qa/), open PR `Sprint 0 demo — ready for you to play` (sprint-00 → main, label sprint-demo), set `phase: AWAITING_REVIEW`, stop.
+Phase DEMO: try to deploy (needs the owner's Pages setting — if still off, say so at the top of the demo PR), have `pm` write docs/sprints/sprint-00-demo.md (use QA screenshots in docs/sprints/sprint-00-qa/), put the demo notes at the top of PR #2's description, keeping the file guide below them (update the guide if files changed), set `phase: AWAITING_REVIEW`, stop.
