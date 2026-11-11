@@ -14,9 +14,11 @@ async function start(): Promise<void> {
   await app.init({
     resizeTo: window,
     background: theme.bg,
-    antialias: true,
+    // MSAA only where pixels are big; on 2x+ screens it doubles fill cost for no gain.
+    antialias: (window.devicePixelRatio || 1) < 2,
     autoDensity: true,
-    resolution: Math.min(window.devicePixelRatio || 1, 3),
+    // Cap at 2x: 3x phones cost 2.25x the pixels for little visible gain.
+    resolution: Math.min(window.devicePixelRatio || 1, 2),
     preference: 'webgl',
   });
   host.appendChild(app.canvas);
@@ -31,14 +33,31 @@ async function start(): Promise<void> {
     onDeckTap: (side) => dispatch({ type: 'draw', player: side }),
   });
   app.stage.addChild(board.stage);
+
+  // Render on demand: only while something animates or after a change.
+  // Idle boards cost no GPU time (battery on phones, CPU in CI).
+  let dirty = true;
+  const invalidate = () => {
+    dirty = true;
+  };
+  app.ticker.remove(app.render, app);
+  // Large frame gaps (slow device, background tab) advance tweens by real
+  // time, up to 250ms, so animations finish on wall-clock budget.
+  app.ticker.minFPS = 4;
   app.ticker.add((t) => {
+    const animating = fx.active || ui.active;
     fx.tick(t.deltaMS);
     ui.tick(t.deltaMS);
+    if (dirty || animating) {
+      dirty = false;
+      app.render();
+    }
   });
 
   const dispatch: OverclockTestHook['dispatch'] = (action) => {
     const events = session.dispatch(action);
     board.render(session.view(), events);
+    invalidate();
     return events;
   };
 
@@ -51,6 +70,7 @@ async function start(): Promise<void> {
     lastSize = key;
     app.renderer.resize(w, h);
     board.setLayout(computeLayout(w, h));
+    invalidate();
   };
   relayout();
   board.render(session.view(), []);

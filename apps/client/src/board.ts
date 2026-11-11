@@ -3,8 +3,9 @@
 // comes from an engine event.
 import type { GameEvent, PlayerView, RejectReason, Side } from '@overclock/engine';
 import { getCard } from '@overclock/cards';
-import { Container, FillGradient, Graphics, Text } from 'pixi.js';
+import { Container, Graphics, Rectangle, Text } from 'pixi.js';
 import { createCardBack, createCardFace, glowRoundRect } from './cardFace';
+import { centeredBox } from './geometry';
 import { Hand } from './hand';
 import type { Box, LayoutSnapshot, SideLayout } from './hook-types';
 import { attachPress } from './input';
@@ -24,12 +25,23 @@ function toBox(c: Container): Box {
   return { x: b.x, y: b.y, width: b.width, height: b.height };
 }
 
+function textsOf(c: Container): string[] {
+  const out: string[] = [];
+  for (const child of c.children) {
+    if (child instanceof Text) out.push(child.text);
+    else out.push(...textsOf(child));
+  }
+  return out;
+}
+
 /** A glowing pill showing one number (credits or clicks). */
 class Counter {
   readonly root = new Container();
   private readonly valueText: Text;
   private readonly inner = new Container();
   private value: number | null = null;
+  private readonly w: number;
+  private readonly h: number;
 
   constructor(
     private readonly ui: Tweens,
@@ -40,6 +52,8 @@ class Counter {
   ) {
     const color = kind === 'credits' ? theme.credit : sideColor(side);
     const { width: w, height: h } = box;
+    this.w = w;
+    this.h = h;
     this.root.position.set(box.x + w / 2, box.y + h / 2);
     this.root.addChild(this.inner);
     const g = new Graphics();
@@ -85,6 +99,10 @@ class Counter {
     return this.valueText.text;
   }
 
+  box(): Box {
+    return centeredBox(this.root, this.w, this.h, this.inner.scale.x, this.inner.scale.y, this.inner.x);
+  }
+
   set(value: number, animate: boolean): void {
     const changed = this.value !== null && this.value !== value;
     this.value = value;
@@ -118,10 +136,15 @@ class DeckPile {
   private readonly countText: Text;
   private readonly glow = new Graphics();
   private readonly pile = new Container();
+  private readonly w: number;
+  private readonly h: number;
 
   constructor(box: Box, side: Side, scale: number) {
     const { width: w, height: h } = box;
+    this.w = w;
+    this.h = h;
     this.root.position.set(box.x + w / 2, box.y + h / 2);
+    this.root.hitArea = new Rectangle(-w / 2, -h / 2, w, h);
     this.root.label = `deck:${side}`;
     const color = sideColor(side);
     const r = Math.max(3, w * 0.08);
@@ -151,6 +174,10 @@ class DeckPile {
     this.countText.anchor.set(0.5);
     this.countText.position.set(0, h / 2 - badgeH / 2 - 4 * scale);
     this.root.addChild(badge, this.countText);
+  }
+
+  box(): Box {
+    return centeredBox(this.root, this.w, this.h);
   }
 
   setCount(n: number): void {
@@ -188,7 +215,7 @@ export class Board {
   private detachers: (() => void)[] = [];
   private banner: Text | null = null;
   private hint: { text: string; root: Container } | null = null;
-  private zoom: { cardId: string; root: Container; card: Container } | null = null;
+  private zoom: { cardId: string; root: Container; card: Container; width: number; height: number } | null = null;
 
   constructor(
     private readonly fx: Tweens,
@@ -250,7 +277,7 @@ export class Board {
     const side = (s: Side): SideLayout => {
       const w = this.sides[s];
       if (!w) throw new Error('board not laid out');
-      return { deck: toBox(w.deck.root), credits: toBox(w.credits.root), clicks: toBox(w.clicks.root) };
+      return { deck: w.deck.box(), credits: w.credits.box(), clicks: w.clicks.box() };
     };
     const layout = this.layout;
     const corp = this.sides.corp;
@@ -268,7 +295,7 @@ export class Board {
         runnerClicks: runner?.clicks.text ?? '',
       },
       hint: this.hint && this.hint.root.alpha > 0.05 ? { text: this.hint.text, box: toBox(this.hint.root) } : null,
-      zoom: this.zoom ? { cardId: this.zoom.cardId, box: toBox(this.zoom.card) } : null,
+      zoom: this.zoom ? { cardId: this.zoom.cardId, box: centeredBox(this.zoom.card, this.zoom.width, this.zoom.height), texts: textsOf(this.zoom.card) } : null,
       animating: this.fx.active,
     };
   }
@@ -293,23 +320,14 @@ export class Board {
   private drawBackground(layout: BoardLayout): void {
     const { width: vw, height: vh } = layout.viewport;
     const g = new Graphics();
-    g.rect(0, 0, vw, vh).fill(
-      new FillGradient({
-        type: 'linear',
-        start: { x: 0, y: 0 },
-        end: { x: 0, y: 1 },
-        colorStops: [
-          { offset: 0, color: theme.bgTop },
-          { offset: 0.5, color: theme.bg },
-          { offset: 1, color: theme.bgBottom },
-        ],
-        textureSpace: 'local',
-      }),
-    );
-    // Perspective-free neon grid.
+    // No full-screen fill: the renderer's clear color is the backdrop. A
+    // full-screen blended layer costs a whole frame of fill rate on
+    // low-end/software GPUs. Only thin lines and the side bands are drawn.
+    // Neon grid, one path and one stroke.
     const step = Math.round(32 * layout.scale);
-    for (let x = layout.board.x % step; x < vw; x += step) g.moveTo(x, 0).lineTo(x, vh).stroke({ width: 1, color: theme.grid, alpha: 0.35 });
-    for (let y = 0; y < vh; y += step) g.moveTo(0, y).lineTo(vw, y).stroke({ width: 1, color: theme.grid, alpha: 0.35 });
+    for (let x = layout.board.x % step; x < vw; x += step) g.moveTo(x, 0).lineTo(x, vh);
+    for (let y = 0; y < vh; y += step) g.moveTo(0, y).lineTo(vw, y);
+    g.stroke({ width: 1, color: theme.grid, alpha: 0.35 });
     // Side bands.
     for (const s of ['corp', 'runner'] as const) {
       const row = layout[s].row;
@@ -462,7 +480,7 @@ export class Board {
     root.addChild(dim, card);
     root.alpha = 0;
     this.zoomLayer.addChild(root);
-    this.zoom = { cardId, root, card };
+    this.zoom = { cardId, root, card, width: z.width, height: z.height };
     this.ui.add({ target: root, to: { alpha: 1 }, duration: timing.zoomIn });
     this.ui.add({ target: card, to: { x: cx, y: cy }, duration: timing.zoomIn, ease: ease.outCubic });
     this.ui.add({ target: card.scale, to: { x: 1, y: 1 }, duration: timing.zoomIn, ease: ease.outBack });

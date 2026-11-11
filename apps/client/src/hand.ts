@@ -1,6 +1,7 @@
 // The Runner's hand: card sprites, draw-flight animation, press/long-press.
 import { getCard } from '@overclock/cards';
-import { Container } from 'pixi.js';
+import { Container, Rectangle } from 'pixi.js';
+import { centeredBox } from './geometry';
 import { createCardBack, createCardFace } from './cardFace';
 import type { Box } from './hook-types';
 import { attachPress } from './input';
@@ -100,10 +101,13 @@ export class Hand {
 
   /** Rendered bounds of each hand card (CSS px). */
   boxes(): { cardId: string; box: Box }[] {
-    return this.cards.map((c) => {
-      const b = c.root.getBounds();
-      return { cardId: c.cardId, box: { x: b.x, y: b.y, width: b.width, height: b.height } };
-    });
+    return this.cards.map((c) => ({ cardId: c.cardId, box: this.cardBox(c) }));
+  }
+
+  private cardBox(c: HandCard): Box {
+    const w = this.layout?.card.width ?? 0;
+    const h = this.layout?.card.height ?? 0;
+    return centeredBox(c.root, w, h, c.flip.scale.x, c.flip.scale.y);
   }
 
   private createCard(cardId: string): HandCard {
@@ -119,6 +123,7 @@ export class Hand {
     flip.addChild(back, face);
     root.addChild(flip);
     root.label = `hand:${cardId}`;
+    root.hitArea = new Rectangle(-w / 2, -h / 2, w, h);
     this.container.addChild(root);
 
     const card: HandCard = { cardId, root, flip, back, face, detach: () => {}, pressed: false };
@@ -136,8 +141,7 @@ export class Hand {
         this.ui.add({ target: card.flip.scale, to: { x: 1, y: 1 }, duration: timing.pressFeedback });
       },
       onLongPress: () => {
-        const b = root.getBounds();
-        this.callbacks.onLongPress(cardId, { x: b.x, y: b.y, width: b.width, height: b.height });
+        this.callbacks.onLongPress(cardId, this.cardBox(card));
       },
       onLongPressEnd: () => this.callbacks.onLongPressEnd(),
     });
@@ -161,6 +165,8 @@ export class Hand {
     card.back.visible = true;
     card.face.visible = false;
     card.root.zIndex = 500;
+    // A card in flight must not swallow taps meant for the deck under it.
+    card.root.eventMode = 'none';
     const flip = card.flip;
     this.fx.add({
       target: card.root,
@@ -178,6 +184,7 @@ export class Hand {
         flip.scale.x = t >= 1 ? 1 : Math.max(0.02, Math.abs(1 - 2 * t));
       },
       onComplete: () => {
+        card.root.eventMode = 'static';
         card.root.scale.set(1);
         flip.scale.x = 1;
         this.restack();

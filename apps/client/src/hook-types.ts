@@ -33,8 +33,8 @@ export interface LayoutSnapshot {
   };
   /** The transient hint toast, if one is visible. */
   hint: { text: string; box: Box } | null;
-  /** The long-press zoomed card, if one is open. */
-  zoom: { cardId: string; box: Box } | null;
+  /** The long-press zoomed card, if one is open, with every text it renders. */
+  zoom: { cardId: string; box: Box; texts: string[] } | null;
   /** True while any tween is running (never blocks input). */
   animating: boolean;
 }
