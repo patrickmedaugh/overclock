@@ -40,7 +40,9 @@ jobs:
       - run: npm ci
       - name: Install Playwright browser
         if: hashFiles('apps/client/package.json') != ''
-        run: npx playwright install --with-deps chromium
+        # Ubuntu mirrors are sometimes unreachable from runners; the runner image
+        # already has Chromium's system libraries, so fall back to browser-only.
+        run: npx playwright install --with-deps chromium || npx playwright install chromium
       - run: npm run test:e2e
       - name: Upload Playwright report
         if: failure() && hashFiles('apps/client/playwright-report/**') != ''
