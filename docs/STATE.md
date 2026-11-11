@@ -1,8 +1,8 @@
 # Project state
 
-phase: PROPOSE
+phase: AWAITING_APPROVAL
 sprint: 1
-open_pr: (none — Sprint 0 demo PR #2 merged after owner "approved" 2026-11-11)
+open_pr: #3 — Sprint 1 proposal (label sprint-proposal), opened 2026-11-11
 last_owner_activity: 2026-11-11 — made repo public; commented "approved" on Sprint 0 demo PR #2
 
 ## Accepted stories
@@ -13,4 +13,4 @@ last_owner_activity: 2026-11-11 — made repo public; commented "approved" on Sp
 Details: docs/sprints/sprint-00-tech-plan.md, sprint-00-qa.md, sprint-00-demo.md. QA: 9/12 pass, 3 waiting on repo settings, no bugs.
 
 ## Next run
-Phase PROPOSE for Sprint 1 (per prompts/sprint-loop.md). Also: if Pages is now on (`has_pages: true`), re-run the deploy and check the demo link loads.
+Phase AWAITING_APPROVAL: read owner comments and review bodies on PR #3. Also: if Pages is now on (`has_pages: true`), re-run the Sprint 0 deploy from `main` and check https://patrickmedaugh.github.io/overclock/ loads.
