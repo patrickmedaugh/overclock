@@ -1,0 +1,65 @@
+// @ts-check
+import js from '@eslint/js';
+import globals from 'globals';
+import tseslint from 'typescript-eslint';
+
+export default tseslint.config(
+  {
+    ignores: [
+      '**/node_modules/**',
+      '**/dist/**',
+      '**/coverage/**',
+      '**/playwright-report/**',
+      '**/test-results/**',
+      '**/*.tsbuildinfo',
+    ],
+  },
+  js.configs.recommended,
+  ...tseslint.configs.recommended,
+  {
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: 'module',
+    },
+    rules: {
+      '@typescript-eslint/consistent-type-imports': 'error',
+      '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
+    },
+  },
+  {
+    // Node-run config files at the repo root and in each workspace.
+    files: ['*.{js,ts}', '**/*.config.{js,ts}'],
+    languageOptions: { globals: globals.node },
+  },
+  {
+    // The rules engine must be pure and deterministic: no randomness, clocks,
+    // timers, or DOM. Randomness comes only from the seeded RNG in GameState.
+    files: ['packages/engine/**/*.ts'],
+    rules: {
+      'no-restricted-globals': [
+        'error',
+        { name: 'Date', message: 'Engine must be deterministic: no clocks.' },
+        { name: 'setTimeout', message: 'Engine must not use timers.' },
+        { name: 'setInterval', message: 'Engine must not use timers.' },
+        { name: 'setImmediate', message: 'Engine must not use timers.' },
+        { name: 'clearTimeout', message: 'Engine must not use timers.' },
+        { name: 'clearInterval', message: 'Engine must not use timers.' },
+        { name: 'queueMicrotask', message: 'Engine must be synchronous.' },
+        { name: 'requestAnimationFrame', message: 'Engine must not use timers.' },
+        { name: 'performance', message: 'Engine must be deterministic: no clocks.' },
+        { name: 'crypto', message: 'Use the seeded RNG in GameState.' },
+        { name: 'window', message: 'Engine must not touch the DOM.' },
+        { name: 'document', message: 'Engine must not touch the DOM.' },
+        { name: 'navigator', message: 'Engine must not touch the DOM.' },
+      ],
+      'no-restricted-properties': [
+        'error',
+        { object: 'Math', property: 'random', message: 'Use the seeded RNG in GameState (src/rng.ts).' },
+        { object: 'globalThis', property: 'Date', message: 'Engine must be deterministic: no clocks.' },
+        { object: 'globalThis', property: 'setTimeout', message: 'Engine must not use timers.' },
+        { object: 'globalThis', property: 'window', message: 'Engine must not touch the DOM.' },
+        { object: 'globalThis', property: 'document', message: 'Engine must not touch the DOM.' },
+      ],
+    },
+  },
+);
