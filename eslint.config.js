@@ -65,6 +65,47 @@ export default tseslint.config(
         { object: 'globalThis', property: 'setTimeout', message: 'Engine must not use timers.' },
         { object: 'globalThis', property: 'window', message: 'Engine must not touch the DOM.' },
         { object: 'globalThis', property: 'document', message: 'Engine must not touch the DOM.' },
+        { object: 'globalThis', property: 'crypto', message: 'Use the seeded RNG in GameState.' },
+        { object: 'globalThis', property: 'performance', message: 'Engine must be deterministic: no clocks.' },
+        { object: 'globalThis', property: 'setInterval', message: 'Engine must not use timers.' },
+      ],
+    },
+  },
+  {
+    // Client and AI use only the engine's public index (CLAUDE.md §2).
+    files: ['apps/client/**/*.ts', 'packages/ai/**/*.ts'],
+    ignores: ['**/*.config.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            { group: ['@overclock/engine/*', '@overclock/cards/*'], message: 'Import the package public index only.' },
+            { group: ['**/packages/*/src/**'], message: 'Import the package public index only.' },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    // The AI must not cheat: it sees only viewFor() output (PlayerView).
+    files: ['packages/ai/src/**/*.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              name: '@overclock/engine',
+              importNames: ['GameState', 'PlayerState', 'apply', 'newGame', 'legalActions', 'viewFor', 'replay'],
+              message: 'AI consumes only PlayerView (viewFor output); it must never see GameState.',
+            },
+          ],
+          patterns: [
+            { group: ['@overclock/engine/*', '@overclock/cards/*'], message: 'Import the package public index only.' },
+            { group: ['**/packages/*/src/**'], message: 'Import the package public index only.' },
+          ],
+        },
       ],
     },
   },
