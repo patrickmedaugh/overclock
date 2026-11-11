@@ -1,0 +1,13 @@
+{
+  "//": "Browser code (src) and unit tests. Node-side config and e2e specs live in tsconfig.node.json.",
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "outDir": "dist-types/app",
+    "tsBuildInfoFile": "dist-types/app.tsbuildinfo",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": ["vite/client"]
+  },
+  "include": ["src", "test"],
+  "references": [{ "path": "../../packages/cards" }, { "path": "../../packages/engine" }]
+}

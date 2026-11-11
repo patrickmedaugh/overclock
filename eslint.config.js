@@ -8,6 +8,7 @@ export default tseslint.config(
     ignores: [
       '**/node_modules/**',
       '**/dist/**',
+      '**/dist-types/**',
       '**/coverage/**',
       '**/playwright-report/**',
       '**/test-results/**',
@@ -30,6 +31,11 @@ export default tseslint.config(
     // Node-run config files at the repo root and in each workspace.
     files: ['*.{js,ts}', '**/*.config.{js,ts}'],
     languageOptions: { globals: globals.node },
+  },
+  {
+    // Browser code for the game client.
+    files: ['apps/client/src/**/*.ts'],
+    languageOptions: { globals: globals.browser },
   },
   {
     // The rules engine must be pure and deterministic: no randomness, clocks,
