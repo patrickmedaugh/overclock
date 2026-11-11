@@ -2,7 +2,7 @@
 
 phase: AWAITING_APPROVAL
 sprint: 0
-open_pr: (set when the Sprint 0 proposal PR is opened)
+open_pr: Sprint 0 proposal PR (sprint-00-proposal branch)
 last_owner_activity: (none yet)
 
 ## Accepted stories
