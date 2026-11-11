@@ -1,0 +1,10 @@
+# Backup demo host (owner's Netlify site "overcloc"). Netlify installs root
+# dependencies (npm workspaces) and builds only the game client.
+# Every PR gets its own Deploy Preview link; main is the production site.
+[build]
+  command = "npm run build -w @overclock/client"
+  publish = "apps/client/dist"
+
+[build.environment]
+  NODE_VERSION = "22"
+  BASE_PATH = "/"

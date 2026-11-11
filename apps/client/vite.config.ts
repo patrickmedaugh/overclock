@@ -4,8 +4,11 @@ import { defineConfig } from 'vitest/config';
 // (https://<owner>.github.io/overclock/), so assets need the /overclock/ base.
 // `vite dev` uses `/` for convenience. `vite preview` serves the production
 // build under /overclock/, which is what the Playwright e2e run hits.
+// Other hosts (e.g. Netlify, which serves from the site root) set BASE_PATH=/.
+const basePath = process.env['BASE_PATH'];
+
 export default defineConfig(({ command, isPreview }) => ({
-  base: command === 'build' || isPreview ? '/overclock/' : '/',
+  base: basePath ?? (command === 'build' || isPreview ? '/overclock/' : '/'),
   build: {
     target: 'es2022',
     chunkSizeWarningLimit: 1200,
