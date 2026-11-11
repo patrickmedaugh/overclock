@@ -16,7 +16,13 @@ Applies one action. Never mutates the input and never throws for illegal actions
 All actions `player` may take right now. The client uses it to highlight; the AI picks from it.
 
 ### `viewFor(player: Side, state: GameState): PlayerView`
-What `player` is allowed to see. Opponent hand contents and all deck orders are hidden (counts only). The AI and the client render only from this.
+What `player` is allowed to see. Opponent hand contents and all deck orders are hidden (counts only). The AI and the client render only from this. Includes `legalActions` for the viewer so consumers never need the full state.
+
+### `viewEvents(player: Side, events: GameEvent[]): GameEvent[]`
+Projects events for `player`: an opponent's `card_drawn` loses its `cardId`. Run engine events through this before animating them for a player.
+
+### `replay(seed: number, actions: Action[]): { state; events }`
+Rebuilds a game from its seed and action log (rejected actions are no-ops). Used for replay-based regression tests.
 
 ## Types (Sprint 0)
 
@@ -28,10 +34,24 @@ type Action =
 
 type GameEvent =
   | { type: 'card_drawn'; player: Side; cardId?: string } // cardId omitted in opponent's view
-  | { type: 'action_rejected'; reason: 'no_clicks' | 'deck_empty' | 'not_your_turn' };
+  | { type: 'action_rejected'; reason: 'no_clicks' | 'deck_empty' | 'not_your_turn' | 'invalid_action' };
+
+interface PlayerView {
+  viewer: Side;
+  turn: number;
+  activePlayer: Side;
+  players: Record<Side, {
+    deckCount: number; handCount: number;
+    hand: string[] | null; // card ids; null for the opponent
+    credits: number; clicks: number;
+  }>;
+  legalActions: Action[];
+}
 ```
 
-`GameState` is plain JSON (serializable). It includes `rng: number` (mulberry32 state), per-side `deck`, `hand`, `credits`, `clicks`, and `activePlayer`.
+`GameState` is plain JSON (serializable). It includes `seed`, `rng: number` (mulberry32 state), `turn`, `activePlayer`, and `players.{corp,runner}` with `deck` (top = index 0), `hand`, `credits`, `clicks`. Card entries are card definition ids from `@overclock/cards` (look them up with `getCard(id)`); duplicates are extra copies.
+
+Rejection checks run in this order: `invalid_action` (malformed input), `not_your_turn`, `no_clicks`, `deck_empty`.
 
 ## Rules for contributors
 - Every new action/event is added here and in the sprint tech plan.
