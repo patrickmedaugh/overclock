@@ -290,8 +290,7 @@ test.describe('QA S-03-1 Archives with several cards', () => {
 test.describe('QA S-03-1 a late-game Archives', () => {
   test('twelve cards in Archives are all shown, each at least 44px wide, clear of the buttons', async ({ page }) => {
     test.setTimeout(60_000);
-    // QA-S3-1: one row of ever-smaller cards (33px on 640x360, 41px on desktop). Remove when fixed.
-    test.fail(['phone-small', 'desktop'].includes(test.info().project.name), 'QA-S3-1: late-game Archives cards shrink below 44px');
+    // QA-S3-1 (fixed): the cards wrap into rows instead of shrinking one row below 44px.
     await openBoard(page, 1);
     // Three Corp turns of "draw 3, discard 4"; the Runner just passes.
     for (let t = 0; t < 3; t++) {

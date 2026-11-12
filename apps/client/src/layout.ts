@@ -709,15 +709,34 @@ export function buttonGrid(area: Box, count: number, opts: { gap: number; minW: 
   return out;
 }
 
-/** Card boxes for `count` accessed cards shown large in `area` (one row, as big as fits, `tagH` kept below each). */
+/**
+ * Card boxes for `count` accessed cards shown large in `area`, in as many rows as
+ * gives the biggest cards (QA-S3-1: a late-game Archives of 12 cards wraps instead of
+ * shrinking one row below 44px), each with `tagH` kept below it for its tag. Rows are
+ * filled left to right and centered.
+ */
 export function accessSlots(area: Box, count: number, tagH: number, gap: number): Box[] {
   if (count <= 0) return [];
-  const maxH = Math.max(1, area.height - tagH - 2 * gap);
-  let w = Math.min(maxH / CARD_RATIO, (area.width - (count + 1) * gap) / count, 220);
-  w = Math.max(1, Math.floor(w));
+  let best = { w: 0, rows: 1, cols: count };
+  for (let rows = 1; rows <= count; rows++) {
+    const cols = Math.ceil(count / rows);
+    if (rows > 1 && Math.ceil(count / (rows - 1)) === cols) continue;
+    const byW = (area.width - (cols + 1) * gap) / cols;
+    const byH = (area.height - rows * tagH - (rows + 1) * gap) / rows / CARD_RATIO;
+    const w = Math.floor(Math.min(byW, byH, 220));
+    if (w > best.w) best = { w, rows, cols };
+  }
+  const w = Math.max(1, best.w);
   const h = Math.floor(w * CARD_RATIO);
-  const rowW = count * w + (count - 1) * gap;
-  const left = area.x + (area.width - rowW) / 2;
-  const top = area.y + (area.height - h - tagH) / 2;
-  return Array.from({ length: count }, (_, i) => box(left + i * (w + gap), top, w, h));
+  const rowH = h + tagH;
+  const blockH = best.rows * rowH + (best.rows - 1) * gap;
+  const top = area.y + (area.height - blockH) / 2;
+  const out: Box[] = [];
+  for (let r = 0; r < best.rows; r++) {
+    const inRow = Math.min(best.cols, count - r * best.cols);
+    const rowW = inRow * w + (inRow - 1) * gap;
+    const left = area.x + (area.width - rowW) / 2;
+    for (let i = 0; i < inRow; i++) out.push(box(left + i * (w + gap), top + r * (rowH + gap), w, h));
+  }
+  return out;
 }

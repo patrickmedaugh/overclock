@@ -288,7 +288,7 @@ export class RunDisplay {
       });
       tag.anchor.set(0.5, 0);
       tag.position.set(b.x + b.width / 2, b.y + b.height + 2);
-      fitText(tag, b.width + gap - 2);
+      fitText(tag, b.width - 2);
       this.access.addChild(tag);
     });
   }
