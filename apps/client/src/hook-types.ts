@@ -49,6 +49,8 @@ export interface LayoutSnapshot {
   memory: { text: string; box: Box };
   /** Lit targets while a hand card is picked (install spots, Play button); empty otherwise. */
   targets: TargetSnapshot[];
+  /** Every text drawn on the table (server names, Stack / Heap, memory), for word checks. */
+  tableTexts: string[];
   /** Text shown on screen, so tests can read the canvas. */
   text: {
     banner: string;

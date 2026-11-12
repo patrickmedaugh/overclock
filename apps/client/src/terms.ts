@@ -1,7 +1,7 @@
 // Every game word the board shows, in one table (S-02-5: the real game's
 // words, the same everywhere). Each term must appear in docs/GLOSSARY.md
 // (test/terms.test.ts checks it).
-import type { CardType, Side } from '@overclock/cards';
+import type { CardDef, CardType, Side } from '@overclock/cards';
 
 export const SIDE_LABEL: Record<Side, string> = { corp: 'Corp', runner: 'Runner' };
 
@@ -61,4 +61,12 @@ export function priceText(cost: number): string {
 /** "Memory 2/4". */
 export function memoryText(used: number, limit: number): string {
   return `${TERMS.memory} ${used}/${limit}`;
+}
+
+/** "ICE · code gate", "PROGRAM · breaker: barrier", "EVENT". */
+export function typeLine(card: CardDef): string {
+  const base = TYPE_LABEL[card.type] ?? card.type.toUpperCase();
+  if (!card.subtype) return base;
+  const sub = card.subtype.replace('breaker_', 'breaker: ').replace('_', ' ');
+  return `${base} · ${sub}`;
 }

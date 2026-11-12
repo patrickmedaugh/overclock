@@ -327,7 +327,13 @@ export class Tabletop {
     return this.lit.length > 0;
   }
 
-  snapshot(): { servers: ServerSnapshot[]; rig: InstalledSnapshot[]; memory: { text: string; box: Box }; targets: TargetSnapshot[] } {
+  snapshot(): {
+    servers: ServerSnapshot[];
+    rig: InstalledSnapshot[];
+    memory: { text: string; box: Box };
+    targets: TargetSnapshot[];
+    tableTexts: string[];
+  } {
     const view = this.view;
     const snap = (c: InstalledView): InstalledSnapshot => {
       const p = this.placed.get(c.uid);
@@ -345,6 +351,7 @@ export class Tabletop {
       servers,
       rig: (view?.rig ?? []).map(snap),
       memory: { text: this.memory?.text ?? '', box: this.rig ? { ...this.rig.memory } : { x: 0, y: 0, width: 0, height: 0 } },
+      tableTexts: this.decor.children.filter((c): c is Text => c instanceof Text).map((t) => t.text),
       targets: this.lit.map((t) => ({ box: { ...t.box }, label: t.label, lit: true, reject: t.option.reject, action: JSON.parse(JSON.stringify(t.option.action)) as Action })),
     };
   }

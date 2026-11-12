@@ -5,8 +5,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ALL_CARDS } from '@overclock/cards';
 import { describe, expect, it } from 'vitest';
-import { SIDE_LABEL, TERMS, TYPE_LABEL, memoryText, pileLabel, priceText, serverLabel } from '../src/terms';
-import { typeLine } from '../src/cardFace';
+import { SIDE_LABEL, TERMS, TYPE_LABEL, memoryText, pileLabel, priceText, serverLabel, typeLine } from '../src/terms';
 
 const glossary = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'docs', 'GLOSSARY.md'), 'utf8');
 const lower = glossary.toLowerCase();

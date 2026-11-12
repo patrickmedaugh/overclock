@@ -5,9 +5,9 @@ import { LocalMatch } from '@overclock/match';
 // Node-side e2e setup only (packages/engine/README.md, "Test-only"); the game itself never imports it.
 // eslint-disable-next-line no-restricted-imports
 import { planBusyBoard } from '@overclock/match/testing';
-import type { AnimRecord, Box, EndTurnClock, InputStamp, Insets, LayoutSnapshot } from '../src/hook-types';
+import type { AnimRecord, Box, EndTurnClock, InputStamp, Insets, InstalledSnapshot, LayoutSnapshot } from '../src/hook-types';
 
-export type { AnimRecord, Box, EndTurnClock, InputStamp, Insets, LayoutSnapshot };
+export type { AnimRecord, Box, EndTurnClock, InputStamp, Insets, InstalledSnapshot, LayoutSnapshot };
 
 /**
  * `E2E_CPU_THROTTLE=6` slows the page's CPU 6x (Chrome DevTools
