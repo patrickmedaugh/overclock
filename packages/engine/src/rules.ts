@@ -213,3 +213,13 @@ export function rejectionFor(state: GameState, action: unknown): RejectReason | 
   }
   return null;
 }
+
+/** The first structural failure for an install/play (see STRUCTURAL), or null. */
+export function structuralRejection(state: GameState, action: ActionOf<'install' | 'play'>): RejectReason | null {
+  const checks = STRUCTURAL[action.type] as readonly Check<'install' | 'play'>[];
+  for (const check of checks) {
+    const reason = check(state, action);
+    if (reason) return reason;
+  }
+  return null;
+}

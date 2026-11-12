@@ -34,7 +34,7 @@ describe('viewFor (S-01-4 AC2: opponent hand count, not contents)', () => {
     expect(v.players.corp.clicks).toBe(3);
     expect(v.players.corp.credits).toBe(5);
     expect(v.players.runner.clicks).toBe(0);
-    expect(v.legalActions.map((a) => a.type)).toEqual(['draw', 'gain_credit', 'end_turn']);
+    expect(v.legalActions.map((a) => a.type).slice(0, 3)).toEqual(['draw', 'gain_credit', 'end_turn']);
     expect(viewFor('runner', g).legalActions).toEqual([]);
   });
 
@@ -122,5 +122,37 @@ describe('viewEvents', () => {
     ];
     expect(viewEvents('runner', evs)).toEqual(evs);
     expect(viewEvents('corp', evs)).toEqual(evs);
+  });
+});
+
+describe('viewEvents (Sprint 2: installs and plays)', () => {
+  it('Corp install: the Runner loses handIndex and cardId; the Corp keeps both', () => {
+    const s = withHand(newGame(1), 'corp', ['c05']);
+    const { events } = apply(s, { type: 'install', player: 'corp', handIndex: 0, server: 'rd' });
+    expect(viewEvents('corp', events)).toEqual(events);
+    expect(viewEvents('runner', events)).toEqual([
+      { type: 'card_installed', player: 'corp', uid: 'i1', server: 'rd', slot: 'ice', index: 0 },
+    ]);
+  });
+
+  it('Runner install: the Corp sees the card (face up) but not the hand index', () => {
+    const s = withHand(finishTurn(newGame(1)).state, 'runner', ['r12']);
+    const { events } = apply(s, { type: 'install', player: 'runner', handIndex: 0 });
+    expect(viewEvents('corp', events)).toEqual([
+      { type: 'card_installed', player: 'runner', uid: 'i1', cardId: 'r12', slot: 'resource', index: 0 },
+    ]);
+    expect(viewEvents('runner', events)).toEqual(events);
+  });
+
+  it('card_played and card_resolved are public; only handIndex is hidden from the opponent', () => {
+    const s = withHand(newGame(1), 'corp', ['c08', 'c01']);
+    const { events } = apply(s, { type: 'play', player: 'corp', handIndex: 1 });
+    expect(viewEvents('runner', events)).toEqual([
+      { type: 'credits_spent', player: 'corp', amount: 5 },
+      { type: 'card_played', player: 'corp', cardId: 'c01', cost: 5 },
+      { type: 'credit_gained', player: 'corp', amount: 9 },
+      { type: 'card_resolved', player: 'corp', cardId: 'c01' },
+    ]);
+    expect(viewEvents('corp', events)).toEqual(events);
   });
 });

@@ -123,19 +123,24 @@ describe('validation table (rules.ts)', () => {
 });
 
 describe('legalActions', () => {
-  it('Corp turn 1: draw, gain_credit, end_turn; Runner: nothing', () => {
+  it('Corp turn 1: draw, gain_credit, end_turn first, then installs/plays; Runner: nothing', () => {
     const s = newGame(1);
-    expect(legalActions(s, 'corp')).toEqual([
+    const corp = legalActions(s, 'corp');
+    expect(corp.slice(0, 3)).toEqual([
       { type: 'draw', player: 'corp' },
       { type: 'gain_credit', player: 'corp' },
       { type: 'end_turn', player: 'corp' },
     ]);
+    expect(corp.slice(3).every((a) => a.type === 'install' || a.type === 'play')).toBe(true);
     expect(legalActions(s, 'runner')).toEqual([]);
+    // A hand with nothing usable (Neural EMP needs runs) adds no install/play.
+    expect(legalActions(withHand(s, 'corp', ['c12']), 'corp').map((a) => a.type)).toEqual(['draw', 'gain_credit', 'end_turn']);
   });
 
   it('0 clicks: only end_turn; empty deck: no draw', () => {
     expect(legalActions(withClicks(newGame(1), 'corp', 0), 'corp')).toEqual([{ type: 'end_turn', player: 'corp' }]);
-    expect(legalActions(withDeck(newGame(1), 'corp', []), 'corp').map((a) => a.type)).toEqual(['gain_credit', 'end_turn']);
+    const types = legalActions(withDeck(newGame(1), 'corp', []), 'corp').map((a) => a.type);
+    expect(types.filter((t) => t !== 'install' && t !== 'play')).toEqual(['gain_credit', 'end_turn']);
   });
 
   it('every listed action is accepted by apply, across many states', () => {

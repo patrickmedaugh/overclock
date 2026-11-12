@@ -1,6 +1,7 @@
 import type { Action, InstallTarget } from './actions';
 import { legalActions } from './apply';
 import type { GameEvent, RejectReason } from './events';
+import { handOptions } from './options';
 import { discardCount } from './rules';
 import {
   BASE_MEMORY,
@@ -150,7 +151,7 @@ export function viewFor(player: Side, state: GameState): PlayerView {
       memory: { used: memoryUsed(state), limit: BASE_MEMORY },
     },
     legalActions: legalActions(state, player),
-    handOptions: [],
+    handOptions: handOptions(state, player),
   };
 }
 
@@ -162,6 +163,17 @@ function viewEvent(player: Side, e: GameEvent): GameEvent {
     const base = { type: 'cards_discarded', player: e.player, count: e.count } as const;
     // Runner discards are face up; Corp discards go face down to Archives.
     return e.player === 'runner' && e.cardIds ? { ...base, cardIds: e.cardIds.slice() } : base;
+  }
+  if (e.type === 'card_installed') {
+    // The opponent sees where a card went, never which hand card it was;
+    // Corp installs are face down, so the Runner doesn't see the card either.
+    const { handIndex: _handIndex, cardId, ...rest } = e;
+    return e.player === 'corp' ? rest : { ...rest, cardId };
+  }
+  if (e.type === 'card_played') {
+    // Played cards are revealed to both; only the hand position is private.
+    const { handIndex: _handIndex, ...rest } = e;
+    return rest;
   }
   return e;
 }

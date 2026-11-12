@@ -1,6 +1,7 @@
 import type { Action, ActionOf } from './actions';
 import type { GameEvent } from './events';
 import { doInstall } from './install';
+import { legalHandActions } from './options';
 import { doPlay } from './play';
 import { discardCount, rejectionFor } from './rules';
 import { drawTop, opponentOf, startTurn, withPlayer, type GameState, type Side } from './state';
@@ -82,9 +83,11 @@ export function apply(state: GameState, action: Action): ApplyResult {
 }
 
 /**
- * All actions `player` may take right now, in a stable order. `discard` has too
- * many combinations to list, so one representative (the last N hand cards) is
- * listed; `PlayerView.pendingDiscard` says any N distinct indices are legal.
+ * All actions `player` may take right now, in a stable order: draw,
+ * gain_credit, end_turn, discard, then every legal install/play (hand order,
+ * then place order as in `handOptions`). `discard` has too many combinations
+ * to list, so one representative (the last N hand cards) is listed;
+ * `PlayerView.pendingDiscard` says any N distinct indices are legal.
  */
 export function legalActions(state: GameState, player: Side): Action[] {
   if (player !== 'corp' && player !== 'runner') return [];
@@ -96,5 +99,5 @@ export function legalActions(state: GameState, player: Side): Action[] {
     { type: 'end_turn', player },
     { type: 'discard', player, handIndices: Array.from({ length: n }, (_, k) => handSize - n + k) },
   ];
-  return candidates.filter((a) => rejectionFor(state, a) === null);
+  return [...candidates.filter((a) => rejectionFor(state, a) === null), ...legalHandActions(state, player)];
 }
