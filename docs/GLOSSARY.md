@@ -5,15 +5,34 @@
 - **Click** — an action point. Corp gets 3 per turn, Runner gets 4.
 - **Credits** — money used to play and use cards.
 - **Agenda** — a Corp card worth points. First to 7 points usually wins.
-- **ICE** — the Corp's defenses placed in front of a server.
+- **ICE** — the Corp's defenses, placed face down in front of a server to stop the Runner getting in. Each extra ICE on the same server costs 1 more credit to install (the first is free). Kinds: **barrier**, **code gate**, **sentry**.
 - **Rez** — the Corp paying to flip a face-down card face up so it works.
 - **Run** — the Runner attacking a server, passing ICE one piece at a time.
 - **Breaker / icebreaker** — a Runner program that gets past ICE.
-- **Server** — a stack where the Corp keeps cards. HQ = hand, R&D = deck, Archives = discard, plus remote servers they create.
+- **Server** — a place where the Corp keeps cards. The three built-in ones are HQ, R&D and Archives; the Corp can also open remote servers.
+- **HQ** — the Corp's hand (its built-in server for the cards it holds).
+- **R&D** — the Corp's deck (its draw pile).
+- **Archives** — the Corp's discard pile. Cards it throws away at the hand limit go there face down (the Runner sees only how many); operations it plays go there face up.
+- **Remote server** — a new server the Corp opens by installing a card into "New server". Shown as "Server 1", "Server 2", and so on. Each holds at most one agenda or asset, plus any number of upgrades.
+- **Stack** — the Runner's deck (draw pile).
+- **Grip** — the Runner's hand.
+- **Heap** — the Runner's discard pile (face up).
+- **Install** — put a card from your hand onto the table. Costs 1 click. The Corp's installed cards go face down; the Runner's go face up and cost the card's price in credits.
+- **Face down / card back** — a card lying with its back up, so the other player can't see what it is. The Corp can always peek at its own.
+- **Operation** — a Corp card you play once for its effect (e.g. Hedge Fund: pay 5, gain 9 credits), then it goes face up to Archives.
+- **Event** — the Runner's version of an operation (e.g. Diesel: draw 3 cards); it goes face up to the Heap.
+- **Asset** — a Corp card installed in a remote server that helps the Corp (often money).
+- **Upgrade** — a Corp card installed in any server that improves that server.
+- **Program** — a Runner card installed in the rig that uses memory. Icebreakers are programs.
+- **Hardware** — Runner gear installed in the rig (no memory needed).
+- **Resource** — a Runner contact or job installed in the rig (no memory needed).
+- **Rig** — the Runner's installed cards (programs, hardware, resources), all face up.
+- **Memory** — room for programs. The Runner has 4; each program uses some (shown as "Memory 2/4"). When it's full, no more programs fit.
+- **Core set** — the original 2012 box of the real game. Our starter decks use 12 real cards per side from it.
 - **Turn** — one player's go. The Corp goes first, then players alternate. You end your turn with the End turn button (leftover clicks are lost).
 - **Free draw** — the card the Corp must draw at the start of each of its turns. If its deck is empty then, the Runner wins.
 - **Hand limit** — at the end of your turn you may hold at most 5 cards; you pick which extra cards to discard.
-- **Discard pile** — where discarded cards go. The Runner's pile is face up; the Corp's (called Archives) is face down, so the Runner sees only how many cards are in it.
+- **Discard pile** — where discarded and played cards go. The Runner's is the Heap (face up); the Corp's is Archives (hand-limit discards face down, played operations face up).
 - **Hot-seat** — two people taking turns on the same device. The board always shows the player whose turn it is at the bottom.
 - **Safe area** — the part of a phone screen not covered by the camera notch, status bar or bottom swipe bar. Everything you can tap or read stays inside it.
 - **Timing window** — a moment where a player may respond. We skip ones where nobody can do anything.
