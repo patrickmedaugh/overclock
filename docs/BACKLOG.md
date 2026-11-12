@@ -25,6 +25,10 @@ P1 = must, P2 = should, P3 = nice. The PM agent keeps this ordered.
 - P2 — AI opponent v1
 - P3 — Game feel, onboarding, Android, deckbuilding, online
 
+## Owner feedback on the Sprint 3 proposal (PR #8, 2026-11-12)
+- Owner approved Sprint 3 ("Approved", 18:08 UTC). He didn't answer the two questions, so the team uses the recommended options (Q1 A: Rez / Don't rez buttons on the board; Q2 A: add one Hostile Takeover and one Private Security Force). He can change them at the demo. Logged in DECISIONS.
+- **P1 — Hand UI rework: a face-down hand you open to browse (after the core mechanics are in).** Owner: *"Once we have some of the gameplay core mechanics in place I think we need to revisit some of the UI around the cards in your hand. … there's more on the card to read so I think the hand should sit face down on the board you could either click it or something to bring the cards to the front … it would be useful to be able to scroll through your cards so you can compare them to each other in order to help make decisions. And then from there from your hand you could maybe hold a card in order to move it around and play it in the spaces that you would play it."* What this means: (1) the hand sits as a face-down stack on the board; (2) tapping it opens a large, readable, side-scrolling view of your cards so you can compare them; (3) from that view, press and hold a card and drag it to a lit space to play it. This takes in the P2 "Drag to play cards" item below. Timing: after Runs (Sprint 3), probably alongside or right after the full real decks. Needs a short design proposal (with a mock-up) for the owner first.
+
 ## Owner response to the Sprint 2 demo (PR #7, 2026-11-12)
 - Owner commented **"Approved"** on PR #7 (17:07 UTC) = all six Sprint 2 stories (S-02-1 to S-02-6) accepted. No other feedback on the stories.
 - ~~**Demo question 1 — delete the three leftover branches?**~~ — answered in chat 2026-11-12: *"yes, delete the leftover branches"*. The team's sessions can't delete branches (the connection refuses it), so the owner has been told how to delete `sprint-02-run-0805`, `sprint-02-run-1005-superseded` and `sprint-02-scheduled-run-alt` on GitHub. Nothing for the team to build; a later session with delete access may do it if they are still there.
@@ -37,7 +41,7 @@ P1 = must, P2 = should, P3 = nice. The PM agent keeps this ordered.
   - Given a phone held upright in the browser, when the game is open, then a "Turn your phone sideways" screen shows.
   - Given a computer browser, when the demo opens, then it looks as it does today. (automated check)
   - Charter note: the owner's 5A answer is the OK to change the Definition of Done from "390×844 phone viewport" to sideways phone sizes; the lead updates `CLAUDE.md`.
-- **P2 — Drag to play cards.** Owner: *"Tap for now but drag for future"* (answer to question 1). Sprint 2 is tap-to-play. Goes with the "Real board UI" epic.
+- **P2 — Drag to play cards.** Owner: *"Tap for now but drag for future"* (answer to question 1). Sprint 2 is tap-to-play. Goes with the "Real board UI" epic. Now part of the P1 "Hand UI rework" item (owner, PR #8).
   - Given a card in your hand, when you drag it onto a lit place on the board and let go, then it is played or installed exactly as if you had tapped the card and then the place.
   - Given you drag a card and let go somewhere it can't go, then it slides back to your hand and nothing is spent.
   - Given tap-to-play, when drag is added, then tapping still works. (automated check)
