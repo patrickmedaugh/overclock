@@ -3,7 +3,7 @@
 // (no 'unsafe-eval'; see vite.config.ts) and in locked-down WebViews.
 import 'pixi.js/unsafe-eval';
 import type { Action } from '@overclock/engine';
-import { Application } from 'pixi.js';
+import { Application, updateRenderGroupTransforms } from 'pixi.js';
 import { Board } from './board';
 import { setCardRenderer } from './cardFace';
 import type { AnimRecord, OverclockTestHook } from './hook-types';
@@ -65,6 +65,12 @@ async function start(): Promise<void> {
     onDiscard: (handIndices) => dispatch({ type: 'discard', player: game.seat, handIndices }),
     onNewGame: () => window.location.assign(window.location.pathname),
     log,
+    onRebuilt: () => {
+      // New widgets have no world transform until a render; hit tests need one now.
+      const group = app.stage.renderGroup;
+      if (group) updateRenderGroupTransforms(group, true);
+      invalidate();
+    },
   });
   app.stage.addChild(board.stage);
 

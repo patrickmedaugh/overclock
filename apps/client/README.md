@@ -40,7 +40,7 @@ Add `?seed=123` to the URL to get the same deal every time.
 
 - `dispatch(action)` submits as seat `action.player`; `getView()` is the bottom (active) seat's view.
 - `layout()` returns CSS-pixel boxes for each side's deck/credits/clicks/discard/label (keyed `corp`/`runner` wherever they are drawn), `viewer`, `safeArea` insets, hand cards (with `marked`), `endTurn`, `picker`, `gameOver`, hint, zoom, the on-screen texts and an `animating` flag.
-- `anims()` lists `{kind, startedAt, scheduledMs, text?, box?}` for every animation or hint when it *starts* (`draw_flight`, `credit_pop`, `discard_flight`, `turn_change`, `hint`). Specs assert the tap budget from these (start < 100ms after the tap, scheduled <= 600ms) and read hints from them instead of polling a 1.1s on-screen state.
+- `anims()` lists `{kind, startedAt, scheduledMs, text?, box?}` for every animation or hint when it *starts* (`draw_flight`, `credit_pop`, `discard_flight`, `turn_change`, `turn_flip`, `hint`). `turn_flip` is logged when the new seat's board starts fading in; its `text` says what started it (`now`, `timer` or `skip`). Specs assert the tap budget from these (start < 100ms after the tap, scheduled <= 600ms) and read hints from them instead of polling a 1.1s on-screen state.
 
 Always on for now; it will move behind a build flag later.
 
@@ -51,6 +51,9 @@ Always on for now; it will move behind a build flag later.
 - Production builds carry a strict Content-Security-Policy meta tag (no `unsafe-eval`; see `vite.config.ts`), so every e2e run executes under it.
 
 ## Playwright notes
+
+- Slow-device run: `OVERCLOCK_CPU_THROTTLE=4 npx playwright test e2e/qa-sprint01.spec.ts --repeat-each=5` (4x slower CPU via Chromium's DevTools protocol).
+- The End turn double-tap guard compares tap timestamps (`event.timeStamp`), so the guard specs construct their extra taps at fixed offsets inside the ending tap's release and send them once the next board is up.
 
 `@playwright/test` is pinned to the exact version of the browsers installed in
 the dev container (`/opt/pw-browsers`). CI installs Chromium itself

@@ -24,6 +24,12 @@ export async function openBoard(page: Page, opts: OpenOptions | number = {}): Pr
       });
     }, `#safe-probe { padding: ${i.top}px ${i.right}px ${i.bottom}px ${i.left}px !important; }`);
   }
+  // Opt-in slow-device run: OVERCLOCK_CPU_THROTTLE=4 makes the page's CPU 4x slower (Chromium only).
+  const throttle = Number(process.env['OVERCLOCK_CPU_THROTTLE'] ?? '0');
+  if (throttle > 1) {
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send('Emulation.setCPUThrottlingRate', { rate: throttle });
+  }
   await page.goto(`./?seed=${o.seed ?? 1}`);
   await page.waitForFunction(() => document.body.dataset.ready === 'true' && !!window.__overclock);
 }

@@ -8,6 +8,7 @@ import { getCard } from '@overclock/cards';
 import { Container, Graphics, Rectangle, Text } from 'pixi.js';
 import { createCardBack, createCardFace, glowRoundRect, retireCardTextures } from './cardFace';
 import { centeredBox } from './geometry';
+import { guardOpen } from './guard';
 import { Hand } from './hand';
 import type { AnimRecord, Box, LayoutSnapshot, SideLayout } from './hook-types';
 import type { Presentation } from './hotseat';
@@ -423,6 +424,12 @@ export interface BoardCallbacks {
   onDiscard(handIndices: number[]): void;
   onNewGame(): void;
   log(rec: Omit<AnimRecord, 'startedAt'>): void;
+  /**
+   * The board's widgets were just rebuilt. Pixi hit-tests with transforms it
+   * only updates while rendering, so the host refreshes them here: a tap that
+   * arrives before the next frame (a busy phone) must still find its button.
+   */
+  onRebuilt(): void;
 }
 
 export class Board {
@@ -449,15 +456,22 @@ export class Board {
   private zoom: { cardId: string; root: Container; card: Container; width: number; height: number } | null = null;
   /** Hand indices picked in the discard picker (UI state only). */
   private readonly marked = new Set<number>();
-  /** End turn ignores taps until this time (double-tap guard after a turn change). */
-  private endTurnArmedAt = 0;
   /**
-   * True while the actor's discards fly out and the board still shows the
+   * Timestamp of the tap that ended the last turn: End turn ignores taps
+   * stamped less than `timing.endTurnGuard` after it (double-tap guard).
+   */
+  private endTurnArmedAt: number | null = null;
+  /** Timestamp of the button tap whose action is being dispatched right now. */
+  private actionTapAt: number | null = null;
+  /**
+   * Set while the actor's discards fly out and the board still shows the
    * actor's seat, although the turn already belongs to the next seat. A tap on
    * the bottom row then only skips ahead to the flip: it must not spend a
-   * click of the player whose board is not on screen yet.
+   * click of the player whose board is not on screen yet. The flip is started
+   * by a timer at its scheduled time (not by animation frames, which a slow
+   * device delivers late), or at once by tap-to-skip.
    */
-  private flipPending = false;
+  private pendingFlip: { run: () => void; timer: ReturnType<typeof setTimeout> } | null = null;
 
   constructor(
     private readonly fx: Tweens,
@@ -479,7 +493,7 @@ export class Board {
 
   /** (Re)builds every widget for a viewport. Called on start and on resize. */
   setLayout(layout: BoardLayout): void {
-    this.fx.finishAll();
+    this.skip();
     this.layout = layout;
     retireCardTextures();
     if (this.view) this.rebuild(false, []);
@@ -489,14 +503,14 @@ export class Board {
   /** Shows the result of one action (see Presentation). */
   show(p: Presentation): void {
     // Tap-to-skip: finish whatever is still animating before the new events.
-    this.fx.finishAll();
+    this.skip();
     if (p.kind === 'same') this.render(p.view, p.events);
     else this.handoff(p);
   }
 
   /** Shows a view and animates the events that produced it (same seat). */
   render(view: PlayerView, events: readonly GameEvent[]): void {
-    this.fx.finishAll();
+    this.skip();
     const prev = this.view;
     this.view = view;
     const layout = this.layout;
@@ -564,7 +578,7 @@ export class Board {
       gameOver: this.gameOver && layout ? { text: this.gameOver.text, box: layout.gameOver } : null,
       hint: this.hint && this.hint.root.alpha > 0.05 ? { text: this.hint.text, box: this.hint.box } : null,
       zoom: this.zoom ? { cardId: this.zoom.cardId, box: centeredBox(this.zoom.card, this.zoom.width, this.zoom.height), texts: textsOf(this.zoom.card) } : null,
-      animating: this.fx.active,
+      animating: this.fx.active || this.pendingFlip !== null,
     };
   }
 
@@ -574,7 +588,8 @@ export class Board {
     const layout = this.layout;
     // The double-tap guard counts from this tap (End turn / Confirm), not from the
     // flip: the flip waits for the discard flight, and the button is hidden until then.
-    const tappedAt = performance.now();
+    // Its own timestamp, not "now": a busy device may run this handler late.
+    const tappedAt = this.actionTapAt ?? performance.now();
     // The actor's own view from here on: no picker, nothing to tap but the
     // board's deck/credits, which already act for the new seat.
     this.view = p.actorView;
@@ -595,16 +610,35 @@ export class Board {
     }
     this.callbacks.log({ kind: 'turn_change', scheduledMs: discardMs + timing.flip });
     const flip = () => {
-      this.flipPending = false;
       this.view = p.nextView;
       this.rebuild(true, p.nextEvents, tappedAt);
       // The actor's pile is now in the top row: pop it so the new count is noticed.
       if (discarded) this.rows.top?.discard.pop(this.ui);
     };
     if (discardMs > 0) {
-      this.flipPending = true;
-      this.fx.after(discardMs, flip);
-    } else flip();
+      this.pendingFlip = { run: flip, timer: setTimeout(() => this.runPendingFlip('timer'), discardMs) };
+    } else {
+      this.callbacks.log({ kind: 'turn_flip', scheduledMs: timing.flip, text: 'now' });
+      flip();
+    }
+  }
+
+  /** Starts a waiting flip now; `trigger` says why (logged for the test hook). */
+  private runPendingFlip(trigger: 'timer' | 'skip'): void {
+    const pending = this.pendingFlip;
+    if (!pending) return;
+    this.pendingFlip = null;
+    clearTimeout(pending.timer);
+    // The discard flight is due (or skipped): land it before the new board.
+    this.fx.finishAll();
+    this.callbacks.log({ kind: 'turn_flip', scheduledMs: timing.flip, text: trigger });
+    pending.run();
+  }
+
+  /** Tap-to-skip: finishes every event animation, including a waiting flip. */
+  private skip(): void {
+    this.fx.finishAll();
+    this.runPendingFlip('skip');
   }
 
   /**
@@ -645,7 +679,7 @@ export class Board {
     this.applyView(view, flipIn);
 
     if (flipIn) {
-      this.endTurnArmedAt = tappedAt + timing.endTurnGuard;
+      this.endTurnArmedAt = tappedAt;
       this.table.alpha = 0.15;
       this.fx.add({ target: this.table, to: { alpha: 1 }, duration: timing.flip, ease: ease.outCubic });
       this.sweep(layout, viewer);
@@ -658,6 +692,7 @@ export class Board {
     } else {
       this.table.alpha = 1;
     }
+    this.callbacks.onRebuilt();
   }
 
   /** A neon line sweeps from the new player's row up the board. */
@@ -792,14 +827,24 @@ export class Board {
 
   /** Bottom-row taps act for the seat on screen; during a pending flip they only skip to it. */
   private boardTap(act: () => void): void {
-    if (this.flipPending) {
-      this.fx.finishAll();
+    if (this.pendingFlip) {
+      this.skip();
       return;
     }
     act();
   }
 
-  private onButtonTap(): void {
+  /** Runs a button's action with its tap stamp available to the turn hand-off. */
+  private withTapAt(tapAt: number, act: () => void): void {
+    this.actionTapAt = tapAt;
+    try {
+      act();
+    } finally {
+      this.actionTapAt = null;
+    }
+  }
+
+  private onButtonTap(tapAt: number): void {
     const view = this.view;
     const button = this.button;
     if (!view || !button || !button.root.visible) return;
@@ -809,14 +854,15 @@ export class Board {
         this.showHint(`Pick ${plural(k, 'more card', 'more cards')}`);
         return;
       }
-      this.callbacks.onDiscard([...this.marked].sort((a, b) => a - b));
+      const picked = [...this.marked].sort((a, b) => a - b);
+      this.withTapAt(tapAt, () => this.callbacks.onDiscard(picked));
       return;
     }
-    if (performance.now() < this.endTurnArmedAt) return;
-    this.callbacks.onEndTurn();
+    if (!guardOpen(this.endTurnArmedAt, tapAt, timing.endTurnGuard)) return;
+    this.withTapAt(tapAt, () => this.callbacks.onEndTurn());
   }
 
-  private pressFeedback(target: Container, onTap: () => void): void {
+  private pressFeedback(target: Container, onTap: (tapAt: number) => void): void {
     this.detachers.push(
       attachPress(target, {
         onDown: () => {
@@ -910,7 +956,7 @@ export class Board {
     subHelp.anchor.set(0.5, 0);
     subHelp.position.set(layout.sub.x + layout.sub.width / 2, layout.sub.y);
     const button = new ActionButton(layout.endTurn, sideColor(viewer), s);
-    this.pressFeedback(button.root, () => this.onButtonTap());
+    this.pressFeedback(button.root, (tapAt) => this.onButtonTap(tapAt));
     this.centerLayer.addChild(banner, subMain, subHelp, button.root);
     this.banner = banner;
     this.subMain = subMain;
