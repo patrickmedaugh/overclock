@@ -91,7 +91,8 @@ Everything in "Sprint 1 interface" still holds, except `PlayerSideView.discard` 
 
 ```ts
 const MEMORY_LIMIT = 4;                       // Runner memory; programs use card `memory`
-type ServerId = 'hq' | 'rd' | 'archives' | `remote${number}`;
+type CentralServerId = 'hq' | 'rd' | 'archives';
+type ServerId = CentralServerId | `remote${number}`;
 
 // ---- state additions (plain JSON) ----
 interface Installed { uid: string; cardId: string; rezzed: boolean }   // uid "i1", "i2", ... (rezzed: false this sprint)
