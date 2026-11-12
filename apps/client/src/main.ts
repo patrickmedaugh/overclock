@@ -2,13 +2,14 @@
 // `new Function`, so the game runs under a strict Content Security Policy
 // (no 'unsafe-eval'; see vite.config.ts) and in locked-down WebViews.
 import 'pixi.js/unsafe-eval';
+import { getCard } from '@overclock/cards';
 import type { Action } from '@overclock/engine';
-import { Application } from 'pixi.js';
+import { Application, updateRenderGroupTransforms } from 'pixi.js';
 import { Board } from './board';
-import { setCardRenderer } from './cardFace';
+import { setCardRenderer, smallFaceLayout } from './cardFace';
 import type { AnimRecord, OverclockTestHook } from './hook-types';
 import { HotSeat, seedFromUrl } from './hotseat';
-import { computeLayout } from './layout';
+import { lastInput } from './input';
 import { readSafeArea } from './safeArea';
 import { theme } from './theme';
 import { Tweens } from './tween';
@@ -47,8 +48,14 @@ async function start(): Promise<void> {
   // Render on demand: only while something moves or after a change.
   // Idle boards cost no GPU time (battery on phones, CPU in CI).
   let dirty = true;
+  // Pixi hit-tests against world transforms, which are otherwise refreshed only
+  // when a frame is drawn. A tap that lands before the next frame (a fast tap on
+  // a just-lit target, a tap right after a turn change) must hit what is on
+  // screen now, so changes from input refresh transforms at once (no draw).
   const invalidate = () => {
     dirty = true;
+    const group = app.stage.renderGroup;
+    if (group) updateRenderGroupTransforms(group, true);
   };
 
   const dispatch: OverclockTestHook['dispatch'] = (action: Action) => {
@@ -63,7 +70,10 @@ async function start(): Promise<void> {
     onCreditsTap: () => dispatch({ type: 'gain_credit', player: game.seat }),
     onEndTurn: () => dispatch({ type: 'end_turn', player: game.seat }),
     onDiscard: (handIndices) => dispatch({ type: 'discard', player: game.seat, handIndices }),
+    // Install / play actions come straight from the view's handOptions.
+    onAction: (action) => dispatch(action),
     onNewGame: () => window.location.assign(window.location.pathname),
+    changed: () => invalidate(),
     log,
   });
   app.stage.addChild(board.stage);
@@ -92,7 +102,7 @@ async function start(): Promise<void> {
     if (key === lastKey) return;
     lastKey = key;
     app.renderer.resize(w, h);
-    board.setLayout(computeLayout(w, h, insets));
+    board.setViewport(w, h, insets);
     invalidate();
   };
   relayout();
@@ -111,6 +121,12 @@ async function start(): Promise<void> {
     anims: () => records.map((r) => ({ ...r, box: r.box ? { ...r.box } : undefined })),
     clearAnims: () => {
       records.length = 0;
+    },
+    lastInput,
+    endTurn: () => board.endTurnClock(),
+    smallFace: (cardId, width, height) => {
+      const def = getCard(cardId);
+      return def ? smallFaceLayout(def, width, height) : null;
     },
   };
   document.getElementById('boot')?.remove();

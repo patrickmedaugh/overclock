@@ -11,3 +11,4 @@ blob-report/
 *.log
 .env
 .env.*
+.claude/worktrees/

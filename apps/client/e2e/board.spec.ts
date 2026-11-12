@@ -25,7 +25,8 @@ function expectActiveAtBottom(l: LayoutSnapshot, view: PlayerView): void {
   // Opponent: count only, no card ids.
   expect(view.players[them].hand).toBeNull();
   const n = view.players[them].handCount;
-  expect(l.text[`${them}Hand`]).toBe(`${n} ${n === 1 ? 'card' : 'cards'} in hand`);
+  // Real words: the Corp's hand is HQ, the Runner's is the Grip.
+  expect(l.text[`${them}Hand`]).toBe(`${n} ${n === 1 ? 'card' : 'cards'} in ${them === 'corp' ? 'HQ' : 'Grip'}`);
   // Every counter shows what the engine says.
   for (const s of ['corp', 'runner'] as const) {
     expect(l.text[`${s}Credits`]).toBe(String(view.players[s].credits));
@@ -81,7 +82,7 @@ test.describe('board layout', () => {
     expectCleanLayout(picking);
   });
 
-  test('re-lays out when the window is resized (incl. a small 360x640 phone)', async ({ page }) => {
+  test('re-lays out when the window is resized (small sideways phone, column window, back)', async ({ page }) => {
     // Resizes retire baked card textures: a texture freed while still in use
     // would throw on a later render, so collect page errors.
     const errors: string[] = [];
@@ -89,7 +90,7 @@ test.describe('board layout', () => {
     await openBoard(page);
     const handBefore = (await getView(page)).players.corp.handCount;
     const before = page.viewportSize()!;
-    for (const size of [{ width: 360, height: 640 }, { width: 1024, height: 700 }, before]) {
+    for (const size of [{ width: 640, height: 360 }, { width: 1024, height: 700 }, { width: 568, height: 320 }, before]) {
       await page.setViewportSize(size);
       await page.waitForFunction(
         ([w, h]) => {
@@ -109,7 +110,7 @@ test.describe('board layout', () => {
     const view = await getView(page);
     expect(view.players.corp.handCount).toBe(handBefore + 1);
     expect(after.hand).toHaveLength(handBefore + 1);
-    expect(after.text.corpHand).toBe(`${handBefore + 1} cards in hand`);
+    expect(after.text.corpHand).toBe(`${handBefore + 1} cards in HQ`);
     // Over the hand limit, so End turn opened the discard step.
     expect(view.pendingDiscard).toBeGreaterThan(0);
     expect(after.picker).not.toBeNull();

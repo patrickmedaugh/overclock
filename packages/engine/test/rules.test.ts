@@ -3,9 +3,11 @@ import { apply, legalActions, newGame, type Action, type ActionType, type GameSt
 import { RULES } from '../src/rules';
 import { clone, finishTurn, run, withClicks, withDeck, withHand } from './helpers';
 
-const TYPES: ActionType[] = ['draw', 'gain_credit', 'end_turn', 'discard'];
+/** Sprint 1 actions (install/play have their own table tests in install-play.test.ts). */
+type S1Type = Exclude<ActionType, 'install' | 'play'>;
+const TYPES: S1Type[] = ['draw', 'gain_credit', 'end_turn', 'discard'];
 
-function make(type: ActionType, player: Side, handIndices: number[] = [5]): Action {
+function make(type: S1Type, player: Side, handIndices: number[] = [5]): Action {
   return type === 'discard' ? { type, player, handIndices } : { type, player };
 }
 
@@ -16,7 +18,7 @@ const discardStep = () => run(newGame(50), [{ type: 'end_turn', player: 'corp' }
 const overState = (): GameState => ({ ...newGame(50), phase: 'over', result: { winner: 'runner', reason: 'corp_decked' } });
 
 /** Which reasons the table says each action can produce, in order (S-01 tech plan table). */
-const EXPECTED: Record<ActionType, RejectReason[]> = {
+const EXPECTED: Record<S1Type, RejectReason[]> = {
   draw: ['invalid_action', 'game_over', 'not_your_turn', 'wrong_phase', 'no_clicks', 'deck_empty'],
   gain_credit: ['invalid_action', 'game_over', 'not_your_turn', 'wrong_phase', 'no_clicks'],
   end_turn: ['invalid_action', 'game_over', 'not_your_turn', 'wrong_phase'],
@@ -24,7 +26,7 @@ const EXPECTED: Record<ActionType, RejectReason[]> = {
 };
 
 /** A state + action that triggers exactly `reason` for `type` (and nothing earlier). */
-function scenario(type: ActionType, reason: RejectReason): { state: GameState; action: Action } {
+function scenario(type: S1Type, reason: RejectReason): { state: GameState; action: Action } {
   const rightPhase = type === 'discard' ? discardStep() : actionStep();
   switch (reason) {
     case 'invalid_action':
@@ -41,12 +43,14 @@ function scenario(type: ActionType, reason: RejectReason): { state: GameState; a
       return { state: withDeck(actionStep(), 'corp', []), action: make(type, 'corp') };
     case 'bad_discard':
       return { state: rightPhase, action: make(type, 'corp', [0, 1]) };
+    default:
+      throw new Error(`no Sprint 1 scenario for ${reason}`);
   }
 }
 
 describe('validation table (rules.ts)', () => {
   it('has an entry for every action type', () => {
-    expect(Object.keys(RULES).sort()).toEqual([...TYPES].sort());
+    expect(Object.keys(RULES).sort()).toEqual([...TYPES, 'install', 'play'].sort());
   });
 
   describe.each(TYPES)('%s', (type) => {
@@ -118,9 +122,10 @@ describe('validation table (rules.ts)', () => {
 });
 
 describe('legalActions', () => {
-  it('Corp turn 1: draw, gain_credit, end_turn; Runner: nothing', () => {
+  it('Corp turn 1: draw, gain_credit, end_turn first (then installs/plays); Runner: nothing', () => {
     const s = newGame(1);
-    expect(legalActions(s, 'corp')).toEqual([
+    expect(legalActions(s, 'corp').slice(3).every((a) => a.type === 'install' || a.type === 'play')).toBe(true);
+    expect(legalActions(s, 'corp').slice(0, 3)).toEqual([
       { type: 'draw', player: 'corp' },
       { type: 'gain_credit', player: 'corp' },
       { type: 'end_turn', player: 'corp' },
@@ -130,7 +135,8 @@ describe('legalActions', () => {
 
   it('0 clicks: only end_turn; empty deck: no draw', () => {
     expect(legalActions(withClicks(newGame(1), 'corp', 0), 'corp')).toEqual([{ type: 'end_turn', player: 'corp' }]);
-    expect(legalActions(withDeck(newGame(1), 'corp', []), 'corp').map((a) => a.type)).toEqual(['gain_credit', 'end_turn']);
+    const basic = (a: Action) => a.type !== 'install' && a.type !== 'play';
+    expect(legalActions(withDeck(newGame(1), 'corp', []), 'corp').filter(basic).map((a) => a.type)).toEqual(['gain_credit', 'end_turn']);
   });
 
   it('every listed action is accepted by apply, across many states', () => {

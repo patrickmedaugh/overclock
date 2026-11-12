@@ -5,15 +5,29 @@
 - **Click** — an action point. Corp gets 3 per turn, Runner gets 4.
 - **Credits** — money used to play and use cards.
 - **Agenda** — a Corp card worth points. First to 7 points usually wins.
-- **ICE** — the Corp's defenses placed in front of a server.
+- **ICE** — the Corp's defenses, placed face down in front of a server. Each new one goes on the outside; adding one costs 1 credit for each ICE already there.
 - **Rez** — the Corp paying to flip a face-down card face up so it works.
 - **Run** — the Runner attacking a server, passing ICE one piece at a time.
 - **Breaker / icebreaker** — a Runner program that gets past ICE.
-- **Server** — a stack where the Corp keeps cards. HQ = hand, R&D = deck, Archives = discard, plus remote servers they create.
+- **Server** — a place where the Corp keeps cards. Three are built in (HQ, R&D, Archives); the Corp can open remote servers.
+- **HQ** — the Corp's hand (its headquarters).
+- **R&D** — the Corp's deck ("research and development").
+- **Archives** — the Corp's discard pile. Played operations go there face up; hand-limit discards go face down.
+- **Remote server** — a server the Corp opens by installing a card into "New server". Shown as Server 1, Server 2, ... Holds at most one agenda or asset.
+- **Install** — put a card from your hand onto the table (1 click). Corp cards go face down into a server; Runner cards go face up into the Runner's area.
+- **Operation** — a Corp card you play once for its effect (like Hedge Fund), then it goes to Archives.
+- **Event** — a Runner card you play once for its effect (like Diesel), then it goes to the Heap.
+- **Program / hardware / resource** — the three kinds of Runner cards that stay installed. Icebreakers are programs.
+- **Memory** — room for the Runner's programs. Each program uses some; the Runner has 4.
+- **Grip** — the Runner's hand.
+- **Stack** — the Runner's deck.
+- **Heap** — the Runner's discard pile (always face up).
+- **Upgrade** — a Corp card installed in any server (even HQ, R&D or Archives) to help that server.
+- **Asset** — a Corp card installed in a remote server that helps the Corp, often with money.
 - **Turn** — one player's go. The Corp goes first, then players alternate. You end your turn with the End turn button (leftover clicks are lost).
 - **Free draw** — the card the Corp must draw at the start of each of its turns. If its deck is empty then, the Runner wins.
 - **Hand limit** — at the end of your turn you may hold at most 5 cards; you pick which extra cards to discard.
-- **Discard pile** — where discarded cards go. The Runner's pile is face up; the Corp's (called Archives) is face down, so the Runner sees only how many cards are in it.
+- **Discard pile** — where discarded and played cards go. The Runner's (the Heap) is face up; the Corp's (Archives) mixes face-up played cards and face-down discards, which the Runner sees only as card backs.
 - **Hot-seat** — two people taking turns on the same device. The board always shows the player whose turn it is at the bottom.
 - **Safe area** — the part of a phone screen not covered by the camera notch, status bar or bottom swipe bar. Everything you can tap or read stays inside it.
 - **Timing window** — a moment where a player may respond. We skip ones where nobody can do anything.

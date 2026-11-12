@@ -241,6 +241,82 @@ export function createCardFace(card: CardDef, w: number, h: number, detail: 'sma
 }
 
 function buildCardFace(card: CardDef, w: number, h: number, detail: 'small' | 'full'): Container {
+  if (detail === 'full') {
+    // Long rules text (e.g. Bank Job) must fit: shrink the art window first, then the text.
+    for (const artFrac of [0.36, 0.3, 0.24, 0.18, 0.14]) {
+      for (const textK of artFrac > 0.14 ? [1] : [1, 0.92, 0.85, 0.78, 0.72, 0.66]) {
+        const c = drawCardFace(card, w, h, detail, artFrac, textK);
+        if (c.fits) return c.root;
+        c.root.destroy({ children: true });
+      }
+    }
+    return drawCardFace(card, w, h, detail, 0.14, 0.6).root;
+  }
+  return smallFace(card, w, h).root;
+}
+
+/**
+ * Small face (hand / installed card). A long name (e.g. "Private Security
+ * Force" on a phone) first gets room from a shorter art window, then a slightly
+ * smaller font; as a last resort it is cut to the lines that fit, with an ellipsis. The
+ * name never runs into the type label (QA-S2-3).
+ */
+function smallFace(card: CardDef, w: number, h: number): FaceDraw {
+  for (const artFrac of [0.4, 0.34, 0.28]) {
+    for (const nameK of artFrac > 0.28 ? [1] : [1, 0.9, 0.82]) {
+      const c = drawCardFace(card, w, h, 'small', artFrac, 1, nameK);
+      if (c.fits) return c;
+      c.root.destroy({ children: true });
+    }
+  }
+  return drawCardFace(card, w, h, 'small', 0.28, 1, 0.82, true);
+}
+
+/** Where a small face draws its name and type label (card-local, centered at 0,0), for tests. */
+export interface SmallFaceLayout {
+  name: { x: number; y: number; width: number; height: number };
+  type: { x: number; y: number; width: number; height: number };
+  /** Name font size as drawn (px at card size). */
+  nameFontPx: number;
+  /** The drawn name (may end in an ellipsis if it had to be cut). */
+  nameText: string;
+}
+
+export function smallFaceLayout(card: CardDef, w: number, h: number): SmallFaceLayout {
+  const c = smallFace(card, w, h);
+  const out = c.small!;
+  c.root.destroy({ children: true });
+  return out;
+}
+
+interface FaceDraw {
+  root: Container;
+  fits: boolean;
+  small?: SmallFaceLayout;
+}
+
+/** Cuts wrapped text to `lines` lines, ending with an ellipsis. */
+function clampLines(t: Text, lines: number): void {
+  const lh = Number(t.style.lineHeight);
+  if (!(lh > 0) || t.height <= lines * lh + 0.5) return;
+  const words = t.text.split(/\s+/);
+  while (words.length > 1) {
+    words.pop();
+    t.text = `${words.join(' ')}…`;
+    if (t.height <= lines * lh + 0.5) return;
+  }
+}
+
+function drawCardFace(
+  card: CardDef,
+  w: number,
+  h: number,
+  detail: 'small' | 'full',
+  artFrac: number,
+  textK: number,
+  nameK = 1,
+  clampName = false,
+): FaceDraw {
   const c = new Container();
   const color = sideColor(card.side);
   const r = Math.max(3, w * 0.07);
@@ -253,7 +329,7 @@ function buildCardFace(card: CardDef, w: number, h: number, detail: 'small' | 'f
   const artX = left + w * 0.08;
   const artY = top + h * (detail === 'full' ? 0.15 : 0.17);
   const artW = w * 0.84;
-  const artH = h * (detail === 'full' ? 0.36 : 0.4);
+  const artH = h * artFrac;
   g.roundRect(artX, artY, artW, artH, r * 0.6).fill({ color: 0x000000, alpha: 0.55 }).stroke({ width: 1, color, alpha: 0.4 });
   drawGlyph(g, card.art, artX, artY, artW, artH, color);
   glowRoundRect(g, left, top, w, h, r, color, Math.max(1, w * 0.02));
@@ -273,7 +349,7 @@ function buildCardFace(card: CardDef, w: number, h: number, detail: 'small' | 'f
   cost.position.set(ccx, ccy);
   c.addChild(cost);
 
-  const nameSize = detail === 'full' ? w * 0.068 : Math.max(7, w * 0.125);
+  const nameSize = detail === 'full' ? w * 0.068 : Math.max(7, w * 0.125) * nameK;
   const nameX = detail === 'full' ? ccx + cr + w * 0.04 : left + w * 0.06;
   const name = new Text({
     text: card.name,
@@ -309,9 +385,24 @@ function buildCardFace(card: CardDef, w: number, h: number, detail: 'small' | 'f
   }
   c.addChild(type);
 
+  let fits = true;
+  let small: SmallFaceLayout | undefined;
+  if (detail === 'small') {
+    const typeTop = type.y - type.height;
+    // A small gap between the name's last line and the type label.
+    const nameBottom = typeTop - h * 0.01;
+    if (clampName) clampLines(name, Math.max(1, Math.floor((nameBottom - name.y) / (nameSize * 1.1))));
+    fits = name.y + name.height <= nameBottom;
+    small = {
+      name: { x: name.x, y: name.y, width: name.width, height: name.height },
+      type: { x: type.x, y: typeTop, width: type.width, height: type.height },
+      nameFontPx: nameSize,
+      nameText: name.text,
+    };
+  }
   if (detail === 'full') {
     const bodyTop = type.y + typeSize * 1.8;
-    const textSize = Math.max(12, w * 0.052);
+    const textSize = Math.max(9, Math.max(12, w * 0.052) * textK);
     const body = new Text({
       text: card.text,
       style: {
@@ -345,15 +436,19 @@ function buildCardFace(card: CardDef, w: number, h: number, detail: 'small' | 'f
       y += flavor.height;
     }
     const stats = statsLine(card);
+    let bottomLimit = top + h - h * 0.03;
     if (stats) {
       const st = new Text({
         text: stats,
-        style: { fontFamily: theme.monoFamily, fontSize: textSize * 0.8, fill: color },
+        style: { fontFamily: theme.monoFamily, fontSize: Math.max(9, w * 0.042), fill: color },
       });
       st.anchor.set(0, 1);
       st.position.set(artX, top + h - h * 0.035);
+      if (st.width > artW) st.scale.set(artW / st.width);
       c.addChild(st);
+      bottomLimit = st.y - st.height - textSize * 0.3;
     }
+    fits = bodyTop + body.height <= bottomLimit && y - textSize * 0.7 <= bottomLimit;
   }
-  return c;
+  return { root: c, fits, small };
 }

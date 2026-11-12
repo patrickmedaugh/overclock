@@ -1,8 +1,18 @@
 import type { Action } from './actions';
-import { legalActions } from './apply';
-import type { GameEvent } from './events';
-import { discardCount } from './rules';
-import type { GameResult, GameState, Phase, PlayerState, Side, WinReason } from './state';
+import { handOptions, legalActions } from './apply';
+import type { GameEvent, RejectReason } from './events';
+import { discardCount, memoryUsed } from './rules';
+import {
+  MEMORY_LIMIT,
+  type GameResult,
+  type GameState,
+  type Installed,
+  type Phase,
+  type PlayerState,
+  type ServerId,
+  type Side,
+  type WinReason,
+} from './state';
 
 export interface PlayerSideView {
   readonly deckCount: number;
@@ -12,8 +22,33 @@ export interface PlayerSideView {
   readonly credits: number;
   readonly clicks: number;
   readonly discardCount: number;
-  /** Discard pile, bottom = index 0; null when face down to the viewer (Corp's Archives, seen by the Runner). */
-  readonly discard: readonly string[] | null;
+  /** Discard pile, bottom = index 0. An entry is null when it is face down to the viewer. */
+  readonly discard: readonly (string | null)[];
+}
+
+/** An installed card as one player sees it. */
+export interface InstalledView {
+  readonly uid: string;
+  /** null when the card is face down to the viewer (the Runner, for every unrezzed Corp card). */
+  readonly cardId: string | null;
+  readonly faceUp: boolean;
+}
+
+export interface ServerView {
+  readonly id: ServerId;
+  /** Index 0 is innermost; the last entry is outermost. */
+  readonly ice: readonly InstalledView[];
+  readonly content: readonly InstalledView[];
+}
+
+/**
+ * One offered way to use a hand card, with its engine-computed price.
+ * `reject` is exactly what `apply` would answer (null = legal now).
+ */
+export interface CardOption {
+  readonly action: Action;
+  readonly cost: number;
+  readonly reject: RejectReason | null;
 }
 
 /** What one player may see. Deck order is never included. */
@@ -27,13 +62,16 @@ export interface PlayerView {
   readonly pendingDiscard: number;
   readonly result: { readonly winner: Side; readonly reason: WinReason } | null;
   readonly players: Readonly<Record<Side, PlayerSideView>>;
+  /** Corp servers: hq, rd, archives, then remotes in creation order. */
+  readonly corpServers: readonly ServerView[];
+  /** Runner's installed cards (face up to both), install order. */
+  readonly rig: readonly InstalledView[];
+  /** Runner memory used by installed programs, and the limit. */
+  readonly memory: { readonly used: number; readonly limit: number };
+  /** Per viewer hand index: every offered action for that card (bad_card/bad_target never listed). */
+  readonly handOptions: readonly (readonly CardOption[])[];
   /** Actions the viewer may take now (so the AI/client never need the full state). */
   readonly legalActions: readonly Action[];
-}
-
-/** Whether `side`'s discard pile is face up to `viewer`. Corp discards are face down to the Runner. */
-function discardVisible(side: Side, viewer: Side): boolean {
-  return side === viewer || side === 'runner';
 }
 
 function sideView(p: PlayerState, side: Side, viewer: Side): PlayerSideView {
@@ -44,8 +82,13 @@ function sideView(p: PlayerState, side: Side, viewer: Side): PlayerSideView {
     credits: p.credits,
     clicks: p.clicks,
     discardCount: p.discard.length,
-    discard: discardVisible(side, viewer) ? p.discard.slice() : null,
+    // The owner sees their whole pile; the opponent sees only face-up entries.
+    discard: p.discard.map((d) => (side === viewer || d.faceUp ? d.cardId : null)),
   };
+}
+
+function corpCardView(c: Installed, viewer: Side): InstalledView {
+  return { uid: c.uid, cardId: viewer === 'corp' || c.rezzed ? c.cardId : null, faceUp: c.rezzed };
 }
 
 function copyResult(r: GameResult | null): PlayerView['result'] {
@@ -68,6 +111,14 @@ export function viewFor(player: Side, state: GameState): PlayerView {
       corp: sideView(state.players.corp, 'corp', player),
       runner: sideView(state.players.runner, 'runner', player),
     },
+    corpServers: state.servers.map((s) => ({
+      id: s.id,
+      ice: s.ice.map((c) => corpCardView(c, player)),
+      content: s.content.map((c) => corpCardView(c, player)),
+    })),
+    rig: state.rig.map((c) => ({ uid: c.uid, cardId: c.cardId, faceUp: true })),
+    memory: { used: memoryUsed(state), limit: MEMORY_LIMIT },
+    handOptions: handOptions(state, player),
     legalActions: legalActions(state, player),
   };
 }
@@ -80,6 +131,15 @@ function viewEvent(player: Side, e: GameEvent): GameEvent {
     const base = { type: 'cards_discarded', player: e.player, count: e.count } as const;
     // Runner discards are face up; Corp discards go face down to Archives.
     return e.player === 'runner' && e.cardIds ? { ...base, cardIds: e.cardIds.slice() } : base;
+  }
+  if (e.type === 'card_installed') {
+    const { handIndex: _hidden, cardId, ...rest } = e;
+    // Corp installs are face down: the Runner never learns the card id.
+    return e.player === 'runner' && cardId !== undefined ? { ...rest, cardId } : rest;
+  }
+  if (e.type === 'card_played') {
+    const { handIndex: _hidden, ...rest } = e;
+    return rest;
   }
   return e;
 }

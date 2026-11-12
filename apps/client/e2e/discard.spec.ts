@@ -81,7 +81,7 @@ test.describe('S-01-5 discard down to 5', () => {
     const after = await waitIdle(page);
     expect(after.viewer).toBe('runner');
     expect(after.text.corpDiscard).toBe('3');
-    expect(after.text.corpHand).toBe('5 cards in hand');
+    expect(after.text.corpHand).toBe('5 cards in HQ');
     expect(after.picker).toBeNull();
   });
 

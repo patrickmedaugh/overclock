@@ -74,7 +74,12 @@ for (const side of ['corp', 'runner'] as const) {
         // Read the hint from the record made when it appeared (no polling of a transient state).
         const hint = m.anims.find((a) => a.kind === 'hint');
         expect(hint?.text).toBe('No clicks left');
-        expect(hint!.startedAt - m.tapAt).toBeLessThan(100);
+        // Counted from when the game handled the tap: the second tap arrives while the
+        // first hint animates, and the GPU-less runner's frame delay before the page
+        // sees it (queueMs) is not the game's budget (Sprint 2 T0).
+        test.info().annotations.push({ type: 'timing', description: JSON.stringify({ queueMs: m.handledAt - m.tapAt, hintStartMs: hint!.startedAt - m.handledAt }) });
+        expect(Number.isFinite(m.handledAt), 'the tap reached the game').toBe(true);
+        expect(hint!.startedAt - m.handledAt).toBeLessThan(100);
         const vp = { x: 0, y: 0, width: l.viewport.width, height: l.viewport.height };
         expect(inside(hint!.box!, safeRect(l))).toBe(true);
         // Small: much smaller than the screen.

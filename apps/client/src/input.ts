@@ -1,7 +1,39 @@
 // Pointer gestures on Pixi display objects: press feedback, tap, long-press.
 // Works for mouse and touch (Pixi normalizes both to pointer events).
 import type { Container, FederatedPointerEvent } from 'pixi.js';
+import type { InputStamp } from './hook-types';
 import { timing } from './theme';
+
+let last: InputStamp | null = null;
+
+/**
+ * The most recent pointer release that reached a pressable target: the DOM
+ * event's timestamp and when our handler started running (both
+ * performance.now() clock). The gap is browser input queueing, not game time.
+ */
+export function lastInput(): InputStamp | null {
+  return last ? { ...last } : null;
+}
+
+/** Event time of the pointer release being handled right now (null outside a release). */
+let current: number | null = null;
+
+/**
+ * When the user made the input being handled now: the release's DOM event
+ * timestamp (`InputStamp.eventAt`) while a tap handler runs, else
+ * performance.now(). Time guards (the End turn double-tap guard) use this, not
+ * the time the handler runs: a tap queued behind a slow frame must be judged by
+ * when it was made.
+ */
+export function inputTime(): number {
+  return current ?? performance.now();
+}
+
+/** `eventAt` if it is usable on the performance.now() clock, else `handledAt`. */
+function madeAt(eventAt: number, handledAt: number): number {
+  // Never trust a time in the future or far in the past (old engines used epoch stamps).
+  return Number.isFinite(eventAt) && eventAt > 0 && eventAt <= handledAt && handledAt - eventAt < 10_000 ? eventAt : handledAt;
+}
 
 export interface PressHandlers {
   /** Fires immediately on pointer down (visual feedback; <100ms budget). */
@@ -74,7 +106,18 @@ export function attachPress(target: Container, handlers: PressHandlers, opts: Pr
     if (Math.hypot(e.global.x - startX, e.global.y - startY) > tolerance) clearTimer();
   };
   const onUp = (e: FederatedPointerEvent) => {
-    if (pointerId === e.pointerId) end(true);
+    const handledAt = performance.now();
+    const native: unknown = e.nativeEvent;
+    const eventAt = native instanceof Event ? native.timeStamp : e.timeStamp;
+    last = { eventAt, handledAt, target: target.label };
+    if (pointerId !== e.pointerId) return;
+    const outer = current;
+    current = madeAt(eventAt, handledAt);
+    try {
+      end(true);
+    } finally {
+      current = outer;
+    }
   };
   const onUpOutside = (e: FederatedPointerEvent) => {
     if (pointerId === e.pointerId) end(false);

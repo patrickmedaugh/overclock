@@ -120,6 +120,32 @@ export default tseslint.config(
     },
   },
   {
+    // Node-side e2e setup may use the match's test helpers (planBusyBoard,
+    // packages/engine/README.md "@overclock/match/testing"); the client src may not.
+    files: ['apps/client/e2e/**/*.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              name: '@overclock/engine',
+              importNames: ['apply', 'newGame', 'legalActions', 'viewFor', 'replay'],
+              message: 'The client goes through @overclock/match (LocalMatch); it never runs the engine directly.',
+            },
+          ],
+          patterns: [
+            {
+              group: ['@overclock/engine/*', '@overclock/cards/*', '@overclock/match/*', '!@overclock/match/testing'],
+              message: 'Import the package public index only (e2e may also use @overclock/match/testing).',
+            },
+            { group: ['**/packages/*/src/**'], message: 'Import the package public index only.' },
+          ],
+        },
+      ],
+    },
+  },
+  {
     // The AI must not cheat: it sees only viewFor() output (PlayerView).
     files: ['packages/ai/src/**/*.ts'],
     rules: {

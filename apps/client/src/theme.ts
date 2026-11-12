@@ -49,6 +49,12 @@ export const timing = {
   /** The new turn's draw starts this far into the flip. */
   drawAfterFlip: 100,
   gameOverIn: 250,
+  /** A hand card flies to its server or the Runner's row. */
+  installFlight: 280,
+  /** An operation/event flies to its owner's discard pile. */
+  playFlight: 260,
+  /** A new server's column flashes in. */
+  serverOpen: 300,
   /** End turn ignores taps this long after the tap that ended the last turn (stops a double tap ending two turns). */
   endTurnGuard: 300,
 } as const;
