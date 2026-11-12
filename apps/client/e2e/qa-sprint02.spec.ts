@@ -386,8 +386,6 @@ test.describe('QA-S2-1 hints are readable', () => {
 // QA-S2-2: an upgrade installed in HQ must not cover the HQ marker (its card count).
 test.describe('QA-S2-2 upgrade in HQ', () => {
   test('an upgrade in HQ sits beside the HQ marker on both views, not on top of it', async ({ page }) => {
-    // Known bug QA-S2-2 (open): remove this line when fixed.
-    test.fail(['phone-small', 'desktop'].includes(test.info().project.name), 'QA-S2-2: upgrade in HQ covers the HQ marker');
     await openBoard(page, 2);
     const l0 = await pickCard(page, 'Akitaro Watanabe');
     await tap(page, targetOf(l0, 'server', 'hq').box);

@@ -80,8 +80,10 @@ function elements(l: BoardLayout, opts: { fanned?: boolean } = {}): [string, Box
   }
   for (const s of l.corp.servers) {
     out.push([`${s.id}.label`, s.label]);
-    // A fanned server's cards overlap each other (checked apart): count only the top one.
-    const row: [string, Box][] = [...(s.root ? [[`${s.id}.root`, s.root] as [string, Box]] : []), ...s.content.map((b, i): [string, Box] => [`${s.id}.content${i}`, b])];
+    // A central server's root (HQ marker, R&D, Archives) is never covered, fanned or not (QA-S2-2).
+    if (s.root) out.push([`${s.id}.root`, s.root]);
+    // A fanned server's installed cards overlap each other (checked apart): count only the top one.
+    const row = s.content.map((b, i): [string, Box] => [`${s.id}.content${i}`, b]);
     out.push(...(opts.fanned && row.length > 1 ? row.slice(-1) : row));
     s.ice.forEach((b, i) => out.push([`${s.id}.ice${i}`, b]));
   }
@@ -325,17 +327,51 @@ describe('handSlots', () => {
 });
 
 describe('computeLayout: a little past the busy board', () => {
-  it('upgrades next to the cards in servers keep every card its size (gaps squeeze, then the server fans)', () => {
-    const plus: BoardShape = {
-      ...BUSY,
-      servers: BUSY.servers.map((s) => (s.id === 'remote1' || s.id === 'hq' ? { ...s, content: s.content + 1 } : s)),
-    };
+  const plusShape = (ids: string[]): BoardShape => ({
+    ...BUSY,
+    servers: BUSY.servers.map((s) => (ids.includes(s.id) ? { ...s, content: s.content + 1 } : s)),
+  });
+
+  it('an upgrade next to the card in a remote keeps every card its size (gaps squeeze, then the server fans)', () => {
     for (const [w, h] of MAIN) {
       for (const [, insets] of INSETS) {
         for (const viewer of SIDES) {
           const busy = computeLayout(w, h, insets, { viewer, shape: BUSY });
-          const l = computeLayout(w, h, insets, { viewer, shape: plus });
+          const l = computeLayout(w, h, insets, { viewer, shape: plusShape(['remote1']) });
           expect(l.sizeKey, `${w}x${h} ${JSON.stringify(insets)}`).toBe(busy.sizeKey);
+          expectClean(l, w, h, insets, { fanned: true });
+        }
+      }
+    }
+  });
+
+  it('an upgrade in HQ never covers the HQ marker; cards shrink by at most 2px for it (QA-S2-2)', () => {
+    for (const [w, h] of MAIN) {
+      for (const [, insets] of INSETS) {
+        for (const viewer of SIDES) {
+          for (const base of [EMPTY_SHAPE, BUSY]) {
+            const shape: BoardShape = { ...base, servers: base.servers.map((s) => (s.id === 'hq' ? { ...s, content: s.content + 1 } : s)) };
+            const before = computeLayout(w, h, insets, { viewer, shape: base });
+            const l = computeLayout(w, h, insets, { viewer, shape });
+            const hq = l.corp.servers.find((s) => s.id === 'hq')!;
+            const name = `${w}x${h} ${JSON.stringify(insets)} ${viewer}`;
+            expect(overlaps(hq.root!, hq.content[0]!), `${name}: marker ${JSON.stringify(hq.root)} vs upgrade ${JSON.stringify(hq.content[0])}`).toBe(false);
+            expect(l.unit.width, name).toBeGreaterThanOrEqual(before.unit.width - 2);
+            expect(l.unit.width, name).toBeGreaterThanOrEqual(MIN_TOUCH);
+            expectClean(l, w, h, insets);
+          }
+        }
+      }
+    }
+  });
+
+  it('upgrades in HQ and in a remote at once: the remote fans, HQ stays clear', () => {
+    for (const [w, h] of MAIN) {
+      for (const [, insets] of INSETS) {
+        for (const viewer of SIDES) {
+          const busy = computeLayout(w, h, insets, { viewer, shape: BUSY });
+          const l = computeLayout(w, h, insets, { viewer, shape: plusShape(['remote1', 'hq']) });
+          expect(l.unit.width).toBeGreaterThanOrEqual(busy.unit.width - 2);
           expectClean(l, w, h, insets, { fanned: true });
           // A fanned card still shows a strip of itself, inside its column.
           for (const s of l.corp.servers) {

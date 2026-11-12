@@ -151,6 +151,8 @@ export const EMPTY_SHAPE: BoardShape = { servers: CENTRALS.map((id) => ({ id, ic
 
 const REF_W = 390;
 const REF_H = 844;
+/** Most a card shrinks (px) to keep a central server's root clear while fanning (QA-S2-2). */
+const FAN_SHRINK = 2;
 /** Smallest installed card when the table is past the busy board (shrink, no scroll). */
 const MIN_UNIT = 12;
 
@@ -197,14 +199,22 @@ interface Gaps {
   fan?: boolean;
 }
 
-function columnWidth(slots: number, u: number, g: number, fan = false): number {
-  return fan ? cardH(u) : Math.max(cardH(u), slots * u + (slots - 1) * g);
+/**
+ * Column width for a server. Fanned, the installed cards of a crowded server
+ * overlap inside the usual width, but a central server's root (HQ marker, R&D,
+ * Archives) is never covered: it keeps its own slot beside them (QA-S2-2).
+ */
+function columnWidth(s: ServerShape | 'new', u: number, g: number, fan = false): number {
+  const slots = s === 'new' ? 1 : slotCount(s);
+  if (!fan || s === 'new') return Math.max(cardH(u), slots * u + (slots - 1) * g);
+  if (!isCentral(s.id) || s.content === 0) return cardH(u);
+  return Math.max(cardH(u), u + g + (s.content === 1 ? u : cardH(u)));
 }
 
 function corpWidth(servers: readonly ServerShape[], u: number, k: Gaps): number {
   // + the New server column (one slot).
-  const cols = servers.map((s) => columnWidth(slotCount(s), u, k.g, k.fan));
-  cols.push(columnWidth(1, u, k.g));
+  const cols = servers.map((s) => columnWidth(s, u, k.g, k.fan));
+  cols.push(columnWidth('new', u, k.g));
   return cols.reduce((a, b) => a + b, 0) + (cols.length - 1) * k.gc;
 }
 
@@ -232,15 +242,18 @@ function layoutCorpBand(x: number, y: number, width: number, height: number, u: 
   let cx = x;
   const column = (s: ServerShape | { id: 'new'; ice: number; content: number }): ServerSlots => {
     const n = s.id === 'new' ? 1 : slotCount(s as ServerShape);
-    const w = columnWidth(n, u, k.g, k.fan);
+    const w = columnWidth(s.id === 'new' ? 'new' : (s as ServerShape), u, k.g, k.fan);
     const label = outward === 'down' ? box(cx, y, w, k.labelH) : box(cx, y + height - k.labelH, w, k.labelH);
     const rowY = outward === 'down' ? label.y + k.labelH + k.g : label.y - k.g - uh;
-    // Fanned (past the busy board): the cards overlap, each still showing a strip.
-    const cstep = n === 1 ? 0 : Math.min(u + k.g, (w - u) / (n - 1));
-    const rowW = u + (n - 1) * cstep;
-    const rowX = cx + (w - rowW) / 2;
-    const slots = Array.from({ length: n }, (_, i) => box(rowX + i * cstep, rowY, u, uh));
     const central = s.id !== 'new' && isCentral(s.id);
+    // A central server's root keeps a slot of its own; the installed cards follow it.
+    const lead = central ? u + k.g : 0;
+    const m = central ? n - 1 : n;
+    // Fanned (past the busy board): the installed cards overlap, each still showing a strip.
+    const cstep = m <= 1 ? 0 : Math.min(u + k.g, (w - lead - u) / (m - 1));
+    const rowW = lead + (m > 0 ? u + (m - 1) * cstep : -k.g);
+    const rowX = cx + (w - rowW) / 2;
+    const slots = Array.from({ length: n }, (_, i) => box(rowX + (central ? (i === 0 ? 0 : lead + (i - 1) * cstep) : i * cstep), rowY, u, uh));
     // Past the reserved ICE room (only when shrinking hit its floor), ICE overlap evenly.
     const step = s.ice <= 1 ? u + k.g : Math.min(u + k.g, (iceRoom - k.g - u) / (s.ice - 1));
     const ice = Array.from({ length: s.ice }, (_, i) =>
@@ -294,8 +307,22 @@ function fitTable(max: number, k: Gaps, fits: (u: number, k: Gaps) => boolean, f
     return { u: uBusy, k: { ...k, gc } };
   }
   // Still too wide: fan the cards of crowded servers inside their usual width.
-  if (fits(uBusy, { ...k, fan: true })) return { u: uBusy, k: { ...k, fan: true } };
+  const fan = { ...k, fan: true };
+  if (fits(uBusy, fan)) return { u: uBusy, k: fan };
+  if (fits(uBusy, { ...fan, gc: 2 })) return { u: uBusy, k: { ...fan, gc: squeeze(uBusy, fan, fits) } };
+  // Just past that (e.g. an upgrade beside a central server's root, which is
+  // never covered): fan and squeeze, shrinking cards by a pixel or two.
+  // A table well past the busy board shrinks evenly instead (no fanning).
+  const uFan = fitUnit(max, (x) => fits(x, { ...fan, gc: 2 }));
+  if (uFan > u && uFan >= uBusy - FAN_SHRINK) return { u: uFan, k: { ...fan, gc: squeeze(uFan, fan, fits) } };
   return { u, k };
+}
+
+/** Widest gap between columns (down to 2px) at which the table fits. */
+function squeeze(u: number, k: Gaps, fits: (u: number, k: Gaps) => boolean): number {
+  let gc = k.gc;
+  while (gc > 2 && !fits(u, { ...k, gc })) gc--;
+  return gc;
 }
 
 /** Largest integer unit in [MIN_UNIT, max] that satisfies `fits` (monotone). */

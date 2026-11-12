@@ -223,6 +223,16 @@ export function safeRect(l: LayoutSnapshot): Box {
   return { x: i.left, y: i.top, width: l.viewport.width - i.left - i.right, height: l.viewport.height - i.top - i.bottom };
 }
 
+/** Name tag of a fanned server's installed cards: those may overlap each other only. */
+const FANNED = 'fanned ';
+
+/** Both boxes are installed cards of the same fanned server. */
+function sameFan(a: string, b: string): boolean {
+  const fan = (n: string) => (n.includes(` ${FANNED}card `) ? n.slice(0, n.lastIndexOf(' card ')) : null);
+  const fa = fan(a);
+  return fa !== null && fa === fan(b);
+}
+
 /** Named boxes for every board element (not counting hand cards). */
 export function boardElements(l: LayoutSnapshot): [string, Box][] {
   const out: [string, Box][] = [];
@@ -231,13 +241,13 @@ export function boardElements(l: LayoutSnapshot): [string, Box][] {
   }
   for (const srv of l.servers) {
     out.push([`${srv.label} name`, srv.labelBox]);
-    const row: [string, Box][] = [
-      ...(srv.id === 'hq' && srv.root ? [['HQ marker', srv.root] as [string, Box]] : []),
-      ...srv.content.map((c, i): [string, Box] => [`${srv.label} card ${i}`, c.box]),
-    ];
-    // A crowded server fans its cards (past the busy board): only the top one counts here.
-    const fanned = row.some((r, i) => i > 0 && overlaps(row[i - 1]![1], r[1]));
-    out.push(...(fanned ? row.slice(-1) : row));
+    // The HQ marker (R&D and Archives are the Corp's deck / discard above) is
+    // always checked: nothing may cover it (QA-S2-2).
+    if (srv.id === 'hq' && srv.root) out.push(['HQ marker', srv.root]);
+    // A crowded server fans its installed cards (past the busy board): they may
+    // overlap each other (see FANNED), but nothing else.
+    const fanned = srv.content.some((c, i) => i > 0 && overlaps(srv.content[i - 1]!.box, c.box));
+    srv.content.forEach((c, i) => out.push([`${srv.label} ${fanned ? FANNED : ''}card ${i}`, c.box]));
     srv.ice.forEach((c, i) => out.push([`${srv.label} ICE ${i}`, c.box]));
   }
   l.rig.forEach((c, i) => out.push([`rig card ${i}`, c.box]));
@@ -267,6 +277,11 @@ export function expectCleanLayout(l: LayoutSnapshot): void {
     for (let j = i + 1; j < elements.length; j++) {
       const [an, a] = elements[i]!;
       const [bn, b] = elements[j]!;
+      if (sameFan(an, bn)) {
+        // Fanned like a hand: each card still shows a strip of itself.
+        if (j === i + 1) expect(Math.abs(b.x - a.x), `${bn} shows a strip past ${an}`).toBeGreaterThanOrEqual(Math.min(a.width * 0.35, 20) - 0.5);
+        continue;
+      }
       expect(overlaps(a, b), `${an} ${JSON.stringify(a)} overlaps ${bn} ${JSON.stringify(b)}`).toBe(false);
     }
     for (const [hn, h] of hand) {
