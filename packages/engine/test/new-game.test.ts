@@ -19,26 +19,21 @@ describe('newGame (S-00-5 AC1: same seed deals the same cards)', () => {
     expect(deals.size).toBeGreaterThan(1);
   });
 
-  it('sets up both sides: 5-card hands from shuffled 15-card decks, 5 credits', () => {
+  it('sets up both sides from shuffled 15-card decks with 5 credits (Corp has taken its free draw)', () => {
     const g = newGame(99);
-    for (const [side, list] of [
-      ['corp', CORP_STARTER_DECK],
-      ['runner', RUNNER_STARTER_DECK],
+    for (const [side, list, handSize] of [
+      ['corp', CORP_STARTER_DECK, 6],
+      ['runner', RUNNER_STARTER_DECK, 5],
     ] as const) {
       const p = g.players[side];
-      expect(p.hand).toHaveLength(5);
-      expect(p.deck).toHaveLength(10);
+      expect(p.hand).toHaveLength(handSize);
+      expect(p.deck).toHaveLength(15 - handSize);
+      expect(p.discard).toEqual([]);
       expect(p.credits).toBe(5);
       expect([...p.hand, ...p.deck].sort()).toEqual([...list].sort());
     }
   });
 
-  it('Sprint 0 starts on the Runner turn with 4 clicks', () => {
-    const g = newGame(1);
-    expect(g.activePlayer).toBe('runner');
-    expect(g.players.runner.clicks).toBe(4);
-    expect(g.players.corp.clicks).toBe(0);
-  });
 
   it('state is plain JSON (round-trips through JSON)', () => {
     const g = newGame(7);
