@@ -352,8 +352,6 @@ test.describe('QA Sprint 2 playthrough (screenshots)', () => {
 // least 80 square CSS px of toast per character (about a 10px font).
 test.describe('QA-S2-1 hints are readable', () => {
   test('"Needs runs", "Not enough credits", "No clicks left" and "Not your turn" are drawn big enough to read', async ({ page }) => {
-    // Known bug QA-S2-1 (open): remove this line when fixed.
-    test.fail(test.info().project.name === 'phone-small', 'QA-S2-1: long hints shrink to ~5px text on 640x360');
     await openBoard(page, 2);
     await toRunnerTurn(page);
     await page.evaluate(() => window.__overclock!.clearAnims());

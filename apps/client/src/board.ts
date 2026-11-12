@@ -53,10 +53,10 @@ function handText(side: Side, n: number): string {
 
 /** Texts drawn on screen under `c` (skipping hidden branches). */
 function visibleTexts(c: Container, out: string[] = []): string[] {
-  if (!c.visible || c.destroyed) return out;
+  if (!c.visible || !c.renderable || c.destroyed) return out;
   for (const child of c.children) {
     if (child instanceof Text) {
-      if (child.visible && child.text) out.push(child.text);
+      if (child.visible && child.renderable && child.text) out.push(child.text);
     } else visibleTexts(child, out);
   }
   return out;
@@ -241,6 +241,7 @@ export class Board {
     this.catcher.hitArea = new Rectangle(0, 0, width, height);
     if (this.view) this.fullRender();
     if (this.hint) this.positionHint(this.hint);
+    this.syncHelp();
   }
 
   /** Shows the result of one action (see Presentation). */
@@ -889,6 +890,7 @@ export class Board {
     if (help.text !== helpText) help.text = helpText;
     const hb = this.helpBox(layout);
     fitText(help, hb.width, hb.height);
+    this.syncHelp();
 
     const button = gen.button;
     if (view.result) {
@@ -1270,7 +1272,10 @@ export class Board {
     const s = Math.min(layout.scale, 1.2);
     const area = layout.hintArea;
     const root = new Container();
-    const padX = 12 * s;
+    const padX = Math.max(6, Math.round(8 * s));
+    const padY = Math.max(5, Math.round(6 * s));
+    // Room for the glow ring around the bubble.
+    const ring = 3;
     const label = new Text({
       text,
       style: {
@@ -1280,26 +1285,33 @@ export class Board {
         fill: 0x140a00,
         align: 'center',
         wordWrap: true,
-        wordWrapWidth: Math.max(60, area.width - 2 * padX - 6),
+        wordWrapWidth: Math.max(60, area.width - 2 * padX - 2 * ring),
         lineHeight: Math.max(14, Math.round(17 * s)),
       },
     });
     label.anchor.set(0.5);
     const w = label.width + 2 * padX;
-    const h = Math.max(32, label.height + 12 * s);
+    const h = Math.max(32, label.height + 2 * padY);
     const g = new Graphics();
     g.roundRect(-w / 2, -h / 2, w, h, Math.min(h / 2, 18)).fill({ color: theme.warn });
-    g.roundRect(-w / 2 - 3, -h / 2 - 3, w + 6, h + 6, Math.min(h / 2, 18) + 3).stroke({ width: 3, color: theme.warn, alpha: 0.35 });
+    g.roundRect(-w / 2 - ring, -h / 2 - ring, w + 2 * ring, h + 2 * ring, Math.min(h / 2, 18) + ring).stroke({ width: 3, color: theme.warn, alpha: 0.35 });
     root.addChild(g, label);
-    // Never larger than its slot.
-    const fit = Math.min(1, (area.width - 6) / (w + 6), (area.height - 6) / (h + 6));
+    // The slot is sized so hints wrap at full size; shrink only if one ever does not fit.
+    const fit = Math.min(1, (area.width - 2 * ring) / w, (area.height - 2 * ring) / h);
     root.scale.set(fit);
     const hint = { text, root, box: { x: 0, y: 0, width: w * fit, height: h * fit } };
     this.positionHint(hint);
     root.alpha = 0;
     this.hintLayer.addChild(root);
     this.hint = hint;
-    this.callbacks.log({ kind: 'hint', text, box: { ...hint.box }, scheduledMs: timing.hintIn + timing.hintVisible + timing.hintFade });
+    this.syncHelp();
+    this.callbacks.log({
+      kind: 'hint',
+      text,
+      box: { ...hint.box },
+      fontPx: (label.style.fontSize as number) * fit,
+      scheduledMs: timing.hintIn + timing.hintVisible + timing.hintFade,
+    });
     const baseY = root.y;
     root.y = baseY + 8 * s;
     this.ui.add({ target: root, to: { alpha: 1, y: baseY }, duration: timing.hintIn, owner: root });
@@ -1314,16 +1326,24 @@ export class Board {
         if (this.hint?.root === root) {
           root.destroy({ children: true });
           this.hint = null;
+          this.syncHelp();
         }
       },
     });
+  }
+
+  /** Sideways, a hint takes the help text's place in the rail: hide the help text meanwhile. */
+  private syncHelp(): void {
+    const help = this.gen?.subHelp;
+    if (help) help.renderable = !(this.hint && this.layout?.mode === 'landscape');
   }
 
   private positionHint(hint: { root: Container; box: Box }): void {
     const a = this.layout?.hintArea;
     if (!a) return;
     const cx = a.x + a.width / 2;
-    const cy = a.y + a.height / 2;
+    // Sideways the slot is tall (the help text's room): sit at its bottom, by the viewer's name.
+    const cy = this.layout?.mode === 'landscape' ? a.y + a.height - 3 - hint.box.height / 2 : a.y + a.height / 2;
     hint.root.position.set(cx, cy);
     hint.box.x = cx - hint.box.width / 2;
     hint.box.y = cy - hint.box.height / 2;

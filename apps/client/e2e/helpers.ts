@@ -273,6 +273,10 @@ export function expectCleanLayout(l: LayoutSnapshot): void {
       expect(overlaps(elements[i]![1], h), `${elements[i]![0]} overlaps ${hn}`).toBe(false);
     }
   }
+  // A hint toast never covers a board element or a hand card (QA-S2-1).
+  if (l.hint) {
+    for (const [n, b] of [...elements, ...hand]) expect(overlaps(l.hint.box, b), `hint "${l.hint.text}" ${JSON.stringify(l.hint.box)} overlaps ${n}`).toBe(false);
+  }
   for (let i = 1; i < hand.length; i++) {
     const a = hand[i - 1]![1];
     const b = hand[i]![1];

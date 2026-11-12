@@ -8,7 +8,7 @@
 //
 // Two modes:
 // - landscape (viewport height <= 500 and wider than tall: phones held
-//   sideways). Right rail: banner, help / Play, hint, the viewer's name,
+//   sideways). Right rail: banner, Play, help (or a hint), the viewer's name,
 //   credits, clicks and End turn. Left of it, top to bottom: the opponent's
 //   header (name, credits and clicks chips), the opponent's band, the
 //   viewer's band, the hand strip.
@@ -104,7 +104,11 @@ export interface BoardLayout {
   sub: Box;
   /** The Play button for a picked operation/event (inside `sub`). */
   action: Box;
-  /** Where the transient hint toast sits. */
+  /**
+   * Where the transient hint toast sits. Sideways: the help text's room below
+   * the Play button (inside `sub`; the help text hides while a hint shows).
+   * Column: left of End turn.
+   */
   hintArea: Box;
   /** End turn button; also the discard picker's Confirm button. */
   endTurn: Box;
@@ -405,11 +409,15 @@ function landscapeLayout(vw: number, vh: number, insets: Insets, safe: Box, view
   const clicks = box(railX, endTurn.y - rg - pillH, railW, pillH);
   const credits = box(railX, clicks.y - rg - pillH, railW, pillH);
   const railLabel = box(railX, credits.y - rg - Math.max(11, Math.round(12 * s)), railW, Math.max(11, Math.round(12 * s)));
-  const hintH = Math.max(36, Math.round(42 * s));
-  const hintArea = box(railX, railLabel.y - rg - hintH, railW, hintH);
+  // Help / Play fill the rail between the banner and the viewer's name. A hint
+  // (a short-lived toast) uses the help text's room below the Play button and
+  // hides the help text while it shows, so long hints wrap at a readable size
+  // instead of shrinking into a short slot (QA-S2-1).
   const subY = banner.y + banner.height + rg;
-  const sub = box(railX, subY, railW, Math.max(0, hintArea.y - rg - subY));
+  const sub = box(railX, subY, railW, Math.max(0, railLabel.y - rg - subY));
   const action = box(railX, subY, railW, Math.min(sub.height, pillH));
+  const hintY = action.y + action.height + rg;
+  const hintArea = box(railX, hintY, railW, Math.max(0, sub.y + sub.height - hintY));
 
   const topRegion = union(box(bx, top, bw, headerH), box(bx, topBandY, bw, topBandH));
   const { top: topRow, bottom: bottomRow } = sideRows(

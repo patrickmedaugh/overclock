@@ -88,7 +88,9 @@ function elements(l: BoardLayout, opts: { fanned?: boolean } = {}): [string, Box
   out.push(['newServer.label', l.corp.newServer.label]);
   out.push(['rig.stack', l.rig.stack], ['rig.heap', l.rig.heap], ['rig.install', l.rig.install], ['rig.memory', l.rig.memory]);
   l.rig.cards.forEach((b, i) => out.push([`rig.card${i}`, b]));
-  out.push(['banner', l.banner], ['sub', l.sub], ['hintArea', l.hintArea], ['endTurn', l.endTurn], ['hand', l.handArea]);
+  out.push(['banner', l.banner], ['sub', l.sub], ['endTurn', l.endTurn], ['hand', l.handArea]);
+  // Sideways the hint shares the help text's room inside `sub` (checked apart); in the column it has its own slot.
+  if (l.mode === 'portrait') out.push(['hintArea', l.hintArea]);
   return out;
 }
 
@@ -117,6 +119,11 @@ function expectClean(l: BoardLayout, w: number, h: number, insets: Insets, opts:
   }
   // The Play button sits inside the help area (it replaces the help text while shown).
   expect(inside(l.action, l.sub)).toBe(true);
+  if (l.mode === 'landscape') {
+    // The hint uses the help text's room below the Play button, never covering Play.
+    expect(inside(l.hintArea, l.sub)).toBe(true);
+    expect(overlaps(l.hintArea, l.action)).toBe(false);
+  }
   // Each server's cards sit in its column.
   for (const s of [...l.corp.servers, l.corp.newServer]) {
     for (const b of [s.label, ...(s.root ? [s.root] : []), ...s.content, ...s.ice]) expect(inside(b, s.column), `${s.id} slot in its column`).toBe(true);
@@ -200,6 +207,17 @@ describe('computeLayout: sideways phones and desktop (S-02-5, S-02-6)', () => {
       const boardRight = l.board.x + l.board.width;
       for (const b of [l.banner, l.sub, l.hintArea, l.endTurn, l.bottom.credits, l.bottom.clicks, l.bottom.label]) expect(b.x).toBeGreaterThanOrEqual(boardRight);
       expect(l.endTurn.y + l.endTurn.height).toBe(l.safe.y + l.safe.height - l.pad);
+    }
+  });
+
+  it('sideways: the hint slot is tall enough for a 3-line hint at full size (QA-S2-1)', () => {
+    for (const [w, h] of MAIN.filter(([, hh]) => hh <= 500)) {
+      for (const [, insets] of INSETS) {
+        const l = computeLayout(w, h, insets, { shape: BUSY });
+        // 3 lines of the hint font (line height >= 14px) + padding + glow ring.
+        expect(l.hintArea.height, `${w}x${h} ${JSON.stringify(insets)}`).toBeGreaterThanOrEqual(3 * Math.max(14, Math.round(17 * l.scale)) + 20);
+        expect(l.hintArea.width).toBeGreaterThanOrEqual(100);
+      }
     }
   });
 

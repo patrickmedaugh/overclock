@@ -145,6 +145,8 @@ export interface AnimRecord {
   text?: string;
   /** Where it was shown (hints: the toast's final box). */
   box?: Box;
+  /** Hints: the text size as drawn on screen (CSS px, after any fit-to-slot scaling). */
+  fontPx?: number;
 }
 
 /** Timestamps (performance.now() clock) of the last pointer release handled by a target. */
