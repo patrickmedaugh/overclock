@@ -59,11 +59,19 @@ const validDiscard = (s: GameState, a: ActionOf<'discard'>): RejectReason | null
   return null;
 };
 
+const handIndexShape = (_s: GameState, a: ActionOf<'install' | 'play'>): RejectReason | null =>
+  Number.isInteger(a.handIndex) ? null : 'invalid_action';
+
+/** Placeholder until install/play land (Sprint 2 E3-E5). */
+const notBuiltYet = (): RejectReason | null => 'bad_card';
+
 export const RULES: RuleTable = {
   draw: [playerShape, notOver, yourTurn, inPhase('action'), hasClick, deckNotEmpty],
   gain_credit: [playerShape, notOver, yourTurn, inPhase('action'), hasClick],
   end_turn: [playerShape, notOver, yourTurn, inPhase('action')],
   discard: [playerShape, indicesShape, notOver, yourTurn, inPhase('discard'), validDiscard],
+  install: [playerShape, handIndexShape, notOver, yourTurn, inPhase('action'), hasClick, notBuiltYet],
+  play: [playerShape, handIndexShape, notOver, yourTurn, inPhase('action'), hasClick, notBuiltYet],
 };
 
 /** How many cards a hand of `handSize` must discard at end of turn. */

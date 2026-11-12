@@ -26,6 +26,10 @@ export function withHand(state: GameState, side: Side, hand: string[]): GameStat
   return withPlayer(state, side, { hand });
 }
 
+/** Discard pile entries (state shape). */
+export const up = (cardId: string) => ({ cardId, faceUp: true });
+export const down = (cardId: string) => ({ cardId, faceUp: false });
+
 /** Deep copy via JSON (GameState is plain JSON by contract). */
 export function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;

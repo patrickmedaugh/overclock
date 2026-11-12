@@ -46,7 +46,8 @@ function doDiscard(state: GameState, a: ActionOf<'discard'>): ApplyResult {
   const cardIds = handIndices.map((i) => me.hand[i] as string);
   const s = withPlayer(state, a.player, {
     hand: me.hand.filter((_, i) => !chosen.has(i)),
-    discard: [...me.discard, ...cardIds],
+    // Runner discards go face up to the Heap; the Corp's go face down to Archives.
+    discard: [...me.discard, ...cardIds.map((cardId) => ({ cardId, faceUp: a.player === 'runner' }))],
   });
   const events: GameEvent[] = [
     { type: 'cards_discarded', player: a.player, count: cardIds.length, handIndices, cardIds },
@@ -71,6 +72,9 @@ export function apply(state: GameState, action: Action): ApplyResult {
       return doEndTurn(state, action);
     case 'discard':
       return doDiscard(state, action);
+    case 'install':
+    case 'play':
+      return { state, events: [{ type: 'action_rejected', reason: 'bad_card' }] };
   }
 }
 

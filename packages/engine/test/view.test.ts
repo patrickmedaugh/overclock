@@ -53,7 +53,7 @@ describe('viewFor (S-01-4 AC2: opponent hand count, not contents)', () => {
     expect(cv.players.runner).toMatchObject({ discardCount: 2, discard: ['r01', 'r07'] });
 
     const rv = viewFor('runner', s);
-    expect(rv.players.corp).toMatchObject({ discardCount: 1, discard: null });
+    expect(rv.players.corp).toMatchObject({ discardCount: 1, discard: [null] });
     expect(rv.players.runner).toMatchObject({ discardCount: 2, discard: ['r01', 'r07'] });
     expect(JSON.stringify(rv)).not.toContain('"c03"');
   });
@@ -69,9 +69,9 @@ describe('viewFor (S-01-4 AC2: opponent hand count, not contents)', () => {
     const g = run(withHand(newGame(1), 'corp', ['c01', 'c02', 'c03', 'c04', 'c05', 'c06']), [endTurn('corp'), discard('corp', [0])]).state;
     const v = viewFor('corp', g);
     (v.players.corp.hand as string[]).push('hacked');
-    (v.players.corp.discard as string[]).push('hacked');
+    (v.players.corp.discard as (string | null)[]).push('hacked');
     expect(g.players.corp.hand).toHaveLength(5);
-    expect(g.players.corp.discard).toEqual(['c01']);
+    expect(g.players.corp.discard).toEqual([{ cardId: 'c01', faceUp: false }]);
   });
 });
 

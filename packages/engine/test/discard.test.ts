@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { apply, legalActions, newGame, viewFor, type GameState, type Side } from '../src/index';
-import { discard, draw, endTurn, finishTurn, run, withHand } from './helpers';
+import { discard, down, draw, endTurn, finishTurn, run, up, withHand } from './helpers';
 
 const HAND7 = ['c01', 'c02', 'c03', 'c04', 'c05', 'c06', 'c07'];
 const RHAND7 = ['r01', 'r02', 'r03', 'r04', 'r05', 'r06', 'r07'];
@@ -61,7 +61,7 @@ describe('S-01-5 AC3: confirming the discard moves the cards and ends the turn',
     ]);
     expect(events[3]?.type).toBe('card_drawn');
     expect(state.players.runner.hand).toEqual(['r01', 'r03', 'r04', 'r06', 'r07']);
-    expect(state.players.runner.discard).toEqual(['r02', 'r05']);
+    expect(state.players.runner.discard).toEqual([up('r02'), up('r05')]);
     expect(state.activePlayer).toBe('corp');
     expect(state.phase).toBe('action');
   });
@@ -75,7 +75,7 @@ describe('S-01-5 AC3: confirming the discard moves the cards and ends the turn',
       { type: 'turn_started', player: 'runner', turn: 2, clicks: 4 },
     ]);
     expect(state.players.corp.hand).toEqual(['c02', 'c03', 'c04', 'c05', 'c06']);
-    expect(state.players.corp.discard).toEqual(['c01', 'c07']);
+    expect(state.players.corp.discard).toEqual([down('c01'), down('c07')]);
   });
 
   it('discards stack on top of the existing pile (bottom = index 0)', () => {
@@ -83,14 +83,14 @@ describe('S-01-5 AC3: confirming the discard moves the cards and ends the turn',
     s = run(s, [discard('corp', [0, 1])]).state; // pile: c01 c02
     s = finishTurn(s).state; // Runner turn
     s = run(withHand(s, 'corp', HAND7.slice().reverse()), [endTurn('corp'), discard('corp', [0, 1])]).state;
-    expect(s.players.corp.discard).toEqual(['c01', 'c02', 'c07', 'c06']);
+    expect(s.players.corp.discard).toEqual(['c01', 'c02', 'c07', 'c06'].map(down));
   });
 
   it('duplicate copies are handled by index (indices, not card ids)', () => {
     const g = withHand(newGame(2), 'corp', ['c01', 'c01', 'c01', 'c01', 'c01', 'c01']);
     const s = run(g, [endTurn('corp'), discard('corp', [3])]).state;
     expect(s.players.corp.hand).toEqual(['c01', 'c01', 'c01', 'c01', 'c01']);
-    expect(s.players.corp.discard).toEqual(['c01']);
+    expect(s.players.corp.discard).toEqual([down('c01')]);
   });
 });
 

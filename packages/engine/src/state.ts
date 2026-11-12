@@ -1,4 +1,4 @@
-import { CORP_STARTER_DECK, RUNNER_STARTER_DECK, type Side } from '@overclock/cards';
+import { CORP_STARTER_DECK, RUNNER_STARTER_DECK, getCard, type Side } from '@overclock/cards';
 import type { GameEvent } from './events';
 import { seedToRng, shuffle } from './rng';
 
@@ -11,6 +11,8 @@ export const STARTING_HAND_SIZE = 5;
 export const MAX_HAND_SIZE = 5;
 export const RUNNER_CLICKS_PER_TURN = 4;
 export const CORP_CLICKS_PER_TURN = 3;
+/** The Runner's memory limit for programs. */
+export const BASE_MEMORY = 4;
 
 /** 'action': spend clicks / end turn. 'discard': hand-limit step. 'over': game finished. */
 export type Phase = 'action' | 'discard' | 'over';
@@ -21,15 +23,67 @@ export interface GameResult {
   readonly reason: WinReason;
 }
 
+/** The three central servers, then remotes (`remote-1`, `remote-2`, ...; numbers never reused). */
+export type CentralServerId = 'hq' | 'rd' | 'archives';
+export type RemoteServerId = `remote-${number}`;
+export type ServerId = CentralServerId | RemoteServerId;
+
+export const CENTRAL_SERVERS: readonly CentralServerId[] = ['hq', 'rd', 'archives'];
+
+/** A card on the table. The uid ("i<n>") is given at install time, never at the deal. */
+export interface Installed {
+  readonly uid: string;
+  readonly cardId: string;
+  /** Rezzing comes in a later sprint: every installed Corp card is unrezzed (face down). */
+  readonly rezzed: false;
+}
+
+export interface ServerState {
+  readonly id: ServerId;
+  /** ICE protecting the server: index 0 innermost, last entry outermost. */
+  readonly ice: readonly Installed[];
+  /**
+   * Cards installed in the server. Remote: at most one agenda/asset plus any
+   * upgrades. Central: upgrades only (HQ/R&D/Archives contents stay in hand/deck/discard).
+   */
+  readonly root: readonly Installed[];
+}
+
+export interface Rig {
+  readonly program: readonly Installed[];
+  readonly hardware: readonly Installed[];
+  readonly resource: readonly Installed[];
+}
+
+/** A discard pile card. Face-down entries (Corp hand-limit discards) are hidden from the Runner. */
+export interface DiscardEntry {
+  readonly cardId: string;
+  readonly faceUp: boolean;
+}
+
 /** One player's zones and counters. Card entries are card definition ids. */
 export interface PlayerState {
   /** Top of deck is index 0. */
   readonly deck: readonly string[];
   readonly hand: readonly string[];
-  /** Discard pile (Runner: heap, face up; Corp: Archives, face down). Bottom is index 0. */
-  readonly discard: readonly string[];
+  /** Discard pile (Runner: Heap; Corp: Archives). Bottom is index 0. */
+  readonly discard: readonly DiscardEntry[];
   readonly credits: number;
   readonly clicks: number;
+}
+
+export interface CorpState extends PlayerState {
+  /** hq, rd, archives, then remotes in creation order. */
+  readonly servers: readonly ServerState[];
+}
+
+export interface RunnerState extends PlayerState {
+  readonly rig: Rig;
+}
+
+export interface Players {
+  readonly corp: CorpState;
+  readonly runner: RunnerState;
 }
 
 /** Full game state. Plain JSON: serializable and structurally clonable. */
@@ -42,7 +96,11 @@ export interface GameState {
   readonly activePlayer: Side;
   readonly phase: Phase;
   readonly result: GameResult | null;
-  readonly players: Readonly<Record<Side, PlayerState>>;
+  /** Next installed-card uid number ("i<n>"). Starts at 1. */
+  readonly nextUid: number;
+  /** Next remote server number. Starts at 1; never reused. */
+  readonly nextRemote: number;
+  readonly players: Players;
 }
 
 export function opponentOf(side: Side): Side {
@@ -54,7 +112,19 @@ export function clicksPerTurn(side: Side): number {
 }
 
 export function withPlayer(state: GameState, side: Side, patch: Partial<PlayerState>): GameState {
-  return { ...state, players: { ...state.players, [side]: { ...state.players[side], ...patch } } };
+  const players: Players =
+    side === 'corp'
+      ? { ...state.players, corp: { ...state.players.corp, ...patch } }
+      : { ...state.players, runner: { ...state.players.runner, ...patch } };
+  return { ...state, players };
+}
+
+export function withCorp(state: GameState, patch: Partial<CorpState>): GameState {
+  return { ...state, players: { ...state.players, corp: { ...state.players.corp, ...patch } } };
+}
+
+export function withRunner(state: GameState, patch: Partial<RunnerState>): GameState {
+  return { ...state, players: { ...state.players, runner: { ...state.players.runner, ...patch } } };
 }
 
 /** Moves the top card of `side`'s deck to its hand. Caller guarantees the deck is not empty. */
@@ -117,7 +187,17 @@ export function newGame(seed: number): GameState {
     activePlayer: 'corp',
     phase: 'action',
     result: null,
-    players: { corp: corp.player, runner: runner.player },
+    nextUid: 1,
+    nextRemote: 1,
+    players: {
+      corp: { ...corp.player, servers: CENTRAL_SERVERS.map((id) => ({ id, ice: [], root: [] })) },
+      runner: { ...runner.player, rig: { program: [], hardware: [], resource: [] } },
+    },
   };
   return startTurn(base, 'corp', 1).state;
+}
+
+/** Memory used by the Runner's installed programs. */
+export function memoryUsed(state: GameState): number {
+  return state.players.runner.rig.program.reduce((sum, p) => sum + (getCard(p.cardId)?.memory ?? 0), 0);
 }

@@ -81,7 +81,7 @@ describe('LocalMatch', () => {
       ]);
       expect(u[seat].view.activePlayer).toBe('runner');
     }
-    expect(u.runner.view.players.corp.discard).toBeNull();
+    expect(u.runner.view.players.corp.discard).toEqual([null]);
     expect(u.runner.view.players.corp.discardCount).toBe(1);
   });
 
