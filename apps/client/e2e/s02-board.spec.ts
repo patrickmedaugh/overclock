@@ -58,6 +58,8 @@ function every44(boxes: Box[]): void {
 
 test.describe('S-02-5 a busy board fits on a phone', () => {
   test('3 servers with 2 ICE each and 4 Runner cards: nothing overlaps, every card can be tapped and held', async ({ page }) => {
+    // Holds ~28 cards one by one (each ~0.4s+): longer than the default test timeout under CPU throttling.
+    test.setTimeout(120_000);
     await openBoard(page, 1);
     await toBusyBoard(page, 1);
     // Both sides of the table: as planned, then after the turn passes.

@@ -231,8 +231,13 @@ export function boardElements(l: LayoutSnapshot): [string, Box][] {
   }
   for (const srv of l.servers) {
     out.push([`${srv.label} name`, srv.labelBox]);
-    if (srv.id === 'hq' && srv.root) out.push(['HQ marker', srv.root]);
-    srv.content.forEach((c, i) => out.push([`${srv.label} card ${i}`, c.box]));
+    const row: [string, Box][] = [
+      ...(srv.id === 'hq' && srv.root ? [['HQ marker', srv.root] as [string, Box]] : []),
+      ...srv.content.map((c, i): [string, Box] => [`${srv.label} card ${i}`, c.box]),
+    ];
+    // A crowded server fans its cards (past the busy board): only the top one counts here.
+    const fanned = row.some((r, i) => i > 0 && overlaps(row[i - 1]![1], r[1]));
+    out.push(...(fanned ? row.slice(-1) : row));
     srv.ice.forEach((c, i) => out.push([`${srv.label} ICE ${i}`, c.box]));
   }
   l.rig.forEach((c, i) => out.push([`rig card ${i}`, c.box]));

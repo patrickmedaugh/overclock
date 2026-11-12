@@ -189,15 +189,17 @@ interface Gaps {
   gc: number;
   /** Server name tag height. */
   labelH: number;
+  /** Several cards in one server overlap inside the usual column width (instead of widening it). */
+  fan?: boolean;
 }
 
-function columnWidth(slots: number, u: number, g: number): number {
-  return Math.max(cardH(u), slots * u + (slots - 1) * g);
+function columnWidth(slots: number, u: number, g: number, fan = false): number {
+  return fan ? cardH(u) : Math.max(cardH(u), slots * u + (slots - 1) * g);
 }
 
 function corpWidth(servers: readonly ServerShape[], u: number, k: Gaps): number {
   // + the New server column (one slot).
-  const cols = servers.map((s) => columnWidth(slotCount(s), u, k.g));
+  const cols = servers.map((s) => columnWidth(slotCount(s), u, k.g, k.fan));
   cols.push(columnWidth(1, u, k.g));
   return cols.reduce((a, b) => a + b, 0) + (cols.length - 1) * k.gc;
 }
@@ -226,12 +228,14 @@ function layoutCorpBand(x: number, y: number, width: number, height: number, u: 
   let cx = x;
   const column = (s: ServerShape | { id: 'new'; ice: number; content: number }): ServerSlots => {
     const n = s.id === 'new' ? 1 : slotCount(s as ServerShape);
-    const w = columnWidth(n, u, k.g);
+    const w = columnWidth(n, u, k.g, k.fan);
     const label = outward === 'down' ? box(cx, y, w, k.labelH) : box(cx, y + height - k.labelH, w, k.labelH);
     const rowY = outward === 'down' ? label.y + k.labelH + k.g : label.y - k.g - uh;
-    const rowW = n * u + (n - 1) * k.g;
+    // Fanned (past the busy board): the cards overlap, each still showing a strip.
+    const cstep = n === 1 ? 0 : Math.min(u + k.g, (w - u) / (n - 1));
+    const rowW = u + (n - 1) * cstep;
     const rowX = cx + (w - rowW) / 2;
-    const slots = Array.from({ length: n }, (_, i) => box(rowX + i * (u + k.g), rowY, u, uh));
+    const slots = Array.from({ length: n }, (_, i) => box(rowX + i * cstep, rowY, u, uh));
     const central = s.id !== 'new' && isCentral(s.id);
     // Past the reserved ICE room (only when shrinking hit its floor), ICE overlap evenly.
     const step = s.ice <= 1 ? u + k.g : Math.min(u + k.g, (iceRoom - k.g - u) / (s.ice - 1));
@@ -267,6 +271,27 @@ function layoutRigBand(x: number, y: number, width: number, u: number, k: Gaps, 
   const cards = Array.from({ length: n }, (_, i) => box(start + i * step, y, u, uh));
   const install = box(start + n * step, y, u, uh);
   return { band: box(x, y, width, uh), stack, heap, cards, install, memory };
+}
+
+/**
+ * Card unit and gaps for the table. The unit is planned for the busy board; a
+ * table a little past it (say an upgrade next to an agenda in a remote) first
+ * squeezes the gaps between columns (down to 2px), then fans the cards of a
+ * crowded server inside its usual width (like the hand), so no card changes
+ * size; only a bigger table (more servers, ICE or Runner cards) shrinks them.
+ */
+function fitTable(max: number, k: Gaps, fits: (u: number, k: Gaps) => boolean, fitsBusy: (u: number) => boolean): { u: number; k: Gaps } {
+  const u = fitUnit(max, (u) => fits(u, k));
+  const uBusy = fitUnit(max, fitsBusy);
+  if (u >= uBusy) return { u, k };
+  if (fits(uBusy, { ...k, gc: 2 })) {
+    let gc = k.gc;
+    while (gc > 2 && !fits(uBusy, { ...k, gc })) gc--;
+    return { u: uBusy, k: { ...k, gc } };
+  }
+  // Still too wide: fan the cards of crowded servers inside their usual width.
+  if (fits(uBusy, { ...k, fan: true })) return { u: uBusy, k: { ...k, fan: true } };
+  return { u, k };
 }
 
 /** Largest integer unit in [MIN_UNIT, max] that satisfies `fits` (monotone). */
@@ -339,7 +364,17 @@ function landscapeLayout(vw: number, vh: number, insets: Insets, safe: Box, view
   // Unit: header + corp band + rig band + hand (hand cards at least the unit) fit the height,
   // and both bands fit the width.
   const fixedH = headerH + 3 * vgap;
-  const u = fitUnit(72, (u) => fixedH + corpHeight(u, ice, k) + 2 * cardH(u) <= availH && corpWidth(sizing, u, k) <= bw && rigWidth(rigN, u, k) <= bw);
+  const busy = sizingServers(EMPTY_SHAPE);
+  const heightOk = (u: number, ic: number) => fixedH + corpHeight(u, ic, k) + 2 * cardH(u) <= availH;
+  const fit = fitTable(
+    72,
+    k,
+    (u, kk) => heightOk(u, ice) && corpWidth(sizing, u, kk) <= bw && rigWidth(rigN, u, kk) <= bw,
+    (u) => heightOk(u, RESERVED.icePerServer) && corpWidth(busy, u, k) <= bw && rigWidth(RESERVED.rig, u, k) <= bw,
+  );
+  const u = fit.u;
+  k.gc = fit.k.gc;
+  k.fan = fit.k.fan;
   const uh = cardH(u);
   const corpH = corpHeight(u, ice, k);
   // Spare height makes the hand bigger (up to 1.25x).
@@ -456,7 +491,16 @@ function portraitLayout(vw: number, vh: number, insets: Insets, safe: Box, viewe
   // Hand cards one row, like the reference phone's; the bands get the unit that fits,
   // then spare height grows the hand cards.
   const cardW0 = Math.min(maxCardW, Math.max(MIN_TOUCH, Math.floor(84 * s)));
-  const u = fitUnit(Math.round(72 * s), (u) => bandsFit(u, cardW0) && corpWidth(sizing, u, k) <= avail && rigWidth(rigN, u, k) <= avail);
+  const busy = sizingServers(EMPTY_SHAPE);
+  const fit = fitTable(
+    Math.round(72 * s),
+    k,
+    (u, kk) => bandsFit(u, cardW0) && corpWidth(sizing, u, kk) <= avail && rigWidth(rigN, u, kk) <= avail,
+    (u) => handFixed + Math.floor(cardW0 * CARD_RATIO) + corpHeight(u, RESERVED.icePerServer, k) + cardH(u) <= safe.height && corpWidth(busy, u, k) <= avail && rigWidth(RESERVED.rig, u, k) <= avail,
+  );
+  const u = fit.u;
+  k.gc = fit.k.gc;
+  k.fan = fit.k.fan;
   let cardW = cardW0;
   const capW = Math.min(maxCardW, Math.round(110 * s));
   while (cardW < capW && bandsFit(u, cardW + 1)) cardW++;

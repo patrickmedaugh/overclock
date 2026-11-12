@@ -73,15 +73,16 @@ function safeRect(w: number, h: number, i: Insets): Box {
 }
 
 /** Every drawn element that must not overlap another (server columns are containers, checked apart). */
-function elements(l: BoardLayout): [string, Box][] {
+function elements(l: BoardLayout, opts: { fanned?: boolean } = {}): [string, Box][] {
   const out: [string, Box][] = [];
   for (const pos of ['top', 'bottom'] as const) {
     for (const k of ['label', 'credits', 'clicks'] as const) out.push([`${pos}.${k}`, l[pos][k]]);
   }
   for (const s of l.corp.servers) {
     out.push([`${s.id}.label`, s.label]);
-    if (s.root) out.push([`${s.id}.root`, s.root]);
-    s.content.forEach((b, i) => out.push([`${s.id}.content${i}`, b]));
+    // A fanned server's cards overlap each other (checked apart): count only the top one.
+    const row: [string, Box][] = [...(s.root ? [[`${s.id}.root`, s.root] as [string, Box]] : []), ...s.content.map((b, i): [string, Box] => [`${s.id}.content${i}`, b])];
+    out.push(...(opts.fanned && row.length > 1 ? row.slice(-1) : row));
     s.ice.forEach((b, i) => out.push([`${s.id}.ice${i}`, b]));
   }
   out.push(['newServer.label', l.corp.newServer.label]);
@@ -91,13 +92,13 @@ function elements(l: BoardLayout): [string, Box][] {
   return out;
 }
 
-function expectClean(l: BoardLayout, w: number, h: number, insets: Insets): void {
+function expectClean(l: BoardLayout, w: number, h: number, insets: Insets, opts: { fanned?: boolean } = {}): void {
   const safe = safeRect(w, h, insets);
   expect(l.safe).toEqual(safe);
   const columns: [string, Box][] = [...l.corp.servers, l.corp.newServer].map((s) => [`${s.id}.column`, s.column]);
-  const all = [...elements(l), ...columns, ['gameOver', l.gameOver] as [string, Box], ['zoom', l.zoom] as [string, Box], ['action', l.action] as [string, Box]];
+  const all = [...elements(l), ...columns, ...l.corp.servers.flatMap((s) => s.content.map((b, i): [string, Box] => [`${s.id}.content${i}`, b])), ['gameOver', l.gameOver] as [string, Box], ['zoom', l.zoom] as [string, Box], ['action', l.action] as [string, Box]];
   for (const [name, b] of all) expect(inside(b, safe), `${name} ${JSON.stringify(b)} inside safe ${JSON.stringify(safe)}`).toBe(true);
-  const flat = elements(l);
+  const flat = elements(l, opts);
   for (let i = 0; i < flat.length; i++) {
     for (let j = i + 1; j < flat.length; j++) {
       const [an, a] = flat[i]!;
@@ -301,6 +302,30 @@ describe('handSlots', () => {
     for (let n = 1; n <= 5; n++) {
       const slots = handSlots(l, n);
       for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) expect(overlaps(slots[i]!, slots[j]!)).toBe(false);
+    }
+  });
+});
+
+describe('computeLayout: a little past the busy board', () => {
+  it('upgrades next to the cards in servers keep every card its size (gaps squeeze, then the server fans)', () => {
+    const plus: BoardShape = {
+      ...BUSY,
+      servers: BUSY.servers.map((s) => (s.id === 'remote1' || s.id === 'hq' ? { ...s, content: s.content + 1 } : s)),
+    };
+    for (const [w, h] of MAIN) {
+      for (const [, insets] of INSETS) {
+        for (const viewer of SIDES) {
+          const busy = computeLayout(w, h, insets, { viewer, shape: BUSY });
+          const l = computeLayout(w, h, insets, { viewer, shape: plus });
+          expect(l.sizeKey, `${w}x${h} ${JSON.stringify(insets)}`).toBe(busy.sizeKey);
+          expectClean(l, w, h, insets, { fanned: true });
+          // A fanned card still shows a strip of itself, inside its column.
+          for (const s of l.corp.servers) {
+            const row = [...(s.root ? [s.root] : []), ...s.content];
+            for (let i = 1; i < row.length; i++) expect(row[i]!.x - row[i - 1]!.x).toBeGreaterThanOrEqual(Math.min(l.unit.width * 0.35, 20));
+          }
+        }
+      }
     }
   });
 });
