@@ -16,6 +16,7 @@ import { centeredBox } from './geometry';
 import { Hand, type HandCard } from './hand';
 import type { AnimRecord, Box, EndTurnClock, InstalledSnapshot, Insets, LayoutSnapshot, SideLayout, TargetSnapshot } from './hook-types';
 import type { Presentation } from './hotseat';
+import { hintFor } from './hints';
 import { attachPress } from './input';
 import { type BoardLayout, type BoardShape, type SideRow, computeLayout } from './layout';
 import { SIDE_NAME, TERMS, plural, priceText, serverLabel, zoneName } from './terms';
@@ -26,34 +27,6 @@ import { ActionButton, Counter, DeckPile, DiscardPile, MemoryCounter, TargetMark
 type Pos = 'top' | 'bottom';
 const SIDES: readonly Side[] = ['corp', 'runner'];
 const other = (s: Side): Side => (s === 'corp' ? 'runner' : 'corp');
-
-/** Plain-language hints for refused actions. */
-export function hintFor(reason: RejectReason, view: PlayerView | null): string {
-  switch (reason) {
-    case 'no_clicks':
-      return 'No clicks left';
-    case 'not_your_turn':
-      return 'Not your turn';
-    case 'deck_empty':
-      return view?.viewer === 'corp' ? `${TERMS.rd} is empty` : `Your ${TERMS.stack} is empty`;
-    case 'game_over':
-      return 'The game is over';
-    case 'wrong_phase':
-      return view?.pendingDiscard ? 'Pick your discards first' : "You can't do that right now";
-    case 'bad_discard':
-      return 'Pick exactly the cards asked for';
-    case 'invalid_action':
-    case 'bad_card':
-    case 'bad_target':
-      return "That move isn't allowed";
-    case 'no_credits':
-      return 'Not enough credits';
-    case 'no_memory':
-      return `Not enough ${TERMS.memory.toLowerCase()}`;
-    case 'not_implemented':
-      return 'Needs runs (coming soon)';
-  }
-}
 
 /** Refusals that apply to every target of a card alike: shown at once instead of lighting targets. */
 const GATE_REASONS: ReadonlySet<RejectReason> = new Set(['game_over', 'not_your_turn', 'wrong_phase', 'no_clicks']);
