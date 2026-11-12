@@ -212,10 +212,9 @@ class DeckPile {
       const back = createCardBack(side, cw, ch);
       back.position.set(-off + i * off, -off + i * off);
       back.alpha = i === 0 ? 1 : 0.55;
+      // Added bottom-first, so the top card (i=0) renders last.
       this.pile.addChild(back);
     }
-    // Reverse so the top card (i=0) renders last.
-    this.pile.children.reverse();
     this.root.addChild(this.glow, this.pile);
 
     const badgeH = Math.max(16, 20 * scale);
