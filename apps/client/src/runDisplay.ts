@@ -131,7 +131,8 @@ export class RunDisplay {
     const title = runTitle(run);
     const step = stepLabel(panel, deciding);
     const lines = infoLines(panel, rig);
-    const showSubs = panel.step === 'approach' || panel.step === 'encounter';
+    // The passed ICE keeps its list at Continue, so a just-broken subroutine is seen crossed out.
+    const showSubs = panel.step !== 'access';
     const subs = showSubs ? (panel.ice?.subroutines ?? []).map((s) => ({ text: s.text, broken: s.broken })) : [];
     const infoKey = JSON.stringify([title, step, lines, subs, deciding, layout.runInfo]);
     if (infoKey !== this.infoKey) {
