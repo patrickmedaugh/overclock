@@ -85,6 +85,86 @@ Checks run in this order; the first failure is the reason: `invalid_action` (sha
 
 `GameState` is plain JSON: `seed`, `rng` (mulberry32 state), `turn`, `activePlayer`, `phase`, `result`, and `players.{corp,runner}` with `deck` (top = index 0), `hand`, `discard`, `credits`, `clicks`. Card entries are card definition ids from `@overclock/cards` (`getCard(id)`); duplicates are extra copies.
 
+## Sprint 2 interface (pinned: implement exactly this; changes go through the architect)
+
+Adds installing and playing cards. Everything from Sprint 1 still holds except the discard pile shape (marked **changed**).
+
+```ts
+const MEMORY_LIMIT = 4;                       // Runner program memory (fixed this sprint)
+
+type CentralServerId = 'hq' | 'rd' | 'archives';
+type RemoteServerId = `remote${number}`;      // remote1, remote2, ... never reused
+type ServerId = CentralServerId | RemoteServerId;
+
+// ---- state additions ----
+interface Installed { uid: string; cardId: string; rezzed: boolean }   // uid "i1", "i2", ...; rezzed always false this sprint
+interface Server { id: ServerId; ice: Installed[]; content: Installed[] } // ice[0] innermost, new ICE pushed = outermost
+interface DiscardEntry { cardId: string; faceUp: boolean }
+// GameState gains: servers: Server[] (hq, rd, archives, remote1...), rig: Installed[] (install order),
+//                  nextUid: number, nextRemote: number
+// PlayerState.discard: DiscardEntry[]        // changed (was string[])
+
+// ---- actions ----
+type Action = /* Sprint 1 actions */
+  | { type: 'install'; player: Side; handIndex: number; server?: ServerId | 'new' } // 1 click
+  | { type: 'play'; player: Side; handIndex: number };                            // 1 click
+
+type RejectReason = /* Sprint 1 reasons */
+  | 'bad_card' | 'bad_target' | 'not_implemented' | 'no_credits' | 'no_memory';
+
+// ---- events ----
+type GameEvent = /* Sprint 1 events */
+  | { type: 'credits_spent'; player: Side; amount: number }        // only when amount > 0
+  | { type: 'server_created'; server: ServerId }
+  | { type: 'card_installed'; player: Side; uid: string; zone: 'ice' | 'content' | 'rig';
+      server?: ServerId;      // Corp installs
+      handIndex?: number;     // owner only
+      cardId?: string }       // owner only for Corp installs (face down); both for Runner installs
+  | { type: 'card_played'; player: Side; cardId: string; handIndex?: number }; // handIndex owner only
+
+// ---- view ----
+interface InstalledView { uid: string; cardId: string | null; faceUp: boolean } // Runner sees cardId null for every unrezzed Corp card
+interface ServerView { id: ServerId; ice: InstalledView[]; content: InstalledView[] }
+interface CardOption { action: Action; cost: number; reject: RejectReason | null }
+interface PlayerSideView { /* Sprint 1 fields */ discard: (string | null)[] } // changed: null = face down to the viewer
+interface PlayerView {
+  /* Sprint 1 fields */
+  corpServers: ServerView[];
+  rig: InstalledView[];
+  memory: { used: number; limit: number };
+  handOptions: CardOption[][];   // per viewer hand index
+}
+```
+
+### Card DSL v0 (`@overclock/cards`)
+```ts
+type Effect = { op: 'gain_credits'; amount: number } | { op: 'draw'; count: number };
+interface CardDef { /* ... */ onPlay?: Effect[]; needs?: 'runs' }
+```
+Effects run in order. `draw` stops when the deck is empty (no loss; only the Corp's mandatory draw loses). A card with `needs: 'runs'` is refused with `not_implemented`. There is no per-card code in the engine.
+
+### Install and play rules
+- **Corp** (`server` required): agenda / asset → a remote server with no agenda or asset in it, or `'new'`. Upgrade → any server (HQ, R&D, Archives, any remote) or `'new'`. ICE → any server or `'new'`; costs 1 credit per ICE already protecting that server (0 for a new server). Corp non-ICE installs cost 0 (they are installed unrezzed, face down).
+- **Runner** (`server` must be absent): program / hardware / resource → the rig; costs the card's `cost`. Programs need `memory used + card memory ≤ MEMORY_LIMIT`.
+- **Play**: operation (Corp) / event (Runner); pays the card's `cost`, the card goes face up on top of its owner's discard pile (Archives for the Corp), then its `onPlay` effects resolve.
+- Every install and play costs 1 click. `'new'` creates `remote<nextRemote>` (appended to `servers`).
+- Hand-limit discards: Runner's face up, Corp's face down (unchanged; now stored as `{cardId, faceUp}`).
+
+### Validation order (rules.ts)
+`invalid_action` (shape: `handIndex` an integer; `server`, if present, a string) → `game_over` → `not_your_turn` → `wrong_phase` (action step) → `no_clicks` → `bad_card` (index out of range; install of an operation/event; play of anything else) → `bad_target` (Corp: missing/unknown server or one the card may not go in; Runner: any `server` given) → `not_implemented` (`needs: 'runs'`) → `no_credits` → `no_memory`.
+
+### Event sequences
+- `install` → [`credits_spent`] → [`server_created`] → `card_installed`.
+- `play` → [`credits_spent`] → `card_played` → the effects' own events (`credit_gained`, `card_drawn` × n).
+- Opponent projection (`viewEvents`): `card_installed` loses `handIndex` (and `cardId` for Corp installs); `card_played` loses `handIndex`. `credits_spent` and `server_created` are public.
+
+### `handOptions` and `legalActions`
+- `handOptions[i]` lists, for the viewer's hand card `i`, every *offered* action with its engine-computed credit `cost` and `reject` (the reason it would be refused now, or null). Offered = the card type fits the action and the target is allowed for that card (so `bad_card`/`bad_target` never appear). Any other reason may appear, e.g. `no_credits`, `no_memory`, `not_implemented`, `no_clicks`, `not_your_turn`. Targets are listed in server order (hq, rd, archives, remotes) then `'new'`. **The client never computes a price, a target or memory.**
+- `legalActions` order: draw, gain_credit, end_turn, discard, install… (by hand index, then target in the order above), play… (by hand index).
+
+### Not in Sprint 2
+No rez, runs, advancing, scoring, trashing, or installed-card abilities. No `hasMeaningfulResponse` yet: there is still no response window.
+
 ## `@overclock/match` (host; `packages/match`)
 Owns one game's `GameState` and talks to seats only through projections. It is the same contract a network server will expose later.
 

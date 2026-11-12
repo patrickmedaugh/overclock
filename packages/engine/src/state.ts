@@ -11,6 +11,8 @@ export const STARTING_HAND_SIZE = 5;
 export const MAX_HAND_SIZE = 5;
 export const RUNNER_CLICKS_PER_TURN = 4;
 export const CORP_CLICKS_PER_TURN = 3;
+/** The Runner's memory limit for programs (fixed this sprint). */
+export const MEMORY_LIMIT = 4;
 
 /** 'action': spend clicks / end turn. 'discard': hand-limit step. 'over': game finished. */
 export type Phase = 'action' | 'discard' | 'over';
@@ -21,13 +23,39 @@ export interface GameResult {
   readonly reason: WinReason;
 }
 
-/** One player's zones and counters. Card entries are card definition ids. */
+/** Central servers, then remote servers `remote1`, `remote2`, ... (numbers never reused). */
+export type CentralServerId = 'hq' | 'rd' | 'archives';
+export type RemoteServerId = `remote${number}`;
+export type ServerId = CentralServerId | RemoteServerId;
+
+/** An installed card. `uid` is a per-instance id ("i1", "i2", ...); `cardId` its definition. */
+export interface Installed {
+  readonly uid: string;
+  readonly cardId: string;
+  /** Corp cards are installed unrezzed (face down); always false this sprint. Runner cards: false (unused). */
+  readonly rezzed: boolean;
+}
+
+/** A Corp server: ICE protecting it (index 0 innermost, last = outermost) and cards in it. */
+export interface Server {
+  readonly id: ServerId;
+  readonly ice: readonly Installed[];
+  readonly content: readonly Installed[];
+}
+
+/** One discard-pile card. Runner discards and played cards are face up; Corp hand-limit discards face down. */
+export interface DiscardEntry {
+  readonly cardId: string;
+  readonly faceUp: boolean;
+}
+
+/** One player's zones and counters. Deck and hand entries are card definition ids. */
 export interface PlayerState {
   /** Top of deck is index 0. */
   readonly deck: readonly string[];
   readonly hand: readonly string[];
-  /** Discard pile (Runner: heap, face up; Corp: Archives, face down). Bottom is index 0. */
-  readonly discard: readonly string[];
+  /** Discard pile (Runner: heap; Corp: Archives). Bottom is index 0. */
+  readonly discard: readonly DiscardEntry[];
   readonly credits: number;
   readonly clicks: number;
 }
@@ -43,7 +71,17 @@ export interface GameState {
   readonly phase: Phase;
   readonly result: GameResult | null;
   readonly players: Readonly<Record<Side, PlayerState>>;
+  /** Corp servers: hq, rd, archives, then remotes in creation order. */
+  readonly servers: readonly Server[];
+  /** Runner's installed cards (programs, hardware, resources), in install order. */
+  readonly rig: readonly Installed[];
+  /** Next installed-card uid number ("i" + nextUid). */
+  readonly nextUid: number;
+  /** Next remote server number ("remote" + nextRemote). */
+  readonly nextRemote: number;
 }
+
+export const CENTRAL_SERVERS: readonly CentralServerId[] = ['hq', 'rd', 'archives'];
 
 export function opponentOf(side: Side): Side {
   return side === 'corp' ? 'runner' : 'corp';
@@ -118,6 +156,10 @@ export function newGame(seed: number): GameState {
     phase: 'action',
     result: null,
     players: { corp: corp.player, runner: runner.player },
+    servers: CENTRAL_SERVERS.map((id) => ({ id, ice: [], content: [] })),
+    rig: [],
+    nextUid: 1,
+    nextRemote: 1,
   };
   return startTurn(base, 'corp', 1).state;
 }

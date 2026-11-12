@@ -3,9 +3,11 @@ import { apply, legalActions, newGame, type Action, type ActionType, type GameSt
 import { RULES } from '../src/rules';
 import { clone, finishTurn, run, withClicks, withDeck, withHand } from './helpers';
 
-const TYPES: ActionType[] = ['draw', 'gain_credit', 'end_turn', 'discard'];
+const ALL_TYPES: ActionType[] = ['draw', 'gain_credit', 'end_turn', 'discard', 'install', 'play'];
+type Sprint1Type = 'draw' | 'gain_credit' | 'end_turn' | 'discard';
+const TYPES: Sprint1Type[] = ['draw', 'gain_credit', 'end_turn', 'discard'];
 
-function make(type: ActionType, player: Side, handIndices: number[] = [5]): Action {
+function make(type: Sprint1Type, player: Side, handIndices: number[] = [5]): Action {
   return type === 'discard' ? { type, player, handIndices } : { type, player };
 }
 
@@ -16,7 +18,7 @@ const discardStep = () => run(newGame(50), [{ type: 'end_turn', player: 'corp' }
 const overState = (): GameState => ({ ...newGame(50), phase: 'over', result: { winner: 'runner', reason: 'corp_decked' } });
 
 /** Which reasons the table says each action can produce, in order (S-01 tech plan table). */
-const EXPECTED: Record<ActionType, RejectReason[]> = {
+const EXPECTED: Record<Sprint1Type, RejectReason[]> = {
   draw: ['invalid_action', 'game_over', 'not_your_turn', 'wrong_phase', 'no_clicks', 'deck_empty'],
   gain_credit: ['invalid_action', 'game_over', 'not_your_turn', 'wrong_phase', 'no_clicks'],
   end_turn: ['invalid_action', 'game_over', 'not_your_turn', 'wrong_phase'],
@@ -24,7 +26,7 @@ const EXPECTED: Record<ActionType, RejectReason[]> = {
 };
 
 /** A state + action that triggers exactly `reason` for `type` (and nothing earlier). */
-function scenario(type: ActionType, reason: RejectReason): { state: GameState; action: Action } {
+function scenario(type: Sprint1Type, reason: RejectReason): { state: GameState; action: Action } {
   const rightPhase = type === 'discard' ? discardStep() : actionStep();
   switch (reason) {
     case 'invalid_action':
@@ -41,12 +43,14 @@ function scenario(type: ActionType, reason: RejectReason): { state: GameState; a
       return { state: withDeck(actionStep(), 'corp', []), action: make(type, 'corp') };
     case 'bad_discard':
       return { state: rightPhase, action: make(type, 'corp', [0, 1]) };
+    default:
+      throw new Error(`no scenario for ${reason}`);
   }
 }
 
 describe('validation table (rules.ts)', () => {
   it('has an entry for every action type', () => {
-    expect(Object.keys(RULES).sort()).toEqual([...TYPES].sort());
+    expect(Object.keys(RULES).sort()).toEqual([...ALL_TYPES].sort());
   });
 
   describe.each(TYPES)('%s', (type) => {

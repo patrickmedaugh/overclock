@@ -35,6 +35,16 @@ function hintFor(reason: RejectReason, view: PlayerView | null): string {
       return 'Pick exactly the cards asked for';
     case 'invalid_action':
       return "That move isn't allowed";
+    // Sprint 2 engine reasons (minimal wording; ui-dev owns the final copy in U4).
+    case 'no_credits':
+      return 'Not enough credits';
+    case 'no_memory':
+      return 'Not enough memory';
+    case 'not_implemented':
+      return 'Needs runs (coming soon)';
+    case 'bad_card':
+    case 'bad_target':
+      return "That card can't go there";
   }
 }
 
@@ -305,12 +315,12 @@ class DiscardPile {
     return centeredBox(this.root, this.w, this.h, this.inner.scale.x, this.inner.scale.y);
   }
 
-  /** `pile` is the view's discard list (bottom = 0), or null when face down to the viewer. */
-  set(count: number, pile: readonly string[] | null): void {
+  /** `pile` is the view's discard list (bottom = 0); an entry is null when that card is face down to the viewer. */
+  set(count: number, pile: readonly (string | null)[]): void {
     this.countText.text = String(count);
     fitText(this.countText, this.badgeTextW);
-    const topId = pile ? (pile[pile.length - 1] ?? null) : null;
-    const key = `${count}:${pile ? (topId ?? '') : '#'}`;
+    const topId = pile[pile.length - 1] ?? null;
+    const key = `${count}:${topId ?? '#'}`;
     if (key === this.key) return;
     this.key = key;
     for (const c of this.topLayer.removeChildren()) c.destroy({ children: true });
