@@ -241,6 +241,21 @@ export function createCardFace(card: CardDef, w: number, h: number, detail: 'sma
 }
 
 function buildCardFace(card: CardDef, w: number, h: number, detail: 'small' | 'full'): Container {
+  if (detail === 'full') {
+    // Long rules text (e.g. Bank Job) must fit: shrink the art window first, then the text.
+    for (const artFrac of [0.36, 0.3, 0.24, 0.18, 0.14]) {
+      for (const textK of artFrac > 0.14 ? [1] : [1, 0.92, 0.85, 0.78, 0.72, 0.66]) {
+        const c = drawCardFace(card, w, h, detail, artFrac, textK);
+        if (c.fits) return c.root;
+        c.root.destroy({ children: true });
+      }
+    }
+    return drawCardFace(card, w, h, detail, 0.14, 0.6).root;
+  }
+  return drawCardFace(card, w, h, detail, 0.4, 1).root;
+}
+
+function drawCardFace(card: CardDef, w: number, h: number, detail: 'small' | 'full', artFrac: number, textK: number): { root: Container; fits: boolean } {
   const c = new Container();
   const color = sideColor(card.side);
   const r = Math.max(3, w * 0.07);
@@ -253,7 +268,7 @@ function buildCardFace(card: CardDef, w: number, h: number, detail: 'small' | 'f
   const artX = left + w * 0.08;
   const artY = top + h * (detail === 'full' ? 0.15 : 0.17);
   const artW = w * 0.84;
-  const artH = h * (detail === 'full' ? 0.36 : 0.4);
+  const artH = h * artFrac;
   g.roundRect(artX, artY, artW, artH, r * 0.6).fill({ color: 0x000000, alpha: 0.55 }).stroke({ width: 1, color, alpha: 0.4 });
   drawGlyph(g, card.art, artX, artY, artW, artH, color);
   glowRoundRect(g, left, top, w, h, r, color, Math.max(1, w * 0.02));
@@ -309,9 +324,10 @@ function buildCardFace(card: CardDef, w: number, h: number, detail: 'small' | 'f
   }
   c.addChild(type);
 
+  let fits = true;
   if (detail === 'full') {
     const bodyTop = type.y + typeSize * 1.8;
-    const textSize = Math.max(12, w * 0.052);
+    const textSize = Math.max(9, Math.max(12, w * 0.052) * textK);
     const body = new Text({
       text: card.text,
       style: {
@@ -345,15 +361,19 @@ function buildCardFace(card: CardDef, w: number, h: number, detail: 'small' | 'f
       y += flavor.height;
     }
     const stats = statsLine(card);
+    let bottomLimit = top + h - h * 0.03;
     if (stats) {
       const st = new Text({
         text: stats,
-        style: { fontFamily: theme.monoFamily, fontSize: textSize * 0.8, fill: color },
+        style: { fontFamily: theme.monoFamily, fontSize: Math.max(9, w * 0.042), fill: color },
       });
       st.anchor.set(0, 1);
       st.position.set(artX, top + h - h * 0.035);
+      if (st.width > artW) st.scale.set(artW / st.width);
       c.addChild(st);
+      bottomLimit = st.y - st.height - textSize * 0.3;
     }
+    fits = bodyTop + body.height <= bottomLimit && y - textSize * 0.7 <= bottomLimit;
   }
-  return c;
+  return { root: c, fits };
 }
