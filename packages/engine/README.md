@@ -170,6 +170,10 @@ class LocalMatch {
                                   // mismatches), as JSON copies, for replay(seed, actions)
 }
 ```
+Seats receive Sprint 2 events already projected (`card_installed` without `cardId`/`handIndex` for the Runner seat on Corp installs).
+
+**Test-only:** `@overclock/match/testing` exports `planBusyBoard(seed, goal?) -> { seed, actions, activePlayer }` (drives a `LocalMatch` through seat views until 3 remotes have 2 ICE each and the Runner has 4 installs; `actions` replay to that board for the same seed) and `busyBoardReached(view)`. For Node-side e2e setup only; the client must not import it.
+
 The client and AI may import only the public index of engine/cards/match. The client may not import `apply`, `newGame`, `legalActions`, `viewFor` or `replay` (it goes through the match).
 
 ## Rules for contributors

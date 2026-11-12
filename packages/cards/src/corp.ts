@@ -137,10 +137,13 @@ export const CORP_CARDS: readonly CardDef[] = [
   },
 ];
 
-/** 15-card starter deck: one of each, plus an extra Hedge Fund, Anonymous Tip and Ice Wall. */
+/**
+ * 15-card starter deck: one of each, plus an extra Hedge Fund, Ice Wall and
+ * Enigma (6 ICE, enough for the busy board: 3 servers with 2 ICE each).
+ */
 export const CORP_STARTER_DECK: DeckList = [
   ...CORP_CARDS.map((c) => c.id),
   'c01',
-  'c02',
   'c05',
+  'c06',
 ];

@@ -114,4 +114,21 @@ describe('LocalMatch', () => {
     (m.actions() as Action[]).pop();
     expect(m.actions()[1]).toEqual({ type: 'discard', player: 'corp', handIndices: [0] });
   });
+
+  it('S-02-1: a Corp install reaches the Runner seat with no card id or hand index; the Corp seat sees both', () => {
+    const m = new LocalMatch(3);
+    const hand = m.view('corp').players.corp.hand ?? [];
+    const option = m.view('corp').handOptions.flat().find((o) => o.action.type === 'install' && o.reject === null);
+    if (!option) throw new Error('seed 3 has no legal Corp install on turn 1');
+    const u = m.submit('corp', option.action);
+    const installed = u.corp.events.find((e) => e.type === 'card_installed');
+    expect(installed).toMatchObject({ player: 'corp', uid: 'i1' });
+    expect(installed && 'cardId' in installed && hand.includes(installed.cardId as string)).toBe(true);
+    const seen = u.runner.events.find((e) => e.type === 'card_installed');
+    expect(seen).toBeDefined();
+    expect(seen).not.toHaveProperty('cardId');
+    expect(seen).not.toHaveProperty('handIndex');
+    expect(JSON.stringify(u.runner)).not.toMatch(/"c\d\d"/);
+    expect(u.runner.view.corpServers.flatMap((s) => [...s.ice, ...s.content])).toEqual([{ uid: 'i1', cardId: null, faceUp: false }]);
+  });
 });
