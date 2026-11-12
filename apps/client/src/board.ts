@@ -3,16 +3,18 @@
 // comes from an engine event, and every button's enabled state comes from
 // view.legalActions / view.pendingDiscard. Viewer-relative: the seat in
 // `view.viewer` is drawn in the bottom row.
-import type { GameEvent, PlayerView, RejectReason, Side, WinReason } from '@overclock/engine';
+import type { CardOption, GameEvent, PlayerView, RejectReason, Side, WinReason } from '@overclock/engine';
 import { getCard } from '@overclock/cards';
 import { Container, Graphics, Rectangle, Text } from 'pixi.js';
 import { createCardBack, createCardFace, glowRoundRect, retireCardTextures } from './cardFace';
 import { centeredBox } from './geometry';
 import { Hand } from './hand';
-import type { AnimRecord, Box, EndTurnClock, LayoutSnapshot, SideLayout } from './hook-types';
+import type { AnimRecord, Box, EndTurnClock, Insets, LayoutSnapshot, SideLayout } from './hook-types';
 import type { Presentation } from './hotseat';
 import { attachPress } from './input';
-import type { BoardLayout, SideRow } from './layout';
+import { type BoardLayout, type SideRow, computeLayout } from './layout';
+import { Tabletop } from './tabletop';
+import { SIDE_LABEL, TERMS, pileLabel } from './terms';
 import { sideColor, theme, timing } from './theme';
 import { ease, type Tweens } from './tween';
 
@@ -46,7 +48,10 @@ function hintFor(reason: RejectReason, view: PlayerView | null): string {
   }
 }
 
-const SIDE_NAME: Record<Side, string> = { corp: 'Corp', runner: 'Runner' };
+const SIDE_NAME = SIDE_LABEL;
+
+/** Reasons that refuse every use of a hand card right now: say so at once instead of lighting targets. */
+const BLOCKING: ReadonlySet<RejectReason> = new Set(['no_clicks', 'not_your_turn', 'wrong_phase', 'game_over', 'not_implemented']);
 
 /** Why the game ended, in plain words (completes "<Winner> wins: ..."). */
 const WIN_REASON: Record<WinReason, string> = {
@@ -113,6 +118,25 @@ class Counter {
     const g = new Graphics();
     g.roundRect(-w / 2, -h / 2, w, h, r).fill({ color: 0x000000, alpha: 0.55 });
     glowRoundRect(g, -w / 2, -h / 2, w, h, r, sideColor(side), Math.max(1, 1.5 * scale), 0.8);
+    if (w < h * 2.2) {
+      // Compact pill (sideways phone rail): the number over a small label, no icon.
+      this.inner.addChild(this.glow, g);
+      this.valueText = new Text({
+        text: '0',
+        style: { fontFamily: theme.monoFamily, fontSize: h * 0.44, fontWeight: '700', fill: theme.text },
+      });
+      this.valueText.anchor.set(0.5);
+      this.valueText.position.set(0, -h * 0.12);
+      const small = new Text({
+        text: (kind === 'credits' ? TERMS.credits : TERMS.clicks).toUpperCase(),
+        style: { fontFamily: theme.monoFamily, fontSize: Math.max(8, h * 0.19), fill: color, letterSpacing: 1 },
+      });
+      small.anchor.set(0.5);
+      small.position.set(0, h * 0.28);
+      fitText(small, w - 8);
+      this.inner.addChild(this.valueText, small);
+      return;
+    }
     // Icon.
     const ix = -w / 2 + h * 0.5;
     const ir = h * 0.24;
@@ -140,7 +164,7 @@ class Counter {
     this.valueText.anchor.set(0, 0.5);
     this.valueText.position.set(textX, -h * 0.08);
     const label = new Text({
-      text: kind === 'credits' ? 'CREDITS' : 'CLICKS',
+      text: (kind === 'credits' ? TERMS.credits : TERMS.clicks).toUpperCase(),
       style: { fontFamily: theme.monoFamily, fontSize: Math.max(8, h * 0.17), fill: color, letterSpacing: 1 },
     });
     label.anchor.set(0, 0.5);
@@ -280,7 +304,7 @@ class DiscardPile {
     const r = Math.max(3, w * 0.08);
     slot.roundRect(-w / 2, -h / 2, w, h, r).fill({ color: 0x000000, alpha: 0.35 }).stroke({ width: 1, color, alpha: 0.45 });
     this.emptyText = new Text({
-      text: 'DISCARD',
+      text: pileLabel(side, 'discard').toUpperCase(),
       style: { fontFamily: theme.monoFamily, fontSize: Math.max(7, 9 * scale), fill: theme.textDim, letterSpacing: 1 },
     });
     this.emptyText.anchor.set(0.5);
@@ -429,6 +453,8 @@ export interface BoardCallbacks {
   onCreditsTap(): void;
   onEndTurn(): void;
   onDiscard(handIndices: number[]): void;
+  /** Install / play: an option from view.handOptions, as the engine offered it. */
+  onOption(option: CardOption): void;
   onNewGame(): void;
   log(rec: Omit<AnimRecord, 'startedAt'>): void;
 }
@@ -444,7 +470,13 @@ export class Board {
   private readonly hand: Hand;
   private readonly hintLayer = new Container();
   private readonly zoomLayer = new Container();
+  /** Catches taps on empty board (cancels a picked hand card). */
+  private readonly backdrop = new Container();
+  private readonly tabletop: Tabletop;
+  private viewport: { width: number; height: number; insets: Partial<Insets> } | null = null;
   private layout: BoardLayout | null = null;
+  /** Hand index picked to play / install (UI state only; targets come from view.handOptions). */
+  private selected: number | null = null;
   private view: PlayerView | null = null;
   private rows: Partial<Record<Pos, SideWidgets>> = {};
   private detachers: (() => void)[] = [];
@@ -480,17 +512,36 @@ export class Board {
       onLongPressEnd: () => this.closeZoom(),
       log: (r) => callbacks.log(r),
     });
+    this.tabletop = new Tabletop(fx, ui, {
+      onLongPress: (id, from) => this.openZoom(id, from),
+      onLongPressEnd: () => this.closeZoom(),
+      onBoardTap: () => this.cancelSelection(),
+      onTarget: (option) => this.onTarget(option),
+      log: (r) => callbacks.log(r),
+    });
     this.zoomLayer.eventMode = 'none';
     this.hintLayer.eventMode = 'none';
     this.fxLayer.eventMode = 'none';
-    this.table.addChild(this.bgLayer, this.boardLayer, this.centerLayer, this.hand.container);
+    attachPress(this.backdrop, { onTap: () => this.cancelSelection() });
+    this.backdrop.cursor = 'default';
+    this.table.addChild(
+      this.bgLayer,
+      this.backdrop,
+      this.tabletop.decor,
+      this.boardLayer,
+      this.tabletop.cards,
+      this.centerLayer,
+      this.tabletop.targets,
+      this.hand.container,
+    );
     this.stage.addChild(this.table, this.fxLayer, this.hintLayer, this.zoomLayer);
   }
 
   /** (Re)builds every widget for a viewport. Called on start and on resize. */
-  setLayout(layout: BoardLayout): void {
+  setViewport(width: number, height: number, insets: Partial<Insets>): void {
     this.fx.finishAll();
-    this.layout = layout;
+    this.viewport = { width, height, insets };
+    this.layout = computeLayout(width, height, insets, this.view?.viewer ?? 'corp');
     retireCardTextures();
     if (this.view) this.rebuild(false, []);
     if (this.hint) this.positionHint(this.hint);
@@ -517,18 +568,41 @@ export class Board {
     }
     const viewer = view.viewer;
     const ids = view.players[viewer].hand ?? [];
+    // A refused action keeps a picked card picked (e.g. "Not enough credits": pick another spot).
+    const refusedOnly = events.length > 0 && events.every((e) => e.type === 'action_rejected');
+    if (!refusedOnly) this.clearSelection();
+    // Cards leaving the hand to the table or the discard pile: take them out
+    // first (their boxes start the flights), so the rest of the hand slides.
+    const leaving = new Map<number, Box>();
+    for (const e of events) {
+      if ((e.type === 'card_installed' || e.type === 'card_played') && e.player === viewer && e.handIndex !== undefined) {
+        const b = this.hand.take(e.handIndex);
+        if (b) leaving.set(e.handIndex, b);
+      }
+    }
     const drawn = events.filter((e) => e.type === 'card_drawn' && e.player === viewer).length;
     this.hand.sync(ids, drawn, layout.bottom.deck);
     if (view.pendingDiscard === 0 || ids.length !== (prev.players[viewer].hand ?? []).length) this.marked.clear();
     this.hand.setMarked(this.marked);
     this.applyView(view, true);
     for (const e of events) {
-      if (e.type === 'credit_gained' && e.player === viewer) this.creditGained(e.amount);
+      if (e.type === 'credit_gained' && e.player === viewer) this.creditFloat(`+${e.amount}`);
+      if (e.type === 'credits_spent' && e.player === viewer) this.creditFloat(`-${e.amount}`);
+      if (e.type === 'server_created') this.tabletop.openServer(e.server);
+      if (e.type === 'card_installed') {
+        const from = e.handIndex !== undefined ? leaving.get(e.handIndex) : undefined;
+        if (from) this.tabletop.flyIn(e.uid, from, e.cardId ?? null);
+      }
+      if (e.type === 'card_played' && e.player === viewer) {
+        const from = e.handIndex !== undefined ? leaving.get(e.handIndex) : undefined;
+        if (from) this.playFlight(e.cardId, from);
+      }
       if (e.type === 'action_rejected') {
         this.showHint(hintFor(e.reason, view));
         if (e.reason === 'no_clicks') this.rows.bottom?.clicks.shake();
       }
     }
+    if (this.selected !== null) this.showTargets();
   }
 
   /** The End turn guard and flip timestamps (test hook). */
@@ -549,14 +623,17 @@ export class Board {
     const runner = this.widgets('runner');
     const button = this.button;
     const pending = view?.pendingDiscard ?? 0;
+    const table = this.tabletop.snapshot();
     return {
+      mode: layout?.mode ?? 'column',
+      ...table,
       viewport: layout?.viewport ?? { width: 0, height: 0 },
       safeArea: layout?.insets ?? { top: 0, right: 0, bottom: 0, left: 0 },
       viewer: view?.viewer ?? 'corp',
       corp: side('corp'),
       runner: side('runner'),
       handArea: layout?.handArea ?? zero,
-      hand: this.hand.boxes(),
+      hand: this.hand.boxes().map((h, i) => ({ ...h, selected: i === this.selected })),
       text: {
         banner: this.banner?.visible ? this.banner.text : '',
         corpCredits: corp?.credits.text ?? '',
@@ -593,6 +670,7 @@ export class Board {
     // The actor's own view from here on: no picker, nothing to tap but the
     // board's deck/credits, which already act for the new seat.
     this.view = p.actorView;
+    this.clearSelection();
     this.marked.clear();
     this.hand.setMarked(this.marked);
     if (this.button) this.button.root.visible = false;
@@ -631,10 +709,16 @@ export class Board {
    * `timing.endTurnGuard` after it.
    */
   private rebuild(flipIn: boolean, events: readonly GameEvent[], tappedAt = performance.now()): void {
-    const layout = this.layout;
     const view = this.view;
-    if (!layout || !view) return;
+    const vp = this.viewport;
+    if (!view || !vp) return;
+    // The layout is viewer-relative (the Corp's band and the Runner's differ in height).
+    if (this.layout?.viewer !== view.viewer) this.layout = computeLayout(vp.width, vp.height, vp.insets, view.viewer);
+    const layout = this.layout;
     this.closeZoom(true);
+    this.clearSelection();
+    this.tabletop.reset(layout);
+    this.backdrop.hitArea = new Rectangle(0, 0, layout.viewport.width, layout.viewport.height);
     for (const d of this.detachers) d();
     this.detachers = [];
     for (const c of [...this.bgLayer.removeChildren(), ...this.boardLayer.removeChildren(), ...this.centerLayer.removeChildren()]) {
@@ -709,6 +793,7 @@ export class Board {
     const layout = this.layout;
     if (!layout) return;
     const viewer = view.viewer;
+    this.tabletop.update(view);
     for (const s of ['corp', 'runner'] as const) {
       const w = this.widgets(s);
       const p = view.players[s];
@@ -718,6 +803,7 @@ export class Board {
       w.clicks.set(p.clicks, animate);
       w.discard.set(p.discardCount, p.discard);
       w.handText.text = plural(p.handCount, 'card in hand', 'cards in hand');
+      if (layout.mode === 'landscape') fitText(w.handText, w.row.label.width);
       const mine = s === viewer;
       w.deck.setActionable(mine && view.legalActions.some((a) => a.type === 'draw'));
       w.credits.setActionable(mine && view.legalActions.some((a) => a.type === 'gain_credit'));
@@ -728,6 +814,7 @@ export class Board {
       this.banner.text = bannerText(view);
       this.banner.style.fill = view.phase === 'discard' ? theme.warn : sideColor(view.activePlayer);
       fitText(this.banner, layout.banner.width);
+      if (this.banner.height > layout.banner.height) this.banner.scale.set((this.banner.scale.x * layout.banner.height) / this.banner.height);
     }
 
     const pending = view.pendingDiscard;
@@ -746,8 +833,15 @@ export class Board {
         help.text = `You can keep ${keep} cards. Tap cards to pick them.\nHold a card to read it.`;
       } else if (view.activePlayer === viewer && view.phase === 'action' && view.players[viewer].clicks === 0) {
         help.text = "No clicks left. Tap End turn when you're ready.";
+      } else if (this.selected !== null) {
+        help.text = 'Tap a lit spot to use the card.\nTap the card again to cancel.';
       } else {
-        help.text = 'Tap your deck to draw, or your credits for +1.\nHold a card to read it.';
+        help.text = 'Tap a card to play or install it, your deck to draw, or your credits for +1.\nHold a card to read it.';
+      }
+      if (layout.mode === 'landscape') {
+        const room = layout.sub.y + layout.sub.height - help.y;
+        help.scale.set(1);
+        if (help.height > room && help.height > 0) help.scale.set(Math.max(0.5, room / help.height));
       }
       help.y = pending > 0 ? main.y + main.height + 2 : layout.sub.y;
     }
@@ -768,15 +862,16 @@ export class Board {
     if (view.result && !this.gameOver) this.showGameOver(layout, gameOverText(view.result), view.result.winner, animate);
   }
 
-  private creditGained(amount: number): void {
+  /** "+9" / "-5" floats up from the viewer's credits. */
+  private creditFloat(text: string): void {
     const layout = this.layout;
     const w = this.rows.bottom;
     if (!layout || !w) return;
     const b = w.credits.box();
-    this.callbacks.log({ kind: 'credit_pop', scheduledMs: Math.max(timing.creditPop, timing.creditFloat), box: b });
+    this.callbacks.log({ kind: 'credit_pop', scheduledMs: Math.max(timing.creditPop, timing.creditFloat), box: b, text });
     const s = layout.scale;
     const t = new Text({
-      text: `+${amount}`,
+      text,
       style: { fontFamily: theme.monoFamily, fontSize: Math.round(20 * s), fontWeight: '800', fill: theme.credit },
     });
     t.anchor.set(0.5);
@@ -792,11 +887,44 @@ export class Board {
     });
   }
 
+  /** A played operation / event flies face up from the hand to its owner's discard pile. */
+  private playFlight(cardId: string, from: Box): void {
+    const layout = this.layout;
+    const def = getCard(cardId);
+    if (!layout || !def) return;
+    const pile = layout.bottom.discard;
+    const card = createCardFace(def, from.width, from.height, 'small');
+    card.position.set(from.x + from.width / 2, from.y + from.height / 2);
+    card.zIndex = 900;
+    this.fxLayer.addChild(card);
+    const scale = pile.width / from.width;
+    this.fx.add({
+      target: card,
+      to: { x: pile.x + pile.width / 2, y: pile.y + pile.height / 2 },
+      duration: timing.playFlight,
+      ease: ease.inOutCubic,
+      owner: card,
+      onUpdate: (t) => {
+        card.scale.set(1 + (scale - 1) * ease.inOutCubic(t));
+        card.rotation = Math.sin(t * Math.PI) * 0.18;
+      },
+      onComplete: () => {
+        card.destroy({ children: true });
+        this.rows.bottom?.discard.pop(this.ui);
+      },
+    });
+    this.callbacks.log({ kind: 'play_flight', scheduledMs: timing.playFlight, box: { ...pile } });
+  }
+
   // ---- input --------------------------------------------------------------
 
   private onCardTap(index: number): void {
     const view = this.view;
-    if (!view || view.pendingDiscard === 0) return;
+    if (!view) return;
+    if (view.pendingDiscard === 0) {
+      this.pickCard(view, index);
+      return;
+    }
     const pending = view.pendingDiscard;
     if (this.marked.has(index)) this.marked.delete(index);
     else if (this.marked.size < pending) this.marked.add(index);
@@ -808,12 +936,78 @@ export class Board {
     this.applyView(view, true);
   }
 
+  /**
+   * Tap on a hand card outside the discard step: pick it and light every place
+   * the engine offers for it (view.handOptions), with prices. A second tap on
+   * the same card puts it back. When every option is refused for a reason no
+   * target can fix (no clicks, needs runs, ...), the hint shows at once.
+   */
+  private pickCard(view: PlayerView, index: number): void {
+    if (this.flipPending) {
+      this.fx.finishAll();
+      return;
+    }
+    if (this.selected === index) {
+      this.cancelSelection();
+      return;
+    }
+    this.clearSelection();
+    const options = view.handOptions[index] ?? [];
+    if (options.length === 0) {
+      this.showHint("That card can't be used yet");
+      return;
+    }
+    const first = options[0]!.reject;
+    if (first !== null && BLOCKING.has(first) && options.every((o) => o.reject === first)) {
+      this.showHint(hintFor(first, view));
+      if (first === 'no_clicks') this.rows.bottom?.clicks.shake();
+      return;
+    }
+    this.selected = index;
+    this.hand.setSelected(index);
+    this.showTargets();
+    this.applyView(view, false);
+  }
+
+  private showTargets(): void {
+    const view = this.view;
+    const i = this.selected;
+    if (!view || i === null) return;
+    const from = this.hand.boxes()[i]?.box;
+    const options = view.handOptions[i] ?? [];
+    if (!from || options.length === 0) {
+      this.clearSelection();
+      return;
+    }
+    this.tabletop.showTargets(this.tabletop.targetSpecs(options, from));
+  }
+
+  /** Tap on a lit target: submit exactly the engine's offered action (refusals come back as hints). */
+  private onTarget(option: CardOption): void {
+    if (this.flipPending) return;
+    this.callbacks.onOption(option);
+  }
+
+  /** Drops the picked card (tap on it again, on empty board, or on an installed card). */
+  private cancelSelection(): void {
+    if (this.selected === null) return;
+    this.clearSelection();
+    if (this.view) this.applyView(this.view, false);
+  }
+
+  private clearSelection(): void {
+    this.selected = null;
+    this.hand.setSelected(null);
+    this.tabletop.clearTargets();
+  }
+
   /** Bottom-row taps act for the seat on screen; during a pending flip they only skip to it. */
   private boardTap(act: () => void): void {
     if (this.flipPending) {
       this.fx.finishAll();
       return;
     }
+    this.clearSelection();
     act();
   }
 
@@ -821,6 +1015,7 @@ export class Board {
     const view = this.view;
     const button = this.button;
     if (!view || !button || !button.root.visible) return;
+    this.cancelSelection();
     if (button.mode === 'confirm') {
       const k = view.pendingDiscard - this.marked.size;
       if (k > 0) {
@@ -874,7 +1069,10 @@ export class Board {
 
   private buildSide(side: Side, row: SideRow, layout: BoardLayout, interactive: boolean): SideWidgets {
     const color = sideColor(side);
-    const fontSize = row.label.height * 0.8;
+    const landscape = layout.mode === 'landscape';
+    // Landscape rail: the name on one line, the hand count on the next.
+    const lineH = landscape ? (row.label.height - 2) / 2 : row.label.height;
+    const fontSize = lineH * 0.8;
     const name = new Text({
       text: side.toUpperCase(),
       style: { fontFamily: theme.monoFamily, fontSize, fontWeight: '700', fill: color, letterSpacing: 2 },
@@ -884,7 +1082,8 @@ export class Board {
       text: '',
       style: { fontFamily: theme.monoFamily, fontSize: fontSize * 0.9, fill: theme.textDim },
     });
-    handText.position.set(row.label.x + name.width + fontSize * 0.8, row.label.y + fontSize * 0.08);
+    if (landscape) handText.position.set(row.label.x, row.label.y + lineH + 2);
+    else handText.position.set(row.label.x + name.width + fontSize * 0.8, row.label.y + fontSize * 0.08);
     const deck = new DeckPile(row.deck, side, layout.scale);
     const discard = new DiscardPile(row.discard, side, layout.scale);
     const credits = new Counter(this.ui, row.credits, side, 'credits', layout.scale);
@@ -902,15 +1101,28 @@ export class Board {
 
   private buildCenter(layout: BoardLayout, viewer: Side): void {
     const s = layout.scale;
+    const landscape = layout.mode === 'landscape';
+    // Landscape: the rail is narrow, so the banner wraps onto two lines.
     const banner = new Text({
       text: '',
-      style: { fontFamily: theme.monoFamily, fontSize: Math.round(layout.banner.height * 0.72), fontWeight: '700', fill: theme.text, letterSpacing: 1 },
+      style: landscape
+        ? {
+            fontFamily: theme.monoFamily,
+            fontSize: Math.round(layout.banner.height / 2.4),
+            fontWeight: '700',
+            fill: theme.text,
+            align: 'center',
+            wordWrap: true,
+            wordWrapWidth: layout.banner.width,
+            lineHeight: Math.round(layout.banner.height / 2),
+          }
+        : { fontFamily: theme.monoFamily, fontSize: Math.round(layout.banner.height * 0.72), fontWeight: '700', fill: theme.text, letterSpacing: 1 },
     });
     banner.anchor.set(0.5);
     banner.position.set(layout.banner.x + layout.banner.width / 2, layout.banner.y + layout.banner.height / 2);
     const subMain = new Text({
       text: '',
-      style: { fontFamily: theme.fontFamily, fontSize: Math.max(14, Math.round(20 * s)), fontWeight: '800', fill: theme.warn },
+      style: { fontFamily: theme.fontFamily, fontSize: landscape ? 15 : Math.max(14, Math.round(20 * s)), fontWeight: '800', fill: theme.warn },
     });
     subMain.anchor.set(0.5, 0);
     subMain.position.set(layout.sub.x + layout.sub.width / 2, layout.sub.y);
@@ -918,7 +1130,7 @@ export class Board {
       text: '',
       style: {
         fontFamily: theme.fontFamily,
-        fontSize: Math.max(10, Math.round(12 * s)),
+        fontSize: landscape ? 11 : Math.max(10, Math.round(12 * s)),
         fill: theme.textDim,
         align: 'center',
         wordWrap: true,

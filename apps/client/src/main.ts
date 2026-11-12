@@ -9,7 +9,6 @@ import { setCardRenderer } from './cardFace';
 import type { AnimRecord, OverclockTestHook } from './hook-types';
 import { HotSeat, seedFromUrl } from './hotseat';
 import { lastInput } from './input';
-import { computeLayout } from './layout';
 import { readSafeArea } from './safeArea';
 import { theme } from './theme';
 import { Tweens } from './tween';
@@ -64,6 +63,8 @@ async function start(): Promise<void> {
     onCreditsTap: () => dispatch({ type: 'gain_credit', player: game.seat }),
     onEndTurn: () => dispatch({ type: 'end_turn', player: game.seat }),
     onDiscard: (handIndices) => dispatch({ type: 'discard', player: game.seat, handIndices }),
+    // Exactly the action the engine offered in view.handOptions (install / play).
+    onOption: (option) => dispatch(option.action),
     onNewGame: () => window.location.assign(window.location.pathname),
     log,
   });
@@ -93,7 +94,7 @@ async function start(): Promise<void> {
     if (key === lastKey) return;
     lastKey = key;
     app.renderer.resize(w, h);
-    board.setLayout(computeLayout(w, h, insets));
+    board.setViewport(w, h, insets);
     invalidate();
   };
   relayout();

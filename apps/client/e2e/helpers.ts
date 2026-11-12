@@ -1,5 +1,8 @@
 import { type Page, expect, test } from '@playwright/test';
-import type { Action, GameEvent, PlayerView } from '@overclock/engine';
+import type { Action, GameEvent, PlayerView, Side } from '@overclock/engine';
+// Node-side e2e setup only (packages/engine/README.md, "Test-only"); the game itself never imports it.
+// eslint-disable-next-line no-restricted-imports
+import { planBusyBoard } from '@overclock/match/testing';
 import type { AnimRecord, Box, EndTurnClock, InputStamp, Insets, LayoutSnapshot } from '../src/hook-types';
 
 export type { AnimRecord, Box, EndTurnClock, InputStamp, Insets, LayoutSnapshot };
@@ -284,4 +287,36 @@ export async function playUntilGameOver(page: Page): Promise<void> {
     }
     throw new Error('game did not end');
   });
+}
+
+/**
+ * Plays the Sprint 2 "busy board" through the hook: 3 remote servers with 2
+ * ICE each and 4 Runner cards installed (actions planned by the match host's
+ * test helper for the same seed). Then hands the turn to `side` if asked
+ * (discarding the last cards over the hand limit). Leaves the board idle.
+ */
+export async function toBusyBoard(page: Page, opts: { seed?: number; side?: Side } = {}): Promise<void> {
+  const seed = opts.seed ?? 1;
+  const plan = planBusyBoard(seed);
+  await page.evaluate((actions) => {
+    const hook = window.__overclock!;
+    for (const a of actions) {
+      const events = hook.dispatch(a);
+      const refused = events.find((e) => e.type === 'action_rejected');
+      if (refused) throw new Error(`busy board: ${JSON.stringify(a)} refused: ${JSON.stringify(refused)}`);
+    }
+  }, plan.actions);
+  if (opts.side && opts.side !== plan.activePlayer) {
+    await page.evaluate((me) => {
+      const hook = window.__overclock!;
+      hook.dispatch({ type: 'end_turn', player: me });
+      const v = hook.getView();
+      if (v.pendingDiscard > 0) {
+        const n = v.players[me].handCount;
+        hook.dispatch({ type: 'discard', player: me, handIndices: Array.from({ length: v.pendingDiscard }, (_, k) => n - v.pendingDiscard + k) });
+      }
+    }, plan.activePlayer);
+  }
+  await waitIdle(page);
+  if (opts.side) expect((await getView(page)).activePlayer).toBe(opts.side);
 }

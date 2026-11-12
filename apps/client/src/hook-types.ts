@@ -1,6 +1,6 @@
 // Types for the Playwright test hook (`window.__overclock`).
 // Shared by the client (src) and the e2e specs, so keep this file type-only.
-import type { Action, GameEvent, PlayerView, Side } from '@overclock/engine';
+import type { Action, GameEvent, PlayerView, RejectReason, Side } from '@overclock/engine';
 
 /** Axis-aligned box in CSS pixels, relative to the page viewport. */
 export interface Box {
@@ -37,8 +37,18 @@ export interface LayoutSnapshot {
   runner: SideLayout;
   /** The area reserved for the viewer's hand. */
   handArea: Box;
-  /** Rendered hand cards (the viewer's), in hand order. `marked` = picked for discard. */
-  hand: { cardId: string; box: Box; marked: boolean }[];
+  /** Rendered hand cards (the viewer's), in hand order. `marked` = picked for discard; `selected` = picked to play / install. */
+  hand: { cardId: string; box: Box; marked: boolean; selected: boolean }[];
+  /** Board arrangement: `landscape` on sideways phones, `column` on desktop. */
+  mode: 'landscape' | 'column';
+  /** The Corp's servers (HQ, R&D, Archives, Server 1...), as drawn. */
+  servers: ServerSnapshot[];
+  /** The Runner's installed cards, in install order. */
+  rig: InstalledSnapshot[];
+  /** The Runner's memory counter ("Memory 2/4"). */
+  memory: { text: string; box: Box };
+  /** Lit targets while a hand card is picked (install spots, Play button); empty otherwise. */
+  targets: TargetSnapshot[];
   /** Text shown on screen, so tests can read the canvas. */
   text: {
     banner: string;
@@ -66,7 +76,48 @@ export interface LayoutSnapshot {
   animating: boolean;
 }
 
-export type AnimKind = 'draw_flight' | 'credit_pop' | 'discard_flight' | 'turn_change' | 'hint';
+/** An installed card as drawn: `cardId` is what the viewer's view holds (null = hidden from them). */
+export interface InstalledSnapshot {
+  uid: string;
+  cardId: string | null;
+  /** Drawn face up (false: a card back). */
+  faceUp: boolean;
+  /** Tap / hold box. */
+  box: Box;
+  /** Drawn bounds (ICE: the sideways card). */
+  drawn: Box;
+}
+
+export interface ServerSnapshot {
+  id: string;
+  /** "HQ", "R&D", "Archives", "Server 1", ... */
+  label: string;
+  /** The whole column. */
+  box: Box;
+  /** Index 0 innermost. */
+  ice: InstalledSnapshot[];
+  content: InstalledSnapshot[];
+}
+
+export interface TargetSnapshot {
+  box: Box;
+  /** e.g. "Server 1 · 2 credits", "New server · free", "Install · 3 credits", "Play · 5 credits". */
+  label: string;
+  lit: boolean;
+  /** What the engine would answer (null = allowed). */
+  reject: RejectReason | null;
+  action: Action;
+}
+
+export type AnimKind =
+  | 'draw_flight'
+  | 'credit_pop'
+  | 'discard_flight'
+  | 'turn_change'
+  | 'hint'
+  | 'install_flight'
+  | 'play_flight'
+  | 'server_open';
 
 /** Logged when an animation or hint starts. */
 export interface AnimRecord {

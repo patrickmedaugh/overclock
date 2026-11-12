@@ -3,6 +3,7 @@
 // so the same card always looks the same.
 import type { CardDef, Side } from '@overclock/cards';
 import { Container, FillGradient, Graphics, Rectangle, Sprite, Text, type Renderer, type Texture } from 'pixi.js';
+import { TYPE_LABEL } from './terms';
 import { sideColor, sideDeep, theme } from './theme';
 
 /** FNV-1a string hash -> uint32. */
@@ -196,17 +197,6 @@ function buildCardBack(side: Side, w: number, h: number): Container {
   return c;
 }
 
-const TYPE_LABEL: Record<string, string> = {
-  event: 'EVENT',
-  program: 'PROGRAM',
-  hardware: 'HARDWARE',
-  resource: 'RESOURCE',
-  agenda: 'AGENDA',
-  asset: 'ASSET',
-  upgrade: 'UPGRADE',
-  operation: 'OPERATION',
-  ice: 'ICE',
-};
 
 export function typeLine(card: CardDef): string {
   const base = TYPE_LABEL[card.type] ?? card.type.toUpperCase();

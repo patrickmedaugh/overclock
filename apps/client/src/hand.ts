@@ -22,6 +22,8 @@ interface HandCard {
   /** "Discard" stamp shown while picked in the discard picker. */
   mark: Container;
   marked: boolean;
+  /** Glowing ring while picked to play / install. */
+  ring: Graphics;
   detach: () => void;
   pressed: boolean;
 }
@@ -150,6 +152,32 @@ export class Hand {
     });
   }
 
+  /** Rings the picked card (null: none). */
+  setSelected(index: number | null): void {
+    this.cards.forEach((c, i) => {
+      const on = i === index;
+      if (on && !c.ring.visible) {
+        this.ui.cancel(c.ring);
+        c.ring.alpha = 0;
+        this.ui.add({ target: c.ring, to: { alpha: 1 }, duration: timing.pressFeedback, owner: c.ring });
+      }
+      c.ring.visible = on;
+    });
+  }
+
+  /**
+   * Takes the card at `index` out of the hand (it is leaving for the table or
+   * the discard pile; the board flies a copy). Returns where it was drawn.
+   */
+  take(index: number): Box | null {
+    const card = this.cards[index];
+    if (!card) return null;
+    const b = this.cardBox(card);
+    this.cards.splice(index, 1);
+    this.destroyCard(card);
+    return b;
+  }
+
   /** Rendered bounds of each hand card (CSS px). */
   boxes(): { cardId: string; box: Box; marked: boolean }[] {
     return this.cards.map((c) => ({ cardId: c.cardId, box: this.cardBox(c), marked: c.marked }));
@@ -206,13 +234,16 @@ export class Hand {
     const face = def ? createCardFace(def, w, h, 'small') : createCardBack(this.side, w, h);
     const mark = this.createMark(w, h);
     back.visible = false;
-    flip.addChild(back, face, mark);
+    const ring = new Graphics();
+    glowRoundRect(ring, -w / 2 + 1.5, -h / 2 + 1.5, w - 3, h - 3, Math.max(4, w * 0.08), theme.credit, Math.max(2, w * 0.045), 1.6);
+    ring.visible = false;
+    flip.addChild(back, face, mark, ring);
     root.addChild(flip);
     root.label = `hand:${cardId}`;
     root.hitArea = new Rectangle(-w / 2, -h / 2, w, h);
     this.container.addChild(root);
 
-    const card: HandCard = { cardId, root, flip, back, face, mark, marked: false, detach: () => {}, pressed: false };
+    const card: HandCard = { cardId, root, flip, back, face, mark, marked: false, ring, detach: () => {}, pressed: false };
     card.detach = attachPress(root, {
       onDown: () => {
         card.pressed = true;
