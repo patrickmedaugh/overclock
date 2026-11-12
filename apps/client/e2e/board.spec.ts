@@ -82,7 +82,12 @@ test.describe('board layout', () => {
   });
 
   test('re-lays out when the window is resized (incl. a small 360x640 phone)', async ({ page }) => {
+    // Resizes retire baked card textures: a texture freed while still in use
+    // would throw on a later render, so collect page errors.
+    const errors: string[] = [];
+    page.on('pageerror', (e) => errors.push(e.message));
     await openBoard(page);
+    const handBefore = (await getView(page)).players.corp.handCount;
     const before = page.viewportSize()!;
     for (const size of [{ width: 360, height: 640 }, { width: 1024, height: 700 }, before]) {
       await page.setViewportSize(size);
@@ -97,5 +102,18 @@ test.describe('board layout', () => {
       expectCleanLayout(l);
       expect(l.endTurn!.box.height).toBeGreaterThanOrEqual(44);
     }
+    // The board still plays after the resizes: draw, then End turn.
+    await dispatch(page, { type: 'draw', player: 'corp' });
+    await dispatch(page, { type: 'end_turn', player: 'corp' });
+    const after = await waitIdle(page);
+    const view = await getView(page);
+    expect(view.players.corp.handCount).toBe(handBefore + 1);
+    expect(after.hand).toHaveLength(handBefore + 1);
+    expect(after.text.corpHand).toBe(`${handBefore + 1} cards in hand`);
+    // Over the hand limit, so End turn opened the discard step.
+    expect(view.pendingDiscard).toBeGreaterThan(0);
+    expect(after.picker).not.toBeNull();
+    expectCleanLayout(after);
+    expect(errors).toEqual([]);
   });
 });

@@ -226,12 +226,10 @@ function statsLine(card: CardDef): string {
 }
 
 /**
- * Card face centered at (0, 0). `full` adds rules text, flavor and stats
- * (used by the long-press zoom); `small` is the hand thumbnail.
- */
-/**
- * Card face, centered at (0, 0). Small faces are baked and shared; the full-size
- * zoom keeps its text objects (the test hook reads them) and caches itself.
+ * Card face, centered at (0, 0). `full` adds rules text, flavor and stats (used
+ * by the long-press zoom); `small` is the hand thumbnail. Small faces are baked
+ * and shared; the full-size zoom keeps its text objects (the test hook reads
+ * them) and caches itself.
  */
 export function createCardFace(card: CardDef, w: number, h: number, detail: 'small' | 'full'): Container {
   if (detail === 'small') return bake(`face:${card.id}:${sizeKey(w, h)}`, () => buildCardFace(card, w, h, detail));
