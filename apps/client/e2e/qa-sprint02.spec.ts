@@ -80,7 +80,7 @@ test.describe('QA S-02-1 / S-02-2 targets', () => {
   });
 
   test('with remotes opened, ICE lights HQ, R&D, Archives, every remote and New server, each with its price', async ({ page }) => {
-    await openBoard(page, 9); // Corp: Ice Wall x2, Enigma, Wall of Static, Hedge Fund, ...
+    await openBoard(page, 6); // Corp: Ice Wall x2, Enigma, Wall of Static, Hedge Fund, ... (seed re-picked for the 17-card Corp deck)
     // Enigma on a new server (free, creates Server 1), Wall of Static on Server 1 (1 credit).
     let l = await pickCard(page, 'Enigma');
     await tap(page, targetOf(l, 'new_server').box);
@@ -116,35 +116,23 @@ test.describe('QA S-02-1 / S-02-2 targets', () => {
   });
 });
 
-test.describe('QA S-02-4 needs runs', () => {
-  test('Neural EMP (Corp) and Inside Job (Runner) say "Needs runs (coming soon)" and spend nothing', async ({ page }) => {
-    // Find a seed whose opening hands hold both.
-    let found = false;
-    for (let s = 1; s <= 40 && !found; s++) {
-      await openBoard(page, s);
-      const corp = (await layout(page)).hand.map((h) => h.cardId);
-      if (!corp.includes('c12')) continue;
-      await page.evaluate(() => window.__overclock!.clearAnims());
-      const before = await getView(page);
-      let l = await pickCard(page, 'Neural EMP');
-      expect(targetOf(l, 'play')).toMatchObject({ label: 'Play · 2 credits', reject: 'not_implemented', lit: false });
-      let m = await measureTap(page, targetOf(l, 'play').box);
-      expect(m.events).toEqual([{ type: 'action_rejected', reason: 'not_implemented' }]);
-      expect(m.view).toEqual(before);
-      expect(m.anims.map((a) => [a.kind, a.text])).toEqual([['hint', 'Needs runs (coming soon)']]);
-      await tap(page, l.hand[l.selected!]!.box); // cancel
-      await toRunnerTurn(page);
-      const runner = (await layout(page)).hand.map((h) => h.cardId);
-      if (!runner.includes('r11')) continue;
-      const rb = await getView(page);
-      l = await pickCard(page, 'Inside Job');
-      expect(targetOf(l, 'play')).toMatchObject({ reject: 'not_implemented' });
-      m = await measureTap(page, targetOf(l, 'play').box);
-      expect(m.view).toEqual(rb);
-      expect(m.anims.find((a) => a.kind === 'hint')?.text).toBe('Needs runs (coming soon)');
-      found = true;
-    }
-    expect(found, 'a seed with Neural EMP and Inside Job in the opening hands').toBe(true);
+test.describe('QA S-02-4 needs runs (Sprint 3: the cards work now)', () => {
+  test('Neural EMP and Inside Job no longer say "Needs runs (coming soon)": EMP explains its condition, Inside Job lights the servers', async ({ page }) => {
+    // Seed 14: the Corp opens with Neural EMP, the Runner with Inside Job.
+    await openBoard(page, 14);
+    await page.evaluate(() => window.__overclock!.clearAnims());
+    const before = await getView(page);
+    let l = await pickCard(page, 'Neural EMP');
+    expect(targetOf(l, 'play')).toMatchObject({ label: 'Play · 2 credits', reject: 'condition_not_met', lit: false });
+    const m = await measureTap(page, targetOf(l, 'play').box);
+    expect(m.events).toEqual([{ type: 'action_rejected', reason: 'condition_not_met' }]);
+    expect(m.view).toEqual(before);
+    expect(m.anims.map((a) => [a.kind, a.text])).toEqual([['hint', 'Only after the Runner made a run']]);
+    await tap(page, l.hand[l.selected!]!.box); // cancel
+    await toRunnerTurn(page);
+    l = await pickCard(page, 'Inside Job');
+    expect(l.targets.every((t) => t.kind === 'play' && t.server !== undefined && t.lit)).toBe(true);
+    expect(l.targets.length).toBeGreaterThanOrEqual(3);
   });
 });
 
@@ -189,7 +177,7 @@ test.describe('QA snappiness: picking a card', () => {
 test.describe('QA Sprint 2 playthrough (screenshots)', () => {
   test('Corp installs and plays, Runner installs and plays, both views', async ({ page }) => {
     test.setTimeout(90_000);
-    await openBoard(page, 2);
+    await openBoard(page, 332); // seed re-picked for the 17-card Corp deck (Sprint 3)
     let l = await waitIdle(page);
     expect(l.text.banner).toBe('TURN 1 · CORP · 3 clicks left');
     await shot(page, '01-corp-turn-1');
@@ -293,8 +281,8 @@ test.describe('QA Sprint 2 playthrough (screenshots)', () => {
   });
 
   test('busy board, both views, picked upgrade, and notch on either side', async ({ page }) => {
-    await openBoard(page, 1);
-    await toBusyBoard(page, 1);
+    await openBoard(page, 7);
+    await toBusyBoard(page, 7);
     let l = await waitIdle(page);
     await shot(page, `20-busy-board-${l.viewer}-view`);
     l = await pickCard(page, 'Akitaro Watanabe');
@@ -351,10 +339,7 @@ test.describe('QA Sprint 2 playthrough (screenshots)', () => {
 // which shrinks long hints to ~5px text on a 640x360 phone. Rough readability bar: at
 // least 80 square CSS px of toast per character (about a 10px font).
 test.describe('QA-S2-1 hints are readable', () => {
-  test('"Needs runs", "Not enough credits", "No clicks left" and "Not your turn" are drawn big enough to read', async ({ page }) => {
-    await openBoard(page, 2);
-    await toRunnerTurn(page);
-    await page.evaluate(() => window.__overclock!.clearAnims());
+  test('"Only after the Runner made a run", "Not enough credits", "No clicks left" and "Not your turn" are drawn big enough to read', async ({ page }) => {
     const seen: Record<string, { width: number; height: number; perChar: number }> = {};
     const record = async (): Promise<void> => {
       const h = (await anims(page)).filter((a) => a.kind === 'hint').pop()!;
@@ -362,9 +347,15 @@ test.describe('QA-S2-1 hints are readable', () => {
       seen[h.text!] = { width: Math.round(b.width), height: Math.round(b.height), perChar: Math.round((b.width * b.height) / h.text!.length) };
       await page.evaluate(() => window.__overclock!.clearAnims());
     };
-    let l = await pickCard(page, "The Maker's Eye");
+    // Sprint 3: the long hint is Neural EMP's condition (seed 14), no card says "Needs runs" any more.
+    await openBoard(page, 14);
+    await page.evaluate(() => window.__overclock!.clearAnims());
+    let l = await pickCard(page, 'Neural EMP');
+    await tap(page, targetOf(l, 'play').box);
     await record();
-    await tap(page, l.hand[l.selected!]!.box);
+    await openBoard(page, 5);
+    await toRunnerTurn(page);
+    await page.evaluate(() => window.__overclock!.clearAnims());
     await page.evaluate(() => window.__overclock!.dispatch({ type: 'draw', player: 'corp' }));
     await record();
     l = await pickCard(page, 'Ninja');
@@ -378,7 +369,7 @@ test.describe('QA-S2-1 hints are readable', () => {
     await page.evaluate(() => window.__overclock!.dispatch({ type: 'gain_credit', player: 'runner' }));
     await record();
     test.info().annotations.push({ type: 'hint-boxes', description: JSON.stringify(seen) });
-    expect(Object.keys(seen).sort()).toEqual(['Needs runs (coming soon)', 'No clicks left', 'Not enough credits', 'Not your turn']);
+    expect(Object.keys(seen).sort()).toEqual(['No clicks left', 'Not enough credits', 'Not your turn', 'Only after the Runner made a run']);
     for (const [text, b] of Object.entries(seen)) expect.soft(b.perChar, `${text} ${JSON.stringify(b)}`).toBeGreaterThanOrEqual(80);
   });
 });
@@ -386,7 +377,7 @@ test.describe('QA-S2-1 hints are readable', () => {
 // QA-S2-2: an upgrade installed in HQ must not cover the HQ marker (its card count).
 test.describe('QA-S2-2 upgrade in HQ', () => {
   test('an upgrade in HQ sits beside the HQ marker on both views, not on top of it', async ({ page }) => {
-    await openBoard(page, 2);
+    await openBoard(page, 332);
     const l0 = await pickCard(page, 'Akitaro Watanabe');
     await tap(page, targetOf(l0, 'server', 'hq').box);
     const found: string[] = [];
@@ -409,7 +400,7 @@ test.describe('QA round 2: fixes hold in harder cases', () => {
   test('an upgrade in R&D and in Archives never covers the R&D / Archives pile either', async ({ page }) => {
     // Two upgrades needed: find a seed whose Corp opens with Akitaro and draws a second soon; else use one per game.
     for (const server of ['rd', 'archives'] as const) {
-      await openBoard(page, 2);
+      await openBoard(page, 332);
       const l0 = await pickCard(page, 'Akitaro Watanabe');
       await tap(page, targetOf(l0, 'server', server).box);
       for (let side = 0; side < 2; side++) {
@@ -430,8 +421,8 @@ test.describe('QA round 2: fixes hold in harder cases', () => {
   });
 
   test('busy board plus an upgrade in HQ: still clean, every card at least 44px, on both views', async ({ page }) => {
-    await openBoard(page, 1);
-    await toBusyBoard(page, 1);
+    await openBoard(page, 7);
+    await toBusyBoard(page, 7);
     const l0 = await pickCard(page, 'Akitaro Watanabe');
     await tap(page, targetOf(l0, 'server', 'hq').box);
     for (let side = 0; side < 2; side++) {
@@ -447,21 +438,21 @@ test.describe('QA round 2: fixes hold in harder cases', () => {
   });
 
   test('a hint shown while a card is picked never covers the lit Play / Install spot or End turn', async ({ page }) => {
-    await openBoard(page, 2);
-    await toRunnerTurn(page);
+    // Sprint 3: Neural EMP's refusal (seed 14, Corp's first turn) replaces the old "Needs runs" hint.
+    await openBoard(page, 14);
     await page.evaluate(() => window.__overclock!.clearAnims());
-    let l = await pickCard(page, "The Maker's Eye");
+    let l = await pickCard(page, 'Neural EMP');
     await tap(page, targetOf(l, 'play').box);
     l = await layout(page);
     const h = (await anims(page)).filter((a) => a.kind === 'hint').pop()!;
-    expect(h.text).toBe('Needs runs (coming soon)');
+    expect(h.text).toBe('Only after the Runner made a run');
     const eps = 0.5;
     const ov = (a: { x: number; y: number; width: number; height: number }, b: typeof a) =>
       a.x + eps < b.x + b.width && b.x + eps < a.x + a.width && a.y + eps < b.y + b.height && b.y + eps < a.y + a.height;
     for (const t of l.targets) expect(ov(h.box!, t.box), `hint over ${t.kind} target`).toBe(false);
     expect(ov(h.box!, l.endTurn!.box)).toBe(false);
-    expect(ov(h.box!, l.runner.credits)).toBe(false);
-    expect(ov(h.box!, l.runner.label)).toBe(false);
+    expect(ov(h.box!, l.corp.credits)).toBe(false);
+    expect(ov(h.box!, l.corp.label)).toBe(false);
     await page.waitForTimeout(250);
     await shot(page, 'r2-needs-runs-hint-with-play-lit');
     // The tap on the dim Play spot is still the snappy refusal path.

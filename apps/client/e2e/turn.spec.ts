@@ -77,7 +77,7 @@ test.describe('S-01-1 turn order', () => {
     const l = await waitIdle(page);
     const view = await getView(page);
     expect(view.result).toEqual({ winner: 'runner', reason: 'corp_decked' });
-    expect(l.gameOver?.text).toBe('Runner wins: the Corp ran out of cards');
+    expect(l.gameOver?.text).toBe('Runner wins: R&D is empty');
     expect(l.endTurn).toBeNull();
     expectCleanLayout(l);
     // Nothing more can be done.

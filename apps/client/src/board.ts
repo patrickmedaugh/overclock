@@ -922,7 +922,9 @@ export class Board {
   private helpBox(layout: BoardLayout): Box {
     const { sub, action } = layout;
     if (layout.mode === 'landscape') {
-      const y = action.y + action.height + 4;
+      // Below Play (or below Score too, while a picked agenda shows two choices).
+      const above = this.pickedInstalled !== null ? layout.action2 : action;
+      const y = above.y + above.height + 4;
       return { x: sub.x, y, width: sub.width, height: Math.max(0, sub.y + sub.height - y) };
     }
     // Column: left of Play (and of the second choice, while a picked agenda shows two).
@@ -994,7 +996,7 @@ export class Board {
     } else if (view.activePlayer === viewer && view.phase === 'action' && view.players[viewer].clicks === 0) {
       helpText = "No clicks left. Tap End turn when you're ready.";
     } else if (viewer === 'runner' && view.runOptions.length > 0 && view.activePlayer === viewer) {
-      helpText = `Tap ${TERMS.run} to attack a server, your ${TERMS.stack} to draw, your credits for +1, or a card to play it.`;
+      helpText = `Tap your ${TERMS.stack} to draw, your credits for +1, ${TERMS.run} to attack a server, or a card to play it.`;
     } else {
       const deck = viewer === 'corp' ? TERMS.rd : `your ${TERMS.stack}`;
       const agenda = Object.keys(view.installedOptions).length > 0 ? ' Tap your agenda to advance it.' : '';
@@ -1004,6 +1006,7 @@ export class Board {
     const hb = this.helpBox(layout);
     const wrap = Math.max(40, hb.width - 4);
     if (help.style.wordWrapWidth !== wrap) help.style.wordWrapWidth = wrap;
+    help.position.set(hb.x + hb.width / 2, hb.y);
     fitText(help, hb.width, hb.height);
     this.syncHelp();
 

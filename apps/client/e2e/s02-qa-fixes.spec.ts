@@ -34,20 +34,23 @@ function expectReadableHint(l: LayoutSnapshot, h: AnimRecord): void {
 }
 
 test.describe('QA-S2-1 hints are readable and clear of the board', () => {
-  test('"Needs runs (coming soon)", "Not your turn", "Not enough credits" and "No clicks left" at >= 10px', async ({ page }) => {
-    await openBoard(page, 2);
-    await toRunnerTurn(page);
-    await page.evaluate(() => window.__overclock!.clearAnims());
+  test('"Only after the Runner made a run", "Not your turn", "Not enough credits" and "No clicks left" at >= 10px', async ({ page }) => {
     const seen: string[] = [];
     const check = async (): Promise<void> => {
       const h = await lastHint(page);
       seen.push(h.text!);
       expectReadableHint(await layout(page), h);
     };
-
-    let l = await pickCard(page, "The Maker's Eye");
+    // Sprint 3: no card says "Needs runs" any more; Neural EMP's refusal is the long hint now (seed 14).
+    await openBoard(page, 14);
+    await page.evaluate(() => window.__overclock!.clearAnims());
+    let l = await pickCard(page, 'Neural EMP');
+    await tap(page, targetOf(l, 'play').box);
     await check();
-    await tap(page, l.hand[l.selected!]!.box);
+
+    await openBoard(page, 5); // Runner: Ninja, Corroder (seed re-picked for the 17-card Corp deck)
+    await toRunnerTurn(page);
+    await page.evaluate(() => window.__overclock!.clearAnims());
     await dispatch(page, { type: 'draw', player: 'corp' });
     await check();
     l = await pickCard(page, 'Ninja');
@@ -59,18 +62,18 @@ test.describe('QA-S2-1 hints are readable and clear of the board', () => {
     await tap(page, l.hand[l.selected!]!.box);
     for (let i = 0; i < 4; i++) await dispatch(page, { type: 'gain_credit', player: 'runner' });
     await check();
-    expect(seen).toEqual(['Needs runs (coming soon)', 'Not your turn', 'Not enough credits', 'No clicks left']);
+    expect(seen).toEqual(['Only after the Runner made a run', 'Not your turn', 'Not enough credits', 'No clicks left']);
   });
 
   test('sideways, the help text steps aside while a hint shows and comes back after', async ({ page }) => {
-    await openBoard(page, 2);
+    await openBoard(page, 14);
     const l0 = await layout(page);
     test.skip(l0.viewport.height > 500, 'sideways phones only (the column layout has its own hint slot)');
     const help = 'Tap a lit spot to play it.\nTap the card again to cancel.';
-    await toRunnerTurn(page);
-    await pickCard(page, "The Maker's Eye");
+    const picked = await pickCard(page, 'Neural EMP');
+    await tap(page, targetOf(picked, 'play').box);
     const l = await layout(page);
-    expect((await anims(page)).find((a) => a.kind === 'hint')?.text).toBe('Needs runs (coming soon)');
+    expect((await anims(page)).find((a) => a.kind === 'hint')?.text).toBe('Only after the Runner made a run');
     expect(l.labels).not.toContain(help);
     await page.waitForFunction(() => window.__overclock!.layout().hint !== null, undefined, { timeout: 3000 });
     expect((await layout(page)).labels).not.toContain(help);
@@ -81,7 +84,7 @@ test.describe('QA-S2-1 hints are readable and clear of the board', () => {
 
 test.describe('QA-S2-2 an upgrade in HQ never covers the HQ marker', () => {
   test('Akitaro Watanabe in HQ: clean board (marker included) on both views', async ({ page }) => {
-    await openBoard(page, 2);
+    await openBoard(page, 332);
     const l0 = await pickCard(page, 'Akitaro Watanabe');
     await tap(page, targetOf(l0, 'server', 'hq').box);
     for (let side = 0; side < 2; side++) {

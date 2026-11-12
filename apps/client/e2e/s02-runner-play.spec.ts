@@ -17,13 +17,14 @@ import {
   waitIdle,
 } from './helpers';
 
-// Seed 12: the Runner opens with Ninja, Corroder, Gordian Blade, Easy Mark, Armitage Codebusting.
-// Seed 2: Corp has Hedge Fund x2 and Anonymous Tip; Runner has Diesel, Ninja, The Maker's Eye.
-// Seed 9: Corp has Hedge Fund and four ICE.
+// Seeds re-picked for the 17-card Corp deck (Sprint 3):
+// Seed 858: the Runner opens with Ninja, Corroder, Gordian Blade, Easy Mark, Armitage Codebusting.
+// Seed 332: Corp has Hedge Fund and Anonymous Tip; Runner has Diesel, Ninja, The Maker's Eye.
+// Seed 6: Corp has Hedge Fund and four ICE.
 
 test.describe('S-02-3 Runner: install programs, hardware and resources', () => {
   test('tapping a program lights an Install spot in your area with its price; tapping it installs face up', async ({ page }) => {
-    await openBoard(page, 12);
+    await openBoard(page, 858);
     await toRunnerTurn(page);
     const before = await getView(page);
     const l = await pickCard(page, 'Corroder');
@@ -46,7 +47,7 @@ test.describe('S-02-3 Runner: install programs, hardware and resources', () => {
   });
 
   test('hardware and resources install too; memory counts programs only', async ({ page }) => {
-    await openBoard(page, 12);
+    await openBoard(page, 858);
     await toRunnerTurn(page);
     let l = await pickCard(page, 'Armitage Codebusting');
     expect(targetOf(l, 'install').label).toBe('Install · 1 credit');
@@ -62,7 +63,7 @@ test.describe('S-02-3 Runner: install programs, hardware and resources', () => {
   });
 
   test("without enough credits, Install only shows \"Not enough credits\" and nothing changes", async ({ page }) => {
-    await openBoard(page, 12);
+    await openBoard(page, 858);
     await toRunnerTurn(page);
     let l = await pickCard(page, 'Ninja');
     await tap(page, targetOf(l, 'install').box); // 5 -> 1 credit
@@ -78,7 +79,7 @@ test.describe('S-02-3 Runner: install programs, hardware and resources', () => {
   });
 
   test("on the Corp's turn the Runner's installed cards are face up", async ({ page }) => {
-    await openBoard(page, 12);
+    await openBoard(page, 858);
     await toRunnerTurn(page);
     const l = await pickCard(page, 'Corroder');
     await tap(page, targetOf(l, 'install').box);
@@ -95,7 +96,7 @@ test.describe('S-02-3 Runner: install programs, hardware and resources', () => {
 
 test.describe('S-02-4 play money and draw cards', () => {
   test('Play shows each card\'s price: Hedge Fund 5 credits, Anonymous Tip free', async ({ page }) => {
-    await openBoard(page, 2);
+    await openBoard(page, 332);
     let l = await pickCard(page, 'Hedge Fund');
     expect(l.targets.map((t) => [t.kind, t.label, t.lit])).toEqual([['play', 'Play · 5 credits', true]]);
     l = await pickCard(page, 'Anonymous Tip');
@@ -103,7 +104,7 @@ test.describe('S-02-4 play money and draw cards', () => {
   });
 
   test('Hedge Fund: pay 5, gain 9, one click, and it lands face up on Archives for both players', async ({ page }) => {
-    await openBoard(page, 2);
+    await openBoard(page, 332);
     const before = await getView(page);
     const l = await pickCard(page, 'Hedge Fund');
     const m = await measureTap(page, targetOf(l, 'play').box);
@@ -120,7 +121,7 @@ test.describe('S-02-4 play money and draw cards', () => {
   });
 
   test('Anonymous Tip draws 3 with the usual draw flights', async ({ page }) => {
-    await openBoard(page, 2);
+    await openBoard(page, 332);
     const before = await getView(page);
     const l = await pickCard(page, 'Anonymous Tip');
     const m = await measureTap(page, targetOf(l, 'play').box);
@@ -156,7 +157,7 @@ test.describe('S-02-4 play money and draw cards', () => {
   });
 
   test("can't afford Hedge Fund: Play only says \"Not enough credits\"", async ({ page }) => {
-    await openBoard(page, 9);
+    await openBoard(page, 6);
     for (const name of ['Enigma', 'Wall of Static']) {
       const l = await pickCard(page, name);
       await tap(page, targetOf(l, 'server', 'rd').box);
@@ -172,24 +173,18 @@ test.describe('S-02-4 play money and draw cards', () => {
     expect(m.anims.map((a) => [a.kind, a.text])).toEqual([['hint', 'Not enough credits']]);
   });
 
-  test('cards that need runs say "Needs runs (coming soon)" and spend nothing', async ({ page }) => {
-    await openBoard(page, 2);
+  test("The Maker's Eye is playable now (Sprint 3): Play shows its price and no \"Needs runs\" hint", async ({ page }) => {
+    await openBoard(page, 332);
     await toRunnerTurn(page);
-    const before = await getView(page);
     await page.evaluate(() => window.__overclock!.clearAnims());
     const l = await pickCard(page, "The Maker's Eye");
-    expect(targetOf(l, 'play')).toMatchObject({ label: 'Play · 2 credits', reject: 'not_implemented' });
-    expect((await anims(page)).find((a) => a.kind === 'hint')?.text).toBe('Needs runs (coming soon)');
-    const m = await measureTap(page, targetOf(l, 'play').box);
-    expect(m.events).toEqual([{ type: 'action_rejected', reason: 'not_implemented' }]);
-    expect(m.view).toEqual(before);
-    expect(m.anims.find((a) => a.kind === 'hint')?.text).toBe('Needs runs (coming soon)');
-    // The card's text says what it will do later.
+    expect(targetOf(l, 'play')).toMatchObject({ label: 'Play · 2 credits', lit: true, reject: null });
+    expect((await anims(page)).some((a) => a.kind === 'hint')).toBe(false);
     expect(getCard('r07')!.text).toContain('Make a run');
   });
 
   test('with no clicks left, tapping a card says so instead of lighting targets', async ({ page }) => {
-    await openBoard(page, 2);
+    await openBoard(page, 332);
     for (let i = 0; i < 3; i++) await dispatch(page, { type: 'gain_credit', player: 'corp' });
     const l0 = await waitIdle(page);
     await page.evaluate(() => window.__overclock!.clearAnims());
