@@ -40,5 +40,6 @@ P1 = must, P2 = should, P3 = nice. The PM agent keeps this ordered.
 - **P1 — One table that says when each action is allowed (engine).** Every action (draw, gain credit, end turn, discard, and later install/run) is checked in one place, so new actions can't skip a rule. Lands with the turn loop. *Part of Sprint 1.*
   - Given any action, when it isn't allowed right now, then the engine rejects it with a reason and the game doesn't change. (automated check)
 - **P2 — Move the game "host" out of the screen code before the AI opponent.** Today the screen code runs the game loop; the AI needs it in a shared place. Do before "AI opponent v1".
+- **P1 (Android sprint) — Redraw card images after Android drops graphics memory.** When the app is backgrounded and the graphics context is lost and restored, the shared card images come back blank until a resize. Fix: on `webglcontextrestored`, clear the shared card textures and re-lay out the board. Source: Sprint 1 architect review of the QA-S1-1 fix.
 - **P2 — Hide the test hook behind a build switch before any public release.** The hook automated tests use to poke the game must not ship in a public build. Do before Android / public release.
   - Given a public release build, when it is inspected, then the test hook is not present. (automated check)

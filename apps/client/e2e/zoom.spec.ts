@@ -1,7 +1,7 @@
 // S-00-4: Long-press a hand card to zoom it; release to let go.
 import { getCard } from '@overclock/cards';
 import { expect, test } from '@playwright/test';
-import { inside, layout, openBoard, pressAndHold, tap } from './helpers';
+import { inside, layout, openBoard, pressAndHold, safeRect, tap } from './helpers';
 
 test.describe('S-00-4 zoom', () => {
   test('long-press zooms a hand card to readable size and release closes it', async ({ page }) => {
@@ -22,7 +22,7 @@ test.describe('S-00-4 zoom', () => {
     const z = zoomed.zoom!;
     expect(z.cardId).toBe(target.cardId);
     expect(z.box.width).toBeGreaterThan(target.box.width * 2.5);
-    expect(inside(z.box, zoomed.viewport.width, zoomed.viewport.height)).toBe(true);
+    expect(inside(z.box, safeRect(zoomed))).toBe(true);
 
     // It shows the card's name, type, cost and rules text.
     const def = getCard(target.cardId)!;

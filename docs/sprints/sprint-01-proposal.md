@@ -30,20 +30,19 @@ By the end of this sprint, two people can play real turns on one phone: the Corp
 
 ### S-01-3: End your turn
 *Why it matters:* you decide when you're done, and the game moves on without fuss.
-*Acceptance criteria:*
-- Given you've used all your clicks, when you look at the screen, then a glowing **End turn** button appears.
-- Given you still have clicks left, when you look at the End turn button, then it's dimmed, and tapping it shows "Use all your clicks first". (In this genre you always spend every click.)
-- Given you tap End turn, when the turn changes, then the change happens in well under a second, with no extra screens to tap through except the hand-over screen in S-01-4.
+*Acceptance criteria (updated for owner answers 2 and 3):*
+- Given it's your turn, when you look at the screen, then an **End turn** button is there; it glows brighter once all your clicks are used.
+- Given you still have clicks left, when you tap End turn, then the turn ends anyway (leftover clicks are lost). (Owner answer 3: ending early is allowed.)
+- Given you've used your last click, when nothing else happens, then the turn does **not** end by itself; you tap End turn. (Owner answer 2.)
+- Given you tap End turn, when the turn changes, then the change happens in well under a second, with no extra screens to tap through.
 *Size:* S
 
-### S-01-4: Pass the phone (hot-seat play)
-*Why it matters:* lets you play a real two-person game on one phone today, with no AI or internet needed. "Hot-seat" means two people sharing one device and taking turns.
-*Acceptance criteria:*
-- Given a turn just ended, when the hand-over happens, then a full-screen "Pass to the Runner" (or "Pass to the Corp") screen covers the board so neither hand is visible.
-- Given the hand-over screen, when the next player taps **I'm ready**, then the board appears with **their** side at the bottom and their hand face up.
+### S-01-4: Both players on one screen (no hand-over screen)
+*Why it matters:* lets you test a full two-player turn cycle today. The real game will be played over the internet (each player on their own device), so there's no "pass the phone" cover screen. (Owner answer 1.)
+*Acceptance criteria (updated for owner answer 1):*
+- Given a turn just ended, when the next turn starts, then the board shows the **active player's side at the bottom** with their hand face up, straight away, with no cover screen.
 - Given it's your turn, when you look at the top of the screen, then you see how many cards your opponent holds but not what they are.
-*Size:* M
-*(Depends on question 1. If you pick B, the cover screen is dropped and this becomes size S.)*
+*Size:* S
 
 ### S-01-5: Hand limit: discard down to 5
 *Why it matters:* stops anyone hoarding cards, and it's a real decision: which cards do you keep?
@@ -58,7 +57,7 @@ By the end of this sprint, two people can play real turns on one phone: the Corp
 *Why it matters:* phones with a camera notch or a swipe bar at the bottom could cover the edge of the board, especially in full-screen and later in the Android app.
 *Acceptance criteria:*
 - Given you add the demo to your home screen and open it from there (it opens full-screen), when the board loads, then no counter, button, label or card is under the notch, the status bar or the bottom gesture bar.
-- Given phone shapes with a notch and a gesture bar, when the board, the End turn button and the hand-over screen are drawn, then all of them sit inside the safe area. (automated check)
+- Given phone shapes with a notch and a gesture bar, when the board and the End turn button are drawn, then all of them sit inside the safe area. (automated check)
 *Size:* S
 
 ## Not in this sprint (and why)
@@ -84,3 +83,8 @@ By the end of this sprint, two people can play real turns on one phone: the Corp
 - **Two hands on one small screen.** Showing your hand, the opponent's card count and an End turn button may get crowded on small phones. We'll test on a small phone size as well as the standard one and share screenshots in the demo.
 - **The turn loop touches everything built so far.** Sprint 0's "Runner goes first" shortcut gets replaced. The automatic checks from Sprint 0 will tell us right away if we break the draw, zoom or "no clicks" behavior.
 - **The demo link still needs Pages switched on** (Settings → Pages → Source: "GitHub Actions"). Until then you can't play the demo on your phone. We'll remind you at the top of the demo PR if it's still off.
+
+## Owner answers (2026-11-12, PR #3)
+1. No phone hand-over screen: the game will ultimately be played over a network, each person signing in as Corp or Runner. For testing on one device this sprint, the board simply shows the active player's side at the bottom (option B). Can be changed at the demo.
+2. End turn button, no automatic end of turn (A).
+3. Ending the turn with clicks left is allowed (B), as it is more forgiving.

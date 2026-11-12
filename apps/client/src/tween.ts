@@ -29,6 +29,11 @@ export interface TweenSpec<T extends object> {
   ease?: Ease;
   onUpdate?: (t: number) => void;
   onComplete?: () => void;
+  /**
+   * Display object the tween animates. Once it is destroyed (e.g. the board
+   * was rebuilt for the other seat) the tween is dropped without completing.
+   */
+  owner?: { readonly destroyed: boolean };
 }
 
 interface Running {
@@ -42,6 +47,11 @@ interface Running {
   ease: Ease;
   onUpdate?: (t: number) => void;
   onComplete?: () => void;
+  owner?: { readonly destroyed: boolean };
+}
+
+function dead(r: Running): boolean {
+  return r.owner?.destroyed === true;
 }
 
 export class Tweens {
@@ -67,7 +77,13 @@ export class Tweens {
       ease: spec.ease ?? ease.outCubic,
       onUpdate: spec.onUpdate,
       onComplete: spec.onComplete,
+      owner: spec.owner,
     });
+  }
+
+  /** Runs `fn` after `ms` (or at once when finishAll() skips ahead). Sequences chained steps. */
+  after(ms: number, fn: () => void): void {
+    this.add({ target: { t: 0 }, to: { t: 1 }, duration: ms, ease: ease.linear, onComplete: fn });
   }
 
   /** Stops tweens on `target` without completing them. */
@@ -75,14 +91,20 @@ export class Tweens {
     this.running = this.running.filter((r) => r.target !== target);
   }
 
-  /** Advances all tweens by dt milliseconds. */
-  tick(dt: number): void {
-    if (this.running.length === 0) return;
+  /**
+   * Advances all tweens by dt milliseconds. Returns true if anything moved
+   * (a tween waiting out its delay changes nothing, so needs no redraw).
+   */
+  tick(dt: number): boolean {
+    if (this.running.length === 0) return false;
+    this.running = this.running.filter((r) => !dead(r));
     const done: Running[] = [];
+    let changed = false;
     for (const r of this.running) {
       r.elapsed += dt;
       const local = r.elapsed - r.delay;
       if (local < 0) continue;
+      changed = true;
       if (!r.started) this.start(r);
       const t = r.duration === 0 ? 1 : Math.min(1, local / r.duration);
       this.applyAt(r, t);
@@ -90,21 +112,22 @@ export class Tweens {
     }
     if (done.length > 0) {
       this.running = this.running.filter((r) => !done.includes(r));
-      for (const r of done) r.onComplete?.();
+      for (const r of done) if (!dead(r)) r.onComplete?.();
     }
+    return changed;
   }
 
   /** Snaps every running tween to its end state and fires completions. */
   finishAll(): void {
     // Completions may queue new tweens; loop until settled (bounded).
     for (let guard = 0; guard < 8 && this.running.length > 0; guard++) {
-      const all = this.running;
+      const all = this.running.filter((r) => !dead(r));
       this.running = [];
       for (const r of all) {
         if (!r.started) this.start(r);
         this.applyAt(r, 1);
       }
-      for (const r of all) r.onComplete?.();
+      for (const r of all) if (!dead(r)) r.onComplete?.();
     }
   }
 

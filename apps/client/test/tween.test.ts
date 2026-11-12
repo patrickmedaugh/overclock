@@ -48,3 +48,45 @@ describe('Tweens', () => {
     expect(done).toBe(0);
   });
 });
+
+describe('Tweens owner and after()', () => {
+  it('drops tweens whose owner was destroyed, without completing them', () => {
+    const tw = new Tweens();
+    const owner = { destroyed: false };
+    const o = { x: 0 };
+    let done = false;
+    tw.add({ target: o, to: { x: 10 }, duration: 100, owner, onComplete: () => (done = true) });
+    tw.tick(10);
+    owner.destroyed = true;
+    tw.tick(200);
+    expect(done).toBe(false);
+    expect(tw.active).toBe(false);
+  });
+
+  it('after() runs a step later, or at once on finishAll (tap to skip), including chained steps', () => {
+    const tw = new Tweens();
+    const order: string[] = [];
+    tw.after(250, () => {
+      order.push('a');
+      tw.after(200, () => order.push('b'));
+    });
+    tw.tick(100);
+    expect(order).toEqual([]);
+    tw.finishAll();
+    expect(order).toEqual(['a', 'b']);
+    expect(tw.active).toBe(false);
+  });
+});
+
+describe('Tweens.tick reports movement', () => {
+  it('returns false while a tween only waits out its delay, true once it moves', () => {
+    const tw = new Tweens();
+    const o = { a: 1 };
+    tw.add({ target: o, to: { a: 0 }, delay: 1000, duration: 200 });
+    expect(tw.tick(500)).toBe(false);
+    expect(tw.active).toBe(true);
+    expect(tw.tick(600)).toBe(true);
+    expect(tw.tick(200)).toBe(true);
+    expect(tw.tick(16)).toBe(false);
+  });
+});

@@ -1,8 +1,15 @@
+// Must come first: makes Pixi generate shaders/uniform code without
+// `new Function`, so the game runs under a strict Content Security Policy
+// (no 'unsafe-eval'; see vite.config.ts) and in locked-down WebViews.
+import 'pixi.js/unsafe-eval';
+import type { Action } from '@overclock/engine';
 import { Application } from 'pixi.js';
 import { Board } from './board';
-import type { OverclockTestHook } from './hook-types';
+import { setCardRenderer } from './cardFace';
+import type { AnimRecord, OverclockTestHook } from './hook-types';
+import { HotSeat, seedFromUrl } from './hotseat';
 import { computeLayout } from './layout';
-import { Session, seedFromUrl } from './session';
+import { readSafeArea } from './safeArea';
 import { theme } from './theme';
 import { Tweens } from './tween';
 
@@ -22,67 +29,91 @@ async function start(): Promise<void> {
     preference: 'webgl',
   });
   host.appendChild(app.canvas);
+  setCardRenderer(app.renderer);
   app.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
-  const session = new Session(seedFromUrl(window.location.search));
+  const game = new HotSeat(seedFromUrl(window.location.search));
   // fx: event animations (skippable). ui: feedback, hints, zoom (never skipped).
   const fx = new Tweens();
   const ui = new Tweens();
 
-  const board = new Board(fx, ui, {
-    onDeckTap: (side) => dispatch({ type: 'draw', player: side }),
-  });
-  app.stage.addChild(board.stage);
+  // Animation log for the test hook: one record per animation/hint start.
+  const records: AnimRecord[] = [];
+  const log = (r: Omit<AnimRecord, 'startedAt'>) => {
+    records.push({ ...r, startedAt: performance.now() });
+    if (records.length > 200) records.splice(0, records.length - 200);
+  };
 
-  // Render on demand: only while something animates or after a change.
+  // Render on demand: only while something moves or after a change.
   // Idle boards cost no GPU time (battery on phones, CPU in CI).
   let dirty = true;
   const invalidate = () => {
     dirty = true;
   };
+
+  const dispatch: OverclockTestHook['dispatch'] = (action: Action) => {
+    board.show(game.submit(action));
+    invalidate();
+    return game.lastEvents();
+  };
+  // Taps act for the seat at the bottom (always the active player). It
+  // switches the moment the turn passes, even while the flip still animates.
+  const board = new Board(fx, ui, {
+    onDeckTap: () => dispatch({ type: 'draw', player: game.seat }),
+    onCreditsTap: () => dispatch({ type: 'gain_credit', player: game.seat }),
+    onEndTurn: () => dispatch({ type: 'end_turn', player: game.seat }),
+    onDiscard: (handIndices) => dispatch({ type: 'discard', player: game.seat, handIndices }),
+    onNewGame: () => window.location.assign(window.location.pathname),
+    log,
+  });
+  app.stage.addChild(board.stage);
+
   app.ticker.remove(app.render, app);
   // Large frame gaps (slow device, background tab) advance tweens by real
   // time, up to 250ms, so animations finish on wall-clock budget.
   app.ticker.minFPS = 4;
   app.ticker.add((t) => {
-    const animating = fx.active || ui.active;
-    fx.tick(t.deltaMS);
-    ui.tick(t.deltaMS);
-    if (dirty || animating) {
+    // Only frames where a tween actually moved something are drawn: a hint
+    // sitting on screen (waiting for its fade-out) costs no GPU time.
+    const fxMoved = fx.tick(t.deltaMS);
+    const uiMoved = ui.tick(t.deltaMS);
+    if (dirty || fxMoved || uiMoved) {
       dirty = false;
       app.render();
     }
   });
 
-  const dispatch: OverclockTestHook['dispatch'] = (action) => {
-    const events = session.dispatch(action);
-    board.render(session.view(), events);
-    invalidate();
-    return events;
-  };
-
-  let lastSize = '';
+  let lastKey = '';
   const relayout = () => {
     const w = window.innerWidth;
     const h = window.innerHeight;
-    const key = `${w}x${h}`;
-    if (key === lastSize) return;
-    lastSize = key;
+    const insets = readSafeArea();
+    const key = `${w}x${h}:${insets.top},${insets.right},${insets.bottom},${insets.left}`;
+    if (key === lastKey) return;
+    lastKey = key;
     app.renderer.resize(w, h);
-    board.setLayout(computeLayout(w, h));
+    board.setLayout(computeLayout(w, h, insets));
     invalidate();
   };
   relayout();
-  board.render(session.view(), []);
+  board.render(game.view(), []);
   window.addEventListener('resize', relayout);
+  window.addEventListener('orientationchange', relayout);
+  // Insets can settle a moment after an orientation change on iOS.
+  window.visualViewport?.addEventListener('resize', relayout);
 
-  // Test hook for Playwright (always on in Sprint 0; build flag later).
+  // Test hook for Playwright (always on for now; build flag later).
   window.__overclock = {
-    getView: () => session.view(),
+    getView: () => game.view(),
     dispatch,
-    lastEvents: () => session.lastEvents(),
+    lastEvents: () => game.lastEvents(),
     layout: () => board.snapshot(),
+    anims: () => records.map((r) => ({ ...r, box: r.box ? { ...r.box } : undefined })),
+    clearAnims: () => {
+      records.length = 0;
+    },
   };
+  document.getElementById('boot')?.remove();
   document.body.dataset.ready = 'true';
 }
 

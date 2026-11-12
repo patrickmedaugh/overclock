@@ -10,6 +10,12 @@
 - **Run** — the Runner attacking a server, passing ICE one piece at a time.
 - **Breaker / icebreaker** — a Runner program that gets past ICE.
 - **Server** — a stack where the Corp keeps cards. HQ = hand, R&D = deck, Archives = discard, plus remote servers they create.
+- **Turn** — one player's go. The Corp goes first, then players alternate. You end your turn with the End turn button (leftover clicks are lost).
+- **Free draw** — the card the Corp must draw at the start of each of its turns. If its deck is empty then, the Runner wins.
+- **Hand limit** — at the end of your turn you may hold at most 5 cards; you pick which extra cards to discard.
+- **Discard pile** — where discarded cards go. The Runner's pile is face up; the Corp's (called Archives) is face down, so the Runner sees only how many cards are in it.
+- **Hot-seat** — two people taking turns on the same device. The board always shows the player whose turn it is at the bottom.
+- **Safe area** — the part of a phone screen not covered by the camera notch, status bar or bottom swipe bar. Everything you can tap or read stays inside it.
 - **Timing window** — a moment where a player may respond. We skip ones where nobody can do anything.
 - **Sprint** — a short round of work ending in a demo you can play.
 - **Story** — one feature described from a player's point of view.

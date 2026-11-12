@@ -1,29 +1,48 @@
-// Pure layout math: viewport size in, boxes (CSS pixels) out.
-// No Pixi or DOM here so it can be unit tested for "nothing cut off or
-// overlapping" across many screen sizes.
-import type { Box } from './hook-types';
+// Pure layout math: viewport size + safe-area insets in, boxes (CSS pixels)
+// out. No Pixi or DOM here so it can be unit tested for "nothing cut off,
+// overlapping, or under the notch / gesture bar" across many screen shapes.
+//
+// The layout is viewer-relative: `bottom` is the player looking at the screen
+// (the active player in hot-seat), `top` is their opponent.
+import type { Box, Insets } from './hook-types';
 
 export interface SideRow {
   /** Whole row band. */
   row: Box;
-  /** Side label ("CORP" / "RUNNER"). */
+  /** Side label with the hand count ("RUNNER · 5 cards in hand"). */
   label: Box;
-  deck: Box;
   credits: Box;
   clicks: Box;
+  discard: Box;
+  deck: Box;
 }
 
 export interface BoardLayout {
   viewport: { width: number; height: number };
-  /** Portrait play column, centered horizontally. */
+  insets: Insets;
+  /** Everything except the backdrop is laid out inside this rect. */
+  safe: Box;
+  /** Portrait play column inside the safe rect, centered horizontally. */
   board: Box;
   /** Global scale relative to the 390x844 reference phone. */
   scale: number;
   pad: number;
-  corp: SideRow;
-  runner: SideRow;
-  /** Space between the two sides (servers/runs go here in later sprints). */
+  /** Opponent's row. */
+  top: SideRow;
+  /** Viewer's row (the only interactive one). */
+  bottom: SideRow;
+  /** Space between the two rows (servers/runs go here in later sprints). */
   center: Box;
+  /** "TURN 3 · CORP · 2 clicks left". */
+  banner: Box;
+  /** Help line, or the discard picker's "Discard 2". */
+  sub: Box;
+  /** Where the transient hint toast sits (left of the End turn button). */
+  hintArea: Box;
+  /** End turn button; also the discard picker's Confirm button. */
+  endTurn: Box;
+  /** Game-over panel. */
+  gameOver: Box;
   handArea: Box;
   card: { width: number; height: number };
   zoom: Box;
@@ -41,66 +60,106 @@ function box(x: number, y: number, width: number, height: number): Box {
   return { x, y, width, height };
 }
 
-function sideRow(board: Box, top: number, rowH: number, s: number, pad: number): SideRow {
-  const labelH = Math.round(18 * s);
-  const deckH = rowH - labelH - Math.round(6 * s);
-  const deckW = Math.round(deckH / CARD_RATIO);
-  const pillH = Math.max(MIN_TOUCH, Math.round(52 * s));
-  const pillW = Math.max(MIN_TOUCH * 2, Math.round(104 * s));
+function sanitize(insets: Partial<Insets> | undefined): Insets {
+  const v = (n: number | undefined) => (typeof n === 'number' && Number.isFinite(n) && n > 0 ? n : 0);
+  return { top: v(insets?.top), right: v(insets?.right), bottom: v(insets?.bottom), left: v(insets?.left) };
+}
+
+function sideRow(board: Box, top: number, s: number, pad: number): SideRow {
+  const labelH = Math.max(12, Math.round(18 * s));
+  const labelGap = Math.round(6 * s);
+  // The deck is a tap target: keep it at least MIN_TOUCH wide.
+  const deckH = Math.max(Math.round(118 * s) - labelH - labelGap, Math.ceil(MIN_TOUCH * CARD_RATIO));
+  const deckW = Math.max(MIN_TOUCH, Math.round(deckH / CARD_RATIO));
+  const rowH = labelH + labelGap + deckH;
   const gap = Math.round(10 * s);
   const left = board.x + pad;
   const right = board.x + board.width - pad;
-  const bodyTop = top + labelH + Math.round(6 * s);
+  const bodyTop = top + labelH + labelGap;
+  // Pills shrink (never below 2x44 wide) so they always clear the two piles.
+  const pillRoom = right - deckW - gap - deckW - gap - left;
+  const pillW = Math.max(MIN_TOUCH * 2, Math.min(Math.round(104 * s), Math.floor((pillRoom - gap) / 2)));
+  const pillH = Math.min(deckH, Math.max(MIN_TOUCH, Math.round(52 * s)));
   const pillY = bodyTop + Math.round((deckH - pillH) / 2);
   return {
     row: box(board.x, top, board.width, rowH),
-    label: box(left, top, Math.round(board.width / 2), labelH),
+    label: box(left, top, right - left, labelH),
     credits: box(left, pillY, pillW, pillH),
     clicks: box(left + pillW + gap, pillY, pillW, pillH),
+    discard: box(right - deckW - gap - deckW, bodyTop, deckW, deckH),
     deck: box(right - deckW, bodyTop, deckW, deckH),
   };
 }
 
-export function computeLayout(width: number, height: number): BoardLayout {
+export function computeLayout(width: number, height: number, insetsIn?: Partial<Insets>): BoardLayout {
   const vw = Math.max(1, Math.floor(width));
   const vh = Math.max(1, Math.floor(height));
+  const insets = sanitize(insetsIn);
+  const safe = box(
+    Math.ceil(insets.left),
+    Math.ceil(insets.top),
+    Math.max(1, Math.floor(vw - insets.right) - Math.ceil(insets.left)),
+    Math.max(1, Math.floor(vh - insets.bottom) - Math.ceil(insets.top)),
+  );
   // Portrait column: full width on phones, a phone-shaped column on desktop.
-  const boardW = Math.min(vw, Math.max(REF_W, Math.round(vh * 0.62)));
-  const boardX = Math.floor((vw - boardW) / 2);
-  const s = Math.max(0.5, Math.min(boardW / REF_W, vh / REF_H, 1.5));
+  const boardW = Math.min(safe.width, Math.max(REF_W, Math.round(safe.height * 0.62)));
+  const boardX = safe.x + Math.floor((safe.width - boardW) / 2);
+  const s = Math.max(0.5, Math.min(boardW / REF_W, safe.height / REF_H, 1.5));
   const pad = Math.round(12 * s);
   const gap = Math.round(8 * s);
-  const board = box(boardX, 0, boardW, vh);
+  const board = box(boardX, safe.y, boardW, safe.height);
 
-  const rowH = Math.round(118 * s);
   const avail = boardW - 2 * pad;
-  const cardW = Math.floor(Math.min((avail - 4 * gap) / 5, 84 * s));
+  const cardW = Math.max(MIN_TOUCH, Math.floor(Math.min((avail - 4 * gap) / 5, 84 * s)));
   const cardH = Math.floor(cardW * CARD_RATIO);
   const handH = cardH * 2 + gap;
 
-  const corpTop = pad;
-  const corp = sideRow(board, corpTop, rowH, s, pad);
-  const handTop = vh - pad - handH;
-  const runnerTop = handTop - gap - rowH;
-  const runner = sideRow(board, runnerTop, rowH, s, pad);
-  const centerTop = corpTop + rowH + gap;
-  const center = box(boardX + pad, centerTop, avail, Math.max(0, runnerTop - gap - centerTop));
+  const top = sideRow(board, safe.y + pad, s, pad);
+  const handTop = safe.y + safe.height - pad - handH;
+  const rowH = top.row.height;
+  const bottom = sideRow(board, handTop - gap - rowH, s, pad);
+  const centerTop = top.row.y + rowH + gap;
+  const center = box(boardX + pad, centerTop, avail, Math.max(0, bottom.row.y - gap - centerTop));
   const handArea = box(boardX + pad, handTop, avail, handH);
 
+  // Center band: banner and help line at the top, action bar at the bottom.
+  const cGap = Math.round(10 * s);
+  const banner = box(center.x, center.y + cGap, center.width, Math.max(14, Math.round(22 * s)));
+  const sub = box(center.x, banner.y + banner.height + Math.round(4 * s), center.width, Math.max(24, Math.round(40 * s)));
+  const barH = Math.max(MIN_TOUCH, Math.round(48 * s));
+  const barY = center.y + center.height - cGap - barH;
+  const endW = Math.max(110, Math.round(132 * s));
+  const endTurn = box(center.x + center.width - endW, barY, endW, barH);
+  const hintArea = box(center.x, barY, endTurn.x - gap - center.x, barH);
+  const goH = Math.min(center.height, Math.round(140 * s));
+  const gameOver = box(center.x, center.y + Math.round((center.height - goH) / 2), center.width, goH);
+
   let zoomW = Math.min(boardW * 0.8, 340);
-  if (zoomW * CARD_RATIO > vh * 0.82) zoomW = (vh * 0.82) / CARD_RATIO;
+  if (zoomW * CARD_RATIO > safe.height * 0.82) zoomW = (safe.height * 0.82) / CARD_RATIO;
   zoomW = Math.round(zoomW);
   const zoomH = Math.round(zoomW * CARD_RATIO);
-  const zoom = box(Math.round((vw - zoomW) / 2), Math.round((vh - zoomH) / 2), zoomW, zoomH);
+  const zoom = box(
+    safe.x + Math.round((safe.width - zoomW) / 2),
+    safe.y + Math.round((safe.height - zoomH) / 2),
+    zoomW,
+    zoomH,
+  );
 
   return {
     viewport: { width: vw, height: vh },
+    insets,
+    safe,
     board,
     scale: s,
     pad,
-    corp,
-    runner,
+    top,
+    bottom,
     center,
+    banner,
+    sub,
+    hintArea,
+    endTurn,
+    gameOver,
     handArea,
     card: { width: cardW, height: cardH },
     zoom,

@@ -1,11 +1,30 @@
-import { type Page, expect } from '@playwright/test';
-import type { Box, LayoutSnapshot } from '../src/hook-types';
+import { type Page, expect, test } from '@playwright/test';
+import type { Action, GameEvent, PlayerView } from '@overclock/engine';
+import type { AnimRecord, Box, Insets, LayoutSnapshot } from '../src/hook-types';
 
-export type { Box, LayoutSnapshot };
+export type { AnimRecord, Box, Insets, LayoutSnapshot };
+
+export interface OpenOptions {
+  seed?: number;
+  /** Simulated notch / gesture bar: overrides #safe-probe's env() padding. */
+  insets?: Partial<Insets>;
+}
 
 /** Opens the board with a fixed deal and waits until the test hook is live. */
-export async function openBoard(page: Page, seed = 1): Promise<void> {
-  await page.goto(`./?seed=${seed}`);
+export async function openBoard(page: Page, opts: OpenOptions | number = {}): Promise<void> {
+  const o = typeof opts === 'number' ? { seed: opts } : opts;
+  if (o.insets) {
+    const i = { top: 0, right: 0, bottom: 0, left: 0, ...o.insets };
+    // Same read path as a real notched phone: only the probe's padding changes.
+    await page.addInitScript((css) => {
+      document.addEventListener('DOMContentLoaded', () => {
+        const s = document.createElement('style');
+        s.textContent = css;
+        document.head.appendChild(s);
+      });
+    }, `#safe-probe { padding: ${i.top}px ${i.right}px ${i.bottom}px ${i.left}px !important; }`);
+  }
+  await page.goto(`./?seed=${o.seed ?? 1}`);
   await page.waitForFunction(() => document.body.dataset.ready === 'true' && !!window.__overclock);
 }
 
@@ -13,9 +32,41 @@ export function layout(page: Page): Promise<LayoutSnapshot> {
   return page.evaluate(() => window.__overclock!.layout());
 }
 
+export function getView(page: Page): Promise<PlayerView> {
+  return page.evaluate(() => window.__overclock!.getView());
+}
+
+export function lastEvents(page: Page): Promise<GameEvent[]> {
+  return page.evaluate(() => window.__overclock!.lastEvents());
+}
+
+export function dispatch(page: Page, action: Action): Promise<GameEvent[]> {
+  return page.evaluate((a) => window.__overclock!.dispatch(a), action);
+}
+
+export function anims(page: Page): Promise<AnimRecord[]> {
+  return page.evaluate(() => window.__overclock!.anims());
+}
+
 export async function waitIdle(page: Page): Promise<LayoutSnapshot> {
   await page.waitForFunction(() => !window.__overclock!.layout().animating, undefined, { polling: 'raf' });
   return layout(page);
+}
+
+/**
+ * Plays through the hook to the start of the Runner's first turn (Corp
+ * discards its 6th card). Leaves the board idle.
+ */
+export async function toRunnerTurn(page: Page): Promise<void> {
+  await dispatch(page, { type: 'end_turn', player: 'corp' });
+  await dispatch(page, { type: 'discard', player: 'corp', handIndices: [5] });
+  await waitIdle(page);
+  expect((await getView(page)).activePlayer).toBe('runner');
+}
+
+/** End turn ignores taps briefly after the tap that ended the last turn (double-tap guard). */
+export async function waitEndTurnArmed(page: Page): Promise<void> {
+  await page.waitForTimeout(350);
 }
 
 export function center(b: Box): { x: number; y: number } {
@@ -31,6 +82,66 @@ export async function tap(page: Page, b: Box): Promise<void> {
   const { x, y } = center(b);
   if (isTouch(page)) await page.touchscreen.tap(x, y);
   else await page.mouse.click(x, y);
+}
+
+/** What the page saw at the release of a measured tap. */
+export interface TapMeasure {
+  /** pointerup event timestamp (includes any input queueing delay). */
+  tapAt: number;
+  /** When the game state was read, right after the game handled the release. */
+  stateAt: number;
+  /** The bottom seat's view at that moment. */
+  view: PlayerView;
+  events: GameEvent[];
+  /** Animation records started by this tap. */
+  anims: AnimRecord[];
+}
+
+/**
+ * Taps `b` and captures the game state inside the same pointerup dispatch:
+ * a bubble-phase window listener runs after the game's capture-phase
+ * handler, so it sees exactly what the tap did, timed on the page's clock.
+ */
+export async function measureTap(page: Page, b: Box): Promise<TapMeasure> {
+  await page.evaluate(() => {
+    const w = window as unknown as { __m?: unknown };
+    w.__m = undefined;
+    window.__overclock!.clearAnims();
+    window.addEventListener(
+      'pointerup',
+      (e) => {
+        const hook = window.__overclock!;
+        w.__m = { tapAt: e.timeStamp, stateAt: performance.now(), view: hook.getView(), events: hook.lastEvents() };
+      },
+      { once: true },
+    );
+  });
+  await tap(page, b);
+  await page.waitForFunction(() => (window as unknown as { __m?: unknown }).__m !== undefined);
+  const m = await page.evaluate(() => (window as unknown as { __m: Omit<TapMeasure, 'anims'> }).__m);
+  return { ...m, anims: await anims(page) };
+}
+
+/**
+ * The snappiness budget for one tap: state changed < 100ms after the
+ * release, every animation it caused started < 100ms after it and is
+ * scheduled for <= 600ms. Wall-clock landing is only an annotation (GPU-less
+ * CI runners add render latency that is not the game's budget).
+ */
+export function expectSnappy(m: TapMeasure, kinds: AnimRecord['kind'][]): void {
+  test.info().annotations.push({
+    type: 'timing',
+    description: JSON.stringify({ stateMs: m.stateAt - m.tapAt, anims: m.anims.map((a) => ({ kind: a.kind, startMs: a.startedAt - m.tapAt, scheduledMs: a.scheduledMs })) }),
+  });
+  expect(m.stateAt - m.tapAt, 'state updated within 100ms of the tap').toBeLessThan(100);
+  for (const kind of kinds) {
+    const recs = m.anims.filter((a) => a.kind === kind);
+    expect(recs.length, `${kind} animation started`).toBeGreaterThan(0);
+    for (const r of recs) {
+      expect(r.startedAt - m.tapAt, `${kind} started within 100ms of the tap`).toBeLessThan(100);
+      expect(r.scheduledMs, `${kind} scheduled within the 600ms budget`).toBeLessThanOrEqual(600);
+    }
+  }
 }
 
 /**
@@ -54,9 +165,9 @@ export async function pressAndHold(page: Page, b: Box): Promise<() => Promise<vo
   };
 }
 
-export function inside(b: Box, vw: number, vh: number): boolean {
+export function inside(b: Box, r: Box): boolean {
   const eps = 0.5;
-  return b.width > 0 && b.height > 0 && b.x >= -eps && b.y >= -eps && b.x + b.width <= vw + eps && b.y + b.height <= vh + eps;
+  return b.width > 0 && b.height > 0 && b.x >= r.x - eps && b.y >= r.y - eps && b.x + b.width <= r.x + r.width + eps && b.y + b.height <= r.y + r.height + eps;
 }
 
 export function overlaps(a: Box, b: Box): boolean {
@@ -64,25 +175,33 @@ export function overlaps(a: Box, b: Box): boolean {
   return a.x + eps < b.x + b.width && b.x + eps < a.x + a.width && a.y + eps < b.y + b.height && b.y + eps < a.y + a.height;
 }
 
-/** Named boxes for every board element (not counting hand cards). */
-export function boardElements(l: LayoutSnapshot): [string, Box][] {
-  return [
-    ['corp deck', l.corp.deck],
-    ['corp credits', l.corp.credits],
-    ['corp clicks', l.corp.clicks],
-    ['runner deck', l.runner.deck],
-    ['runner credits', l.runner.credits],
-    ['runner clicks', l.runner.clicks],
-  ];
+/** The safe rect (viewport minus notch / gesture-bar insets). */
+export function safeRect(l: LayoutSnapshot): Box {
+  const i = l.safeArea;
+  return { x: i.left, y: i.top, width: l.viewport.width - i.left - i.right, height: l.viewport.height - i.top - i.bottom };
 }
 
-/** Asserts every element is on screen and no two elements overlap. */
+/** Named boxes for every board element (not counting hand cards). */
+export function boardElements(l: LayoutSnapshot): [string, Box][] {
+  const out: [string, Box][] = [];
+  for (const s of ['corp', 'runner'] as const) {
+    for (const k of ['deck', 'credits', 'clicks', 'discard', 'label'] as const) out.push([`${s} ${k}`, l[s][k]]);
+  }
+  if (l.endTurn) out.push(['End turn', l.endTurn.box]);
+  if (l.picker) out.push(['Confirm', l.picker.confirm.box]);
+  return out;
+}
+
+/** Asserts every element is inside the safe area and no two elements overlap. */
 export function expectCleanLayout(l: LayoutSnapshot): void {
-  const { width: vw, height: vh } = l.viewport;
+  const safe = safeRect(l);
   const elements = boardElements(l);
   const hand = l.hand.map((h, i): [string, Box] => [`hand card ${i} (${h.cardId})`, h.box]);
-  for (const [name, b] of [...elements, ...hand]) {
-    expect(inside(b, vw, vh), `${name} ${JSON.stringify(b)} is fully on screen`).toBe(true);
+  const extras: [string, Box][] = [];
+  if (l.hint) extras.push(['hint', l.hint.box]);
+  if (l.gameOver) extras.push(['game over', l.gameOver.box]);
+  for (const [name, b] of [...elements, ...hand, ...extras]) {
+    expect(inside(b, safe), `${name} ${JSON.stringify(b)} is inside the safe area ${JSON.stringify(safe)}`).toBe(true);
   }
   for (let i = 0; i < elements.length; i++) {
     for (let j = i + 1; j < elements.length; j++) {
@@ -103,4 +222,26 @@ export function expectCleanLayout(l: LayoutSnapshot): void {
       }
     }
   }
+}
+
+/** Drives the game through the hook (test-only, uses the view's legal actions) until it ends. */
+export async function playUntilGameOver(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const hook = window.__overclock!;
+    for (let guard = 0; guard < 500; guard++) {
+      const v = hook.getView();
+      if (v.result) return;
+      const me = v.viewer;
+      if (v.pendingDiscard > 0) {
+        const n = v.players[me].handCount;
+        const idx = Array.from({ length: v.pendingDiscard }, (_, k) => n - v.pendingDiscard + k);
+        hook.dispatch({ type: 'discard', player: me, handIndices: idx });
+      } else if (me === 'corp' && v.legalActions.some((a) => a.type === 'draw')) {
+        hook.dispatch({ type: 'draw', player: me });
+      } else {
+        hook.dispatch({ type: 'end_turn', player: me });
+      }
+    }
+    throw new Error('game did not end');
+  });
 }

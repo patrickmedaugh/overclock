@@ -9,7 +9,10 @@ The engine implements this document. It is a simplified, genre-standard ruleset;
 ## Turns
 - **Corp turn:** draw 1 card (mandatory), then spend 3 clicks. Basic actions: gain 1 credit; draw 1 card; install a card (agenda/asset/upgrade into a remote server, ICE in front of any server; installed ICE costs 1 credit per ICE already protecting that server); play an operation; advance an installed card (1 click + 1 credit); purge (3 clicks, later sprint).
 - **Runner turn:** spend 4 clicks. Basic actions: gain 1 credit; draw 1 card; install a program/hardware/resource (pay cost; programs use memory, starting limit 4); play an event; make a run; remove a tag (later sprint).
-- End of turn: discard down to maximum hand size (5).
+- **Turn order:** the Corp takes turn 1, then turns alternate. The Corp's mandatory draw happens at the start of every Corp turn, including turn 1, so the Corp starts its first turn with 6 cards. The Runner never gets a free draw.
+- **Ending a turn (house rule, owner 2026-11-12):** the active player ends their turn by choosing to (End turn). They may do this with clicks left over; leftover clicks are lost. *(Differs from the genre's standard rule, where every click must be spent.)* The turn never ends by itself when the last click is spent.
+- End of turn: discard down to maximum hand size (5). The player picks which cards. The Runner's discards go face up to their discard pile (heap). The Corp's go face down to Archives: the Runner sees only how many.
+- Basic actions with an empty deck: the Runner (or Corp) cannot spend a click to draw from an empty deck. That action is not allowed, and nothing is lost.
 
 ## Corp cards
 - Installed face down. Corp may **rez** (pay rez cost) at specific timing windows; ICE is rezzed when the Runner approaches it.
@@ -24,7 +27,7 @@ The engine implements this document. It is a simplified, genre-standard ruleset;
 ## Winning
 - First to 7 agenda points.
 - Corp wins if the Runner takes more damage than cards in hand (flatline).
-- Runner wins if the Corp must draw from an empty R&D.
+- Runner wins if the Corp must draw from an empty R&D. Only the mandatory start-of-turn draw counts as "must draw"; the game ends right then.
 
 ## Starter card pool (v0)
 Design ~12 original cards per side covering: economy, draw, three ICE types (barrier/code gate/sentry), matching breakers, 2–3 agendas, 1 asset, 1 damage source. All names and text original.

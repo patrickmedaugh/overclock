@@ -5,6 +5,7 @@
     { "path": "packages/cards" },
     { "path": "packages/engine" },
     { "path": "packages/ai" },
+    { "path": "packages/match" },
     { "path": "apps/client" },
     { "path": "apps/client/tsconfig.node.json" }
   ]
