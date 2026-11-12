@@ -2,7 +2,7 @@
 // placeholder art; no copied images). The `art` key on a card seeds the glyph
 // so the same card always looks the same.
 import type { CardDef, Side } from '@overclock/cards';
-import { Container, FillGradient, Graphics, Text } from 'pixi.js';
+import { Container, FillGradient, Graphics, Rectangle, Sprite, Text, type Renderer, type Texture } from 'pixi.js';
 import { sideColor, sideDeep, theme } from './theme';
 
 /** FNV-1a string hash -> uint32. */
@@ -111,8 +111,67 @@ function panelGradient(side: Side): FillGradient {
   });
 }
 
+// ---- baked card textures ---------------------------------------------------
+// Card art is static, so each (card, size) is drawn into a texture once and then
+// shared by every sprite that shows it. Each turn change rebuilds the board for
+// the other seat; without this every deck back and hand card was redrawn into a
+// fresh texture on that first frame (about 20 offscreen renders, the slowest
+// frame of the game on a software GPU).
+
+let bakeRenderer: Renderer | null = null;
+let baked = new Map<string, { texture: Texture; x: number; y: number }>();
+let retired: typeof baked = new Map();
+
+/** Lets card visuals share baked textures. Without a renderer each card caches itself. */
+export function setCardRenderer(renderer: Renderer | null): void {
+  bakeRenderer = renderer;
+}
+
+/**
+ * Call when the board is rebuilt for a new viewport (sizes change). Textures from
+ * two layouts ago are freed: nothing on screen uses them any more.
+ */
+export function retireCardTextures(): void {
+  for (const e of retired.values()) e.texture.destroy(true);
+  retired = baked;
+  baked = new Map();
+}
+
+function bake(key: string, build: () => Container): Container {
+  const renderer = bakeRenderer;
+  if (!renderer) {
+    const c = build();
+    c.cacheAsTexture(true);
+    return c;
+  }
+  const fullKey = `${key}@${renderer.resolution}`;
+  let entry = baked.get(fullKey);
+  if (!entry) {
+    const c = build();
+    const b = c.getLocalBounds();
+    const x = Math.floor(b.x);
+    const y = Math.floor(b.y);
+    const frame = new Rectangle(x, y, Math.ceil(b.x + b.width) - x, Math.ceil(b.y + b.height) - y);
+    const texture = renderer.generateTexture({ target: c, frame, resolution: renderer.resolution, antialias: true });
+    c.destroy({ children: true });
+    entry = { texture, x, y };
+    baked.set(fullKey, entry);
+  }
+  const out = new Container();
+  const sprite = new Sprite(entry.texture);
+  sprite.position.set(entry.x, entry.y);
+  out.addChild(sprite);
+  return out;
+}
+
+const sizeKey = (w: number, h: number) => `${w.toFixed(2)}x${h.toFixed(2)}`;
+
 /** Card back, centered at (0, 0). */
 export function createCardBack(side: Side, w: number, h: number): Container {
+  return bake(`back:${side}:${sizeKey(w, h)}`, () => buildCardBack(side, w, h));
+}
+
+function buildCardBack(side: Side, w: number, h: number): Container {
   const c = new Container();
   const color = sideColor(side);
   const r = Math.max(3, w * 0.08);
@@ -134,9 +193,6 @@ export function createCardBack(side: Side, w: number, h: number): Container {
   });
   mono.anchor.set(0.5);
   c.addChild(mono);
-  // Static art: draw it once into a texture so each frame is one sprite, not
-  // dozens of translucent vector strokes (big win on low-end / software GPUs).
-  c.cacheAsTexture(true);
   return c;
 }
 
@@ -173,7 +229,20 @@ function statsLine(card: CardDef): string {
  * Card face centered at (0, 0). `full` adds rules text, flavor and stats
  * (used by the long-press zoom); `small` is the hand thumbnail.
  */
+/**
+ * Card face, centered at (0, 0). Small faces are baked and shared; the full-size
+ * zoom keeps its text objects (the test hook reads them) and caches itself.
+ */
 export function createCardFace(card: CardDef, w: number, h: number, detail: 'small' | 'full'): Container {
+  if (detail === 'small') return bake(`face:${card.id}:${sizeKey(w, h)}`, () => buildCardFace(card, w, h, detail));
+  const c = buildCardFace(card, w, h, detail);
+  // Static art: draw it once into a texture so each frame is one sprite, not
+  // dozens of translucent vector strokes (big win on low-end / software GPUs).
+  c.cacheAsTexture(true);
+  return c;
+}
+
+function buildCardFace(card: CardDef, w: number, h: number, detail: 'small' | 'full'): Container {
   const c = new Container();
   const color = sideColor(card.side);
   const r = Math.max(3, w * 0.07);
@@ -288,8 +357,5 @@ export function createCardFace(card: CardDef, w: number, h: number, detail: 'sma
       c.addChild(st);
     }
   }
-  // Static art: draw it once into a texture so each frame is one sprite, not
-  // dozens of translucent vector strokes (big win on low-end / software GPUs).
-  c.cacheAsTexture(true);
   return c;
 }

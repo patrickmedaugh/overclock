@@ -5,6 +5,7 @@ import 'pixi.js/unsafe-eval';
 import type { Action } from '@overclock/engine';
 import { Application } from 'pixi.js';
 import { Board } from './board';
+import { setCardRenderer } from './cardFace';
 import type { AnimRecord, OverclockTestHook } from './hook-types';
 import { HotSeat, seedFromUrl } from './hotseat';
 import { computeLayout } from './layout';
@@ -28,6 +29,7 @@ async function start(): Promise<void> {
     preference: 'webgl',
   });
   host.appendChild(app.canvas);
+  setCardRenderer(app.renderer);
   app.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
   const game = new HotSeat(seedFromUrl(window.location.search));

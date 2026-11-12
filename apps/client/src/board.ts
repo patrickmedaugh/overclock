@@ -6,7 +6,7 @@
 import type { GameEvent, PlayerView, RejectReason, Side, WinReason } from '@overclock/engine';
 import { getCard } from '@overclock/cards';
 import { Container, Graphics, Rectangle, Text } from 'pixi.js';
-import { createCardBack, createCardFace, glowRoundRect } from './cardFace';
+import { createCardBack, createCardFace, glowRoundRect, retireCardTextures } from './cardFace';
 import { centeredBox } from './geometry';
 import { Hand } from './hand';
 import type { AnimRecord, Box, LayoutSnapshot, SideLayout } from './hook-types';
@@ -472,6 +472,7 @@ export class Board {
   setLayout(layout: BoardLayout): void {
     this.fx.finishAll();
     this.layout = layout;
+    retireCardTextures();
     if (this.view) this.rebuild(false, []);
     if (this.hint) this.positionHint(this.hint);
   }
