@@ -52,6 +52,8 @@ export class RunDisplay {
   private strikes: Graphics[] = [];
   private accessBoxes: { cardId: string | null; box: Box }[] = [];
   private snap: RunSnapshot | null = null;
+  /** The smallest text size in the info panel as drawn (after any shrink to fit). */
+  private infoFontPx = 0;
 
   constructor(
     private layout: BoardLayout,
@@ -195,7 +197,8 @@ export class RunDisplay {
       highlight: highlight ? { ...highlight } : null,
       serverBox: col ? { ...col } : { x: 0, y: 0, width: 0, height: 0 },
       infoBox: { ...layout.runInfo },
-      buttons: this.shown.map((x, i) => ({ label: x.label, lit: x.option.reject === null, reject: x.option.reject, box: { ...boxes[i]! }, action: x.option.action })),
+      infoFontPx: this.infoFontPx,
+      buttons: this.shown.map((x, i) => ({ label: x.label, lit: x.option.reject === null, reject: x.option.reject, box: { ...boxes[i]! }, action: x.option.action, fontPx: this.pool[i]!.fontPx })),
       access: cards.length > 0 ? { cards: cards.map((c, i) => ({ cardId: c.cardId, stolen: c.stolen, box: { ...this.accessBoxes[i]!.box } })) } : null,
     };
     return newStep;
@@ -222,22 +225,33 @@ export class RunDisplay {
     this.info.addChild(bg);
     const content = new Container();
     this.info.addChild(content);
-    const w = b.width - 2 * pad;
+    // A wide panel (desktop) lists the subroutines in a second column at a floor of
+    // 12px, so nothing has to shrink to fit the row (QA-S3-4). Narrow panels (phones)
+    // keep one column as before.
+    const roomy = b.width >= 340 && subs.length > 0;
+    const minPx = roomy ? 12 : 10;
+    const colGap = Math.round(10 * s);
+    const w = roomy ? Math.floor((b.width - 2 * pad - colGap) / 2) : b.width - 2 * pad;
+    let x = 0;
     let y = 0;
+    let fontMin = Infinity;
     const add = (text: string, size: number, fill: number, bold = false, mono = false): Text => {
+      const px = size + (roomy ? 2 : 0);
+      const fontSize = Math.max(minPx, Math.round(px * s));
+      fontMin = Math.min(fontMin, fontSize);
       const t = new Text({
         text,
         style: {
           fontFamily: mono ? theme.monoFamily : theme.fontFamily,
-          fontSize: Math.max(10, Math.round(size * s)),
+          fontSize,
           fontWeight: bold ? '800' : '600',
           fill,
           wordWrap: true,
           wordWrapWidth: w,
-          lineHeight: Math.max(12, Math.round((size + 3) * s)),
+          lineHeight: Math.max(minPx + 2, Math.round((px + 3) * s)),
         },
       });
-      t.position.set(0, y);
+      t.position.set(x, y);
       content.addChild(t);
       y += t.height + Math.round(2 * s);
       return t;
@@ -245,19 +259,26 @@ export class RunDisplay {
     add(title.toUpperCase(), 10, theme.runner, true, true);
     add(step, 13, sideColor(deciding), true);
     for (const l of lines) add(l, 11, theme.text);
+    let height = y;
+    if (roomy) {
+      x = w + colGap;
+      y = 0;
+    }
     for (const sub of subs) {
       const t = add(`› ${sub.text}`, 11, sub.broken ? theme.textDim : theme.warn, true);
       const strike = new Graphics();
       // One line through the middle of each text line.
       const lh = t.style.lineHeight as number;
       const n = Math.max(1, Math.round(t.height / lh));
-      for (let k = 0; k < n; k++) strike.rect(0, t.y + lh * (k + 0.55) - 1, Math.min(w, t.width), 2).fill({ color: theme.text, alpha: 0.9 });
+      for (let k = 0; k < n; k++) strike.rect(t.x, t.y + lh * (k + 0.55) - 1, Math.min(w, t.width), 2).fill({ color: theme.text, alpha: 0.9 });
       strike.visible = sub.broken;
       content.addChild(strike);
       this.strikes.push(strike);
     }
-    const k = Math.min(1, (b.height - 2 * pad) / Math.max(1, y));
+    height = Math.max(height, y);
+    const k = Math.min(1, (b.height - 2 * pad) / Math.max(1, height));
     content.scale.set(k);
+    this.infoFontPx = fontMin === Infinity ? 0 : fontMin * k;
     content.position.set(b.x + pad, b.y + pad);
   }
 

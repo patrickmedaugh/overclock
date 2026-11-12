@@ -601,9 +601,14 @@ function portraitLayout(vw: number, vh: number, insets: Insets, safe: Box, viewe
   const endTurn = box(left + avail - endW, barY, endW, barH);
   const hintArea = box(left, barY, endTurn.x - gap - left, barH);
   const action2 = box(action.x - gap - endW, sub.y, endW, subH);
-  const infoW = Math.round(handArea.width * 0.4);
-  const runInfo = box(handArea.x, handArea.y, infoW, handArea.height);
-  const runButtons = box(handArea.x + infoW + gap, handArea.y, handArea.width - infoW - gap, handArea.height);
+  // The run panel takes the hand's row. On a wide screen (desktop) it spreads into
+  // the empty margins beside the column, so long break buttons and the panel's
+  // lines stay readable (QA-S3-4); a full-width column (narrow screens) is unchanged.
+  const runW = Math.max(handArea.width, Math.min(safe.width - 2 * pad, Math.round(handArea.width * 1.6)));
+  const runX = handArea.x + Math.round((handArea.width - runW) / 2);
+  const infoW = Math.round(runW * 0.4);
+  const runInfo = box(runX, handArea.y, infoW, handArea.height);
+  const runButtons = box(runX + infoW + gap, handArea.y, runW - infoW - gap, handArea.height);
   const access = box(left, topBandY, avail, bottomBandY + bottomBandH - topBandY);
 
   const { top, bottom } = sideRows(

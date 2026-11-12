@@ -573,6 +573,11 @@ export class PanelButton {
     return this.label.text;
   }
 
+  /** The label's text size as drawn, after any shrink to fit (px). */
+  get fontPx(): number {
+    return (this.label.style.fontSize as number) * this.label.scale.y;
+  }
+
   /** `glow`: filled and bright (e.g. Run while servers are lit). */
   set(b: Box, text: string, lit: boolean, color: number, glow = false): void {
     this.box = { ...b };

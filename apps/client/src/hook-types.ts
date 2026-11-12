@@ -83,6 +83,8 @@ export interface PanelButtonSnapshot {
   box: Box;
   /** The action it submits (as the deciding seat). */
   action: Action;
+  /** The label's text size as drawn, after any shrink to fit (px; QA-S3-4). */
+  fontPx: number;
 }
 
 /** The run tracker and its decision panel. */
@@ -106,6 +108,8 @@ export interface RunSnapshot {
   serverBox: Box;
   /** The info panel's area. */
   infoBox: Box;
+  /** The smallest text size in the info panel as drawn, after any shrink to fit (px; QA-S3-4). */
+  infoFontPx: number;
   buttons: PanelButtonSnapshot[];
   /** Accessed cards, drawn large. */
   access: { cards: { cardId: string | null; stolen: boolean; box: Box }[] } | null;
