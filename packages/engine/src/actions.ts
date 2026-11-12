@@ -1,4 +1,4 @@
-import type { Side } from './state';
+import type { ServerId, Side } from './state';
 
 /**
  * Everything a player can ask the engine to do. Plain JSON. New actions must be
@@ -13,7 +13,14 @@ export type Action =
   /** Ends your turn; leftover clicks are lost. Hand > 5 enters the discard step first. */
   | { readonly type: 'end_turn'; readonly player: Side }
   /** Hand-limit step only: indices into the current hand (exactly hand - 5 of them). */
-  | { readonly type: 'discard'; readonly player: Side; readonly handIndices: readonly number[] };
+  | { readonly type: 'discard'; readonly player: Side; readonly handIndices: readonly number[] }
+  /**
+   * 1 click: install the hand card at `handIndex`. Corp: `server` is required (an existing
+   * server id or 'new'). Runner: `server` must be absent (cards go to the rig).
+   */
+  | { readonly type: 'install'; readonly player: Side; readonly handIndex: number; readonly server?: ServerId | 'new' }
+  /** 1 click: play the operation/event at `handIndex` (pays its cost, resolves `onPlay`, goes face up to discard). */
+  | { readonly type: 'play'; readonly player: Side; readonly handIndex: number };
 
 export type ActionType = Action['type'];
 

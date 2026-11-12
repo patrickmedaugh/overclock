@@ -1,5 +1,6 @@
 import type { Action, ActionOf } from './actions';
 import type { GameEvent } from './events';
+import type { CardOption } from './view';
 import { discardCount, rejectionFor } from './rules';
 import { drawTop, opponentOf, startTurn, withPlayer, type GameState, type Side } from './state';
 
@@ -46,7 +47,8 @@ function doDiscard(state: GameState, a: ActionOf<'discard'>): ApplyResult {
   const cardIds = handIndices.map((i) => me.hand[i] as string);
   const s = withPlayer(state, a.player, {
     hand: me.hand.filter((_, i) => !chosen.has(i)),
-    discard: [...me.discard, ...cardIds],
+    // Runner discards go face up to the Heap; Corp hand-limit discards go face down to Archives.
+    discard: [...me.discard, ...cardIds.map((cardId) => ({ cardId, faceUp: a.player === 'runner' }))],
   });
   const events: GameEvent[] = [
     { type: 'cards_discarded', player: a.player, count: cardIds.length, handIndices, cardIds },
@@ -71,6 +73,10 @@ export function apply(state: GameState, action: Action): ApplyResult {
       return doEndTurn(state, action);
     case 'discard':
       return doDiscard(state, action);
+    case 'install':
+    case 'play':
+      // E1 stub: rules.ts refuses these until E3.
+      return { state, events: [{ type: 'action_rejected', reason: 'not_implemented' }] };
   }
 }
 
@@ -90,4 +96,10 @@ export function legalActions(state: GameState, player: Side): Action[] {
     { type: 'discard', player, handIndices: Array.from({ length: n }, (_, k) => handSize - n + k) },
   ];
   return candidates.filter((a) => rejectionFor(state, a) === null);
+}
+
+/** Per hand index of `player`: every offered action with its price and rejection (E1 stub: none yet). */
+export function handOptions(state: GameState, player: Side): CardOption[][] {
+  if (player !== 'corp' && player !== 'runner') return [];
+  return state.players[player].hand.map(() => []);
 }

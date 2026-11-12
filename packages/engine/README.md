@@ -16,10 +16,10 @@ Applies one action. Never mutates the input and never throws for illegal or malf
 Actions `player` may take right now. Parameterized actions are listed once as a representative: during the discard step it contains one `discard` (the last N hand cards), and `PlayerView.pendingDiscard` says that any N distinct hand indices are legal.
 
 ### `viewFor(player: Side, state: GameState): PlayerView`
-What `player` is allowed to see. Opponent hand contents, all deck orders and the Corp's face-down discards (to the Runner) are hidden (counts only). The AI and the client render only from this. Includes `legalActions` for the viewer.
+What `player` is allowed to see. Opponent hand contents, all deck orders, the Corp's face-down discards and unrezzed installed Corp cards (to the Runner) are hidden. The AI and the client render only from this. Includes `legalActions` for the viewer.
 
 ### `viewEvents(player: Side, events: GameEvent[]): GameEvent[]`
-Projects events for `player`. For the opponent: `card_drawn` loses `cardId`, `cards_discarded` loses `handIndices`, and it also loses `cardIds` when the Corp discarded (face down). Run engine events through this before showing them to a player.
+Projects events for `player`. For the opponent: `card_drawn` loses `cardId`, `cards_discarded` loses `handIndices`, and it also loses `cardIds` when the Corp discarded (face down); `card_installed`/`card_played` lose `handIndex`, and Corp `card_installed` also loses `cardId`. Run engine events through this before showing them to a player.
 
 ### `replay(seed: number, actions: Action[]): { state; events }`
 Rebuilds a game from its seed and action log (rejected actions are no-ops). Used for replay-based regression tests.
@@ -84,6 +84,73 @@ interface PlayerView {
 Checks run in this order; the first failure is the reason: `invalid_action` (shape: known type, valid `player`, `handIndices` an array of integers) → `game_over` (phase is `over`) → `not_your_turn` → `wrong_phase` (draw/gain_credit/end_turn need `action`, discard needs `discard`) → `no_clicks` (draw, gain_credit) → `deck_empty` (draw) / `bad_discard` (discard: not exactly hand−5 indices, duplicates, or out of range).
 
 `GameState` is plain JSON: `seed`, `rng` (mulberry32 state), `turn`, `activePlayer`, `phase`, `result`, and `players.{corp,runner}` with `deck` (top = index 0), `hand`, `discard`, `credits`, `clicks`. Card entries are card definition ids from `@overclock/cards` (`getCard(id)`); duplicates are extra copies.
+
+## Sprint 2 interface (pinned: implement exactly this; changes go through the architect)
+
+Everything in "Sprint 1 interface" still holds, except `PlayerSideView.discard` (below).
+
+```ts
+const MEMORY_LIMIT = 4;                       // Runner memory; programs use card `memory`
+type ServerId = 'hq' | 'rd' | 'archives' | `remote${number}`;
+
+// ---- state additions (plain JSON) ----
+interface Installed { uid: string; cardId: string; rezzed: boolean }   // uid "i1", "i2", ... (rezzed: false this sprint)
+interface Server { id: ServerId; ice: Installed[]; content: Installed[] } // ice[0] innermost; new ICE pushed = outermost
+interface DiscardEntry { cardId: string; faceUp: boolean }
+// PlayerState.discard: DiscardEntry[]            (was string[])
+// GameState.servers: Server[]   hq, rd, archives, then remote1, remote2, ... in creation order
+// GameState.rig: Installed[]    Runner installs, in order
+// GameState.nextUid: number     next uid is `i${nextUid}` (starts at 1)
+// GameState.nextRemote: number  next remote is `remote${nextRemote}` (starts at 1, never reused)
+
+// ---- actions ----
+type Action = /* Sprint 1 actions */
+  | { type: 'install'; player: Side; handIndex: number; server?: ServerId | 'new' } // Corp: server required; Runner: absent
+  | { type: 'play'; player: Side; handIndex: number };                             // operation / event
+
+type RejectReason = /* Sprint 1 reasons */
+  | 'bad_card' | 'bad_target' | 'not_implemented' | 'no_credits' | 'no_memory';
+
+// ---- events ----
+type GameEvent = /* Sprint 1 events */
+  | { type: 'credits_spent'; player: Side; amount: number }            // only when amount > 0
+  | { type: 'server_created'; server: ServerId }
+  | { type: 'card_installed'; player: Side; uid: string; zone: 'ice' | 'content' | 'rig';
+      server?: ServerId;      // Corp installs
+      handIndex?: number;     // owner only
+      cardId?: string }       // owner only for Corp installs; public for Runner installs
+  | { type: 'card_played'; player: Side; cardId: string; handIndex?: number }; // handIndex owner only
+
+// ---- view ----
+interface PlayerSideView { /* ... */ discard: (string | null)[] }   // null = face down to the viewer
+interface InstalledView { uid: string; cardId: string | null; faceUp: boolean } // Runner sees null for unrezzed Corp cards
+interface ServerView { id: ServerId; ice: InstalledView[]; content: InstalledView[] }
+interface CardOption { action: Action; cost: number; reject: RejectReason | null }
+interface PlayerView {
+  /* Sprint 1 fields */
+  corpServers: ServerView[];
+  rig: InstalledView[];                       // face up to both
+  memory: { used: number; limit: number };
+  handOptions: CardOption[][];                // one list per viewer hand index
+}
+```
+
+### Install / play rules (`rules.ts` table)
+- Checks in order: `invalid_action` (shape: `handIndex` integer, `server` absent or a string) → `game_over` → `not_your_turn` → `wrong_phase` (needs `action`) → `no_clicks` → `bad_card` (hand index out of range, or a card type the action does not take) → `bad_target` → `not_implemented` (card `needs: 'runs'`) → `no_credits` → `no_memory` (programs only).
+- `install` takes Corp agenda/asset/upgrade/ICE and Runner program/hardware/resource; `play` takes operations/events.
+- Corp targets: agenda/asset → a remote with no agenda or asset in it, or `'new'`; upgrade → any server or `'new'`; ICE → any server or `'new'`. Unknown server or a missing `server` → `bad_target`. Runner naming a `server` → `bad_target`.
+- Costs: Corp ICE = number of ICE already on that server (`'new'` = 0); other Corp installs 0. Runner installs = card `cost`. `play` = card `cost`. Programs need `memory.used + card.memory ≤ MEMORY_LIMIT`. Every install/play costs 1 click.
+- `play`: the card leaves the hand and goes face up on top of its owner's discard pile, then its `onPlay` effects resolve in order. `draw` effects stop at an empty deck (no loss: only the Corp's mandatory draw loses).
+
+### Event sequences
+- `install` → [`credits_spent`] → [`server_created`] (when `'new'`) → `card_installed`.
+- `play` → [`credits_spent`] → `card_played` → the effects' `credit_gained {amount}` / one `card_drawn` per card drawn.
+
+### `handOptions`
+For each of the viewer's hand cards: every offered target for that card's type, in order (Corp installs: servers in `corpServers` order, then `'new'`; play: one option). `bad_card`/`bad_target` targets are never listed; any other reason is reported in `reject` (so the UI can show a lit target with its price and hint). `reject` equals what `apply` would answer; `cost` is the credits the action would cost.
+
+### `legalActions` order
+`draw, gain_credit, end_turn, discard, install… (by hand index, then target order), play… (by hand index)`.
 
 ## `@overclock/match` (host; `packages/match`)
 Owns one game's `GameState` and talks to seats only through projections. It is the same contract a network server will expose later.

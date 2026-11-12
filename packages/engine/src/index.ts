@@ -1,8 +1,21 @@
 export type { Action, ActionType } from './actions';
-export type { GameEvent, RejectReason } from './events';
-export type { GameResult, GameState, Phase, PlayerState, Side, WinReason } from './state';
+export type { GameEvent, InstallZone, RejectReason } from './events';
+export type {
+  CentralServerId,
+  DiscardEntry,
+  GameResult,
+  GameState,
+  Installed,
+  Phase,
+  PlayerState,
+  Server,
+  ServerId,
+  Side,
+  WinReason,
+} from './state';
+export { MEMORY_LIMIT } from './state';
 export type { ApplyResult } from './apply';
-export type { PlayerSideView, PlayerView } from './view';
+export type { CardOption, InstalledView, PlayerSideView, PlayerView, ServerView } from './view';
 
 export { newGame } from './state';
 export { apply, legalActions } from './apply';

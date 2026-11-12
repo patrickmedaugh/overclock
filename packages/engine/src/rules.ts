@@ -11,6 +11,7 @@
  */
 import type { ActionOf, ActionType, Action } from './actions';
 import type { RejectReason } from './events';
+import { getCard } from '@overclock/cards';
 import { MAX_HAND_SIZE, type GameState, type Phase, type Side } from './state';
 
 /** A check sees the state and a not-yet-trusted action of its type (shape is checked first). */
@@ -59,12 +60,30 @@ const validDiscard = (s: GameState, a: ActionOf<'discard'>): RejectReason | null
   return null;
 };
 
+const handIndexShape = (_s: GameState, a: ActionOf<'install' | 'play'>): RejectReason | null =>
+  Number.isInteger(a.handIndex) ? null : 'invalid_action';
+
+const serverShape = (_s: GameState, a: ActionOf<'install'>): RejectReason | null => {
+  const server: unknown = a.server;
+  return server === undefined || typeof server === 'string' ? null : 'invalid_action';
+};
+
+// E1 stub: install/play are typed and validated up to clicks; E3 adds the rest.
+const notBuiltYet = (): RejectReason | null => 'not_implemented';
+
 export const RULES: RuleTable = {
   draw: [playerShape, notOver, yourTurn, inPhase('action'), hasClick, deckNotEmpty],
   gain_credit: [playerShape, notOver, yourTurn, inPhase('action'), hasClick],
   end_turn: [playerShape, notOver, yourTurn, inPhase('action')],
   discard: [playerShape, indicesShape, notOver, yourTurn, inPhase('discard'), validDiscard],
+  install: [playerShape, handIndexShape, serverShape, notOver, yourTurn, inPhase('action'), hasClick, notBuiltYet],
+  play: [playerShape, handIndexShape, notOver, yourTurn, inPhase('action'), hasClick, notBuiltYet],
 };
+
+/** Memory used by the Runner's installed programs (card data `memory`). */
+export function memoryUsed(state: GameState): number {
+  return state.rig.reduce((sum, c) => sum + (getCard(c.cardId)?.memory ?? 0), 0);
+}
 
 /** How many cards a hand of `handSize` must discard at end of turn. */
 export function discardCount(handSize: number): number {
