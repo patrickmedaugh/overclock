@@ -204,7 +204,8 @@ export class Hand {
     const layout = this.layout;
     if (!layout) return;
     const slots = handSlots(layout, this.cards.length);
-    const lift = Math.round(layout.card.height * 0.12);
+    // Sideways the hand strip touches the server names: the glow alone marks the pick there.
+    const lift = layout.mode === 'landscape' ? 0 : Math.round(layout.card.height * 0.12);
     this.cards.forEach((c, i) => {
       const on = i === index;
       if (on === c.selected) return;

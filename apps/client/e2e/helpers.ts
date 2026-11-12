@@ -1,5 +1,6 @@
 import { type Page, expect, test } from '@playwright/test';
 import type { Action, GameEvent, PlayerView } from '@overclock/engine';
+import { getCard } from '@overclock/cards';
 import { planBusyBoard } from '@overclock/match/testing';
 import type { AnimRecord, Box, EndTurnClock, InputStamp, Insets, LayoutSnapshot, TargetSnapshot } from '../src/hook-types';
 
@@ -336,4 +337,41 @@ export function targetOf(l: LayoutSnapshot, kind: TargetSnapshot['kind'], server
 /** Index of the first hand card whose id satisfies `pred`, or -1. */
 export function handIndexOf(l: LayoutSnapshot, pred: (cardId: string) => boolean): number {
   return l.hand.findIndex((h) => pred(h.cardId));
+}
+
+/** Hand index of the first card named `name` (real card names, from @overclock/cards). */
+export function handIndexByName(l: LayoutSnapshot, name: string): number {
+  const i = l.hand.findIndex((h) => getCard(h.cardId)?.name === name);
+  if (i < 0) throw new Error(`${name} not in hand: ${l.hand.map((h) => getCard(h.cardId)?.name).join(', ')}`);
+  return i;
+}
+
+/** Taps the hand card named `name` and returns the layout with its targets lit. */
+export async function pickCard(page: Page, name: string): Promise<LayoutSnapshot> {
+  const l = await layout(page);
+  const i = handIndexByName(l, name);
+  await tap(page, l.hand[i]!.box);
+  const after = await layout(page);
+  expect(after.selected, `${name} is picked`).toBe(i);
+  return after;
+}
+
+/** A point on empty board (no card, button or target): right of the Corp's last column. */
+export function emptySpot(l: LayoutSnapshot): Box {
+  const cols = [...l.servers.map((s) => s.box), ...l.targets.filter((t) => t.kind === 'new_server').map((t) => t.box)];
+  const right = Math.max(...cols.map((b) => b.x + b.width));
+  const col = cols[0]!;
+  return { x: right + 20, y: col.y + col.height / 2 - 5, width: 10, height: 10 };
+}
+
+/** Ends the active seat's turn through the hook, discarding the first cards if asked. */
+export async function passTurn(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const hook = window.__overclock!;
+    const v = hook.getView();
+    hook.dispatch({ type: 'end_turn', player: v.viewer });
+    const w = hook.getView();
+    if (w.pendingDiscard > 0) hook.dispatch({ type: 'discard', player: w.viewer, handIndices: Array.from({ length: w.pendingDiscard }, (_, i) => i) });
+  });
+  await waitIdle(page);
 }
