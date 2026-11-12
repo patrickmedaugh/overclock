@@ -122,9 +122,10 @@ describe('validation table (rules.ts)', () => {
 });
 
 describe('legalActions', () => {
-  it('Corp turn 1: draw, gain_credit, end_turn; Runner: nothing', () => {
+  it('Corp turn 1: draw, gain_credit, end_turn first (then installs/plays); Runner: nothing', () => {
     const s = newGame(1);
-    expect(legalActions(s, 'corp')).toEqual([
+    expect(legalActions(s, 'corp').slice(3).every((a) => a.type === 'install' || a.type === 'play')).toBe(true);
+    expect(legalActions(s, 'corp').slice(0, 3)).toEqual([
       { type: 'draw', player: 'corp' },
       { type: 'gain_credit', player: 'corp' },
       { type: 'end_turn', player: 'corp' },
@@ -134,7 +135,8 @@ describe('legalActions', () => {
 
   it('0 clicks: only end_turn; empty deck: no draw', () => {
     expect(legalActions(withClicks(newGame(1), 'corp', 0), 'corp')).toEqual([{ type: 'end_turn', player: 'corp' }]);
-    expect(legalActions(withDeck(newGame(1), 'corp', []), 'corp').map((a) => a.type)).toEqual(['gain_credit', 'end_turn']);
+    const basic = (a: Action) => a.type !== 'install' && a.type !== 'play';
+    expect(legalActions(withDeck(newGame(1), 'corp', []), 'corp').filter(basic).map((a) => a.type)).toEqual(['gain_credit', 'end_turn']);
   });
 
   it('every listed action is accepted by apply, across many states', () => {
