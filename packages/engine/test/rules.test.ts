@@ -3,8 +3,8 @@ import { apply, legalActions, newGame, type Action, type ActionType, type GameSt
 import { RULES } from '../src/rules';
 import { clone, finishTurn, run, withClicks, withDeck, withHand } from './helpers';
 
-/** Sprint 1 actions (install/play have their own table tests in install-play.test.ts). */
-type S1Type = Exclude<ActionType, 'install' | 'play'>;
+/** Sprint 1 actions (install/play and Sprint 3 actions have their own table tests). */
+type S1Type = Extract<ActionType, 'draw' | 'gain_credit' | 'end_turn' | 'discard'>;
 const TYPES: S1Type[] = ['draw', 'gain_credit', 'end_turn', 'discard'];
 
 function make(type: S1Type, player: Side, handIndices: number[] = [5]): Action {
@@ -50,7 +50,9 @@ function scenario(type: S1Type, reason: RejectReason): { state: GameState; actio
 
 describe('validation table (rules.ts)', () => {
   it('has an entry for every action type', () => {
-    expect(Object.keys(RULES).sort()).toEqual([...TYPES, 'install', 'play'].sort());
+    expect(Object.keys(RULES).sort()).toEqual(
+      [...TYPES, 'install', 'play', 'run', 'rez', 'pass', 'jack_out', 'use_ability', 'steal', 'trash', 'advance', 'score'].sort(),
+    );
   });
 
   describe.each(TYPES)('%s', (type) => {

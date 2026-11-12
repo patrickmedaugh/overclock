@@ -116,8 +116,18 @@ export const installTargetCheck = (s: GameState, a: ActionOf<'install'>): Reject
   return null;
 };
 
-const builtYet = (s: GameState, a: ActionOf<'install' | 'play'>): RejectReason | null =>
-  handCard(s, a.player, a.handIndex)?.needs ? 'not_implemented' : null;
+/** Effects the engine resolves today (E1 stub: run/damage effects arrive in E3-E5). */
+const BUILT_EFFECTS: ReadonlySet<string> = new Set(['gain_credits', 'draw']);
+
+const builtYet = (s: GameState, a: ActionOf<'install' | 'play'>): RejectReason | null => {
+  const card = handCard(s, a.player, a.handIndex);
+  if (!card) return null;
+  if (card.needs || card.playIf) return 'not_implemented';
+  return (card.onPlay ?? []).every((e) => BUILT_EFFECTS.has(e.op)) ? null : 'not_implemented';
+};
+
+/** E1 stub for Sprint 3 actions not built yet. */
+const notYet = (): RejectReason => 'not_implemented';
 
 /**
  * Credits an install costs. Corp ICE: 1 per ICE already on the server ('new' = 0);
@@ -168,6 +178,15 @@ export const RULES: RuleTable = {
     memoryFits,
   ],
   play: [playerShape, handIndexShape, notOver, yourTurn, inPhase('action'), hasClick, playCardCheck, builtYet, canAffordPlay],
+  run: [playerShape, notOver, notYet],
+  rez: [playerShape, notOver, notYet],
+  pass: [playerShape, notOver, notYet],
+  jack_out: [playerShape, notOver, notYet],
+  use_ability: [playerShape, notOver, notYet],
+  steal: [playerShape, notOver, notYet],
+  trash: [playerShape, notOver, notYet],
+  advance: [playerShape, notOver, notYet],
+  score: [playerShape, notOver, notYet],
 };
 
 /** Memory used by the Runner's installed programs (card data `memory`). */

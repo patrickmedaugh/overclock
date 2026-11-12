@@ -48,6 +48,7 @@ export const CORP_CARDS: readonly CardDef[] = [
     strength: 3,
     text: 'Subroutine: End the run.',
     art: 'glyph:lattice',
+    subroutines: [{ text: 'End the run', effect: { op: 'end_run' } }],
   },
   {
     id: 'c05',
@@ -59,6 +60,7 @@ export const CORP_CARDS: readonly CardDef[] = [
     strength: 1,
     text: 'Ice Wall can be advanced and has +1 strength for each advancement token on it.\nSubroutine: End the run.',
     art: 'glyph:fence',
+    subroutines: [{ text: 'End the run', effect: { op: 'end_run' } }],
   },
   {
     id: 'c06',
@@ -70,6 +72,10 @@ export const CORP_CARDS: readonly CardDef[] = [
     strength: 2,
     text: 'Subroutine: The Runner loses 1 click, if able.\nSubroutine: End the run.',
     art: 'glyph:turnstile',
+    subroutines: [
+      { text: 'The Runner loses 1 click, if able', effect: { op: 'lose_clicks', amount: 1 } },
+      { text: 'End the run', effect: { op: 'end_run' } },
+    ],
   },
   {
     id: 'c07',
@@ -81,6 +87,7 @@ export const CORP_CARDS: readonly CardDef[] = [
     strength: 3,
     text: 'Subroutine: Do 3 net damage.',
     art: 'glyph:drone',
+    subroutines: [{ text: 'Do 3 net damage', effect: { op: 'net_damage', amount: 3 } }],
   },
   {
     id: 'c08',
@@ -133,17 +140,22 @@ export const CORP_CARDS: readonly CardDef[] = [
     cost: 2,
     text: 'Play only if the Runner made a run during his or her last turn.\nDo 1 net damage.',
     art: 'glyph:spike',
-    needs: 'runs',
+    playIf: 'runner_ran_last_turn',
+    onPlay: [{ op: 'net_damage', amount: 1 }],
   },
 ];
 
 /**
- * 15-card starter deck: one of each, plus an extra Hedge Fund, Ice Wall and
- * Enigma (6 ICE, enough for the busy board: 3 servers with 2 ICE each).
+ * 17-card starter deck: one of each, plus an extra Hedge Fund, Ice Wall and
+ * Enigma (6 ICE, enough for the busy board: 3 servers with 2 ICE each), and
+ * from Sprint 3 an extra Hostile Takeover and Private Security Force (9 agenda
+ * points, so a 7-point win is possible; owner Q2 A).
  */
 export const CORP_STARTER_DECK: DeckList = [
   ...CORP_CARDS.map((c) => c.id),
   'c01',
   'c05',
   'c06',
+  'c08',
+  'c09',
 ];

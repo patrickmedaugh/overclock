@@ -27,5 +27,9 @@ export function hintFor(reason: RejectReason, view: Pick<PlayerView, 'viewer' | 
       return `Not enough ${TERMS.memory.toLowerCase()}`;
     case 'not_implemented':
       return 'Needs runs (coming soon)';
+    case 'too_weak':
+      return 'Raise strength first';
+    case 'condition_not_met':
+      return 'Only after the Runner made a run';
   }
 }

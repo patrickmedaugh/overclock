@@ -11,7 +11,7 @@ describe('S-01-1 AC1: a new game starts on the Corp turn', () => {
     expect(g.result).toBeNull();
     expect(g.players.corp.clicks).toBe(3);
     expect(g.players.corp.hand).toHaveLength(6);
-    expect(g.players.corp.deck).toHaveLength(9);
+    expect(g.players.corp.deck).toHaveLength(11); // 17-card deck (Sprint 3)
     expect(g.players.runner.clicks).toBe(0);
     expect(g.players.runner.hand).toHaveLength(5);
     expect(g.players.corp.discard).toEqual([]);

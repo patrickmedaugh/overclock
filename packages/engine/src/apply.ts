@@ -90,7 +90,7 @@ function doInstall(state: GameState, a: ActionOf<'install'>): ApplyResult {
   const cardId = state.players[a.player].hand[a.handIndex] as string;
   const events: GameEvent[] = [];
   let s = payFromHand(state, a.player, a.handIndex, installCost(state, a), events);
-  const card: Installed = { uid: `i${s.nextUid}`, cardId, rezzed: false };
+  const card: Installed = { uid: `i${s.nextUid}`, cardId, rezzed: false, advancements: 0 };
   s = { ...s, nextUid: s.nextUid + 1 };
 
   if (a.player === 'runner') {
@@ -166,6 +166,9 @@ export function apply(state: GameState, action: Action): ApplyResult {
       return doInstall(state, action);
     case 'play':
       return doPlay(state, action);
+    default:
+      // Sprint 3 actions: rejected by the table until built (E2-E5).
+      return { state, events: [{ type: 'action_rejected', reason: 'not_implemented' }] };
   }
 }
 

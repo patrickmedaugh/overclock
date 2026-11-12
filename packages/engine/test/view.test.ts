@@ -21,7 +21,7 @@ describe('viewFor (S-01-4 AC2: opponent hand count, not contents)', () => {
     const g = newGame(21);
     const v = viewFor('runner', g);
     expect(v.players.runner.deckCount).toBe(10);
-    expect(v.players.corp.deckCount).toBe(9);
+    expect(v.players.corp.deckCount).toBe(11);
     const json = JSON.stringify(v);
     expect(json).not.toContain('"deck"');
     expect(json).not.toMatch(/"c\d\d"/);

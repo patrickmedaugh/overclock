@@ -129,6 +129,6 @@ describe('LocalMatch', () => {
     expect(seen).not.toHaveProperty('cardId');
     expect(seen).not.toHaveProperty('handIndex');
     expect(JSON.stringify(u.runner)).not.toMatch(/"c\d\d"/);
-    expect(u.runner.view.corpServers.flatMap((s) => [...s.ice, ...s.content])).toEqual([{ uid: 'i1', cardId: null, faceUp: false }]);
+    expect(u.runner.view.corpServers.flatMap((s) => [...s.ice, ...s.content])).toEqual([{ uid: 'i1', cardId: null, faceUp: false, advancements: 0 }]);
   });
 });

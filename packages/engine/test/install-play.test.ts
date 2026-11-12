@@ -122,7 +122,7 @@ describe('S-02-1: Corp installs agendas, assets and upgrades', () => {
       { type: 'card_installed', player: 'corp', uid: 'i1', zone: 'content', server: 'remote1', handIndex: 1, cardId: 'c08' },
     ]);
     expect(r.state.players.corp).toMatchObject({ hand: ['c02'], clicks: 2, credits: 5 });
-    expect(server(r.state, 'remote1')).toEqual({ id: 'remote1', ice: [], content: [{ uid: 'i1', cardId: 'c08', rezzed: false }] });
+    expect(server(r.state, 'remote1')).toEqual({ id: 'remote1', ice: [], content: [{ uid: 'i1', cardId: 'c08', rezzed: false, advancements: 0 }] });
     expect(r.state).toMatchObject({ nextUid: 2, nextRemote: 2 });
   });
 
@@ -148,7 +148,7 @@ describe('S-02-1: Corp installs agendas, assets and upgrades', () => {
     for (const central of ['hq', 'rd', 'archives'] as const) {
       const r = apply(corpWith(['c11']), install('corp', 0, central));
       expect(rejection(r.events)).toBeNull();
-      expect(server(r.state, central).content).toEqual([{ uid: 'i1', cardId: 'c11', rezzed: false }]);
+      expect(server(r.state, central).content).toEqual([{ uid: 'i1', cardId: 'c11', rezzed: false, advancements: 0 }]);
       expect(r.events.some((e) => e.type === 'server_created')).toBe(false);
     }
   });
@@ -174,7 +174,7 @@ describe('S-02-2: Corp ICE', () => {
   it('ICE on a new server is free and creates the server', () => {
     const r = apply(corpWith(['c07'], 0), install('corp', 0, 'new'));
     expect(r.events.map((e) => e.type)).toEqual(['server_created', 'card_installed']);
-    expect(server(r.state, 'remote1').ice).toEqual([{ uid: 'i1', cardId: 'c07', rezzed: false }]);
+    expect(server(r.state, 'remote1').ice).toEqual([{ uid: 'i1', cardId: 'c07', rezzed: false, advancements: 0 }]);
   });
 
   it('not enough credits for the price: no_credits, nothing changes', () => {
@@ -192,8 +192,8 @@ describe('S-02-3: Runner installs', () => {
       { type: 'card_installed', player: 'runner', uid: 'i1', zone: 'rig', handIndex: 1, cardId: 'r04' },
     ]);
     expect(r.state.players.runner).toMatchObject({ hand: ['r03'], credits: 3, clicks: 3 });
-    expect(r.state.rig).toEqual([{ uid: 'i1', cardId: 'r04', rezzed: false }]);
-    expect(viewFor('corp', r.state).rig).toEqual([{ uid: 'i1', cardId: 'r04', faceUp: true }]);
+    expect(r.state.rig).toEqual([{ uid: 'i1', cardId: 'r04', rezzed: false, advancements: 0 }]);
+    expect(viewFor('corp', r.state).rig).toEqual([{ uid: 'i1', cardId: 'r04', faceUp: true, advancements: 0 }]);
   });
 
   it('a 0-cost resource emits no credits_spent', () => {
@@ -290,13 +290,13 @@ describe('views and projections', () => {
     const rv = viewFor('runner', s);
     expect(rv.corpServers.find((sv) => sv.id === 'remote1')).toEqual({
       id: 'remote1',
-      ice: [{ uid: 'i1', cardId: null, faceUp: false }],
-      content: [{ uid: 'i2', cardId: null, faceUp: false }],
+      ice: [{ uid: 'i1', cardId: null, faceUp: false, advancements: 0 }],
+      content: [{ uid: 'i2', cardId: null, faceUp: false, advancements: 0 }],
     });
-    expect(rv.corpServers.find((sv) => sv.id === 'hq')?.content).toEqual([{ uid: 'i3', cardId: null, faceUp: false }]);
+    expect(rv.corpServers.find((sv) => sv.id === 'hq')?.content).toEqual([{ uid: 'i3', cardId: null, faceUp: false, advancements: 0 }]);
     expect(JSON.stringify(rv)).not.toMatch(/"c\d\d"/);
     const cv = viewFor('corp', s);
-    expect(cv.corpServers.find((sv) => sv.id === 'remote1')?.content).toEqual([{ uid: 'i2', cardId: 'c08', faceUp: false }]);
+    expect(cv.corpServers.find((sv) => sv.id === 'remote1')?.content).toEqual([{ uid: 'i2', cardId: 'c08', faceUp: false, advancements: 0 }]);
   });
 
   it('viewEvents: the opponent loses handIndex, and Corp installs lose cardId', () => {

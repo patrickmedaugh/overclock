@@ -86,7 +86,7 @@ describe('S-01-1 AC5: the Corp loses when its mandatory draw finds an empty deck
       turns++;
     }
     expect(s.result).toEqual({ winner: 'runner', reason: 'corp_decked' });
-    // 9 cards left after turn 1 -> 9 more Corp draws, the 10th Corp turn start loses.
-    expect(s.turn).toBe(21);
+    // 11 cards left after turn 1 (17-card deck) -> 11 more Corp draws, the 12th Corp turn start loses.
+    expect(s.turn).toBe(25);
   });
 });

@@ -34,6 +34,8 @@ const GATE_REASONS: ReadonlySet<RejectReason> = new Set(['game_over', 'not_your_
 /** Why the game ended, in plain words (completes "<Winner> wins: ..."). */
 const WIN_REASON: Record<WinReason, string> = {
   corp_decked: `the Corp ran out of cards`,
+  agenda_points: `7 agenda points`,
+  flatline: `the Runner flatlined`,
 };
 
 export function gameOverText(result: { winner: Side; reason: WinReason }): string {

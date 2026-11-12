@@ -2,13 +2,16 @@ import type { Action } from './actions';
 import { handOptions, legalActions } from './apply';
 import type { GameEvent, RejectReason } from './events';
 import { discardCount, memoryUsed } from './rules';
+import { getCard } from '@overclock/cards';
 import {
   MEMORY_LIMIT,
+  type AccessFrom,
   type GameResult,
   type GameState,
   type Installed,
   type Phase,
   type PlayerState,
+  type RunStep,
   type ServerId,
   type Side,
   type WinReason,
@@ -24,6 +27,10 @@ export interface PlayerSideView {
   readonly discardCount: number;
   /** Discard pile, bottom = index 0. An entry is null when it is face down to the viewer. */
   readonly discard: readonly (string | null)[];
+  /** Score area (face up, both see it): agenda card ids in the order scored/stolen. */
+  readonly scored: readonly string[];
+  /** Agenda points in the score area. */
+  readonly points: number;
 }
 
 /** An installed card as one player sees it. */
@@ -32,6 +39,8 @@ export interface InstalledView {
   /** null when the card is face down to the viewer (the Runner, for every unrezzed Corp card). */
   readonly cardId: string | null;
   readonly faceUp: boolean;
+  /** Advancement counters (both players see the number, even on a face-down card). */
+  readonly advancements: number;
 }
 
 export interface ServerView {
@@ -49,6 +58,50 @@ export interface CardOption {
   readonly action: Action;
   readonly cost: number;
   readonly reject: RejectReason | null;
+}
+
+/** The current ICE during a run, as the viewer sees it. */
+export interface RunIceView {
+  /** null for the Runner while the ICE is unrezzed. */
+  readonly cardId: string | null;
+  /** Printed strength; null when the viewer cannot see the card. */
+  readonly strength: number | null;
+  /** In printed order; empty when the viewer cannot see the card. */
+  readonly subroutines: readonly { readonly text: string; readonly broken: boolean }[];
+}
+
+/** One accessed card in the current access group. */
+export interface AccessCardView {
+  /** null only in the Corp's view of an R&D card (deck order is hidden from the Corp too). */
+  readonly cardId: string | null;
+  readonly from: AccessFrom;
+  /** Already stolen (stays listed so `steal`/`trash` indices are stable). */
+  readonly stolen: boolean;
+  /** The installed card's uid when accessed from a server (remote or a central's upgrade), else null. */
+  readonly uid: string | null;
+}
+
+/** A run in progress, as one player sees it. */
+export interface RunView {
+  readonly server: ServerId;
+  /** Index into the server's ICE of the current ICE; -1 once at the server (access). */
+  readonly position: number;
+  readonly step: RunStep;
+  /** Who must decide now: the Corp at `approach`, otherwise the Runner. */
+  readonly waitingOn: Side;
+  /** The ICE being approached / encountered / just passed; null at the server. */
+  readonly iceUid: string | null;
+  readonly ice: RunIceView | null;
+  /** Current strength of each installed icebreaker (boosts included), by uid. */
+  readonly breakerStrength: Readonly<Record<string, number>>;
+  /** Set during the `access` step. */
+  readonly access: { readonly cards: readonly AccessCardView[] } | null;
+  /** Additional R&D cards accessed if the run succeeds (The Maker's Eye). */
+  readonly extraAccess: number;
+  /** Inside Job: the next ICE encountered will be bypassed. */
+  readonly bypassPending: boolean;
+  /** The viewer's offered moves at this step, with engine `cost` and `reject` (empty when not the viewer's decision). */
+  readonly options: readonly CardOption[];
 }
 
 /** What one player may see. Deck order is never included. */
@@ -70,8 +123,19 @@ export interface PlayerView {
   readonly memory: { readonly used: number; readonly limit: number };
   /** Per viewer hand index: every offered action for that card (bad_card/bad_target never listed). */
   readonly handOptions: readonly (readonly CardOption[])[];
+  /** Runner only: one `run` option per server (Corp: empty). */
+  readonly runOptions: readonly CardOption[];
+  /** Corp only: per installed agenda uid, `advance` and (once it has enough counters) `score` (Runner: empty). */
+  readonly installedOptions: Readonly<Record<string, readonly CardOption[]>>;
+  /** The run in progress, or null. */
+  readonly run: RunView | null;
   /** Actions the viewer may take now (so the AI/client never need the full state). */
   readonly legalActions: readonly Action[];
+}
+
+/** Agenda points of a score area. */
+export function pointsOf(scoreArea: readonly string[]): number {
+  return scoreArea.reduce((sum, id) => sum + (getCard(id)?.agendaPoints ?? 0), 0);
 }
 
 function sideView(p: PlayerState, side: Side, viewer: Side): PlayerSideView {
@@ -84,11 +148,13 @@ function sideView(p: PlayerState, side: Side, viewer: Side): PlayerSideView {
     discardCount: p.discard.length,
     // The owner sees their whole pile; the opponent sees only face-up entries.
     discard: p.discard.map((d) => (side === viewer || d.faceUp ? d.cardId : null)),
+    scored: p.scoreArea.slice(),
+    points: pointsOf(p.scoreArea),
   };
 }
 
 function corpCardView(c: Installed, viewer: Side): InstalledView {
-  return { uid: c.uid, cardId: viewer === 'corp' || c.rezzed ? c.cardId : null, faceUp: c.rezzed };
+  return { uid: c.uid, cardId: viewer === 'corp' || c.rezzed ? c.cardId : null, faceUp: c.rezzed, advancements: c.advancements };
 }
 
 function copyResult(r: GameResult | null): PlayerView['result'] {
@@ -116,9 +182,12 @@ export function viewFor(player: Side, state: GameState): PlayerView {
       ice: s.ice.map((c) => corpCardView(c, player)),
       content: s.content.map((c) => corpCardView(c, player)),
     })),
-    rig: state.rig.map((c) => ({ uid: c.uid, cardId: c.cardId, faceUp: true })),
+    rig: state.rig.map((c) => ({ uid: c.uid, cardId: c.cardId, faceUp: true, advancements: c.advancements })),
     memory: { used: memoryUsed(state), limit: MEMORY_LIMIT },
     handOptions: handOptions(state, player),
+    runOptions: [],
+    installedOptions: {},
+    run: null,
     legalActions: legalActions(state, player),
   };
 }
