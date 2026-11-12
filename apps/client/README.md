@@ -57,6 +57,8 @@ Always on for now; it will move behind a build flag later.
 `E2E_CPU_THROTTLE=6 npx playwright test e2e/turn.spec.ts e2e/qa-sprint01.spec.ts --repeat-each=10`
 slows the page's CPU 6x (Chrome DevTools `Emulation.setCPUThrottlingRate`, applied by `openBoard`) to check the timing tests hold on a slow runner. Budgets are never widened for it.
 
+The CI bar is the unthrottled suite. Throttled, the budget checks must pass; the End turn double-tap-guard tests (`qa-sprint01.spec.ts`, "QA round 2") may stop with "no timed tap landed in [150ms, armedAt)" in a GPU-less browser (its ~300ms frame stall keeps timers from firing in that window). That is a coverage miss, not a failure of the guard; any other assertion failing there is a real bug. See DECISIONS.md (2026-11-12, CI bar for the guard test).
+
 ## Phones: safe areas, full screen, CSP
 
 - Phones are played sideways. The manifest asks for `orientation: landscape`; an upright phone (CSS: `orientation: portrait` and `pointer: coarse` and width < 600px) shows the `#rotate` "Turn your phone sideways" overlay from `index.html` over the still-running game, so turning it back shows the same board. Tablets and desktop windows never see it.
