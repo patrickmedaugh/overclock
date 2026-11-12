@@ -2,8 +2,8 @@ import { type Page, expect, test } from '@playwright/test';
 import { getCard } from '@overclock/cards';
 import type { Action, GameEvent, PlayerView, Side } from '@overclock/engine';
 import { LocalMatch } from '@overclock/match';
-// Node-side e2e setup only (packages/engine/README.md, "Test-only"); the game itself never imports it.
-// eslint-disable-next-line no-restricted-imports
+// Node-side e2e setup only (packages/engine/README.md, "Test-only"); the game itself never
+// imports it (eslint.config.js allows it under apps/client/e2e/** only).
 import { planBusyBoard } from '@overclock/match/testing';
 import type { AnimRecord, Box, EndTurnClock, InputStamp, Insets, InstalledSnapshot, LayoutSnapshot } from '../src/hook-types';
 
