@@ -1,6 +1,6 @@
 # Project state
 
-phase: QA
+phase: DEMO
 sprint: 1
 open_pr: (none — Sprint 1 proposal PR #3 approved and merged by owner 2026-11-12; build on branch `sprint-01`)
 last_owner_activity: 2026-11-12 — "Approved" on PR #3 with answers (no hand-over screen — game will be networked; End turn button; may end turn early); merged PR #3 and PR #4 (Netlify backup host)
@@ -22,5 +22,13 @@ Details: docs/sprints/sprint-00-tech-plan.md, sprint-00-qa.md, sprint-00-demo.md
 - Architect review: approved; fixed a stray-tap-during-flip bug (with a regression test). Follow-ups: validate seat on the future network host; widen CSP connect-src then.
 - Screenshots: docs/sprints/sprint-01-screens/.
 
+## Sprint 1 QA summary — 2026-11-12
+- Report: docs/sprints/sprint-01-qa.md; screenshots docs/sprints/sprint-01-qa/.
+- Result: 20/21 acceptance criteria PASS; 1 owner check at demo (S-01-6 "Add to Home Screen" on a real phone; automated part passes). No IP issues.
+- Round 1 bugs, both fixed and re-verified in round 2: QA-S1-1 End turn ignored taps ~0.7s after a 4-card discard (now 0.32–0.51s; guard counted from the tap, shared card textures, discard flight 250→180ms); QA-S1-2 discard-pile count covered the card name (badge moved top-right).
+- Architect approved the fixes; added resize + turn-change regression test. New backlog item: redraw card images after Android drops graphics memory.
+- Checks: lint, typecheck, 292 unit tests, build, e2e 116/116.
+- For the owner at demo: is the faster discard flight (180ms) still easy to follow?
+
 ## Next run
-Phase QA for Sprint 1: delegate to `qa` (every criterion in sprint-01-proposal.md as updated by owner answers). Manual "Add to Home Screen" check is for the owner at demo.
+Phase DEMO for Sprint 1: deploy preview from `sprint-01` and verify the link loads; `pm` writes docs/sprints/sprint-01-demo.md; open PR `Sprint 01 demo — ready for you to play` (sprint-01 → main, label sprint-demo) with demo notes + PR file guide; set AWAITING_REVIEW and stop.
