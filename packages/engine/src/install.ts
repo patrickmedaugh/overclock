@@ -2,7 +2,7 @@ import type { ActionOf } from './actions';
 import type { ApplyResult } from './apply';
 import type { GameEvent, InstallSlot } from './events';
 import { handCard, installCost } from './rules';
-import { withCorp, withPlayer, type GameState, type Installed, type ServerId, type ServerState } from './state';
+import { withCorp, withPlayer, withRunner, type GameState, type Installed, type ServerId, type ServerState } from './state';
 
 /** Spends 1 click and `amount` credits; emits credits_spent only when amount > 0. */
 export function pay(state: GameState, a: ActionOf<'install' | 'play'>, amount: number, events: GameEvent[]): GameState {
@@ -65,7 +65,29 @@ function installCorp(state: GameState, a: ActionOf<'install'>): ApplyResult {
   return { state: s, events };
 }
 
+/** Runner cards go face up into the rig row of their type. */
+function installRunner(state: GameState, a: ActionOf<'install'>): ApplyResult {
+  const events: GameEvent[] = [];
+  const type = handCard(state, a)?.type;
+  const slot = type === 'program' || type === 'hardware' ? type : 'resource';
+  let s = pay(state, a, installCost(state, a), events);
+  const taken = takeFromHand(s, a);
+  s = taken.state;
+  const list = [...s.players.runner.rig[slot], taken.card];
+  s = withRunner(s, { rig: { ...s.players.runner.rig, [slot]: list } });
+  events.push({
+    type: 'card_installed',
+    player: 'runner',
+    uid: taken.card.uid,
+    handIndex: a.handIndex,
+    cardId: taken.card.cardId,
+    slot,
+    index: list.length - 1,
+  });
+  return { state: s, events };
+}
+
 /** Installs a hand card. The action has passed every check in `rules.ts`. */
 export function doInstall(state: GameState, a: ActionOf<'install'>): ApplyResult {
-  return installCorp(state, a);
+  return a.player === 'corp' ? installCorp(state, a) : installRunner(state, a);
 }

@@ -14,7 +14,7 @@
 import { getCard, type CardDef, type CardType } from '@overclock/cards';
 import type { ActionOf, ActionType, Action } from './actions';
 import type { RejectReason } from './events';
-import { MAX_HAND_SIZE, type GameState, type Phase, type ServerId, type ServerState, type Side } from './state';
+import { BASE_MEMORY, MAX_HAND_SIZE, memoryUsed, type GameState, type Phase, type ServerId, type ServerState, type Side } from './state';
 
 /** A check sees the state and a not-yet-trusted action of its type (shape is checked first). */
 type Check<T extends ActionType> = (state: GameState, action: ActionOf<T>) => RejectReason | null;
@@ -77,7 +77,7 @@ export function handCard(s: GameState, a: ActionOf<'install' | 'play'>): CardDef
 /** Card types each side can install. */
 const INSTALLABLE: Readonly<Record<Side, readonly CardType[]>> = {
   corp: ['agenda', 'asset', 'upgrade', 'ice'],
-  runner: [],
+  runner: ['program', 'hardware', 'resource'],
 };
 
 export function findServer(s: GameState, id: ServerId): ServerState | undefined {
@@ -123,6 +123,13 @@ export function installCost(s: GameState, a: ActionOf<'install'>): number {
   return findServer(s, a.server)?.ice.length ?? 0;
 }
 
+/** Programs need `memory` free (limit BASE_MEMORY). */
+const memoryFree = (s: GameState, a: ActionOf<'install'>): RejectReason | null => {
+  const card = handCard(s, a);
+  if (a.player !== 'runner' || card?.type !== 'program') return null;
+  return memoryUsed(s) + (card.memory ?? 0) <= BASE_MEMORY ? null : 'no_memory';
+};
+
 const canAffordInstall = (s: GameState, a: ActionOf<'install'>): RejectReason | null =>
   s.players[a.player].credits >= installCost(s, a) ? null : 'no_credits';
 
@@ -145,6 +152,7 @@ export const RULES: RuleTable = {
     installableCard,
     validTarget,
     slotFree,
+    memoryFree,
     canAffordInstall,
   ],
   play: [playerShape, handIndexShape, notOver, yourTurn, inPhase('action'), hasClick, notBuiltYet],
