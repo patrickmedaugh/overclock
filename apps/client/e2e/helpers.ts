@@ -404,10 +404,21 @@ export async function replayOnPage(page: Page, actions: readonly Action[]): Prom
   await waitIdle(page);
 }
 
-/** Taps the hand card at `index` and waits for the board to settle. */
+/**
+ * Resolves once the page has drawn a frame. A player can only tap what has been
+ * drawn; Pixi also hit-tests new objects with the transforms of the last drawn
+ * frame, so a mouse click sent before then can miss them (see the Sprint 2
+ * architect review follow-up).
+ */
+export async function nextFrame(page: Page): Promise<void> {
+  await page.evaluate(() => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))));
+}
+
+/** Taps the hand card at `index` and returns the board once its lit targets are drawn. */
 export async function pick(page: Page, index: number): Promise<LayoutSnapshot> {
   const l = await waitIdle(page);
   await tap(page, l.hand[index]!.box);
+  await nextFrame(page);
   return layout(page);
 }
 
