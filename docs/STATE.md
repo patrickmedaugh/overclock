@@ -2,7 +2,7 @@
 
 phase: AWAITING_APPROVAL
 sprint: 2
-open_pr: PR_PLACEHOLDER (Sprint 2 proposal, branch `sprint-02-proposal`, label sprint-proposal)
+open_pr: PR #6 (Sprint 2 proposal, branch `sprint-02-proposal`, label sprint-proposal)
 last_owner_activity: 2026-11-12 04:51 UTC — owner opened PR #5 (sprint-01 → main) himself, commented "Approved" + review "approved", merged it. Recorded as acceptance of all Sprint 1 stories (see DECISIONS.md).
 
 ## Accepted stories
