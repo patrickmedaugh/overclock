@@ -562,6 +562,9 @@ export class Board {
 
   private handoff(p: Extract<Presentation, { kind: 'handoff' }>): void {
     const layout = this.layout;
+    // The double-tap guard counts from this tap (End turn / Confirm), not from the
+    // flip: the flip waits for the discard flight, and the button is hidden until then.
+    const tappedAt = performance.now();
     // The actor's own view from here on: no picker, nothing to tap but the
     // board's deck/credits, which already act for the new seat.
     this.view = p.actorView;
@@ -584,7 +587,7 @@ export class Board {
     const flip = () => {
       this.flipPending = false;
       this.view = p.nextView;
-      this.rebuild(true, p.nextEvents);
+      this.rebuild(true, p.nextEvents, tappedAt);
       // The actor's pile is now in the top row: pop it so the new count is noticed.
       if (discarded) this.rows.top?.discard.pop(this.ui);
     };
@@ -594,8 +597,12 @@ export class Board {
     } else flip();
   }
 
-  /** Rebuilds the board for this.view; `flipIn` plays the turn-change entrance and `events`. */
-  private rebuild(flipIn: boolean, events: readonly GameEvent[]): void {
+  /**
+   * Rebuilds the board for this.view; `flipIn` plays the turn-change entrance and `events`.
+   * `tappedAt` is when the tap that ended the turn happened; End turn ignores taps until
+   * `timing.endTurnGuard` after it.
+   */
+  private rebuild(flipIn: boolean, events: readonly GameEvent[], tappedAt = performance.now()): void {
     const layout = this.layout;
     const view = this.view;
     if (!layout || !view) return;
@@ -628,7 +635,7 @@ export class Board {
     this.applyView(view, flipIn);
 
     if (flipIn) {
-      this.endTurnArmedAt = performance.now() + timing.endTurnGuard;
+      this.endTurnArmedAt = tappedAt + timing.endTurnGuard;
       this.table.alpha = 0.15;
       this.fx.add({ target: this.table, to: { alpha: 1 }, duration: timing.flip, ease: ease.outCubic });
       this.sweep(layout, viewer);

@@ -229,11 +229,10 @@ test.describe('QA snappiness: longest turn change', () => {
     expect(qa.events).toContain('card_drawn');
   });
 
-  // QA-S1-1 (see docs/sprints/sprint-01-qa.md): End turn ignores taps until 300ms after
-  // the flip, and the flip itself waits for the discard flight, so after a 4-card
-  // discard End turn stays dead for ~650-730ms after Confirm. Remove test.fail once fixed.
+  // QA-S1-1 (see docs/sprints/sprint-01-qa.md): End turn used to ignore taps until 300ms
+  // after the flip, which itself waits for the discard flight (~650-755ms after Confirm).
+  // Fixed: the guard now counts from the Confirm tap.
   test('after a 4-card discard, the next player\'s End turn answers within 600ms of Confirm', async ({ page }) => {
-    test.fail(true, 'QA-S1-1: End turn double-tap guard counts from the flip, not from the tap');
     await openBoard(page);
     await toRunnerTurn(page);
     for (let i = 0; i < 4; i++) await dispatch(page, { type: 'draw', player: 'runner' });

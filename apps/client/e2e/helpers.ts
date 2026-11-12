@@ -64,7 +64,7 @@ export async function toRunnerTurn(page: Page): Promise<void> {
   expect((await getView(page)).activePlayer).toBe('runner');
 }
 
-/** End turn ignores taps briefly after a new turn appears (double-tap guard). */
+/** End turn ignores taps briefly after the tap that ended the last turn (double-tap guard). */
 export async function waitEndTurnArmed(page: Page): Promise<void> {
   await page.waitForTimeout(350);
 }
