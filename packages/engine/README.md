@@ -2,58 +2,109 @@
 
 The rules engine. Pure and deterministic: `(state, action) -> { state, events }`. No DOM, no timers, no `Math.random`; all randomness comes from a seeded RNG stored in the state. Implements `docs/RULES_SPEC.md`.
 
-Keep this public API small. Anything not exported from `src/index.ts` is internal.
+Keep this public API small. Anything not exported from `src/index.ts` is internal. State, actions and events are plain JSON so a game server can store, send and replay them.
 
 ## Public API
 
 ### `newGame(seed: number): GameState`
-Creates a new game. Same seed always gives the same shuffled decks and opening hands.
+Creates a new game. Same seed always gives the same shuffled decks and opening hands. The game starts on turn 1, the Corp's turn: Corp has 3 clicks and has already taken its mandatory start-of-turn draw (6 cards in hand). The Runner has 0 clicks.
 
 ### `apply(state: GameState, action: Action): { state: GameState; events: GameEvent[] }`
-Applies one action. Never mutates the input and never throws for illegal actions: it returns the unchanged state plus an `action_rejected` event.
+Applies one action. Never mutates the input and never throws for illegal or malformed actions: it returns the unchanged state plus an `action_rejected` event.
 
 ### `legalActions(state: GameState, player: Side): Action[]`
-All actions `player` may take right now. The client uses it to highlight; the AI picks from it.
+Actions `player` may take right now. Parameterized actions are listed once as a representative: during the discard step it contains one `discard` (the last N hand cards), and `PlayerView.pendingDiscard` says that any N distinct hand indices are legal.
 
 ### `viewFor(player: Side, state: GameState): PlayerView`
-What `player` is allowed to see. Opponent hand contents and all deck orders are hidden (counts only). The AI and the client render only from this. Includes `legalActions` for the viewer so consumers never need the full state.
+What `player` is allowed to see. Opponent hand contents, all deck orders and the Corp's face-down discards (to the Runner) are hidden (counts only). The AI and the client render only from this. Includes `legalActions` for the viewer.
 
 ### `viewEvents(player: Side, events: GameEvent[]): GameEvent[]`
-Projects events for `player`: an opponent's `card_drawn` loses its `cardId`. Run engine events through this before animating them for a player.
+Projects events for `player`. For the opponent: `card_drawn` loses `cardId`, `cards_discarded` loses `handIndices`, and it also loses `cardIds` when the Corp discarded (face down). Run engine events through this before showing them to a player.
 
 ### `replay(seed: number, actions: Action[]): { state; events }`
 Rebuilds a game from its seed and action log (rejected actions are no-ops). Used for replay-based regression tests.
 
-## Types (Sprint 0)
+## Sprint 1 interface (pinned: implement exactly this; changes go through the architect)
 
 ```ts
 type Side = 'corp' | 'runner';
+type Phase = 'action' | 'discard' | 'over';
+type WinReason = 'corp_decked';
 
 type Action =
-  | { type: 'draw'; player: Side };
+  | { type: 'draw'; player: Side }          // 1 click: top card to hand
+  | { type: 'gain_credit'; player: Side }   // 1 click: +1 credit
+  | { type: 'end_turn'; player: Side }      // leftover clicks are lost
+  | { type: 'discard'; player: Side; handIndices: number[] }; // hand-limit step only
+
+type RejectReason =
+  | 'invalid_action' | 'game_over' | 'not_your_turn' | 'wrong_phase'
+  | 'no_clicks' | 'deck_empty' | 'bad_discard';
 
 type GameEvent =
-  | { type: 'card_drawn'; player: Side; cardId?: string } // cardId omitted in opponent's view
-  | { type: 'action_rejected'; reason: 'no_clicks' | 'deck_empty' | 'not_your_turn' | 'invalid_action' };
+  | { type: 'card_drawn'; player: Side; cardId?: string }            // cardId hidden from opponent
+  | { type: 'credit_gained'; player: Side; amount: number }
+  | { type: 'discard_required'; player: Side; count: number }
+  | { type: 'cards_discarded'; player: Side; count: number;
+      handIndices?: number[];  // ascending, indices into the hand before discarding; owner only
+      cardIds?: string[] }     // same order; hidden from the Runner when the Corp discards
+  | { type: 'turn_ended'; player: Side }
+  | { type: 'turn_started'; player: Side; turn: number; clicks: number }
+  | { type: 'game_over'; winner: Side; reason: WinReason }
+  | { type: 'action_rejected'; reason: RejectReason };
+
+interface PlayerSideView {
+  deckCount: number;
+  handCount: number;
+  hand: string[] | null;     // null for the opponent
+  credits: number;
+  clicks: number;
+  discardCount: number;
+  discard: string[] | null;  // bottom = index 0; null when face down to the viewer
+}
 
 interface PlayerView {
   viewer: Side;
-  turn: number;
+  turn: number;              // counts player-turns: Corp 1, Runner 2, Corp 3, ...
   activePlayer: Side;
-  players: Record<Side, {
-    deckCount: number; handCount: number;
-    hand: string[] | null; // card ids; null for the opponent
-    credits: number; clicks: number;
-  }>;
+  phase: Phase;
+  pendingDiscard: number;    // > 0 only for the active viewer during 'discard'
+  result: { winner: Side; reason: WinReason } | null;
+  players: Record<Side, PlayerSideView>;
   legalActions: Action[];
 }
 ```
 
-`GameState` is plain JSON (serializable). It includes `seed`, `rng: number` (mulberry32 state), `turn`, `activePlayer`, and `players.{corp,runner}` with `deck` (top = index 0), `hand`, `credits`, `clicks`. Card entries are card definition ids from `@overclock/cards` (look them up with `getCard(id)`); duplicates are extra copies.
+### Event sequences
+- `draw` → `card_drawn`. `gain_credit` → `credit_gained`.
+- `end_turn`, hand ≤ 5 → `turn_ended`, `turn_started`, then for a Corp turn `card_drawn` (or `game_over` if its deck is empty).
+- `end_turn`, hand > 5 → `discard_required{count}` (clicks set to 0, `phase='discard'`). Then `discard` → `cards_discarded`, `turn_ended`, `turn_started`, ... as above.
 
-Rejection checks run in this order: `invalid_action` (malformed input), `not_your_turn`, `no_clicks`, `deck_empty`.
+### Validation (`src/rules.ts`, one table used by `apply` and `legalActions`)
+Checks run in this order; the first failure is the reason: `invalid_action` (shape: known type, valid `player`, `handIndices` an array of integers) → `game_over` (phase is `over`) → `not_your_turn` → `wrong_phase` (draw/gain_credit/end_turn need `action`, discard needs `discard`) → `no_clicks` (draw, gain_credit) → `deck_empty` (draw) / `bad_discard` (discard: not exactly hand−5 indices, duplicates, or out of range).
+
+`GameState` is plain JSON: `seed`, `rng` (mulberry32 state), `turn`, `activePlayer`, `phase`, `result`, and `players.{corp,runner}` with `deck` (top = index 0), `hand`, `discard`, `credits`, `clicks`. Card entries are card definition ids from `@overclock/cards` (`getCard(id)`); duplicates are extra copies.
+
+## `@overclock/match` (host; `packages/match`)
+Owns one game's `GameState` and talks to seats only through projections. It is the same contract a network server will expose later.
+
+```ts
+interface SeatUpdate { view: PlayerView; events: GameEvent[] }   // events already viewEvents()-projected
+type MatchUpdate = Record<Side, SeatUpdate>;
+
+class LocalMatch {
+  constructor(seed: number);
+  readonly seed: number;
+  view(seat: Side): PlayerView;
+  /** seat must equal action.player, otherwise invalid_action (state unchanged).
+   *  Rejections go to the submitting seat only; the other seat gets events: []. */
+  submit(seat: Side, action: Action): MatchUpdate;
+  actions(): readonly Action[];   // every submitted action, for replay(seed, actions)
+}
+```
+The client and AI may import only the public index of engine/cards/match. The client may not import `apply`, `newGame`, `legalActions`, `viewFor` or `replay` (it goes through the match).
 
 ## Rules for contributors
-- Every new action/event is added here and in the sprint tech plan.
+- Every new action/event is added here, to the validation table and to the sprint tech plan.
 - Every action has Vitest tests for its success path and each rejection reason.
 - Card behavior belongs in `@overclock/cards` data + the effect DSL, not in engine special cases.
