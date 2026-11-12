@@ -442,6 +442,13 @@ export class Board {
   private readonly marked = new Set<number>();
   /** End turn ignores taps until this time (double-tap guard after a turn change). */
   private endTurnArmedAt = 0;
+  /**
+   * True while the actor's discards fly out and the board still shows the
+   * actor's seat, although the turn already belongs to the next seat. A tap on
+   * the bottom row then only skips ahead to the flip: it must not spend a
+   * click of the player whose board is not on screen yet.
+   */
+  private flipPending = false;
 
   constructor(
     private readonly fx: Tweens,
@@ -575,13 +582,16 @@ export class Board {
     }
     this.callbacks.log({ kind: 'turn_change', scheduledMs: discardMs + timing.flip });
     const flip = () => {
+      this.flipPending = false;
       this.view = p.nextView;
       this.rebuild(true, p.nextEvents);
       // The actor's pile is now in the top row: pop it so the new count is noticed.
       if (discarded) this.rows.top?.discard.pop(this.ui);
     };
-    if (discardMs > 0) this.fx.after(discardMs, flip);
-    else flip();
+    if (discardMs > 0) {
+      this.flipPending = true;
+      this.fx.after(discardMs, flip);
+    } else flip();
   }
 
   /** Rebuilds the board for this.view; `flipIn` plays the turn-change entrance and `events`. */
@@ -696,7 +706,9 @@ export class Board {
         const k = pending - this.marked.size;
         main.text = k > 0 ? `Discard ${k}` : 'Tap Confirm';
         fitText(main, layout.sub.width);
-        help.text = 'You can keep 5 cards. Tap cards to pick them.\nHold a card to read it.';
+        // The hand limit comes from the view (hand - pending), not a client constant.
+        const keep = view.players[viewer].handCount - pending;
+        help.text = `You can keep ${keep} cards. Tap cards to pick them.\nHold a card to read it.`;
       } else if (view.activePlayer === viewer && view.phase === 'action' && view.players[viewer].clicks === 0) {
         help.text = "No clicks left. Tap End turn when you're ready.";
       } else {
@@ -759,6 +771,15 @@ export class Board {
     }
     this.hand.setMarked(this.marked);
     this.applyView(view, true);
+  }
+
+  /** Bottom-row taps act for the seat on screen; during a pending flip they only skip to it. */
+  private boardTap(act: () => void): void {
+    if (this.flipPending) {
+      this.fx.finishAll();
+      return;
+    }
+    act();
   }
 
   private onButtonTap(): void {
@@ -836,8 +857,8 @@ export class Board {
     this.boardLayer.addChild(name, handText, credits.root, clicks.root, discard.root, deck.root);
     // Only the viewer's (bottom) row is interactive.
     if (interactive) {
-      this.pressFeedback(deck.root, () => this.callbacks.onDeckTap());
-      this.pressFeedback(credits.root, () => this.callbacks.onCreditsTap());
+      this.pressFeedback(deck.root, () => this.boardTap(() => this.callbacks.onDeckTap()));
+      this.pressFeedback(credits.root, () => this.boardTap(() => this.callbacks.onCreditsTap()));
     } else {
       for (const c of [deck.root, credits.root, clicks.root, discard.root]) c.eventMode = 'none';
     }

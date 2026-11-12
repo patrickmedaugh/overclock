@@ -161,6 +161,32 @@ test.describe('S-01-3 End turn', () => {
     expectSnappy(m, ['discard_flight', 'turn_change']);
   });
 
+  test('a tap on the deck while the discards still fly away does not spend the next player\'s click', async ({ page }) => {
+    await openBoard(page);
+    await dispatch(page, { type: 'end_turn', player: 'corp' });
+    const l = await waitIdle(page);
+    const deck = l.corp.deck;
+    // Confirm the discard and tap the (still Corp) deck in the same task, so
+    // no frame can run the flip in between: the board still shows the Corp.
+    const result = await page.evaluate((d) => {
+      const hook = window.__overclock!;
+      hook.dispatch({ type: 'discard', player: 'corp', handIndices: [5] });
+      const shownBefore = hook.layout().viewer;
+      const canvas = document.querySelector('canvas')!;
+      const r = canvas.getBoundingClientRect();
+      const init = { bubbles: true, cancelable: true, pointerId: 7, pointerType: 'mouse', isPrimary: true, button: 0,
+        clientX: r.left + d.x + d.width / 2, clientY: r.top + d.y + d.height / 2 };
+      canvas.dispatchEvent(new PointerEvent('pointerdown', { ...init, buttons: 1 }));
+      canvas.dispatchEvent(new PointerEvent('pointerup', { ...init, buttons: 0 }));
+      return { shownBefore, shownAfter: hook.layout().viewer, view: hook.getView() };
+    }, deck);
+    expect(result.shownBefore).toBe('corp');
+    // The tap skipped ahead to the Runner's board instead of drawing for the Runner.
+    expect(result.shownAfter).toBe('runner');
+    expect(result.view.activePlayer).toBe('runner');
+    expect(result.view.players.runner.clicks).toBe(4);
+  });
+
   test('a double tap on End turn ends only one turn', async ({ page }) => {
     await openBoard(page);
     await toRunnerTurn(page);
