@@ -9,7 +9,7 @@ import { Container, Graphics, Rectangle, Text } from 'pixi.js';
 import { createCardBack, createCardFace, glowRoundRect, retireCardTextures } from './cardFace';
 import { centeredBox } from './geometry';
 import { Hand } from './hand';
-import type { AnimRecord, Box, LayoutSnapshot, SideLayout } from './hook-types';
+import type { AnimRecord, Box, EndTurnClock, LayoutSnapshot, SideLayout } from './hook-types';
 import type { Presentation } from './hotseat';
 import { attachPress } from './input';
 import type { BoardLayout, SideRow } from './layout';
@@ -451,6 +451,8 @@ export class Board {
   private readonly marked = new Set<number>();
   /** End turn ignores taps until this time (double-tap guard after a turn change). */
   private endTurnArmedAt = 0;
+  /** When the last turn change's flip is due (tap time + discard flight). */
+  private flipDueAt = 0;
   /**
    * True while the actor's discards fly out and the board still shows the
    * actor's seat, although the turn already belongs to the next seat. A tap on
@@ -519,6 +521,11 @@ export class Board {
         if (e.reason === 'no_clicks') this.rows.bottom?.clicks.shake();
       }
     }
+  }
+
+  /** The End turn guard and flip timestamps (test hook). */
+  endTurnClock(): EndTurnClock {
+    return { armedAt: this.endTurnArmedAt, flipDueAt: this.flipDueAt };
   }
 
   snapshot(): LayoutSnapshot {
@@ -594,6 +601,9 @@ export class Board {
       }
     }
     this.callbacks.log({ kind: 'turn_change', scheduledMs: discardMs + timing.flip });
+    this.flipDueAt = tappedAt + discardMs;
+    // Set now, not at the flip: the guard counts from this tap (see rebuild).
+    this.endTurnArmedAt = tappedAt + timing.endTurnGuard;
     const flip = () => {
       this.flipPending = false;
       this.view = p.nextView;
