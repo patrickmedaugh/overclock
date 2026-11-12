@@ -8,8 +8,11 @@ export interface PressHandlers {
   onDown?: () => void;
   /** Fires when the press ends for any reason (up, cancel, long-press release). */
   onRelease?: () => void;
-  /** Short press released over the target. */
-  onTap?: () => void;
+  /**
+   * Short press released over the target. `tapAt` is the release's own
+   * event timestamp (the browser's, not when this handler runs).
+   */
+  onTap?: (tapAt: number) => void;
   /** Held for `longPressMs` without moving. */
   onLongPress?: () => void;
   /** Released after a long-press fired. */
@@ -20,6 +23,16 @@ export interface PressOptions {
   longPressMs?: number;
   /** Movement (CSS px) that cancels a pending long-press. */
   moveTolerance?: number;
+}
+
+/**
+ * When the pointer event really happened: the native event's `timeStamp`
+ * (stamped by the browser when the input arrived), falling back to Pixi's
+ * own stamp (taken when Pixi handled it) if the native one is missing.
+ */
+export function tapTime(e: FederatedPointerEvent): number {
+  const native = (e.nativeEvent as { timeStamp?: unknown } | undefined)?.timeStamp;
+  return typeof native === 'number' && Number.isFinite(native) ? native : e.timeStamp;
 }
 
 export function attachPress(target: Container, handlers: PressHandlers, opts: PressOptions = {}): () => void {
@@ -39,7 +52,7 @@ export function attachPress(target: Container, handlers: PressHandlers, opts: Pr
     timer = null;
   };
 
-  const end = (fireTap: boolean) => {
+  const end = (fireTap: boolean, tapAt: number) => {
     if (pointerId === null) return;
     pointerId = null;
     clearTimer();
@@ -47,7 +60,7 @@ export function attachPress(target: Container, handlers: PressHandlers, opts: Pr
       longFired = false;
       handlers.onLongPressEnd?.();
     } else if (fireTap) {
-      handlers.onTap?.();
+      handlers.onTap?.(tapAt);
     }
     // The tap may have rebuilt the board (turn change) and destroyed us.
     if (!target.destroyed) handlers.onRelease?.();
@@ -74,10 +87,10 @@ export function attachPress(target: Container, handlers: PressHandlers, opts: Pr
     if (Math.hypot(e.global.x - startX, e.global.y - startY) > tolerance) clearTimer();
   };
   const onUp = (e: FederatedPointerEvent) => {
-    if (pointerId === e.pointerId) end(true);
+    if (pointerId === e.pointerId) end(true, tapTime(e));
   };
   const onUpOutside = (e: FederatedPointerEvent) => {
-    if (pointerId === e.pointerId) end(false);
+    if (pointerId === e.pointerId) end(false, tapTime(e));
   };
 
   target.on('pointerdown', onDown);

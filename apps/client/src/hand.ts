@@ -160,6 +160,10 @@ export class Hand {
       const card = this.cards[i];
       const slot = slots[i];
       if (!card || !slot) continue;
+      const x = slot.x + slot.width / 2;
+      const y = slot.y + slot.height / 2;
+      // Already there (e.g. a refused tap re-syncs the hand): no tween, no frames to draw.
+      if (Math.abs(card.root.x - x) < 0.5 && Math.abs(card.root.y - y) < 0.5) continue;
       this.fx.cancel(card.root);
       this.fx.add({
         target: card.root,

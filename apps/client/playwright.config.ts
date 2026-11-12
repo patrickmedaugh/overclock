@@ -14,12 +14,24 @@ export default defineConfig({
     trace: 'retain-on-failure',
     browserName: 'chromium',
   },
+  // Charter Definition of Done viewports (owner decision 2026-11-12): phones held
+  // sideways (844x390, small 640x360) and a desktop. An upright 390x844 phone is
+  // only used by e2e/rotate.spec.ts (it shows "Turn your phone sideways").
   projects: [
     {
       name: 'phone',
       use: {
-        viewport: { width: 390, height: 844 },
+        viewport: { width: 844, height: 390 },
         deviceScaleFactor: 3,
+        isMobile: true,
+        hasTouch: true,
+      },
+    },
+    {
+      name: 'phone-small',
+      use: {
+        viewport: { width: 640, height: 360 },
+        deviceScaleFactor: 2,
         isMobile: true,
         hasTouch: true,
       },

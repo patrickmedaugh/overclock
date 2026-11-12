@@ -1,7 +1,7 @@
 // S-01-4: both players on one screen, active player's side at the bottom.
 // Plus the board-wide layout checks (on screen, no overlaps) from Sprint 0.
 import { expect, test } from '@playwright/test';
-import { dispatch, expectCleanLayout, getView, layout, openBoard, toRunnerTurn, waitIdle } from './helpers';
+import { dispatch, expectCleanLayout, getView, isPhoneProject, layout, openBoard, toRunnerTurn, waitIdle } from './helpers';
 import type { LayoutSnapshot } from './helpers';
 import type { PlayerView } from '@overclock/engine';
 
@@ -81,7 +81,7 @@ test.describe('board layout', () => {
     expectCleanLayout(picking);
   });
 
-  test('re-lays out when the window is resized (incl. a small 360x640 phone)', async ({ page }) => {
+  test('re-lays out when the window is resized (incl. a small phone)', async ({ page }) => {
     // Resizes retire baked card textures: a texture freed while still in use
     // would throw on a later render, so collect page errors.
     const errors: string[] = [];
@@ -89,7 +89,9 @@ test.describe('board layout', () => {
     await openBoard(page);
     const handBefore = (await getView(page)).players.corp.handCount;
     const before = page.viewportSize()!;
-    for (const size of [{ width: 360, height: 640 }, { width: 1024, height: 700 }, before]) {
+    // Phones are only played sideways; a 1024x700 touch screen is tablet-sized (desktop layout).
+    const small = isPhoneProject() ? { width: 640, height: 360 } : { width: 360, height: 640 };
+    for (const size of [small, { width: 1024, height: 700 }, before]) {
       await page.setViewportSize(size);
       await page.waitForFunction(
         ([w, h]) => {

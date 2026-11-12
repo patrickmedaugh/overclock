@@ -53,8 +53,10 @@ test('home-screen install: manifest (standalone) and iOS full-screen tags are pr
   const manifestUrl = new URL(href!, page.url()).toString();
   const res = await request.get(manifestUrl);
   expect(res.ok()).toBe(true);
-  const manifest = (await res.json()) as { display: string; start_url: string; icons: { src: string }[] };
+  const manifest = (await res.json()) as { display: string; start_url: string; orientation: string; icons: { src: string }[] };
   expect(manifest.display).toBe('standalone');
+  // S-02-6 AC4: opened from the home screen, the game opens sideways.
+  expect(manifest.orientation).toBe('landscape');
   expect(manifest.start_url).toBe('./');
   for (const icon of manifest.icons) {
     expect(icon.src.startsWith('/')).toBe(false);

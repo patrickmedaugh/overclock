@@ -28,6 +28,18 @@
         position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
         color: #19e6ff; font: 700 14px ui-monospace, Menlo, Consolas, monospace; letter-spacing: 3px;
       }
+      /* Phones are played sideways: upright, this covers the board (src/device.ts). */
+      #rotate {
+        position: fixed; inset: 0; z-index: 10; display: flex; flex-direction: column; gap: 22px;
+        align-items: center; justify-content: center; background: #07060d; color: #e8f6ff;
+        font: 700 20px "Segoe UI", Roboto, "Helvetica Neue", Arial, system-ui, sans-serif; text-align: center;
+        padding: env(safe-area-inset-top, 0px) 24px env(safe-area-inset-bottom, 0px);
+      }
+      #rotate[hidden] { display: none; }
+      #rotate small { display: block; margin-top: 6px; font-size: 14px; font-weight: 400; color: #7d8aa3; }
+      #rotate svg { width: 96px; height: 96px; overflow: visible; animation: oc-turn 1.8s ease-in-out infinite; }
+      @keyframes oc-turn { 0%, 25% { transform: rotate(0deg); } 55%, 100% { transform: rotate(-90deg); } }
+      @media (prefers-reduced-motion: reduce) { #rotate svg { animation: none; transform: rotate(-90deg); } }
       /* Read by src/safeArea.ts: the browser fills these paddings with the
          notch / status bar / gesture bar sizes. Never visible. */
       #safe-probe {
@@ -40,6 +52,14 @@
   <body>
     <div id="safe-probe" aria-hidden="true"></div>
     <div id="boot">BOOTING…</div>
+    <div id="rotate" role="alert" hidden>
+      <svg viewBox="0 0 96 96" aria-hidden="true">
+        <rect x="30" y="8" width="36" height="80" rx="7" fill="none" stroke="#19e6ff" stroke-width="4" />
+        <rect x="42" y="14" width="12" height="3" rx="1.5" fill="#19e6ff" />
+        <circle cx="48" cy="79" r="3" fill="#ff2bd6" />
+      </svg>
+      <div>Turn your phone sideways<small>The game is played with the phone held sideways.</small></div>
+    </div>
     <div id="app"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>

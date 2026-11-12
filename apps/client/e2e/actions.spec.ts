@@ -14,6 +14,7 @@ import {
   safeRect,
   tap,
   toRunnerTurn,
+  waitFeedbackSettled,
   waitIdle,
 } from './helpers';
 import type { Page } from '@playwright/test';
@@ -68,6 +69,8 @@ for (const side of ['corp', 'runner'] as const) {
       expect(before.players[side].clicks).toBe(0);
 
       for (const target of [l[side].credits, l[side].deck]) {
+        // Each refused tap is measured on an idle board (the first tap's shake is over).
+        await waitFeedbackSettled(page);
         const m = await measureTap(page, target);
         expect(m.events).toEqual([{ type: 'action_rejected', reason: 'no_clicks' }]);
         expect(m.view).toEqual(before);
@@ -137,10 +140,17 @@ test('the drawn card is mid-flight between deck and hand right after the tap', a
   const mid = await layout(page);
   const settled = await waitIdle(page);
   expect(settled.hand).toHaveLength(before.hand.length + 1);
-  // Either still flying, or (on a very slow frame) already landed: never stuck at the deck.
+  // Either still flying, or (on a very slow frame) already landed: on the way from
+  // the deck to its slot, never anywhere else (the deck may sit above the hand, as
+  // on desktop, or beside it, as in the phone's rail).
   if (mid.animating) {
-    const flying = mid.hand.at(-1)!.box;
-    const landed = settled.hand.at(-1)!.box;
-    expect(flying.y).toBeLessThanOrEqual(landed.y + 1);
+    const c = (b: { x: number; y: number; width: number; height: number }) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
+    const fly = c(mid.hand.at(-1)!.box);
+    const from = c(before.corp.deck);
+    const to = c(settled.hand.at(-1)!.box);
+    expect(fly.x).toBeGreaterThanOrEqual(Math.min(from.x, to.x) - 1);
+    expect(fly.x).toBeLessThanOrEqual(Math.max(from.x, to.x) + 1);
+    expect(fly.y).toBeGreaterThanOrEqual(Math.min(from.y, to.y) - 1);
+    expect(fly.y).toBeLessThanOrEqual(Math.max(from.y, to.y) + 1);
   }
 });

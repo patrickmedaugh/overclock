@@ -28,6 +28,10 @@ export interface SideLayout {
 }
 
 export interface LayoutSnapshot {
+  /** 'phone' = sideways phone layout (touch, short side <= 500px); 'desktop' = the portrait column. */
+  mode: 'phone' | 'desktop';
+  /** True while an upright phone shows "Turn your phone sideways" instead of the board. */
+  rotatePrompt: boolean;
   viewport: { width: number; height: number };
   /** Safe-area insets the layout used (env(safe-area-inset-*), read from #safe-probe). */
   safeArea: Insets;
@@ -66,7 +70,13 @@ export interface LayoutSnapshot {
   animating: boolean;
 }
 
-export type AnimKind = 'draw_flight' | 'credit_pop' | 'discard_flight' | 'turn_change' | 'hint';
+/**
+ * `turn_change` is logged at the tap that passes the turn (scheduledMs = discard
+ * flight + flip); `turn_flip` when the new seat's board actually starts fading in,
+ * with `text` = what started it: 'now' (no discards), 'timer' (at the scheduled
+ * time) or 'skip' (a tap skipped ahead).
+ */
+export type AnimKind = 'draw_flight' | 'credit_pop' | 'discard_flight' | 'turn_change' | 'turn_flip' | 'hint';
 
 /** Logged when an animation or hint starts. */
 export interface AnimRecord {
@@ -75,7 +85,7 @@ export interface AnimRecord {
   startedAt: number;
   /** Total scheduled duration including stagger delays (ms). Hints never block input. */
   scheduledMs: number;
-  /** Hint text. */
+  /** Hint text; for `turn_flip`, what started it. */
   text?: string;
   /** Where it was shown (hints: the toast's final box). */
   box?: Box;
