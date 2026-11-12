@@ -65,17 +65,18 @@ function playAndCheck(seed: number): { steps: number; discardSteps: number; over
 }
 
 describe('QA: no empty timing windows (auto-pass) in random full games', () => {
-  it('over 200 random games: never waits on a player with nothing to do; hand limit only when needed', () => {
+  // Sprint 3: 250 games (was 200) so the hand-limit floor below still holds now that random games include runs.
+  it('over 250 random games: never waits on a player with nothing to do; hand limit only when needed', () => {
     let games = 0;
     let finished = 0;
     let discards = 0;
-    for (let seed = 1; seed <= 200; seed++) {
+    for (let seed = 1; seed <= 250; seed++) {
       const r = playAndCheck(seed);
       games++;
       if (r.over) finished++;
       discards += r.discardSteps;
     }
-    expect(games).toBe(200);
+    expect(games).toBe(250);
     // The property was really exercised: games reach the end and hit the hand-limit step.
     expect(finished).toBeGreaterThan(150);
     expect(discards).toBeGreaterThan(200);

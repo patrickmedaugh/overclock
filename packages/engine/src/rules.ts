@@ -7,13 +7,15 @@
  *   invalid_action (shape) -> game_over -> not_your_turn -> wrong_phase
  *   -> no_clicks -> deck_empty / bad_discard
  *   (install/play: -> no_clicks -> bad_card -> bad_target -> not_implemented
- *    -> no_credits -> no_memory)
+ *    -> condition_not_met (play) -> no_credits -> no_memory)
+ *   (run decisions: -> wrong_phase -> bad_target -> too_weak -> no_credits;
+ *    `not_your_turn` there means "not the deciding side", see `waitingOn`)
  * `RULES` is a `Record` over every ActionType, so a new action without an
  * entry is a type error.
  */
 import type { ActionOf, ActionType, Action } from './actions';
 import type { RejectReason } from './events';
-import { getCard, type BreakerAbility, type CardDef, type CardType, type Effect } from '@overclock/cards';
+import { getCard, type BreakerAbility, type CardDef, type CardType, type Effect, type PlayCondition } from '@overclock/cards';
 import {
   CENTRAL_SERVERS,
   MAX_HAND_SIZE,
@@ -134,14 +136,17 @@ export const installTargetCheck = (s: GameState, a: ActionOf<'install'>): Reject
   return null;
 };
 
-/** Effects the engine resolves today (E1 stub: run/damage effects arrive in E3-E5). */
-const BUILT_EFFECTS: ReadonlySet<string> = new Set(['gain_credits', 'draw']);
+const builtYet = (s: GameState, a: ActionOf<'install' | 'play'>): RejectReason | null =>
+  handCard(s, a.player, a.handIndex)?.needs ? 'not_implemented' : null;
 
-const builtYet = (s: GameState, a: ActionOf<'install' | 'play'>): RejectReason | null => {
-  const card = handCard(s, a.player, a.handIndex);
-  if (!card) return null;
-  if (card.needs || card.playIf) return 'not_implemented';
-  return (card.onPlay ?? []).every((e) => BUILT_EFFECTS.has(e.op)) ? null : 'not_implemented';
+/** Card `playIf` conditions. `runner_ran_last_turn`: a run was started in the previous turn (the Runner's). */
+const PLAY_CONDITIONS: Readonly<Record<PlayCondition, (s: GameState) => boolean>> = {
+  runner_ran_last_turn: (s) => s.lastRunTurn !== null && s.lastRunTurn === s.turn - 1,
+};
+
+const playCondition = (s: GameState, a: ActionOf<'play'>): RejectReason | null => {
+  const cond = handCard(s, a.player, a.handIndex)?.playIf;
+  return cond === undefined || PLAY_CONDITIONS[cond](s) ? null : 'condition_not_met';
 };
 
 // ---- runs: pure queries -------------------------------------------------------
@@ -385,6 +390,7 @@ export const RULES: RuleTable = {
     playCardCheck,
     playTarget,
     builtYet,
+    playCondition,
     canAffordPlay,
   ],
   run: [playerShape, runServerShape, notOver, yourTurn, inPhase('action'), hasClick, runTarget],

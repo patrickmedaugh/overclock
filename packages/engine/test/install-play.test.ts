@@ -101,8 +101,11 @@ describe('play: every rejection reason, state unchanged', () => {
     ['bad_card', () => ({ state: corpWith(['c01']), action: play('corp', 1) })],
     ['bad_card', () => ({ state: corpWith(['c04']), action: play('corp', 0) })], // ICE cannot be played
     ['bad_card', () => ({ state: runnerWith(['r04']), action: play('runner', 0) })], // a program cannot be played
-    ['not_implemented', () => ({ state: corpWith(['c12']), action: play('corp', 0) })], // Neural EMP needs runs
-    ['not_implemented', () => ({ state: runnerWith(['r07']), action: play('runner', 0) })], // The Maker's Eye
+    ['bad_target', () => ({ state: runnerWith(['r11']), action: play('runner', 0) })], // Inside Job: must name a server
+    ['bad_target', () => ({ state: runnerWith(['r11']), action: { type: 'play', player: 'runner', handIndex: 0, server: 'remote5' } })],
+    ['bad_target', () => ({ state: runnerWith(['r07']), action: { type: 'play', player: 'runner', handIndex: 0, server: 'hq' } })], // Maker's Eye: fixed R&D
+    ['bad_target', () => ({ state: corpWith(['c01']), action: { type: 'play', player: 'corp', handIndex: 0, server: 'hq' } })],
+    ['condition_not_met', () => ({ state: corpWith(['c12']), action: play('corp', 0) })], // Neural EMP, no run last turn
     ['no_credits', () => ({ state: corpWith(['c01'], 4), action: play('corp', 0) })], // Hedge Fund costs 5
   ];
   it.each(cases)('%s', (reason, make) => {
@@ -110,8 +113,14 @@ describe('play: every rejection reason, state unchanged', () => {
     expectRejected(state, action, reason);
   });
 
-  it('precedence: not_implemented beats no_credits (a card that needs runs says so even when broke)', () => {
-    expect(rejection(apply(runnerWith(['r11'], 0), { type: 'play', player: 'runner', handIndex: 0, server: 'hq' }).events)).toBe('not_implemented');
+  it('precedence: condition_not_met beats no_credits (Neural EMP says why even when broke); bad_target beats both', () => {
+    expect(rejection(apply(corpWith(['c12'], 0), play('corp', 0)).events)).toBe('condition_not_met');
+    expect(rejection(apply(runnerWith(['r11'], 0), play('runner', 0)).events)).toBe('bad_target');
+  });
+
+  it('invalid_action for a non-string play server', () => {
+    const bad = { type: 'play', player: 'runner', handIndex: 0, server: 7 } as unknown as Action;
+    expect(apply(runnerWith(['r11']), bad).events).toEqual([{ type: 'action_rejected', reason: 'invalid_action' }]);
   });
 });
 
@@ -333,9 +342,9 @@ describe('views and projections', () => {
     expect(opts[1]!.map((o) => o.action)).toEqual([install('corp', 1, 'new')]);
     // Upgrade: any server + new.
     expect(opts[2]!.map((o) => (o.action as { server?: string }).server)).toEqual(['hq', 'rd', 'archives', 'new']);
-    // Hedge Fund: unaffordable but offered; Neural EMP: needs runs.
+    // Hedge Fund: unaffordable but offered; Neural EMP: no run last turn.
     expect(opts[3]).toEqual([{ action: play('corp', 3), cost: 5, reject: 'no_credits' }]);
-    expect(opts[4]).toEqual([{ action: play('corp', 4), cost: 2, reject: 'not_implemented' }]);
+    expect(opts[4]).toEqual([{ action: play('corp', 4), cost: 2, reject: 'condition_not_met' }]);
     // Off turn: same targets, reject not_your_turn; legalActions empty.
     const off = finishTurn(withPlayer(s, 'corp', { hand: ['c08'] })).state;
     expect(viewFor('corp', off).handOptions).toEqual([[{ action: install('corp', 0, 'new'), cost: 0, reject: 'not_your_turn' }]]);
