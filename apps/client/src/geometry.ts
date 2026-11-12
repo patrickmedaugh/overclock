@@ -6,6 +6,14 @@ import type { Box } from './hook-types';
  * the container's own position/scale place it). Excludes the decorative glow,
  * which may bleed a few pixels outside.
  */
+/**
+ * Logical box of a w x h widget centered on `c`, ignoring every scale: press
+ * feedback and pops are transient and the hit area never changes with them.
+ */
+export function logicalBox(c: Container, w: number, h: number): Box {
+  return { x: c.x - w / 2, y: c.y - h / 2, width: w, height: h };
+}
+
 export function centeredBox(c: Container, w: number, h: number, sx = 1, sy = 1, dx = 0): Box {
   const width = w * Math.abs(c.scale.x * sx);
   const height = h * Math.abs(c.scale.y * sy);

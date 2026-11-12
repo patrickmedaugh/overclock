@@ -1,4 +1,4 @@
-import { type Page, expect, test } from '@playwright/test';
+import { type CDPSession, type Page, expect, test } from '@playwright/test';
 import type { Action, GameEvent, PlayerView } from '@overclock/engine';
 import type { AnimRecord, Box, Insets, LayoutSnapshot } from '../src/hook-types';
 
@@ -102,11 +102,32 @@ export function isPhoneProject(): boolean {
   return test.info().project.use.isMobile === true;
 }
 
-/** A real tap: touchscreen on the phone project, mouse click on desktop. */
+/** How long a finger stays down in a tap (a real tap lasts ~50-120ms). */
+export const TOUCH_CONTACT_MS = 80;
+
+const touchSessions = new WeakMap<Page, CDPSession>();
+
+/**
+ * A real tap: a finger on the phone projects, a mouse click on desktop. The
+ * finger stays down TOUCH_CONTACT_MS, like a person's: Playwright's
+ * touchscreen.tap() lifts it in the same instant, so on GPU-less CI browsers the
+ * release queued behind the frame that the press feedback had just started, and
+ * tap timings measured that frame instead of the game.
+ */
 export async function tap(page: Page, b: Box): Promise<void> {
   const { x, y } = center(b);
-  if (isTouch(page)) await page.touchscreen.tap(x, y);
-  else await page.mouse.click(x, y);
+  if (!isTouch(page)) {
+    await page.mouse.click(x, y);
+    return;
+  }
+  let cdp = touchSessions.get(page);
+  if (!cdp) {
+    cdp = await page.context().newCDPSession(page);
+    touchSessions.set(page, cdp);
+  }
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
+  await page.waitForTimeout(TOUCH_CONTACT_MS);
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
 }
 
 /** What the page saw at the release of a measured tap. */

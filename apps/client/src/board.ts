@@ -7,7 +7,7 @@ import type { GameEvent, PlayerView, RejectReason, Side, WinReason } from '@over
 import { getCard } from '@overclock/cards';
 import { Container, Graphics, Rectangle, Text } from 'pixi.js';
 import { createCardBack, createCardFace, glowRoundRect, retireCardTextures } from './cardFace';
-import { centeredBox } from './geometry';
+import { centeredBox, logicalBox } from './geometry';
 import { guardOpen } from './guard';
 import { Hand } from './hand';
 import type { AnimRecord, Box, LayoutSnapshot, SideLayout } from './hook-types';
@@ -159,8 +159,9 @@ class Counter {
     return this.valueText.text;
   }
 
+  /** Logical box (as the hit area): press feedback, the value pop and the no-clicks shake are transient. */
   box(): Box {
-    return centeredBox(this.root, this.w, this.h, this.inner.scale.x, this.inner.scale.y, this.inner.x);
+    return logicalBox(this.root, this.w, this.h);
   }
 
   setActionable(on: boolean): void {
@@ -243,8 +244,9 @@ class DeckPile {
     this.root.addChild(badge, this.countText);
   }
 
+  /** Logical box (as the hit area): press feedback is transient. */
   box(): Box {
-    return centeredBox(this.root, this.w, this.h);
+    return logicalBox(this.root, this.w, this.h);
   }
 
   setCount(n: number): void {
@@ -315,8 +317,9 @@ class DiscardPile {
     return this.countText.text;
   }
 
+  /** Logical box: the count pop is transient. */
   box(): Box {
-    return centeredBox(this.root, this.w, this.h, this.inner.scale.x, this.inner.scale.y);
+    return logicalBox(this.root, this.w, this.h);
   }
 
   /** `pile` is the view's discard list (bottom = 0), or null when face down to the viewer. */
@@ -378,8 +381,9 @@ class ActionButton {
     return this.label.text;
   }
 
+  /** Logical box (as the hit area): press feedback and the glow-on pop are transient. */
   box(): Box {
-    return centeredBox(this.root, this.box0.width, this.box0.height, this.inner.scale.x, this.inner.scale.y);
+    return logicalBox(this.root, this.box0.width, this.box0.height);
   }
 
   set(mode: ButtonMode, enabled: boolean, glowing: boolean, ui: Tweens | null): void {

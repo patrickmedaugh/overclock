@@ -12,6 +12,7 @@ import {
   tap,
   toRunnerTurn,
   waitEndTurnArmed,
+  waitFeedbackSettled,
   waitIdle,
 } from './helpers';
 
@@ -155,6 +156,8 @@ test.describe('S-01-3 End turn', () => {
     let l = await waitIdle(page);
     expect(l.picker?.remaining).toBe(4);
     for (let i = 0; i < 4; i++) await tap(page, l.hand[i]!.box);
+    // Measure Confirm on an idle board (its glow-on pop after the 4th pick is over).
+    await waitFeedbackSettled(page);
     l = await layout(page);
     const m = await measureTap(page, l.picker!.confirm.box);
     expect(m.view.viewer).toBe('runner');

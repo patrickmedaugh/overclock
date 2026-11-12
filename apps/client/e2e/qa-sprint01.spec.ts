@@ -293,7 +293,7 @@ async function pokesResult(page: Page): Promise<PokeRun> {
   return page.evaluate(() => (window as unknown as { __pokes: PokeRun }).__pokes);
 }
 
-/** The pokes (aimed at `aimed`'s center) land on End turn: same center, give or take a pixel (the button pops in scale). */
+/** The pokes (aimed at `aimed`'s center) land on End turn: same center, give or take a pixel. */
 function expectSameSpot(endTurn: Box | null, aimed: Box): void {
   expect(endTurn, 'End turn shown when the pokes were sent').not.toBeNull();
   const c = (b: Box) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
