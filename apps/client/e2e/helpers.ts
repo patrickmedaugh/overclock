@@ -1,4 +1,4 @@
-import { type Page, expect, test } from '@playwright/test';
+import { type CDPSession, type Page, expect, test } from '@playwright/test';
 import { getCard } from '@overclock/cards';
 import type { Action, GameEvent, PlayerView, Side } from '@overclock/engine';
 import { LocalMatch } from '@overclock/match';
@@ -102,6 +102,37 @@ export async function tap(page: Page, b: Box): Promise<void> {
   const { x, y } = center(b);
   if (isTouch()) await page.touchscreen.tap(x, y);
   else await page.mouse.click(x, y);
+}
+
+const cdpSessions = new WeakMap<Page, Promise<CDPSession>>();
+
+/**
+ * A real tap through the browser's input pipeline (touch on the phone projects,
+ * mouse on desktop), sent at once: the browser stamps it now even if the page is
+ * busy, and the page handles it whenever it can. The promise settles once the
+ * page has handled it. Used to tap "during" slow frames, which page timers can't.
+ * `touch` overrides the project's input kind (touch needs a context with hasTouch).
+ */
+export function sendTap(page: Page, b: Box, opts: { touch?: boolean } = {}): Promise<void> {
+  const { x, y } = center(b);
+  let cdp = cdpSessions.get(page);
+  if (!cdp) {
+    cdp = page.context().newCDPSession(page);
+    cdpSessions.set(page, cdp);
+  }
+  const touch = opts.touch ?? isTouch();
+  return cdp.then(async (s) => {
+    const sent = touch
+      ? [
+          s.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] }),
+          s.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] }),
+        ]
+      : [
+          s.send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 }),
+          s.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 }),
+        ];
+    await Promise.all(sent);
+  });
 }
 
 export function endTurnClock(page: Page): Promise<EndTurnClock> {

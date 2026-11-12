@@ -11,7 +11,7 @@ import { centeredBox } from './geometry';
 import { Hand } from './hand';
 import type { AnimRecord, Box, EndTurnClock, Insets, LayoutSnapshot, SideLayout } from './hook-types';
 import type { Presentation } from './hotseat';
-import { attachPress } from './input';
+import { attachPress, inputTime } from './input';
 import { type BoardLayout, type SideRow, computeLayout } from './layout';
 import { hintFor, pickOutcome } from './picking';
 import { Tabletop } from './tabletop';
@@ -634,9 +634,11 @@ export class Board {
 
   private handoff(p: Extract<Presentation, { kind: 'handoff' }>): void {
     const layout = this.layout;
-    // The double-tap guard counts from this tap (End turn / Confirm), not from the
-    // flip: the flip waits for the discard flight, and the button is hidden until then.
-    const tappedAt = performance.now();
+    // The double-tap guard counts from when this tap (End turn / Confirm) was made,
+    // not from the flip (it waits for the discard flight; the button is hidden until
+    // then) nor from when we got to handle it (a slow frame can delay that).
+    const tappedAt = inputTime();
+    const now = performance.now();
     // The actor's own view from here on: no picker, nothing to tap but the
     // board's deck/credits, which already act for the new seat.
     this.view = p.actorView;
@@ -657,7 +659,8 @@ export class Board {
       }
     }
     this.callbacks.log({ kind: 'turn_change', scheduledMs: discardMs + timing.flip });
-    this.flipDueAt = tappedAt + discardMs;
+    // The flip is scheduled from now (game time), whenever the tap was made.
+    this.flipDueAt = now + discardMs;
     // Set now, not at the flip: the guard counts from this tap (see rebuild).
     this.endTurnArmedAt = tappedAt + timing.endTurnGuard;
     const flip = () => {
@@ -994,7 +997,9 @@ export class Board {
       this.callbacks.onDiscard([...this.marked].sort((a, b) => a - b));
       return;
     }
-    if (performance.now() < this.endTurnArmedAt) return;
+    // Judged by when this tap was made: a second tap of a double tap stays refused
+    // even if a slow turn-change frame delays its handling past the guard.
+    if (inputTime() < this.endTurnArmedAt) return;
     this.callbacks.onEndTurn();
   }
 

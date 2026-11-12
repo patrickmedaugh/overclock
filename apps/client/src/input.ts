@@ -15,6 +15,27 @@ export function lastInput(): InputStamp | null {
   return last ? { ...last } : null;
 }
 
+/** Event time of the pointer release being handled right now (null outside a release). */
+let current: number | null = null;
+
+/**
+ * When the user made the input being handled now: the release's DOM event
+ * timestamp while a tap handler runs, else performance.now(). Time guards
+ * (the End turn double-tap guard) use this, not the time the handler runs: a
+ * tap queued behind a slow frame must be judged by when it was made.
+ */
+export function inputTime(): number {
+  return current ?? performance.now();
+}
+
+/** The event's timestamp on the performance.now() clock, or `handledAt` if it is unusable. */
+function eventTime(e: FederatedPointerEvent, handledAt: number): number {
+  const native: unknown = e.nativeEvent;
+  const t = native instanceof Event ? native.timeStamp : e.timeStamp;
+  // Old engines used epoch timestamps; never trust a time in the future or far in the past.
+  return Number.isFinite(t) && t > 0 && t <= handledAt && handledAt - t < 10_000 ? t : handledAt;
+}
+
 export interface PressHandlers {
   /** Fires immediately on pointer down (visual feedback; <100ms budget). */
   onDown?: () => void;
@@ -87,9 +108,16 @@ export function attachPress(target: Container, handlers: PressHandlers, opts: Pr
   };
   const onUp = (e: FederatedPointerEvent) => {
     const handledAt = performance.now();
-    const native: unknown = e.nativeEvent;
-    last = { eventAt: native instanceof Event ? native.timeStamp : e.timeStamp, handledAt };
-    if (pointerId === e.pointerId) end(true);
+    const eventAt = eventTime(e, handledAt);
+    last = { eventAt, handledAt };
+    if (pointerId !== e.pointerId) return;
+    const outer = current;
+    current = eventAt;
+    try {
+      end(true);
+    } finally {
+      current = outer;
+    }
   };
   const onUpOutside = (e: FederatedPointerEvent) => {
     if (pointerId === e.pointerId) end(false);

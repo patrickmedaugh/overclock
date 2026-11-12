@@ -144,7 +144,11 @@ export interface InputStamp {
 
 /** The game's own End turn clock (performance.now() timestamps; 0 before the first turn change). */
 export interface EndTurnClock {
-  /** End turn ignores taps before this (double-tap guard). */
+  /**
+   * End turn ignores taps *made* before this (double-tap guard: 300ms after the event
+   * time of the tap that ended the last turn). Taps are judged by their DOM event
+   * timestamp (`InputStamp.eventAt`), not by when the game got to handle them.
+   */
   armedAt: number;
   /** When the last turn change's board flip is scheduled (after any discard flight). */
   flipDueAt: number;

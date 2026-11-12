@@ -5,7 +5,7 @@
 // - Snappiness: the longest turn change (4 discards, then the Corp's free draw) never keeps input away > 600ms.
 import { expect, test, type BrowserContext, type Page } from '@playwright/test';
 import type { Box } from './helpers';
-import { dispatch, getView, layout, measureTap, openBoard, pressAndHold, safeRect, tap, toRunnerTurn, waitEndTurnArmed, waitIdle } from './helpers';
+import { dispatch, getView, layout, measureTap, openBoard, pressAndHold, safeRect, sendTap, tap, toRunnerTurn, waitEndTurnArmed, waitIdle } from './helpers';
 
 interface Stats {
   mean: number;
@@ -282,26 +282,34 @@ test.describe('QA snappiness: longest turn change', () => {
 // fast double (or triple) tap cannot end two turns. On the discard path the Confirm
 // button and the next seat's End turn sit in the same spot.
 //
-// Sprint 2 T0 (timing hardening): measured on the game's own clock. The first extra
-// tap is sent synchronously inside the release of the tap that ended the turn, then
-// a timer keeps tapping every few ms until a tap after the guard (`armedAt`) is
-// answered. Every tap before `armedAt` must be refused. If no timed tap happened to
-// land late in the guard window (150ms .. armedAt; a slow runner can stall the timers
-// past it) the whole scenario reruns on a fresh page, up to 3 times, then fails.
+// Sprint 2 T0 (timing hardening): measured on the game's own clock. The game judges
+// each tap by when it was made (its DOM event timestamp), so a tap queued behind a
+// slow frame is still refused if it was made inside the guard (architect review: a
+// double tap during a slow turn-change frame used to end two turns). Taps come from
+// three sources: one synthetic tap sent synchronously inside the release of the
+// ending tap, synthetic taps from a page timer until a tap after the guard
+// (`armedAt`) is answered, and real taps from the test runner at ~170ms and ~240ms
+// (browser input pipeline: stamped when sent even while the page is busy, which page
+// timers on a slow runner are not). Every tap made before `armedAt` must be refused.
+// If no non-synchronous tap reached the game late in the guard window (150ms ..
+// armedAt) the whole scenario reruns on a fresh page, up to 3 times, then fails.
 
 interface Poke {
-  /** performance.now() just before the tap was sent. */
-  at: number;
-  /** performance.now() just after the game handled it. The guard check ran between `at`
-   * and `end`, so a tap with at < armedAt <= end is on the boundary and judged neither way. */
-  end: number;
-  /** True for the one sent inside the ending tap's release. */
-  sync: boolean;
+  /** The release's DOM event timestamp (performance.now() clock): when the tap was made. */
+  ts: number;
+  /** performance.now() once the game had handled the release. */
+  handled: number;
+  /** sync: inside the ending tap's release; timer: page timer; real: runner input. */
+  kind: 'sync' | 'timer' | 'real';
+  /** The release reached a game target (the input layer saw this very event). */
+  reached: boolean;
   accepted: boolean;
 }
 
 interface GuardRun {
-  /** When the game started handling the tap that ended the turn. */
+  /** When the tap that ended the turn was made (event timestamp). */
+  eventAt: number;
+  /** When the game started handling it (NaN if it never reached a game target). */
   handledAt: number;
   armedAt: number;
   flipDueAt: number;
@@ -309,63 +317,65 @@ interface GuardRun {
   done: boolean;
 }
 
-/** Timed taps from this long after the ending tap count as "late in the guard window". */
+/** Taps from this long after the ending tap count as "late in the guard window". */
 const LATE_FROM_MS = 150;
+/** Real taps from the runner, ms after it sent the ending tap. */
+const REAL_TAPS_MS = [170, 240] as const;
 /** First run plus up to 3 reruns. */
 const MAX_ATTEMPTS = 4;
 
 /**
- * Armed before the tap that ends a turn. From that tap's release, taps the spot `at`
- * (and End turn, wherever it is once shown) until a tap after `armedAt` is answered.
+ * Armed before the tap that ends a turn. Records every later release (synthetic or
+ * real) with its timestamp and whether the game acted on it. From the ending tap's
+ * release, taps the spot `at` (and End turn, wherever it is once shown) until a tap
+ * made after `armedAt` is answered.
  */
 async function pokeAfterTap(page: Page, at: Box): Promise<void> {
   await page.evaluate((at) => {
     const w = window as unknown as { __guard?: GuardRun };
-    window.addEventListener(
-      'pointerup',
-      (e) => {
-        const hook = window.__overclock!;
-        const input = hook.lastInput();
+    const hook = window.__overclock!;
+    const before = new Map<number, string>();
+    let kind: Poke['kind'] = 'real';
+    let run: GuardRun | null = null;
+    window.addEventListener('pointerdown', (e) => before.set(e.pointerId, JSON.stringify(hook.lastEvents())), true);
+    const canvas = document.querySelector('canvas')!;
+    const r = canvas.getBoundingClientRect();
+    const hit = (b: Box, k: Poke['kind']): boolean => {
+      const init = { bubbles: true, cancelable: true, pointerId: 11, pointerType: 'mouse', isPrimary: true, button: 0,
+        clientX: r.left + b.x + b.width / 2, clientY: r.top + b.y + b.height / 2 };
+      kind = k;
+      canvas.dispatchEvent(new PointerEvent('pointerdown', { ...init, buttons: 1 }));
+      canvas.dispatchEvent(new PointerEvent('pointerup', { ...init, buttons: 0 }));
+      kind = 'real';
+      return run!.pokes.at(-1)!.accepted;
+    };
+    const round = (k: Poke['kind']): boolean => {
+      if (hit(at, k)) return true;
+      const b = hook.layout().endTurn?.box;
+      return !!b && hit(b, k);
+    };
+    const lateAccepted = () => run!.pokes.some((p) => p.accepted && p.ts >= run!.armedAt);
+    // Bubble phase on window: the game (Pixi listens in the capture phase) has handled it.
+    window.addEventListener('pointerup', (e) => {
+      const input = hook.lastInput();
+      const reached = !!input && input.eventAt === e.timeStamp;
+      if (!run) {
+        if (!e.isTrusted) return;
         const clock = hook.endTurn();
-        const run: GuardRun = {
-          handledAt: input && input.eventAt === e.timeStamp ? input.handledAt : NaN,
-          armedAt: clock.armedAt,
-          flipDueAt: clock.flipDueAt,
-          pokes: [],
-          done: false,
-        };
+        run = { eventAt: e.timeStamp, handledAt: reached ? input!.handledAt : NaN, armedAt: clock.armedAt, flipDueAt: clock.flipDueAt, pokes: [], done: false };
         w.__guard = run;
-        const canvas = document.querySelector('canvas')!;
-        const r = canvas.getBoundingClientRect();
-        const hit = (b: Box, sync: boolean): boolean => {
-          const init = { bubbles: true, cancelable: true, pointerId: 11, pointerType: 'mouse', isPrimary: true, button: 0,
-            clientX: r.left + b.x + b.width / 2, clientY: r.top + b.y + b.height / 2 };
-          const before = JSON.stringify(hook.lastEvents());
-          const when = performance.now();
-          canvas.dispatchEvent(new PointerEvent('pointerdown', { ...init, buttons: 1 }));
-          canvas.dispatchEvent(new PointerEvent('pointerup', { ...init, buttons: 0 }));
-          const end = performance.now();
-          const accepted = JSON.stringify(hook.lastEvents()) !== before;
-          run.pokes.push({ at: when, end, sync, accepted });
-          return accepted;
-        };
-        const round = (sync: boolean): boolean => {
-          if (hit(at, sync)) return true;
-          const b = hook.layout().endTurn?.box;
-          return !!b && hit(b, sync);
-        };
-        // Answered after the guard opened (ending at/after armedAt; see Poke.end).
-        const lateAccepted = () => run.pokes.some((p) => p.accepted && p.end >= run.armedAt);
-        round(true);
+        round('sync');
         const tick = () => {
-          if (round(false) && lateAccepted()) run.done = true;
-          else if (performance.now() - run.handledAt < 3000) setTimeout(tick, 4);
-          else run.done = true;
+          if (round('timer') && lateAccepted()) run!.done = true;
+          else if (performance.now() - run!.eventAt < 3000) setTimeout(tick, 4);
+          else run!.done = true;
         };
         setTimeout(tick, 4);
-      },
-      { once: true },
-    );
+        return;
+      }
+      const accepted = JSON.stringify(hook.lastEvents()) !== before.get(e.pointerId);
+      run.pokes.push({ ts: e.timeStamp, handled: performance.now(), kind: e.isTrusted ? 'real' : kind, reached, accepted });
+    });
   }, at);
 }
 
@@ -376,8 +386,8 @@ async function guardResult(page: Page): Promise<GuardRun> {
 
 /**
  * Runs `scenario` (sets up the board and returns the spot whose tap ends the turn) on
- * fresh pages until a timed poke lands late in the guard window, checking the guard on
- * every run. Returns the page and run that passed.
+ * fresh pages until a non-synchronous tap reaches the game late in the guard window,
+ * checking the guard on every run. Returns the page and run that passed.
  */
 async function checkGuard(
   context: BrowserContext,
@@ -393,23 +403,40 @@ async function checkGuard(
     }
     const spot = await scenario(page);
     await pokeAfterTap(page, spot);
-    await tap(page, spot);
+    // The ending tap and the real extra taps are sent without waiting for the page.
+    const sent = [sendTap(page, spot)];
+    let elapsed = 0;
+    for (const ms of REAL_TAPS_MS) {
+      await new Promise((r) => setTimeout(r, ms - elapsed));
+      elapsed = ms;
+      sent.push(sendTap(page, spot));
+    }
+    await Promise.all(sent);
     const run = await guardResult(page);
-    const rel = (t: number) => Math.round(t - run.handledAt);
-    const late = run.pokes.filter((p) => !p.sync && p.at - run.handledAt >= LATE_FROM_MS && p.end < run.armedAt);
-    tries.push({ attempt, armedMs: rel(run.armedAt), flipDueMs: rel(run.flipDueAt), late: late.length, pokes: run.pokes.map((p) => [rel(p.at), p.accepted]) });
+    const rel = (t: number) => Math.round(t - run.eventAt);
+    const late = run.pokes.filter((p) => p.kind !== 'sync' && p.reached && p.ts - run.eventAt >= LATE_FROM_MS && p.ts < run.armedAt);
+    tries.push({
+      attempt,
+      queueMs: Math.round(run.handledAt - run.eventAt),
+      armedMs: rel(run.armedAt),
+      flipDueMs: rel(run.flipDueAt),
+      late: late.length,
+      pokes: run.pokes.map((p) => [p.kind, rel(p.ts), rel(p.handled), p.reached, p.accepted]),
+    });
     test.info().annotations.push({ type: 'guard', description: JSON.stringify(tries.at(-1)) });
 
     expect(Number.isFinite(run.handledAt), 'the ending tap reached the game').toBe(true);
-    expect(run.armedAt - run.handledAt, 'End turn stays guarded >= 300ms after the ending tap').toBeGreaterThanOrEqual(300);
+    expect(run.armedAt - run.eventAt, 'End turn stays guarded >= 300ms after the ending tap was made').toBeGreaterThanOrEqual(300);
     // Never pass with zero taps inside the guard: the synchronous one always is.
-    const early = run.pokes.filter((p) => p.end < run.armedAt);
-    expect(early.some((p) => p.sync), 'a tap landed inside the guard').toBe(true);
-    for (const p of early) expect(p.accepted, `tap ${rel(p.at)}ms after the ending tap (guard until ${rel(run.armedAt)}ms)`).toBe(false);
-    expect(run.pokes.some((p) => p.accepted && p.end >= run.armedAt), 'a tap after the guard is answered').toBe(true);
+    const early = run.pokes.filter((p) => p.ts < run.armedAt);
+    expect(early.some((p) => p.kind === 'sync' && p.reached), 'a tap landed inside the guard').toBe(true);
+    for (const p of early) {
+      expect(p.accepted, `${p.kind} tap made ${rel(p.ts)}ms after the ending tap, handled at ${rel(p.handled)}ms (guard until ${rel(run.armedAt)}ms)`).toBe(false);
+    }
+    expect(run.pokes.some((p) => p.accepted && p.ts >= run.armedAt), 'a tap after the guard is answered').toBe(true);
     if (late.length > 0) return { page, run };
   }
-  throw new Error(`no timed tap landed in [${LATE_FROM_MS}ms, armedAt) in ${MAX_ATTEMPTS} runs: ${JSON.stringify(tries)}`);
+  throw new Error(`no tap reached the game in [${LATE_FROM_MS}ms, armedAt) in ${MAX_ATTEMPTS} runs: ${JSON.stringify(tries)}`);
 }
 
 test.describe('QA round 2: End turn double-tap guard', () => {
