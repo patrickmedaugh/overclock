@@ -1,57 +1,90 @@
-// S-00-3: The game board.
+// S-01-4: both players on one screen, active player's side at the bottom.
+// Plus the board-wide layout checks (on screen, no overlaps) from Sprint 0.
 import { expect, test } from '@playwright/test';
-import { expectCleanLayout, layout, openBoard, waitIdle } from './helpers';
+import { dispatch, expectCleanLayout, getView, layout, openBoard, toRunnerTurn, waitIdle } from './helpers';
+import type { LayoutSnapshot } from './helpers';
+import type { PlayerView } from '@overclock/engine';
 
-test.describe('S-00-3 board', () => {
-  test('Corp side is at the top and Runner side at the bottom, each with deck, credits and clicks', async ({ page }) => {
+function rowBottom(l: LayoutSnapshot, s: 'corp' | 'runner'): number {
+  return Math.max(...[l[s].deck, l[s].credits, l[s].clicks, l[s].discard].map((b) => b.y + b.height));
+}
+function rowTop(l: LayoutSnapshot, s: 'corp' | 'runner'): number {
+  return Math.min(...[l[s].deck, l[s].credits, l[s].clicks, l[s].discard, l[s].label].map((b) => b.y));
+}
+
+/** Active side at the bottom, its hand face up, opponent hand as a count only. */
+function expectActiveAtBottom(l: LayoutSnapshot, view: PlayerView): void {
+  const me = view.activePlayer;
+  const them = me === 'corp' ? 'runner' : 'corp';
+  expect(view.viewer).toBe(me);
+  expect(l.viewer).toBe(me);
+  expect(rowBottom(l, them)).toBeLessThan(rowTop(l, me));
+  expect(rowTop(l, me)).toBeGreaterThan(l.viewport.height / 2);
+  // Viewer's hand face up, in engine order.
+  expect(l.hand.map((h) => h.cardId)).toEqual(view.players[me].hand);
+  // Opponent: count only, no card ids.
+  expect(view.players[them].hand).toBeNull();
+  const n = view.players[them].handCount;
+  expect(l.text[`${them}Hand`]).toBe(`${n} ${n === 1 ? 'card' : 'cards'} in hand`);
+  // Every counter shows what the engine says.
+  for (const s of ['corp', 'runner'] as const) {
+    expect(l.text[`${s}Credits`]).toBe(String(view.players[s].credits));
+    expect(l.text[`${s}Clicks`]).toBe(String(view.players[s].clicks));
+    expect(l.text[`${s}Discard`]).toBe(String(view.players[s].discardCount));
+  }
+}
+
+test.describe('S-01-4 active player at the bottom', () => {
+  test('Corp turn: Corp at the bottom with its hand, Runner on top as a count', async ({ page }) => {
     await openBoard(page);
     const l = await layout(page);
-    const corpBottom = Math.max(...[l.corp.deck, l.corp.credits, l.corp.clicks].map((b) => b.y + b.height));
-    const runnerTop = Math.min(...[l.runner.deck, l.runner.credits, l.runner.clicks].map((b) => b.y));
-    expect(corpBottom).toBeLessThan(runnerTop);
-    expect(corpBottom).toBeLessThan(l.viewport.height / 2);
-    expect(runnerTop).toBeGreaterThan(l.viewport.height / 2);
-    for (const b of [l.corp.deck, l.corp.credits, l.corp.clicks, l.runner.deck, l.runner.credits, l.runner.clicks]) {
-      expect(b.width).toBeGreaterThan(0);
-      expect(b.height).toBeGreaterThan(0);
-    }
-    // Counters show what the engine says.
-    const view = await page.evaluate(() => window.__overclock!.getView());
-    expect(l.text).toEqual({
-      corpCredits: String(view.players.corp.credits),
-      corpClicks: String(view.players.corp.clicks),
-      runnerCredits: String(view.players.runner.credits),
-      runnerClicks: String(view.players.runner.clicks),
-    });
-    // The Runner's opening hand is shown.
-    expect(l.hand.map((h) => h.cardId)).toEqual(view.players.runner.hand);
+    const view = await getView(page);
+    expect(view.activePlayer).toBe('corp');
+    expectActiveAtBottom(l, view);
   });
 
+  test('Runner turn: the board flips straight away, no cover screen', async ({ page }) => {
+    await openBoard(page);
+    await toRunnerTurn(page);
+    const l = await layout(page);
+    const view = await getView(page);
+    expect(view.activePlayer).toBe('runner');
+    expectActiveAtBottom(l, view);
+    expect(l.gameOver).toBeNull();
+    expect(l.zoom).toBeNull();
+    expect(l.endTurn?.enabled).toBe(true);
+    // And back to the Corp.
+    await dispatch(page, { type: 'end_turn', player: 'runner' });
+    const back = await waitIdle(page);
+    const v2 = await getView(page);
+    expect(v2.activePlayer).toBe('corp');
+    expectActiveAtBottom(back, v2);
+  });
+});
+
+test.describe('board layout', () => {
   test('nothing is cut off or overlapping on load', async ({ page }, testInfo) => {
     await openBoard(page);
     expectCleanLayout(await layout(page));
     await testInfo.attach('board', { body: await page.screenshot(), contentType: 'image/png' });
   });
 
-  test('nothing is cut off or overlapping with a full hand', async ({ page }) => {
+  test('nothing is cut off or overlapping with a full hand and in the discard picker', async ({ page }) => {
     await openBoard(page);
-    await page.evaluate(() => {
-      for (let i = 0; i < 4; i++) window.__overclock!.dispatch({ type: 'draw', player: 'runner' });
-    });
-    const l = await waitIdle(page);
-    expect(l.hand).toHaveLength(9);
-    expectCleanLayout(l);
+    for (let i = 0; i < 3; i++) await dispatch(page, { type: 'draw', player: 'corp' });
+    const full = await waitIdle(page);
+    expect(full.hand).toHaveLength(9);
+    expectCleanLayout(full);
+    await dispatch(page, { type: 'end_turn', player: 'corp' });
+    const picking = await waitIdle(page);
+    expect(picking.picker).not.toBeNull();
+    expectCleanLayout(picking);
   });
 
-  test('re-lays out when the window is resized', async ({ page }) => {
+  test('re-lays out when the window is resized (incl. a small 360x640 phone)', async ({ page }) => {
     await openBoard(page);
     const before = page.viewportSize()!;
-    const sizes = [
-      { width: 360, height: 640 },
-      { width: 1024, height: 700 },
-      before,
-    ];
-    for (const size of sizes) {
+    for (const size of [{ width: 360, height: 640 }, { width: 1024, height: 700 }, before]) {
       await page.setViewportSize(size);
       await page.waitForFunction(
         ([w, h]) => {
@@ -60,7 +93,9 @@ test.describe('S-00-3 board', () => {
         },
         [size.width, size.height],
       );
-      expectCleanLayout(await layout(page));
+      const l = await layout(page);
+      expectCleanLayout(l);
+      expect(l.endTurn!.box.height).toBeGreaterThanOrEqual(44);
     }
   });
 });
