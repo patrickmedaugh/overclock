@@ -1,12 +1,28 @@
 // S-02-6 (landscape phones): an upright phone shows "Turn your phone sideways" over
 // the still-running game; turning it back shows the same board. Runs only in the
 // `portrait` project (390x844, touch).
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import { dispatch, getView, layout, openBoard, waitIdle } from './helpers';
 
 const PROMPT = 'Turn your phone sideways';
 const UPRIGHT = { width: 390, height: 844 };
 const SIDEWAYS = { width: 844, height: 390 };
+
+/**
+ * `setViewportSize` returns before the page's `resize` handler runs, so wait
+ * until the game has laid out for `size` (and is idle) before reading the board.
+ */
+async function waitForViewport(page: Page, size: { width: number; height: number }) {
+  await page.waitForFunction(
+    ({ width, height }) => {
+      const l = window.__overclock!.layout();
+      return l.viewport.width === width && l.viewport.height === height && !l.animating;
+    },
+    size,
+    { polling: 'raf' },
+  );
+  return waitIdle(page);
+}
 
 test.describe('S-02-6 turn your phone sideways', () => {
   test('an upright phone shows the prompt over the game, and it covers the whole screen', async ({ page }) => {
@@ -30,7 +46,7 @@ test.describe('S-02-6 turn your phone sideways', () => {
     // Pure CSS: hidden on the same frame as the resize.
     expect(await page.evaluate(() => getComputedStyle(document.getElementById('rotate')!).display)).toBe('none');
     await expect(page.locator('#rotate')).toBeHidden();
-    const l = await waitIdle(page);
+    const l = await waitForViewport(page, SIDEWAYS);
     expect(l.viewport).toEqual(SIDEWAYS);
     const hit = await page.evaluate(({ width, height }) => document.elementFromPoint(width / 2, height / 2)?.tagName, SIDEWAYS);
     expect(hit).toBe('CANVAS');
@@ -39,6 +55,7 @@ test.describe('S-02-6 turn your phone sideways', () => {
   test('rotating upright and back keeps the same game and restores the same board', async ({ page }) => {
     await page.setViewportSize(SIDEWAYS);
     await openBoard(page);
+    await waitForViewport(page, SIDEWAYS);
     // Some play first, so there is state to lose.
     await dispatch(page, { type: 'draw', player: 'corp' });
     await dispatch(page, { type: 'gain_credit', player: 'corp' });
@@ -53,7 +70,7 @@ test.describe('S-02-6 turn your phone sideways', () => {
 
     await page.setViewportSize(SIDEWAYS);
     await expect(page.locator('#rotate')).toBeHidden();
-    const after = await waitIdle(page);
+    const after = await waitForViewport(page, SIDEWAYS);
     expect(await getView(page)).toEqual(viewBefore);
     expect(after).toEqual(before);
     expect((await layout(page)).text.banner).toBe(before.text.banner);
