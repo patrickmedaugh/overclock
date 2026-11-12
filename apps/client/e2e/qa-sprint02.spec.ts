@@ -37,6 +37,8 @@ const PREFIX: Record<string, string> = {
 };
 
 async function shot(page: Page, name: string): Promise<void> {
+  // Sprint 3 QA: only write with QA_SCREENS=1, so a normal e2e run leaves the committed PNGs alone.
+  if (process.env.QA_SCREENS !== '1') return;
   const p = PREFIX[test.info().project.name] ?? test.info().project.name;
   await page.screenshot({ path: `${SHOTS}${p}-${name}.png` });
 }
@@ -325,12 +327,12 @@ test.describe('QA Sprint 2 playthrough (screenshots)', () => {
     await page.setViewportSize({ width: 390, height: 844 });
     await expect(page.locator('#rotate')).toBeVisible();
     await expect(page.locator('#rotate')).toHaveText('Turn your phone sideways');
-    await page.screenshot({ path: `${SHOTS}phone-390x844-upright-rotate-prompt.png` });
+    if (process.env.QA_SCREENS === '1') await page.screenshot({ path: `${SHOTS}phone-390x844-upright-rotate-prompt.png` });
     await page.setViewportSize({ width: 844, height: 390 });
     await expect(page.locator('#rotate')).toBeHidden();
     await page.waitForFunction(() => !window.__overclock!.layout().animating);
     expect(await page.evaluate(() => window.__overclock!.getView())).toEqual(before);
-    await page.screenshot({ path: `${SHOTS}phone-844x390-after-rotating-back.png` });
+    if (process.env.QA_SCREENS === '1') await page.screenshot({ path: `${SHOTS}phone-844x390-after-rotating-back.png` });
     await ctx.close();
   });
 });

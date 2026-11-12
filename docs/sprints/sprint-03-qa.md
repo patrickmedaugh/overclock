@@ -154,3 +154,10 @@ None required. Optional:
 ## Files added by QA
 - `apps/client/e2e/qa-sprint03.spec.ts`: hidden info through a run, two ICE outside-in, Enigma vs Gordian Blade, Archives with 4 and 12 cards, flatline with real taps, agenda stays picked, notices are toasts, taps behind the access cards do nothing, screenshots.
 - `docs/sprints/sprint-03-qa/`: screenshots above.
+
+## Second independent QA pass (same round, 73eec24)
+A second scheduled run did its own QA round 1 at the same time: `docs/sprints/sprint-03-qa-pass2.md` (tests `apps/client/e2e/qa-sprint03-pass2.spec.ts`, `packages/engine/test/qa-sprint03-pass2.test.ts`; screenshots `docs/sprints/sprint-03-qa-pass2/`). It agreed on every rules criterion and found these further bugs:
+- **QA-S3-3 (minor, feedback):** a run that gets into a server with nothing to access (a remote holding only ICE, or empty Archives) ends with no notice; the run panel just disappears. `board.ts` `RUN_END` has no text for `accessed` with nothing accessed. Known-failure test in `qa-sprint03-pass2.spec.ts` (`test.fail`).
+- **QA-S3-4 (minor, readability, desktop):** long break buttons shrink to ~7 px text at 1280×800 (Enigma's "Break "The Runner loses 1 click, if able" · 1 credit"); run panel lines ~8–10 px. Phones fine.
+- **QA-S3-5 = QA-S3-2 above** (seen at 6× slow-down: second tap made 494.6 ms after the first, 1 of 150). That pass counted it against S-03-6 AC2; together the two passes show it can fail both the loaded and the slowed check.
+- **QA-S3-6 (test-only, low):** `turn.spec.ts` "a double tap on End turn ends only one turn" stays green with the guard removed (the second End turn only opens the Corp's hand-limit step). Not in the mutation job. Fix: also assert `phase === 'action'` and `pendingDiscard === 0`, and add it to `scripts/guard-mutation.mjs`.
