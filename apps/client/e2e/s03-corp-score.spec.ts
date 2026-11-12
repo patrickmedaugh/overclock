@@ -1,6 +1,7 @@
 // S-03-2 (advance and score agendas; 7 points wins) and S-03-5 (The Maker's Eye,
 // Inside Job, Neural EMP; no "Needs runs (coming soon)" anywhere).
-import { getCard } from '@overclock/cards';
+import { CORP_STARTER_DECK, RUNNER_STARTER_DECK, getCard } from '@overclock/cards';
+import { LocalMatch } from '@overclock/match';
 import { type Page, expect, test } from '@playwright/test';
 import {
   anims,
@@ -198,24 +199,52 @@ test.describe('S-03-5 run cards', () => {
     expectSnappy(d, ['net_damage']);
     expect(d.anims.find((a) => a.kind === 'notice')?.text).toBe('1 net damage');
   });
+});
 
-  test('no card in either starter deck says "Needs runs (coming soon)"', async ({ page }) => {
-    for (const seed of [2, 5, 14, 18]) {
+// S-03-5 AC4: no card says "Needs runs (coming soon)" any more. Seeds 1, 89, 59 and 8 together
+// deal every card of both starter decks into an opening hand (checked below without a browser),
+// so tapping each hand card in those four games shows every card's pick in the UI. One test per
+// seed: each one is ~22 taps, well inside the 30s limit on a GPU-less CI runner.
+const NEEDS_RUNS_SEEDS = [1, 89, 59, 8];
+
+/** Opening hands (Corp's, then the Runner's after the Corp discards its 6th card) for a seed. */
+function openingHands(seed: number): { corp: string[]; runner: string[] } {
+  const m = new LocalMatch(seed);
+  const corp = [...m.view('corp').players.corp.hand!];
+  m.submit('corp', { type: 'end_turn', player: 'corp' });
+  m.submit('corp', { type: 'discard', player: 'corp', handIndices: [5] });
+  return { corp, runner: [...m.view('runner').players.runner.hand!] };
+}
+
+test.describe('S-03-5 no "Needs runs (coming soon)"', () => {
+  test('the chosen deals hold every card of both starter decks; no card is unbuilt', () => {
+    const dealt = new Set(NEEDS_RUNS_SEEDS.flatMap((s) => Object.values(openingHands(s)).flat()));
+    const decks = new Set([...CORP_STARTER_DECK, ...RUNNER_STARTER_DECK]);
+    expect([...decks].filter((id) => !dealt.has(id))).toEqual([]);
+    expect([...decks].filter((id) => getCard(id)?.needs !== undefined)).toEqual([]);
+  });
+
+  for (const seed of NEEDS_RUNS_SEEDS) {
+    test(`seed ${seed}: picking each card in both opening hands never says "Needs runs"`, async ({ page }) => {
       await openBoard(page, seed);
       for (const side of ['corp', 'runner'] as const) {
         if (side === 'runner') await toRunnerTurn(page);
         await page.evaluate(() => window.__overclock!.clearAnims());
         const view = await getView(page);
         expect(view.handOptions.flat().some((o) => o.reject === 'not_implemented')).toBe(false);
-        const hand = (await layout(page)).hand;
-        for (let i = 0; i < hand.length; i++) {
-          await tap(page, (await layout(page)).hand[i]!.box);
-          await tap(page, (await layout(page)).hand[i]!.box); // tap again: cancel
+        // Picking a card and tapping it again leaves the hand where it was: one read of the boxes.
+        const l = await layout(page);
+        expect(l.hand.map((h) => h.cardId)).toEqual(openingHands(seed)[side]);
+        for (const h of l.hand) {
+          await tap(page, h.box);
+          await tap(page, h.box); // tap again: cancel
         }
+        const after = await layout(page);
+        expect(after.selected).toBeNull();
         const texts = (await anims(page)).map((a) => a.text ?? '');
         expect(texts.some((t) => t.includes('Needs runs'))).toBe(false);
-        expect((await layout(page)).labels.some((t) => t.includes('Needs runs'))).toBe(false);
+        expect(after.labels.some((t) => t.includes('Needs runs'))).toBe(false);
       }
-    }
-  });
+    });
+  }
 });
