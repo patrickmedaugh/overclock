@@ -27,7 +27,47 @@ export interface SideLayout {
   label: Box;
 }
 
+/** An installed card as drawn. */
+export interface InstalledSnapshot {
+  uid: string;
+  /** null when it is face down to the viewer (the view never told the client what it is). */
+  cardId: string | null;
+  faceUp: boolean;
+  /** Drawn bounds (ICE: sideways, wider than tall). */
+  box: Box;
+}
+
+export interface ServerSnapshot {
+  id: string;
+  /** On-screen name: "HQ", "R&D", "Archives", "Server 1", ... */
+  label: string;
+  /** The whole column (tap target while lit). */
+  box: Box;
+  labelBox: Box;
+  /** HQ marker / R&D deck / Archives pile (central servers). */
+  root: Box | null;
+  /** ICE, index 0 innermost. */
+  ice: InstalledSnapshot[];
+  content: InstalledSnapshot[];
+}
+
+/** A place a picked hand card can go, lit while the card is picked. */
+export interface TargetSnapshot {
+  kind: 'server' | 'new_server' | 'install' | 'play';
+  /** For server targets. */
+  server?: string;
+  box: Box;
+  /** The price label, e.g. "Install · 1 credit". */
+  label: string;
+  /** Bright (the engine would accept it) vs dim (shown with its price, refused with a hint). */
+  lit: boolean;
+  /** The engine's reason it would be refused (from view.handOptions). */
+  reject: string | null;
+}
+
 export interface LayoutSnapshot {
+  /** 'landscape' on sideways phones, 'portrait' (the column) elsewhere. */
+  mode: 'landscape' | 'portrait';
   viewport: { width: number; height: number };
   /** Safe-area insets the layout used (env(safe-area-inset-*), read from #safe-probe). */
   safeArea: Insets;
@@ -37,8 +77,19 @@ export interface LayoutSnapshot {
   runner: SideLayout;
   /** The area reserved for the viewer's hand. */
   handArea: Box;
-  /** Rendered hand cards (the viewer's), in hand order. `marked` = picked for discard. */
-  hand: { cardId: string; box: Box; marked: boolean }[];
+  /** Rendered hand cards (the viewer's), in hand order. `marked` = picked for discard, `selected` = picked to play. */
+  hand: { cardId: string; box: Box; marked: boolean; selected: boolean }[];
+  /** Corp servers in view order (hq, rd, archives, remotes). */
+  servers: ServerSnapshot[];
+  /** The Runner's installed cards, install order. */
+  rig: InstalledSnapshot[];
+  memory: { used: number; limit: number; text: string; box: Box };
+  /** Lit targets for the picked hand card (empty when none is picked). */
+  targets: TargetSnapshot[];
+  /** Hand index picked to play, or null. */
+  selected: number | null;
+  /** Every board text on screen (labels, counters, buttons; not card faces). */
+  labels: string[];
   /** Text shown on screen, so tests can read the canvas. */
   text: {
     banner: string;
@@ -46,7 +97,7 @@ export interface LayoutSnapshot {
     corpClicks: string;
     runnerCredits: string;
     runnerClicks: string;
-    /** Hand-count text in each side's label, e.g. "6 cards in hand". */
+    /** Hand-count text in each side's label, e.g. "6 cards in HQ", "5 cards in Grip". */
     corpHand: string;
     runnerHand: string;
     /** Count badge on each discard pile. */
@@ -60,13 +111,28 @@ export interface LayoutSnapshot {
   gameOver: { text: string; box: Box } | null;
   /** The transient hint toast, if one is visible. */
   hint: { text: string; box: Box } | null;
-  /** The long-press zoomed card, if one is open, with every text it renders. */
-  zoom: { cardId: string; box: Box; texts: string[] } | null;
+  /**
+   * The long-press zoomed card, if one is open, with every text it renders.
+   * cardId is null for a face-down card the viewer may not see. `textOverflow`
+   * is true if any text runs outside the card.
+   */
+  zoom: { cardId: string | null; box: Box; texts: string[]; textOverflow: boolean } | null;
   /** True while any event animation runs (never blocks input). */
   animating: boolean;
 }
 
-export type AnimKind = 'draw_flight' | 'credit_pop' | 'discard_flight' | 'turn_change' | 'hint';
+export type AnimKind =
+  | 'draw_flight'
+  | 'credit_pop'
+  | 'discard_flight'
+  | 'turn_change'
+  | 'hint'
+  /** A hand card flies to its server / the Runner's row. */
+  | 'install_flight'
+  /** An operation/event flies to its owner's discard pile. */
+  | 'play_flight'
+  /** A new remote server's column appears. */
+  | 'server_open';
 
 /** Logged when an animation or hint starts. */
 export interface AnimRecord {

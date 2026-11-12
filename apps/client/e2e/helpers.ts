@@ -1,8 +1,9 @@
 import { type Page, expect, test } from '@playwright/test';
 import type { Action, GameEvent, PlayerView } from '@overclock/engine';
-import type { AnimRecord, Box, EndTurnClock, InputStamp, Insets, LayoutSnapshot } from '../src/hook-types';
+import { planBusyBoard } from '@overclock/match/testing';
+import type { AnimRecord, Box, EndTurnClock, InputStamp, Insets, LayoutSnapshot, TargetSnapshot } from '../src/hook-types';
 
-export type { AnimRecord, Box, EndTurnClock, InputStamp, Insets, LayoutSnapshot };
+export type { AnimRecord, Box, EndTurnClock, InputStamp, Insets, LayoutSnapshot, TargetSnapshot };
 
 /**
  * `E2E_CPU_THROTTLE=6` slows the page's CPU 6x (Chrome DevTools
@@ -227,12 +228,24 @@ export function boardElements(l: LayoutSnapshot): [string, Box][] {
   for (const s of ['corp', 'runner'] as const) {
     for (const k of ['deck', 'credits', 'clicks', 'discard', 'label'] as const) out.push([`${s} ${k}`, l[s][k]]);
   }
+  for (const srv of l.servers) {
+    out.push([`${srv.label} name`, srv.labelBox]);
+    if (srv.id === 'hq' && srv.root) out.push(['HQ marker', srv.root]);
+    srv.content.forEach((c, i) => out.push([`${srv.label} card ${i}`, c.box]));
+    srv.ice.forEach((c, i) => out.push([`${srv.label} ICE ${i}`, c.box]));
+  }
+  l.rig.forEach((c, i) => out.push([`rig card ${i}`, c.box]));
+  out.push(['memory', l.memory.box]);
   if (l.endTurn) out.push(['End turn', l.endTurn.box]);
   if (l.picker) out.push(['Confirm', l.picker.confirm.box]);
   return out;
 }
 
-/** Asserts every element is inside the safe area and no two elements overlap. */
+/**
+ * Asserts every element is inside the safe area and no two elements overlap.
+ * Hand cards sit side by side while they fit; past that they overlap like a
+ * fanned hand, but at least 44px of each card stays visible (tappable).
+ */
 export function expectCleanLayout(l: LayoutSnapshot): void {
   const safe = safeRect(l);
   const elements = boardElements(l);
@@ -240,6 +253,7 @@ export function expectCleanLayout(l: LayoutSnapshot): void {
   const extras: [string, Box][] = [];
   if (l.hint) extras.push(['hint', l.hint.box]);
   if (l.gameOver) extras.push(['game over', l.gameOver.box]);
+  for (const srv of l.servers) extras.push([`${srv.label} column`, srv.box]);
   for (const [name, b] of [...elements, ...hand, ...extras]) {
     expect(inside(b, safe), `${name} ${JSON.stringify(b)} is inside the safe area ${JSON.stringify(safe)}`).toBe(true);
   }
@@ -247,15 +261,19 @@ export function expectCleanLayout(l: LayoutSnapshot): void {
     for (let j = i + 1; j < elements.length; j++) {
       const [an, a] = elements[i]!;
       const [bn, b] = elements[j]!;
-      expect(overlaps(a, b), `${an} overlaps ${bn}`).toBe(false);
+      expect(overlaps(a, b), `${an} ${JSON.stringify(a)} overlaps ${bn} ${JSON.stringify(b)}`).toBe(false);
     }
     for (const [hn, h] of hand) {
       expect(overlaps(elements[i]![1], h), `${elements[i]![0]} overlaps ${hn}`).toBe(false);
     }
   }
-  // Hand cards may only overlap when there are too many to fit; with <= 10
-  // cards they sit side by side.
-  if (hand.length <= 10) {
+  for (let i = 1; i < hand.length; i++) {
+    const a = hand[i - 1]![1];
+    const b = hand[i]![1];
+    if (Math.abs(a.y - b.y) < 0.5) expect(b.x - a.x, `${hand[i]![0]} shows at least 44px`).toBeGreaterThanOrEqual(44 - 0.5);
+  }
+  // Up to 5 cards always sit side by side.
+  if (hand.length <= 5) {
     for (let i = 0; i < hand.length; i++) {
       for (let j = i + 1; j < hand.length; j++) {
         expect(overlaps(hand[i]![1], hand[j]![1]), `${hand[i]![0]} overlaps ${hand[j]![0]}`).toBe(false);
@@ -284,4 +302,38 @@ export async function playUntilGameOver(page: Page): Promise<void> {
     }
     throw new Error('game did not end');
   });
+}
+
+/**
+ * Plays the page (opened with `seed`) to the S-02-5 busy board: 3 remote servers
+ * with 2 ICE each and 4 Runner installs. The action list is planned in Node by
+ * driving a LocalMatch with the same seed (`@overclock/match/testing`), then
+ * dispatched through the test hook. Leaves the board idle.
+ */
+export async function toBusyBoard(page: Page, seed: number): Promise<void> {
+  const plan = planBusyBoard(seed);
+  const rejected = await page.evaluate((actions) => {
+    const hook = window.__overclock!;
+    for (const a of actions) {
+      const events = hook.dispatch(a);
+      const r = events.find((e) => e.type === 'action_rejected');
+      if (r) return JSON.stringify({ a, r });
+    }
+    return null;
+  }, plan.actions);
+  expect(rejected).toBeNull();
+  await waitIdle(page);
+  expect((await getView(page)).activePlayer).toBe(plan.activePlayer);
+}
+
+/** Taps a lit target from the layout snapshot. */
+export function targetOf(l: LayoutSnapshot, kind: TargetSnapshot['kind'], server?: string): TargetSnapshot {
+  const t = l.targets.find((x) => x.kind === kind && (server === undefined || x.server === server));
+  if (!t) throw new Error(`no ${kind} target${server ? ` for ${server}` : ''} in ${JSON.stringify(l.targets.map((x) => [x.kind, x.server]))}`);
+  return t;
+}
+
+/** Index of the first hand card whose id satisfies `pred`, or -1. */
+export function handIndexOf(l: LayoutSnapshot, pred: (cardId: string) => boolean): number {
+  return l.hand.findIndex((h) => pred(h.cardId));
 }

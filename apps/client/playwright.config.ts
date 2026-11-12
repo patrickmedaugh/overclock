@@ -4,13 +4,6 @@ import { defineConfig } from '@playwright/test';
 // otherwise be reused locally and test someone else's build).
 const PORT = Number(process.env.E2E_PORT ?? 4173);
 
-// Temporary until U2 (landscape layout) lands: the Sprint 1 layout specs check
-// the single portrait column, which does not fit a sideways phone yet. On the
-// phone sizes they are replaced by `portrait-legacy` (a narrow 390x844 mouse
-// window: same column, no rotate prompt). U2 brings them back to the phone
-// projects and deletes `portrait-legacy`.
-const LEGACY_PORTRAIT = /(board|safe-area)\.spec\.ts/;
-
 export default defineConfig({
   testDir: './e2e',
   fullyParallel: true,
@@ -28,7 +21,7 @@ export default defineConfig({
   projects: [
     {
       name: 'phone',
-      testIgnore: [/rotate\.spec\.ts/, LEGACY_PORTRAIT],
+      testIgnore: /rotate\.spec\.ts/,
       use: {
         viewport: { width: 844, height: 390 },
         deviceScaleFactor: 3,
@@ -38,7 +31,7 @@ export default defineConfig({
     },
     {
       name: 'phone-small',
-      testIgnore: [/rotate\.spec\.ts/, LEGACY_PORTRAIT],
+      testIgnore: /rotate\.spec\.ts/,
       use: {
         viewport: { width: 640, height: 360 },
         deviceScaleFactor: 2,
@@ -52,16 +45,6 @@ export default defineConfig({
       use: {
         viewport: { width: 1280, height: 800 },
         deviceScaleFactor: 1,
-        isMobile: false,
-        hasTouch: false,
-      },
-    },
-    {
-      name: 'portrait-legacy',
-      testMatch: LEGACY_PORTRAIT,
-      use: {
-        viewport: { width: 390, height: 844 },
-        deviceScaleFactor: 3,
         isMobile: false,
         hasTouch: false,
       },

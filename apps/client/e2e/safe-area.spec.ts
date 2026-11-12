@@ -1,17 +1,20 @@
-// S-01-6: nothing under the notch, status bar or gesture bar.
+// S-01-6 / S-02-6: nothing under the notch, status bar or gesture bar.
 // The safe-area probe's padding is overridden with an injected style, which
 // is exactly how a notched phone reports its insets (env(safe-area-inset-*)).
+// Phones are held sideways, so the notch is on the left or the right and the
+// swipe bar along the bottom.
 import { expect, test } from '@playwright/test';
 import type { Insets } from './helpers';
-import { dispatch, expectCleanLayout, layout, openBoard, playUntilGameOver, toRunnerTurn, waitIdle } from './helpers';
+import { dispatch, expectCleanLayout, layout, openBoard, playUntilGameOver, toBusyBoard, toRunnerTurn, waitIdle } from './helpers';
 
 const SHAPES: [string, Partial<Insets>][] = [
-  ['iPhone notch + home bar', { top: 47, bottom: 34 }],
-  ['Android status bar + gesture bar', { top: 24, bottom: 48 }],
+  ['notch on the left + swipe bar', { left: 47, bottom: 21 }],
+  ['notch on the right + swipe bar', { right: 47, bottom: 21 }],
+  ['swipe bar only', { bottom: 21 }],
 ];
 
 for (const [name, insets] of SHAPES) {
-  test.describe(`S-01-6 safe area: ${name}`, () => {
+  test.describe(`S-01-6 / S-02-6 safe area: ${name}`, () => {
     test('the board, End turn and hand sit inside the safe area on both turns', async ({ page }) => {
       await openBoard(page, { insets });
       const l = await layout(page);
@@ -38,13 +41,26 @@ for (const [name, insets] of SHAPES) {
       expectCleanLayout(over);
     });
 
-    test('a small 360x640 phone still fits everything inside the safe area', async ({ page }) => {
-      await page.setViewportSize({ width: 360, height: 640 });
+    test('the busy board stays inside the safe area on both sides of the table', async ({ page }) => {
+      await openBoard(page, { insets, seed: 4 });
+      await toBusyBoard(page, 4);
+      const a = await layout(page);
+      expectCleanLayout(a);
+      await dispatch(page, { type: 'end_turn', player: a.viewer });
+      const v = await page.evaluate(() => window.__overclock!.getView());
+      if (v.pendingDiscard > 0) await dispatch(page, { type: 'discard', player: v.viewer, handIndices: Array.from({ length: v.pendingDiscard }, (_, i) => i) });
+      const b = await waitIdle(page);
+      expect(b.viewer).not.toBe(a.viewer);
+      expectCleanLayout(b);
+    });
+
+    test('a small 640x360 phone still fits everything inside the safe area, with 44px targets', async ({ page }) => {
+      await page.setViewportSize({ width: 640, height: 360 });
       await openBoard(page, { insets });
       const l = await layout(page);
-      expect(l.viewport).toEqual({ width: 360, height: 640 });
+      expect(l.viewport).toEqual({ width: 640, height: 360 });
       expectCleanLayout(l);
-      for (const b of [l.corp.deck, l.corp.credits, l.endTurn!.box]) {
+      for (const b of [l.corp.deck, l.corp.credits, l.endTurn!.box, ...l.hand.map((h) => h.box)]) {
         expect(b.width).toBeGreaterThanOrEqual(44);
         expect(b.height).toBeGreaterThanOrEqual(44);
       }

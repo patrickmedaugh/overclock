@@ -11,7 +11,7 @@ import { type BoardLayout, handSlots } from './layout';
 import { theme, timing } from './theme';
 import { ease, type Tweens } from './tween';
 
-interface HandCard {
+export interface HandCard {
   cardId: string;
   /** Positioned at the card center; tweened x/y/scale. */
   root: Container;
@@ -19,9 +19,12 @@ interface HandCard {
   flip: Container;
   back: Container;
   face: Container;
-  /** "Discard" stamp shown while picked in the discard picker. */
-  mark: Container;
+  /** "Discard" stamp shown while picked in the discard picker (made on first use). */
+  mark: Container | null;
   marked: boolean;
+  /** Glow shown while the card is picked to play (made on first use). */
+  glow: Graphics | null;
+  selected: boolean;
   detach: () => void;
   pressed: boolean;
 }
@@ -37,20 +40,39 @@ export class Hand {
   readonly container = new Container();
   private cards: HandCard[] = [];
   private layout: BoardLayout | null = null;
-  private side: Side = 'corp';
+  /** The layout generation the sprites were made for (sizes). */
+  sizeKey = '';
 
   constructor(
+    private readonly side: Side,
     private readonly fx: Tweens,
     private readonly ui: Tweens,
     private readonly callbacks: HandCallbacks,
   ) {
     this.container.sortableChildren = true;
+    this.container.label = `hand:${side}`;
   }
 
-  /** Rebuilds all sprites (resize or a new seat), without animation. */
-  setLayout(layout: BoardLayout, ids: readonly string[], side: Side): void {
+  get count(): number {
+    return this.cards.length;
+  }
+
+  /** Drops every sprite (they are rebuilt the next time this hand is shown). */
+  reset(): void {
+    for (const c of this.cards) this.destroyCard(c);
+    this.cards = [];
+    this.sizeKey = '';
+  }
+
+  /** Uses a new layout with the same sizes (positions only; no sprite is rebuilt). */
+  useLayout(layout: BoardLayout): void {
     this.layout = layout;
-    this.side = side;
+  }
+
+  /** Rebuilds all sprites (resize or a new size), without animation. */
+  setLayout(layout: BoardLayout, ids: readonly string[]): void {
+    this.layout = layout;
+    this.sizeKey = layout.sizeKey;
     for (const c of this.cards) this.destroyCard(c);
     this.cards = [];
     const slots = handSlots(layout, ids.length);
@@ -112,7 +134,8 @@ export class Hand {
     leaving.forEach((card, k) => {
       card.root.eventMode = 'none';
       card.root.zIndex = 600 + k;
-      card.mark.visible = false;
+      if (card.mark) card.mark.visible = false;
+      if (card.glow) card.glow.visible = false;
       const root = card.root;
       this.fx.add({
         target: root,
@@ -134,25 +157,81 @@ export class Hand {
     return timing.discardFlight + (leaving.length - 1) * timing.discardStagger;
   }
 
+  /**
+   * Removes the card at `index` from the hand (it is about to fly to the table
+   * or a pile) and slides the rest together. The caller owns the sprite.
+   */
+  takeOut(index: number): { card: HandCard; box: Box } | null {
+    const card = this.cards[index];
+    const layout = this.layout;
+    if (!card || !layout) return null;
+    const box = this.cardBox(card);
+    this.cards.splice(index, 1);
+    card.detach();
+    this.fx.cancel(card.root);
+    this.ui.cancel(card.flip.scale);
+    card.root.eventMode = 'none';
+    if (card.mark) card.mark.visible = false;
+    if (card.glow) card.glow.visible = false;
+    card.flip.scale.set(1);
+    card.root.y = box.y + box.height / 2;
+    this.slideTo(handSlots(layout, this.cards.length), this.cards.length);
+    this.restack();
+    return { card, box };
+  }
+
   /** Shows the discard stamp on the picked cards. */
   setMarked(marked: ReadonlySet<number>): void {
     this.cards.forEach((c, i) => {
       const on = marked.has(i);
-      if (on && !c.marked) {
-        // A little "stamp" pop when a card gets picked.
-        this.ui.cancel(c.mark.scale);
-        c.mark.scale.set(1.25);
-        this.ui.add({ target: c.mark.scale, to: { x: 1, y: 1 }, duration: 160, ease: ease.outBack, owner: c.mark });
+      if (on && !c.mark) c.mark = this.createMark(c);
+      if (c.mark) {
+        if (on && !c.marked) {
+          // A little "stamp" pop when a card gets picked.
+          this.ui.cancel(c.mark.scale);
+          c.mark.scale.set(1.25);
+          this.ui.add({ target: c.mark.scale, to: { x: 1, y: 1 }, duration: 160, ease: ease.outBack, owner: c.mark });
+        }
+        c.mark.visible = on;
       }
       c.marked = on;
-      c.mark.visible = on;
       c.face.alpha = on ? 0.55 : 1;
     });
   }
 
+  /** Lifts and outlines the card picked to play (null: none). */
+  setSelected(index: number | null): void {
+    const layout = this.layout;
+    if (!layout) return;
+    const slots = handSlots(layout, this.cards.length);
+    const lift = Math.round(layout.card.height * 0.12);
+    this.cards.forEach((c, i) => {
+      const on = i === index;
+      if (on === c.selected) return;
+      c.selected = on;
+      if (on && !c.glow) {
+        c.glow = this.createGlow();
+        c.flip.addChild(c.glow);
+      }
+      if (c.glow) c.glow.visible = on;
+      const slot = slots[i];
+      if (!slot) return;
+      this.fx.cancel(c.root);
+      this.ui.cancel(c.root);
+      this.ui.add({
+        target: c.root,
+        to: { x: slot.x + slot.width / 2, y: slot.y + slot.height / 2 - (on ? lift : 0) },
+        duration: timing.pressFeedback * 2,
+        ease: ease.outCubic,
+        owner: c.root,
+      });
+    });
+    this.restack();
+  }
+
   /** Rendered bounds of each hand card (CSS px). */
-  boxes(): { cardId: string; box: Box; marked: boolean }[] {
-    return this.cards.map((c) => ({ cardId: c.cardId, box: this.cardBox(c), marked: c.marked }));
+  boxes(): { cardId: string; box: Box; marked: boolean; selected: boolean }[] {
+    return this.cards.map((c) => ({ cardId: c.cardId, box: this.cardBox(c), marked: c.marked, selected: c.selected }));
   }
 
   private slideTo(slots: Box[], count: number): void {
@@ -161,6 +240,9 @@ export class Hand {
       const slot = slots[i];
       if (!card || !slot) continue;
       this.fx.cancel(card.root);
+      this.ui.cancel(card.root);
+      card.selected = false;
+      if (card.glow) card.glow.visible = false;
       this.fx.add({
         target: card.root,
         to: { x: slot.x + slot.width / 2, y: slot.y + slot.height / 2 },
@@ -177,7 +259,17 @@ export class Hand {
     return centeredBox(c.root, w, h, c.flip.scale.x, c.flip.scale.y);
   }
 
-  private createMark(w: number, h: number): Container {
+  private createGlow(): Graphics {
+    const w = this.layout?.card.width ?? 60;
+    const h = this.layout?.card.height ?? 84;
+    const g = new Graphics();
+    glowRoundRect(g, -w / 2, -h / 2, w, h, Math.max(4, w * 0.08), theme.credit, Math.max(2, w * 0.04), 1.6);
+    return g;
+  }
+
+  private createMark(card: HandCard): Container {
+    const w = this.layout?.card.width ?? 60;
+    const h = this.layout?.card.height ?? 84;
     const mark = new Container();
     const g = new Graphics();
     const r = Math.max(4, w * 0.08);
@@ -192,6 +284,7 @@ export class Hand {
     if (label.width > w - 6) label.scale.set((w - 6) / label.width);
     mark.addChild(g, label);
     mark.visible = false;
+    card.flip.addChild(mark);
     return mark;
   }
 
@@ -204,15 +297,14 @@ export class Hand {
     const flip = new Container();
     const back = createCardBack(this.side, w, h);
     const face = def ? createCardFace(def, w, h, 'small') : createCardBack(this.side, w, h);
-    const mark = this.createMark(w, h);
     back.visible = false;
-    flip.addChild(back, face, mark);
+    flip.addChild(back, face);
     root.addChild(flip);
     root.label = `hand:${cardId}`;
     root.hitArea = new Rectangle(-w / 2, -h / 2, w, h);
     this.container.addChild(root);
 
-    const card: HandCard = { cardId, root, flip, back, face, mark, marked: false, detach: () => {}, pressed: false };
+    const card: HandCard = { cardId, root, flip, back, face, mark: null, marked: false, glow: null, selected: false, detach: () => {}, pressed: false };
     card.detach = attachPress(root, {
       onDown: () => {
         card.pressed = true;
@@ -285,7 +377,7 @@ export class Hand {
 
   private restack(): void {
     this.cards.forEach((c, i) => {
-      if (!c.pressed) c.root.zIndex = i;
+      if (!c.pressed) c.root.zIndex = c.selected ? 900 : i;
     });
   }
 
@@ -293,6 +385,7 @@ export class Hand {
     if (card.root.destroyed) return;
     card.detach();
     this.fx.cancel(card.root);
+    this.ui.cancel(card.root);
     this.ui.cancel(card.flip.scale);
     card.root.destroy({ children: true });
   }
