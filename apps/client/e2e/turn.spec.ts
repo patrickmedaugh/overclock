@@ -9,6 +9,7 @@ import {
   measureTap,
   openBoard,
   playUntilGameOver,
+  sendTap,
   tap,
   toRunnerTurn,
   waitEndTurnArmed,
@@ -187,15 +188,51 @@ test.describe('S-01-3 End turn', () => {
     expect(result.view.players.runner.clicks).toBe(4);
   });
 
+  // QA-S3-6: the second tap really lands on the Corp's End turn inside the guard,
+  // so a broken guard would open the Corp's hand-limit step (6 cards) and this
+  // goes red. Taps carry the time they were made (like the guard specs), so a
+  // slow test machine cannot push the second one out of the guard window.
   test('a double tap on End turn ends only one turn', async ({ page }) => {
     await openBoard(page);
     await toRunnerTurn(page);
     await waitEndTurnArmed(page);
-    const l = await layout(page);
-    await tap(page, l.endTurn!.box);
-    await tap(page, l.endTurn!.box);
+    const spot = (await layout(page)).endTurn!.box;
+    await page.evaluate(() => {
+      const w = window as unknown as { __taps: { ts: number; onButton: boolean }[] };
+      w.__taps = [];
+      window.addEventListener('pointerup', (e) => {
+        const input = window.__overclock!.lastInput();
+        w.__taps.push({ ts: e.timeStamp, onButton: !!input && input.eventAt === e.timeStamp && input.target === 'button:action' });
+      });
+    });
+    const t0 = Date.now();
+    await sendTap(page, spot, { madeAt: t0 });
+    // The turn has passed and the Corp's End turn shows (desktop moves it with the seat).
+    await page.waitForFunction(() => window.__overclock!.getView().activePlayer === 'corp' && window.__overclock!.layout().endTurn !== null, undefined, {
+      polling: 'raf',
+    });
+    const next = (await layout(page)).endTurn!.box;
+    const guardMs = await page.evaluate(() => {
+      const w = window as unknown as { __taps: { ts: number }[] };
+      return window.__overclock!.endTurn().armedAt - w.__taps[0]!.ts;
+    });
+    expect(guardMs, 'End turn stays guarded >= 300ms after the ending tap').toBeGreaterThanOrEqual(300);
+    // Made 120ms after the first tap, but delivered only once the guard has opened
+    // (as on a phone whose page was busy): the guard must judge it by when it was made.
+    const secondMs = 120;
+    await new Promise((r) => setTimeout(r, Math.max(0, t0 + guardMs + 5 - Date.now() + 1)));
+    await sendTap(page, next, { madeAt: t0 + secondMs });
+    await waitIdle(page);
+    const taps = await page.evaluate(() => (window as unknown as { __taps: { ts: number; onButton: boolean }[] }).__taps);
+    expect(taps.length, 'both taps reached the page').toBe(2);
+    expect(taps.every((t) => t.onButton), 'both taps landed on End turn').toBe(true);
+    expect(Math.abs(taps[1]!.ts - taps[0]!.ts - secondMs), `the second tap was made ${secondMs}ms after the first`).toBeLessThanOrEqual(2);
     const view = await getView(page);
     expect(view.activePlayer).toBe('corp');
     expect(view.turn).toBe(3);
+    // Only one turn ended: the Corp's End turn was refused (no hand-limit step, clicks untouched).
+    expect(view.phase).toBe('action');
+    expect(view.pendingDiscard).toBe(0);
+    expect(view.players.corp.clicks).toBe(3);
   });
 });

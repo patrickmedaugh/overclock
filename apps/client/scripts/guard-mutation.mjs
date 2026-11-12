@@ -40,8 +40,9 @@ const MUTATIONS = [
   },
 ];
 
-const SPECS = ['e2e/qa-sprint01.spec.ts', 'e2e/guard-slow-frame.spec.ts'];
-const GREP = 'double-tap guard';
+const SPECS = ['e2e/qa-sprint01.spec.ts', 'e2e/guard-slow-frame.spec.ts', 'e2e/turn.spec.ts'];
+/** The guard describes in the first two specs, plus turn.spec's double-tap test (QA-S3-6). */
+const GREP = 'double-tap guard|a double tap on End turn ends only one turn';
 const PROJECTS = ['phone', 'phone-small', 'desktop'];
 /** Terminal colour codes in Playwright's error messages. */
 const ANSI = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, 'g');
@@ -92,7 +93,7 @@ let ok = true;
 try {
   sh('git', ['worktree', 'add', '--detach', tree, 'HEAD'], root);
   symlinkSync(join(root, 'node_modules'), join(tree, 'node_modules'), 'dir');
-  const expected = 2 * 2 * PROJECTS.length; // 2 qa-sprint01 + 2 slow-frame tests per project
+  const expected = (2 + 2 + 1) * PROJECTS.length; // 2 qa-sprint01 + 2 slow-frame + 1 turn.spec test per project
   const runs = [{ name: 'baseline (unbroken)', file: null }, ...MUTATIONS];
   for (const m of runs) {
     sh('git', ['checkout', '--', '.'], tree);
