@@ -254,6 +254,7 @@ class DiscardPile {
   private key = '';
   private readonly w: number;
   private readonly h: number;
+  private readonly badgeTextW: number;
 
   constructor(
     box: Box,
@@ -277,15 +278,22 @@ class DiscardPile {
     this.emptyText.anchor.set(0.5);
     this.emptyText.position.set(0, -h * 0.12);
     fitText(this.emptyText, w - 6);
-    const badgeH = Math.max(16, 20 * scale);
+    // Count chip in the top-right corner, over the art window only: a face-up top
+    // card keeps its name and type (lower half) readable. The cost sits top-left.
+    const badgeH = Math.max(16, 18 * scale);
+    const badgeW = Math.max(badgeH * 1.5, w * 0.42);
+    const inset = Math.max(2, 3 * scale);
+    const bx = w / 2 - inset - badgeW;
+    const by = -h / 2 + inset;
     const badge = new Graphics();
-    badge.roundRect(-w * 0.36, h / 2 - badgeH - 4 * scale, w * 0.72, badgeH, badgeH / 2).fill({ color: 0x000000, alpha: 0.8 }).stroke({ width: 1, color: theme.textDim });
+    badge.roundRect(bx, by, badgeW, badgeH, badgeH / 2).fill({ color: 0x000000, alpha: 0.85 }).stroke({ width: 1, color: theme.textDim });
     this.countText = new Text({
       text: '0',
       style: { fontFamily: theme.monoFamily, fontSize: badgeH * 0.7, fontWeight: '700', fill: theme.text },
     });
     this.countText.anchor.set(0.5);
-    this.countText.position.set(0, h / 2 - badgeH / 2 - 4 * scale);
+    this.countText.position.set(bx + badgeW / 2, by + badgeH / 2);
+    this.badgeTextW = badgeW - badgeH * 0.4;
     this.inner.addChild(slot, this.emptyText, this.topLayer, badge, this.countText);
   }
 
@@ -300,6 +308,7 @@ class DiscardPile {
   /** `pile` is the view's discard list (bottom = 0), or null when face down to the viewer. */
   set(count: number, pile: readonly string[] | null): void {
     this.countText.text = String(count);
+    fitText(this.countText, this.badgeTextW);
     const topId = pile ? (pile[pile.length - 1] ?? null) : null;
     const key = `${count}:${pile ? (topId ?? '') : '#'}`;
     if (key === this.key) return;
