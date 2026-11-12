@@ -81,6 +81,10 @@ describe('card pool', () => {
     for (const c of ALL_CARDS) expect(c.text, c.id).not.toMatch(/\[|\]|\{|\}/);
   });
 
+  it('the Corp deck has at least 6 ICE (busy board: 3 servers x 2 ICE)', () => {
+    expect(CORP_STARTER_DECK.filter((id) => getCard(id)?.type === 'ice').length).toBeGreaterThanOrEqual(6);
+  });
+
   it('the Runner deck can fill memory (programs in the deck need more than 4 memory in total)', () => {
     const mem = RUNNER_STARTER_DECK.reduce((sum, id) => sum + (getCard(id)?.memory ?? 0), 0);
     expect(mem).toBeGreaterThan(4);

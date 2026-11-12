@@ -85,6 +85,40 @@ describe('LocalMatch', () => {
     expect(u.runner.view.players.corp.discardCount).toBe(1);
   });
 
+  it('S-02-1 AC6: a Corp install reaches the Runner seat without card ids; the Corp seat sees its card', () => {
+    const m = new LocalMatch(8);
+    const hand = m.view('corp').players.corp.hand ?? [];
+    const opt = m.view('corp').handOptions.flat().find((o) => o.action.type === 'install' && o.reject === null);
+    expect(opt).toBeDefined();
+    const u = m.submit('corp', opt!.action);
+    const installed = u.corp.events.find((e) => e.type === 'card_installed');
+    const handIndex = opt!.action.type === 'install' ? opt!.action.handIndex : -1;
+    expect(installed).toMatchObject({ player: 'corp', cardId: hand[handIndex], handIndex });
+    const theirs = u.runner.events.find((e) => e.type === 'card_installed');
+    expect(theirs).toBeDefined();
+    expect(theirs).not.toHaveProperty('cardId');
+    expect(theirs).not.toHaveProperty('handIndex');
+    expect(JSON.stringify(u.runner)).not.toMatch(/"c\d\d"/);
+    const servers = u.runner.view.corpServers.flatMap((sv) => [...sv.ice, ...sv.content]);
+    expect(servers).toHaveLength(1);
+    expect(servers[0]).toMatchObject({ cardId: null, faceUp: false });
+  });
+
+  it('S-02-3 AC6: a Runner install reaches the Corp seat face up', () => {
+    const m = new LocalMatch(8);
+    m.submit('corp', endTurn('corp'));
+    if (m.view('corp').pendingDiscard) m.submit('corp', { type: 'discard', player: 'corp', handIndices: [0] });
+    const opt = m.view('runner').handOptions.flat().find((o) => o.action.type === 'install' && o.reject === null);
+    expect(opt).toBeDefined();
+    const u = m.submit('runner', opt!.action);
+    const theirs = u.corp.events.find((e) => e.type === 'card_installed');
+    expect(theirs).toMatchObject({ player: 'runner', zone: 'rig' });
+    expect(theirs).toHaveProperty('cardId');
+    expect(theirs).not.toHaveProperty('handIndex');
+    expect(u.corp.view.rig[0]).toMatchObject({ faceUp: true });
+    expect(u.corp.view.rig[0]?.cardId).toMatch(/^r\d\d$/);
+  });
+
   it('actions() + replay(seed, actions) rebuilds the same game (rejections included as no-ops)', () => {
     const m = new LocalMatch(99);
     const script: Array<['corp' | 'runner', Action]> = [

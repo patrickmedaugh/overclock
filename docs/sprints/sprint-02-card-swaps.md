@@ -4,7 +4,7 @@ You asked for real cards (Sprint 2, question 2). Every card in both starter deck
 
 Each invented card was swapped for the real card closest to it in type and price. "Works now?" says whether the card already does something this sprint; the others sit on the table (or say "Needs runs") until their part of the game is built.
 
-## Corp (12 cards; deck of 15 = one of each + a second Hedge Fund, Anonymous Tip and Ice Wall)
+## Corp (12 cards; deck of 15 = one of each + a second Hedge Fund, Ice Wall and Enigma)
 
 | Id | Was (invented) | Now (real) | Type | Price | Works now? |
 |---|---|---|---|---|---|
@@ -40,7 +40,7 @@ Each invented card was swapped for the real card closest to it in type and price
 
 ## Things that changed in how the decks feel
 - **Hedge Fund costs 5** (Quarterly Windfall cost 2), but gives 9 instead of 5.
-- **Anonymous Tip draws 3** (Synergy Memo drew 2).
+- **Anonymous Tip draws 3** (Synergy Memo drew 2). The Corp deck now has one Anonymous Tip (it had two Synergy Memos) and a second Enigma instead, so it holds six ICE: enough for three servers with two ICE each.
 - **Magnum Opus** replaces a cheap money card with an expensive 2-memory program, so the Runner deck can now fill its 4 memory (you'll see "Not enough memory"). Its "Click: Gain 2 credits" is the same thing Back-Alley Fence did, but it only works once card abilities are built.
 - **Akamatsu Mem Chip** says +1 memory, but abilities of installed cards are not built yet, so memory stays at 4 this sprint.
 - **Hostile Takeover** is a 2-to-advance agenda (Silent Merger needed 3); there is no 3-to-advance, 1-point agenda in the core set.

@@ -133,10 +133,13 @@ export const CORP_CARDS: readonly CardDef[] = [
   },
 ];
 
-/** 15-card starter deck: one of each, plus a second Hedge Fund, Anonymous Tip and Ice Wall. */
+/**
+ * 15-card starter deck: one of each, plus a second Hedge Fund, Ice Wall and
+ * Enigma (six ICE, so the Sprint 2 busy board of 3 servers x 2 ICE is reachable).
+ */
 export const CORP_STARTER_DECK: DeckList = [
   ...CORP_CARDS.map((c) => c.id),
   'c01',
-  'c02',
   'c05',
+  'c06',
 ];

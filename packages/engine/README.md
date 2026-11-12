@@ -183,6 +183,14 @@ class LocalMatch {
                                   // mismatches), as JSON copies, for replay(seed, actions)
 }
 ```
+### Setup planner (tests/demos): `planBusyBoard(seed, goal?)`
+```ts
+interface BusyBoardGoal { remotes: number; icePerRemote: number; runnerInstalls: number } // default 3, 2, 4
+interface BusyBoardPlan { actions: Action[]; activePlayer: Side; turn: number }
+function planBusyBoard(seed: number, goal?: Partial<BusyBoardGoal>): BusyBoardPlan;
+```
+Drives a `LocalMatch(seed)` with ordinary legal actions (choosing from `handOptions`/`legalActions`) until the Corp has 3 remote servers with 2 ICE each (plus an agenda/asset inside when it had one to open the server with) and the Runner has 4 installed cards, and returns the action list. Deterministic per seed; every action is accepted; stops as soon as the board is reached (either seat may be active; see `activePlayer`). Throws if the board can't be reached (tested for seeds 1..300 in CI and 1..30000 once by hand). For Playwright: `import { planBusyBoard } from '@overclock/match'` in a spec (Node), open the page with the same `?seed=`, then send each action through the test hook's `dispatch` in order.
+
 The client and AI may import only the public index of engine/cards/match. The client may not import `apply`, `newGame`, `legalActions`, `viewFor` or `replay` (it goes through the match).
 
 ## Rules for contributors
