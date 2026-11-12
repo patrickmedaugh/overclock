@@ -423,16 +423,17 @@ describe('replay and hidden information (property tests)', () => {
         const r = apply(s, a);
         s = r.state;
 
-        // Events: only card_played may name a Corp card (it is face up for both).
+        // Events: only card_played / agenda_scored may name a Corp card (face up for both).
         for (const e of viewEvents('runner', r.events)) {
           if (e.type === 'card_installed' && e.player === 'corp') corpInstalls++;
-          if (e.type === 'card_played') continue;
+          if (e.type === 'card_played' || e.type === 'agenda_scored') continue;
           expect(JSON.stringify(e), `seed ${seed} step ${i}`).not.toMatch(/"c\d\d"/);
         }
         // View: Corp ids appear only in face-up Archives entries.
         const v = viewFor('runner', s);
         expect(v.players.corp.discard).toEqual(s.players.corp.discard.map((d) => (d.faceUp ? d.cardId : null)));
-        const rest = { ...v, players: { ...v.players, corp: { ...v.players.corp, discard: [] } } };
+        expect(v.players.corp.scored).toEqual(s.players.corp.scoreArea);
+        const rest = { ...v, players: { ...v.players, corp: { ...v.players.corp, discard: [], scored: [] } } };
         expect(JSON.stringify(rest), `seed ${seed} step ${i}`).not.toMatch(/"c\d\d"/);
       }
     }

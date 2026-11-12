@@ -3,8 +3,10 @@ import type { GameEvent } from './events';
 import type { CardOption } from './view';
 import { getCard } from '@overclock/cards';
 import {
+  ADVANCE_COST,
   discardCount,
   handCard,
+  installedAgenda,
   installCardCheck,
   installCost,
   installTargetCheck,
@@ -12,6 +14,7 @@ import {
   rejectionFor,
 } from './rules';
 import {
+  checkPointsWin,
   drawTop,
   opponentOf,
   startTurn,
@@ -145,6 +148,40 @@ function doPlay(state: GameState, a: ActionOf<'play'>): ApplyResult {
   return { state: s, events };
 }
 
+/** Replaces installed Corp card `uid` (in any server's ice or content) with `patch` applied. */
+function patchInstalled(state: GameState, uid: string, patch: Partial<Installed>): GameState {
+  const fix = (list: readonly Installed[]) => list.map((c) => (c.uid === uid ? { ...c, ...patch } : c));
+  return { ...state, servers: state.servers.map((sv) => ({ ...sv, ice: fix(sv.ice), content: fix(sv.content) })) };
+}
+
+function doAdvance(state: GameState, a: ActionOf<'advance'>): ApplyResult {
+  const me = state.players[a.player];
+  const card = installedAgenda(state, a.uid) as Installed;
+  const advancements = card.advancements + 1;
+  let s = withPlayer(state, a.player, { clicks: me.clicks - 1, credits: me.credits - ADVANCE_COST });
+  s = patchInstalled(s, a.uid, { advancements });
+  return {
+    state: s,
+    events: [
+      { type: 'credits_spent', player: a.player, amount: ADVANCE_COST },
+      { type: 'card_advanced', uid: a.uid, advancements },
+    ],
+  };
+}
+
+function doScore(state: GameState, a: ActionOf<'score'>): ApplyResult {
+  const card = installedAgenda(state, a.uid) as Installed;
+  const points = getCard(card.cardId)?.agendaPoints ?? 0;
+  const events: GameEvent[] = [{ type: 'agenda_scored', uid: a.uid, cardId: card.cardId, points }];
+  let s: GameState = {
+    ...state,
+    servers: state.servers.map((sv) => ({ ...sv, content: sv.content.filter((c) => c.uid !== a.uid) })),
+  };
+  s = withPlayer(s, a.player, { scoreArea: [...s.players[a.player].scoreArea, card.cardId] });
+  s = checkPointsWin(s, a.player, events);
+  return { state: s, events };
+}
+
 /**
  * Applies one action. Pure: never mutates `state`, never throws for illegal or
  * malformed actions (returns the same state plus an `action_rejected` event).
@@ -166,6 +203,10 @@ export function apply(state: GameState, action: Action): ApplyResult {
       return doInstall(state, action);
     case 'play':
       return doPlay(state, action);
+    case 'advance':
+      return doAdvance(state, action);
+    case 'score':
+      return doScore(state, action);
     default:
       // Sprint 3 actions: rejected by the table until built (E2-E5).
       return { state, events: [{ type: 'action_rejected', reason: 'not_implemented' }] };
@@ -190,10 +231,35 @@ export function legalActions(state: GameState, player: Side): Action[] {
   const options = handOptions(state, player).flat();
   const installs = options.filter((o) => o.action.type === 'install');
   const plays = options.filter((o) => o.action.type === 'play');
+  const installed = Object.values(installedOptions(state, player)).flat();
   return [
     ...candidates.filter((a) => rejectionFor(state, a) === null),
-    ...[...installs, ...plays].filter((o) => o.reject === null).map((o) => o.action),
+    ...[...installs, ...plays, ...installed].filter((o) => o.reject === null).map((o) => o.action),
   ];
+}
+
+/**
+ * Corp only: per installed agenda uid (servers in order, then install order),
+ * `advance` (cost 1) and, once it has enough counters, `score`. Listed off-turn
+ * too, with the reason in `reject` (like `handOptions`). Runner: {}.
+ */
+export function installedOptions(state: GameState, player: Side): Record<string, CardOption[]> {
+  const out: Record<string, CardOption[]> = {};
+  if (player !== 'corp') return out;
+  for (const sv of state.servers) {
+    for (const c of sv.content) {
+      const card = getCard(c.cardId);
+      if (card?.type !== 'agenda') continue;
+      const advance: ActionOf<'advance'> = { type: 'advance', player, uid: c.uid };
+      const opts: CardOption[] = [{ action: advance, cost: ADVANCE_COST, reject: rejectionFor(state, advance) }];
+      if (c.advancements >= (card.advancementRequirement ?? 0)) {
+        const score: ActionOf<'score'> = { type: 'score', player, uid: c.uid };
+        opts.push({ action: score, cost: 0, reject: rejectionFor(state, score) });
+      }
+      out[c.uid] = opts;
+    }
+  }
+  return out;
 }
 
 /** Every install/play action the card at `handIndex` could take, before checking turn, clicks or money. */

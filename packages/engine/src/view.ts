@@ -1,10 +1,10 @@
 import type { Action } from './actions';
-import { handOptions, legalActions } from './apply';
+import { handOptions, installedOptions, legalActions } from './apply';
 import type { GameEvent, RejectReason } from './events';
 import { discardCount, memoryUsed } from './rules';
-import { getCard } from '@overclock/cards';
 import {
   MEMORY_LIMIT,
+  pointsOf,
   type AccessFrom,
   type GameResult,
   type GameState,
@@ -133,11 +133,6 @@ export interface PlayerView {
   readonly legalActions: readonly Action[];
 }
 
-/** Agenda points of a score area. */
-export function pointsOf(scoreArea: readonly string[]): number {
-  return scoreArea.reduce((sum, id) => sum + (getCard(id)?.agendaPoints ?? 0), 0);
-}
-
 function sideView(p: PlayerState, side: Side, viewer: Side): PlayerSideView {
   return {
     deckCount: p.deck.length,
@@ -186,7 +181,7 @@ export function viewFor(player: Side, state: GameState): PlayerView {
     memory: { used: memoryUsed(state), limit: MEMORY_LIMIT },
     handOptions: handOptions(state, player),
     runOptions: [],
-    installedOptions: {},
+    installedOptions: installedOptions(state, player),
     run: null,
     legalActions: legalActions(state, player),
   };

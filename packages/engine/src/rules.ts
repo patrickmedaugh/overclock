@@ -14,7 +14,16 @@
 import type { ActionOf, ActionType, Action } from './actions';
 import type { RejectReason } from './events';
 import { getCard, type CardDef, type CardType } from '@overclock/cards';
-import { CENTRAL_SERVERS, MAX_HAND_SIZE, MEMORY_LIMIT, type GameState, type Phase, type Server, type Side } from './state';
+import {
+  CENTRAL_SERVERS,
+  MAX_HAND_SIZE,
+  MEMORY_LIMIT,
+  type GameState,
+  type Installed,
+  type Phase,
+  type Server,
+  type Side,
+} from './state';
 
 /** A check sees the state and a not-yet-trusted action of its type (shape is checked first). */
 type Check<T extends ActionType> = (state: GameState, action: ActionOf<T>) => RejectReason | null;
@@ -152,6 +161,33 @@ const canAffordInstall = (s: GameState, a: ActionOf<'install'>): RejectReason | 
 const canAffordPlay = (s: GameState, a: ActionOf<'play'>): RejectReason | null =>
   s.players[a.player].credits >= playCost(s, a) ? null : 'no_credits';
 
+const uidShape = (_s: GameState, a: ActionOf<'advance' | 'score'>): RejectReason | null =>
+  typeof a.uid === 'string' ? null : 'invalid_action';
+
+/** The Corp's installed agenda `uid` (agendas only ever sit in server content), or undefined. */
+export function installedAgenda(s: GameState, uid: unknown): Installed | undefined {
+  for (const sv of s.servers) {
+    const c = sv.content.find((x) => x.uid === uid);
+    if (c) return getCard(c.cardId)?.type === 'agenda' ? c : undefined;
+  }
+  return undefined;
+}
+
+/** Credits an advance costs. */
+export const ADVANCE_COST = 1;
+
+const ownAgenda = (s: GameState, a: ActionOf<'advance' | 'score'>): RejectReason | null =>
+  a.player === 'corp' && installedAgenda(s, a.uid) ? null : 'bad_target';
+
+const canAffordAdvance = (s: GameState, a: ActionOf<'advance'>): RejectReason | null =>
+  s.players[a.player].credits >= ADVANCE_COST ? null : 'no_credits';
+
+/** Counters at least the agenda's advancement requirement (not offered otherwise: bad_target). */
+const enoughCounters = (s: GameState, a: ActionOf<'score'>): RejectReason | null => {
+  const c = installedAgenda(s, a.uid) as Installed;
+  return c.advancements >= (getCard(c.cardId)?.advancementRequirement ?? 0) ? null : 'bad_target';
+};
+
 const memoryFits = (s: GameState, a: ActionOf<'install'>): RejectReason | null => {
   const card = handCard(s, a.player, a.handIndex);
   if (!card || card.type !== 'program') return null;
@@ -185,8 +221,8 @@ export const RULES: RuleTable = {
   use_ability: [playerShape, notOver, notYet],
   steal: [playerShape, notOver, notYet],
   trash: [playerShape, notOver, notYet],
-  advance: [playerShape, notOver, notYet],
-  score: [playerShape, notOver, notYet],
+  advance: [playerShape, uidShape, notOver, yourTurn, inPhase('action'), hasClick, ownAgenda, canAffordAdvance],
+  score: [playerShape, uidShape, notOver, yourTurn, inPhase('action'), ownAgenda, enoughCounters],
 };
 
 /** Memory used by the Runner's installed programs (card data `memory`). */

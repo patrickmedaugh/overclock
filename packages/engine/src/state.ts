@@ -1,4 +1,4 @@
-import { CORP_STARTER_DECK, RUNNER_STARTER_DECK, type CentralServerId, type ServerId, type Side } from '@overclock/cards';
+import { CORP_STARTER_DECK, RUNNER_STARTER_DECK, getCard, type CentralServerId, type ServerId, type Side } from '@overclock/cards';
 import type { GameEvent } from './events';
 import { seedToRng, shuffle } from './rng';
 
@@ -164,6 +164,22 @@ export function withPlayer(state: GameState, side: Side, patch: Partial<PlayerSt
   return { ...state, players: { ...state.players, [side]: { ...state.players[side], ...patch } } };
 }
 
+/** Agenda points of a score area. */
+export function pointsOf(scoreArea: readonly string[]): number {
+  return scoreArea.reduce((sum, id) => sum + (getCard(id)?.agendaPoints ?? 0), 0);
+}
+
+/** Ends the game: `winner` wins for `reason` (phase 'over', any run cleared). */
+export function endGame(state: GameState, winner: Side, reason: WinReason, events: GameEvent[]): GameState {
+  events.push({ type: 'game_over', winner, reason });
+  return { ...state, phase: 'over', result: { winner, reason }, run: null };
+}
+
+/** If `side` has reached WINNING_POINTS, ends the game in its favour. */
+export function checkPointsWin(state: GameState, side: Side, events: GameEvent[]): GameState {
+  return pointsOf(state.players[side].scoreArea) >= WINNING_POINTS ? endGame(state, side, 'agenda_points', events) : state;
+}
+
 /** Moves the top card of `side`'s deck to its hand. Caller guarantees the deck is not empty. */
 export function drawTop(state: GameState, side: Side): { state: GameState; cardId: string } {
   const me = state.players[side];
@@ -182,9 +198,7 @@ export function startTurn(state: GameState, side: Side, turn: number): { state: 
   const events: GameEvent[] = [{ type: 'turn_started', player: side, turn, clicks }];
   if (side === 'corp') {
     if (s.players.corp.deck.length === 0) {
-      const result: GameResult = { winner: 'runner', reason: 'corp_decked' };
-      s = { ...s, phase: 'over', result };
-      events.push({ type: 'game_over', winner: result.winner, reason: result.reason });
+      s = endGame(s, 'runner', 'corp_decked', events);
     } else {
       const drawn = drawTop(s, 'corp');
       s = drawn.state;
