@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { apply, newGame, replay, type Action, type GameEvent } from '../src/index';
+import { apply, legalActions, newGame, replay, type Action, type GameEvent } from '../src/index';
 import { discard, draw, endTurn, gainCredit } from './helpers';
 
 describe('replay from (seed, actions[])', () => {
@@ -43,5 +43,38 @@ describe('replay from (seed, actions[])', () => {
   it('the action log survives a JSON round trip (server storage)', () => {
     const viaJson = JSON.parse(JSON.stringify(actions)) as Action[];
     expect(replay(777, viaJson)).toEqual(replay(777, actions));
+  });
+});
+
+describe('replay with installs and plays (Sprint 2)', () => {
+  /** Plays a scripted game through legal card actions; returns the action log. */
+  function script(seed: number): Action[] {
+    let s = newGame(seed);
+    const log: Action[] = [];
+    for (let step = 0; step < 120 && s.phase !== 'over'; step++) {
+      const legal = legalActions(s, s.activePlayer);
+      // Prefer the last card action (plays, then the newest servers), else the first action.
+      const cardActions = legal.filter((a) => a.type === 'install' || a.type === 'play');
+      const a = (cardActions.at(-1) ?? legal[0]) as Action;
+      log.push(a);
+      s = apply(s, a).state;
+    }
+    return log;
+  }
+
+  it('same seed + same actions -> identical state and events (servers, rig, uids, Archives)', () => {
+    const actions = script(2024);
+    expect(actions.some((a) => a.type === 'install' && a.player === 'corp')).toBe(true);
+    expect(actions.some((a) => a.type === 'install' && a.player === 'runner')).toBe(true);
+    expect(actions.some((a) => a.type === 'play')).toBe(true);
+    const a = replay(2024, actions);
+    const b = replay(2024, JSON.parse(JSON.stringify(actions)) as Action[]);
+    expect(b).toEqual(a);
+    expect(a.state.servers.length).toBeGreaterThan(3);
+    expect(a.state.nextUid).toBeGreaterThan(3);
+  });
+
+  it('a different seed gives a different game for the same opening', () => {
+    expect(replay(1, [draw('corp')]).state).not.toEqual(replay(2, [draw('corp')]).state);
   });
 });

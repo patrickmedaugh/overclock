@@ -34,7 +34,8 @@ describe('viewFor (S-01-4 AC2: opponent hand count, not contents)', () => {
     expect(v.players.corp.clicks).toBe(3);
     expect(v.players.corp.credits).toBe(5);
     expect(v.players.runner.clicks).toBe(0);
-    expect(v.legalActions.map((a) => a.type)).toEqual(['draw', 'gain_credit', 'end_turn']);
+    expect(v.legalActions.map((a) => a.type).slice(0, 3)).toEqual(['draw', 'gain_credit', 'end_turn']);
+    expect(v.legalActions.slice(3).every((a) => a.type === 'install' || a.type === 'play')).toBe(true);
     expect(viewFor('runner', g).legalActions).toEqual([]);
   });
 

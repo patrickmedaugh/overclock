@@ -1,4 +1,4 @@
-import { apply, type Action, type GameEvent, type GameState, type PlayerState, type Side } from '../src/index';
+import { apply, newGame, type Action, type GameEvent, type GameState, type PlayerState, type ServerId, type Side } from '../src/index';
 
 /** Recursively freezes a value so any mutation throws in strict mode. */
 export function deepFreeze<T>(value: T): T {
@@ -67,4 +67,24 @@ export function finishTurn(state: GameState): { state: GameState; events: GameEv
 export function rejection(events: readonly GameEvent[]): string | null {
   const e = events.find((x) => x.type === 'action_rejected');
   return e && e.type === 'action_rejected' ? e.reason : null;
+}
+
+export const install = (player: Side, handIndex: number, server?: ServerId | 'new'): Action =>
+  server === undefined ? { type: 'install', player, handIndex } : { type: 'install', player, handIndex, server };
+export const play = (player: Side, handIndex: number): Action => ({ type: 'play', player, handIndex });
+
+export function withCredits(state: GameState, side: Side, credits: number): GameState {
+  return withPlayer(state, side, { credits });
+}
+
+/** Puts these card ids in the Runner's rig (test setup only; uids continue from nextUid). */
+export function withRig(state: GameState, cardIds: string[]): GameState {
+  let uid = state.nextUid;
+  const rig = [...state.rig, ...cardIds.map((cardId) => ({ uid: `i${uid++}`, cardId, rezzed: false }))];
+  return { ...state, rig, nextUid: uid };
+}
+
+/** A new game moved to the Runner's first turn (turn 2, 4 clicks); the Corp discarded down to 5 if needed. */
+export function runnerTurn(seed = 1): GameState {
+  return finishTurn(newGame(seed)).state;
 }

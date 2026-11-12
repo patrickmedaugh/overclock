@@ -13,13 +13,13 @@ Creates a new game. Same seed always gives the same shuffled decks and opening h
 Applies one action. Never mutates the input and never throws for illegal or malformed actions: it returns the unchanged state plus an `action_rejected` event.
 
 ### `legalActions(state: GameState, player: Side): Action[]`
-Actions `player` may take right now. Parameterized actions are listed once as a representative: during the discard step it contains one `discard` (the last N hand cards), and `PlayerView.pendingDiscard` says that any N distinct hand indices are legal.
+Actions `player` may take right now, in a fixed order: draw, gain_credit, end_turn, discard, install… (by hand index, then target), play… (by hand index). `discard` is listed once as a representative (the last N hand cards); `PlayerView.pendingDiscard` says that any N distinct hand indices are legal. For per-card prices and refusal reasons use `PlayerView.handOptions`.
 
 ### `viewFor(player: Side, state: GameState): PlayerView`
-What `player` is allowed to see. Opponent hand contents, all deck orders and the Corp's face-down discards (to the Runner) are hidden (counts only). The AI and the client render only from this. Includes `legalActions` for the viewer.
+What `player` is allowed to see. Opponent hand contents, all deck orders, the Corp's face-down discards and every unrezzed installed Corp card (to the Runner) are hidden. The AI and the client render only from this. Includes `legalActions` and `handOptions` for the viewer.
 
 ### `viewEvents(player: Side, events: GameEvent[]): GameEvent[]`
-Projects events for `player`. For the opponent: `card_drawn` loses `cardId`, `cards_discarded` loses `handIndices`, and it also loses `cardIds` when the Corp discarded (face down). Run engine events through this before showing them to a player.
+Projects events for `player`. For the opponent: `card_drawn` loses `cardId`; `cards_discarded` loses `handIndices`, and also `cardIds` when the Corp discarded (face down); `card_installed` loses `handIndex`, and also `cardId` for Corp installs; `card_played` loses `handIndex`. Run engine events through this before showing them to a player.
 
 ### `replay(seed: number, actions: Action[]): { state; events }`
 Rebuilds a game from its seed and action log (rejected actions are no-ops). Used for replay-based regression tests.
@@ -83,7 +83,7 @@ interface PlayerView {
 ### Validation (`src/rules.ts`, one table used by `apply` and `legalActions`)
 Checks run in this order; the first failure is the reason: `invalid_action` (shape: known type, valid `player`, `handIndices` an array of integers) → `game_over` (phase is `over`) → `not_your_turn` → `wrong_phase` (draw/gain_credit/end_turn need `action`, discard needs `discard`) → `no_clicks` (draw, gain_credit) → `deck_empty` (draw) / `bad_discard` (discard: not exactly hand−5 indices, duplicates, or out of range).
 
-`GameState` is plain JSON: `seed`, `rng` (mulberry32 state), `turn`, `activePlayer`, `phase`, `result`, and `players.{corp,runner}` with `deck` (top = index 0), `hand`, `discard`, `credits`, `clicks`. Card entries are card definition ids from `@overclock/cards` (`getCard(id)`); duplicates are extra copies.
+`GameState` is plain JSON: `seed`, `rng` (mulberry32 state), `turn`, `activePlayer`, `phase`, `result`, and `players.{corp,runner}` with `deck` (top = index 0), `hand`, `discard`, `credits`, `clicks`. Card entries are card definition ids from `@overclock/cards` (`getCard(id)`); duplicates are extra copies. *(Sprint 2 adds `servers`, `rig`, `nextUid`, `nextRemote`, and discard entries become `{cardId, faceUp}`: see below.)*
 
 ## Sprint 2 interface (pinned: implement exactly this; changes go through the architect)
 
