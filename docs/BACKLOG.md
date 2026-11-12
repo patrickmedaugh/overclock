@@ -5,8 +5,8 @@ P1 = must, P2 = should, P3 = nice. The PM agent keeps this ordered.
 ## Epics in rough order
 1. ~~**Foundations**~~ — repo, CI, preview deploys, a board you can open on your phone. *(Done: Sprint 0, accepted 2026-11-11)*
 2. ~~**Core turn loop**~~ — clicks, credits, draw, end turn, hand limit, hot-seat play. *(Done: Sprint 1, accepted 2026-11-12)*
-3. **Installs & servers** — Corp installs face-down, Runner installs programs, remote servers, phone board in landscape. *(Proposed: Sprint 2, revised after owner comment 2026-11-12; all questions answered 2026-11-12)*
-4. **Runs & defenses** — approach, rez, encounter, break subroutines, access, steal agendas, win at 7 points. (Owner chose the real game's words, 2026-11-12: on screen it's "ICE".)
+3. ~~**Installs & servers**~~ — Corp installs face-down, Runner installs programs, remote servers, phone board in landscape, real words and starter cards. *(Done: Sprint 2, accepted 2026-11-12)*
+4. **Runs & defenses** — approach, rez, encounter, break subroutines, access, steal agendas, win at 7 points. (Owner chose the real game's words, 2026-11-12: on screen it's "ICE".) *(Proposed: Sprint 3, `docs/sprints/sprint-03-proposal.md`; also covers the Corp advancing and scoring agendas, which a points win needs.)*
 5. **Real board UI** — drag to play (owner: "drag for future"), card zoom, run animation, clear turn/click indicators.
 6. **AI opponent v1** — play as Runner or Corp against a simple bot.
 7. **Game feel** — sounds, hit-stop, particles, card hover/tilt, tap to speed up.
@@ -18,12 +18,18 @@ P1 = must, P2 = should, P3 = nice. The PM agent keeps this ordered.
 ## Items
 - ~~P1 — Foundations~~ — done in Sprint 0 (all 5 stories accepted 2026-11-11).
 - ~~P1 — Core turn loop~~ — done in Sprint 1 (S-01-1 to S-01-6 accepted 2026-11-12, owner "Approved" on PR #5).
-- P1 — Installs & servers — built in Sprint 2, waiting for the owner's review on the demo PR (`docs/sprints/sprint-02-demo.md`). Originally proposed for Sprint 2 (`docs/sprints/sprint-02-proposal.md`), revised 2026-11-12 after the owner's comment on PR #6; now includes S-02-6 phone landscape; Q2 (real names and cards) and Q5 (landscape only) answered in chat 2026-11-12. S-02-4 and S-02-5 now use real core-set cards.
-- P1 — Real card pool beyond the starter decks (see "Owner feedback" below).
-- P1 — Runs & defenses
+- ~~P1 — Installs & servers~~ — done in Sprint 2 (S-02-1 to S-02-6 accepted 2026-11-12, owner "Approved" on PR #7, no other feedback). Demo notes: `docs/sprints/sprint-02-demo.md`.
+- P1 — Runs & defenses — proposed for Sprint 3 (`docs/sprints/sprint-03-proposal.md`). Leftovers that don't fit are listed under "Follow-ups from Sprint 3 planning" below.
+- P1 — Real card pool beyond the starter decks (see "Owner feedback" below). Likely candidate for Sprint 4, after runs exist (the real decks need runs to make sense and enough agenda points to reach 7).
 - P2 — Real board UI
 - P2 — AI opponent v1
 - P3 — Game feel, onboarding, Android, deckbuilding, online
+
+## Owner response to the Sprint 2 demo (PR #7, 2026-11-12)
+- Owner commented **"Approved"** on PR #7 (17:07 UTC) = all six Sprint 2 stories (S-02-1 to S-02-6) accepted. No other feedback on the stories.
+- ~~**Demo question 1 — delete the three leftover branches?**~~ — answered in chat 2026-11-12: *"yes, delete the leftover branches"*. The team's sessions can't delete branches (the connection refuses it), so the owner has been told how to delete `sprint-02-run-0805`, `sprint-02-run-1005-superseded` and `sprint-02-scheduled-run-alt` on GitHub. Nothing for the team to build; a later session with delete access may do it if they are still there.
+- **Demo question 2 — real card text typed from memory: does any card look wrong?** No reply. Not blocking: treated as "nothing looked wrong". Stays open passively; if the owner ever names a card, it becomes a P1 fix. Re-mentioned briefly in the Sprint 3 proposal (no answer needed).
+- **Owner phone checks still open** (all optional, owner chose "we'll circle back"): home-screen version opens sideways (S-02-6 criterion 4) and Add to Home Screen (S-01-6). See "Open owner checks from Sprint 1".
 
 ## Owner feedback on the Sprint 2 proposal (PR #6, 2026-11-12)
 - **P1 — Phone board in landscape.** Owner: *"I think the game should be in landscape mode on phone"*. In Sprint 2 as S-02-6. Owner's chosen approach (question 5, 2026-11-12: *"the solution for landscape sounds fine"*) is **5A: landscape only on phones**; upright shows "Turn your phone sideways"; the team tests 844×390 and 640×360 instead of 390×844.
@@ -41,6 +47,16 @@ P1 = must, P2 = should, P3 = nice. The PM agent keeps this ordered.
   - Given any card in the game, when its systems exist, then it does what its official text says. (automated check per card)
   - Given the card list, when it is checked, then no invented card is left. (automated check)
 
+## Follow-ups from Sprint 3 planning (left out of the Runs sprint to keep it small)
+- **P1 — Agenda "when scored" effects and Priority Requisition's free rez.** Hostile Takeover (gain 7 credits, take 1 bad publicity) and Priority Requisition (rez a piece of ICE for free) score points in Sprint 3 but their extra effects wait for the card-effects system. Bad publicity is a new rule too.
+  - Given the Corp scores Hostile Takeover, when it is scored, then the Corp gains 7 credits and takes 1 bad publicity. (automated check)
+  - Given the Corp scores Priority Requisition, when it is scored, then the Corp may pick a face-down ICE and rez it for free.
+- **P2 — Tags and meat damage** (Private Security Force's "If the Runner is tagged…"). Needs tags, a new rule; with the bigger card pool.
+- **P2 — Advancing Ice Wall** ("can be advanced, +1 strength per advancement"). Sprint 3 advances only agendas.
+- **P2 — Installed-card abilities that touch runs**: Akitaro Watanabe (ICE in its server is 2 cheaper to rez), Cyberfeeder's recurring credit, Sacrificial Construct, Armitage Codebusting, Bank Job, PAD Campaign. Part of "Abilities on installed cards" above.
+- **P2 — Rezzing assets and upgrades outside a run** (the Corp flipping PAD Campaign face up to make it work). Only useful once installed-card abilities exist.
+- **P2 — Run animation polish** (the "Real board UI" epic): a proper run animation that follows the Runner through the ICE. Sprint 3 shows each step clearly but simply.
+
 ## Open owner checks from Sprint 1
 - **P2 — "Add to Home Screen" check on the owner's phone (S-01-6, criterion 1).** The automated part passed; only a real phone can confirm it. Source: Sprint 1 QA. Owner (question 3, 2026-11-12): *"Not important now we'll circle back"*. Parked; re-ask at the latest with the Android epic (and it now also covers "opens sideways" from S-02-6).
   - Given the owner adds the demo to the home screen and opens it, when the board loads, then nothing sits under the notch, status bar or swipe bar. If something does, it becomes a P1 fix.
@@ -49,7 +65,7 @@ P1 = must, P2 = should, P3 = nice. The PM agent keeps this ordered.
 ## Follow-ups from Sprint 2 planning
 - ~~**P2 — Replace genre words on card faces and labels with our own**~~ — dropped 2026-11-12: the owner chose the real game's words and cards instead (see "Which names on screen?" and DECISIONS.md). Words like "Interface", "Subroutine" and "net damage" stay as the real game uses them.
 - **P2 — Removing an installed card to make room** (memory full; replacing an agenda/asset in a server). Left out of Sprint 2 to keep it small.
-- **P2 — Abilities on installed cards** (e.g. "When your turn begins, gain 1 credit", "Click: gain 2 credits", "+1 memory"). Needs the card-effects system to grow. With or after Runs.
+- **P2 — Abilities on installed cards** (e.g. "When your turn begins, gain 1 credit", "Click: gain 2 credits", "+1 memory"). Needs the card-effects system to grow. After Runs (Sprint 3 builds only the icebreaker abilities, because runs need them).
 
 ## Follow-ups from Sprint 0 and 1
 
@@ -70,7 +86,7 @@ P1 = must, P2 = should, P3 = nice. The PM agent keeps this ordered.
 - **P1 (Android sprint) — Redraw card images after Android drops graphics memory.** When the app is backgrounded and the graphics context is lost and restored, the shared card images come back blank until a resize. Fix: on `webglcontextrestored`, clear the shared card textures and re-lay out the board. Source: Sprint 1 architect review of the QA-S1-1 fix.
 - **P2 — Hide the test hook behind a build switch before any public release.** The hook automated tests use to poke the game must not ship in a public build. Do before Android / public release. (Raised again by Sprint 2 QA: the hook grew this sprint with `lastInput()` and `endTurn()`.)
   - Given a public release build, when it is inspected, then the test hook is not present. (automated check)
-- **P1 — Make the End turn double-tap-guard test sturdier (it can go red on a busy CI machine).** On the Sprint 2 demo commit (da327c6) one of two CI runs of the same code went red: the guard e2e (`qa-sprint01.spec.ts` "QA round 2") could not land a timed tap in the 150–300ms window, because the GPU-less runner stalls the page ~300ms after the turn change. It never caught a wrongly accepted tap (coverage miss, not a game bug); the other run was green and the team re-ran it. Fix: drive the late-window tap with Playwright's fake clock (`page.clock`) or input sent through the browser's pipeline (as `guard-slow-frame.spec.ts` does), so it no longer depends on timers firing during the stall; then put the guard tests back on the `E2E_CPU_THROTTLE=6` proof. Supersedes the earlier P2 "guard e2e on a fake clock" item (raised to P1 because it now turns CI red). Source: Sprint 2 architect review (DECISIONS 2026-11-12, CI bar for the guard test) and the Sprint 2 demo CI run.
+- **P1 — Make the End turn double-tap-guard test sturdier (it can go red on a busy CI machine).** On the Sprint 2 demo commit (da327c6) one of two CI runs of the same code went red: the guard e2e (`qa-sprint01.spec.ts` "QA round 2") could not land a timed tap in the 150–300ms window, because the GPU-less runner stalls the page ~300ms after the turn change. It never caught a wrongly accepted tap (coverage miss, not a game bug); the other run was green and the team re-ran it. Fix: drive the late-window tap with Playwright's fake clock (`page.clock`) or input sent through the browser's pipeline (as `guard-slow-frame.spec.ts` does), so it no longer depends on timers firing during the stall; then put the guard tests back on the `E2E_CPU_THROTTLE=6` proof. Supersedes the earlier P2 "guard e2e on a fake clock" item (raised to P1 because it now turns CI red). **Proposed for Sprint 3 as S-03-6.** Source: Sprint 2 architect review (DECISIONS 2026-11-12, CI bar for the guard test) and the Sprint 2 demo CI run.
   - Given the full e2e suite on CI, when it runs 10 times on the same commit, then the guard tests pass every time, with every guard assertion unchanged (no skip, no wider window). (automated check)
   - Given `E2E_CPU_THROTTLE=6`, when the guard tests run with `--repeat-each=10`, then they pass without the "no timed tap landed" coverage miss. (automated check)
   - Given the guard is reverted to judge taps by handling time, when the tests run, then they fail (mutation check still catches the real bug). (automated check)
