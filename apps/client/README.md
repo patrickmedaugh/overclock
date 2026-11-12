@@ -4,6 +4,8 @@ The game screen: Vite + PixiJS v8 + TypeScript. It sends actions through the
 match host (`@overclock/match`, `LocalMatch`) and animates the per-seat events
 that come back. No rules live here.
 
+Playing a card (Sprint 2): tap a hand card and the places it can go light up with their price (a server column, New server, the Runner's Install slot, or the Play button), all taken from `view.handOptions`. Tap one to do it; tap the card again or empty board to cancel. Refusals come back from the engine and show a hint (Not enough credits, Needs runs (coming soon), ...).
+
 Hot-seat (Sprint 1): one device plays both seats. The active player's side is
 always drawn at the bottom with their hand face up; the opponent is on top as
 counts only. When the turn passes, the actor's own events (e.g. discards
@@ -17,7 +19,7 @@ flying to the pile) play first, then the board fades in for the new seat.
 | `npm run build` | Production build to `apps/client/dist` (base path `/overclock/` for GitHub Pages) |
 | `npm run preview -w @overclock/client` | Serves the build at http://localhost:4173/overclock/ |
 | `npm test -w @overclock/client` | Vitest unit tests (layout math incl. safe areas, tweens, hot-seat) |
-| `npm run test:e2e` | Playwright: builds, previews, runs `e2e/` on `phone` (844x390 touch), `phone-small` (640x360 touch) and `desktop` (1280x800); `portrait` (390x844 touch) runs only `rotate.spec.ts`. Temporary until the landscape layout (U2): `board`/`safe-area` specs run in `portrait-legacy` (390x844 mouse) instead of the phone sizes. `E2E_PORT=4391` picks another port when 4173 is taken. |
+| `npm run test:e2e` | Playwright: builds, previews, runs `e2e/` on `phone` (844x390 touch), `phone-small` (640x360 touch) and `desktop` (1280x800); `portrait` (390x844 touch) runs only `rotate.spec.ts`. `E2E_PORT=4391` picks another port when 4173 is taken (an already running preview on that port is reused: rebuild first). |
 
 Add `?seed=123` to the URL to get the same deal every time.
 
@@ -26,9 +28,12 @@ Add `?seed=123` to the URL to get the same deal every time.
 - `src/main.ts` — boots Pixi (`pixi.js/unsafe-eval` first), render-on-demand loop, resize/safe-area, test hook.
 - `src/hotseat.ts` — `HotSeat`: wraps `LocalMatch`, bottom seat = active player, splits a turn change into actor part + new-seat part.
 - `src/safeArea.ts` — reads the notch / gesture-bar insets from the hidden `#safe-probe` (`env(safe-area-inset-*)`).
-- `src/layout.ts` — pure (viewport, insets) -> boxes math, viewer-relative `top`/`bottom` rows (unit tested for no overlap / inside the safe area).
-- `src/board.ts` — draws the board from a `PlayerView`: rows, discard piles, banner, End turn / Confirm, discard picker, hints, game-over panel, zoom.
-- `src/hand.ts` — hand cards, draw flight (250ms), discard flight, picker marks, press and long-press (350ms).
+- `src/layout.ts` — pure (viewport, insets, table shape) -> boxes math, viewer-relative. Sideways phones (height <= 500, wider than tall): right rail (banner, help / Play, hint, your name, credits, clicks, End turn), opponent header, the two bands (Corp server columns with sideways ICE stacked toward the Runner; Runner row with Stack, Heap, installed cards, Install slot, memory), hand strip. Elsewhere (desktop, tablets): the Sprint 1 column with the bands and a control strip in the middle. Room is kept for the busy board (3 remotes x 2 ICE, 4 Runner cards); past it everything shrinks evenly (no sideways scrolling). Unit tested for no overlap, inside the safe area (notch left/right, swipe bar) and 44px targets.
+- `src/board.ts` — draws the board from a `PlayerView`: seats, piles (R&D / Archives in their server columns, Stack / Heap in the Runner row), servers, ICE, installed cards, memory, banner, End turn / Confirm, discard picker, picked-card targets from `view.handOptions`, hints, game-over panel, zoom. Widgets are built once per size and only moved/updated on a turn change.
+- `src/widgets.ts` — counters, piles, End turn button, memory counter, target markers.
+- `src/terms.ts` — every game word on screen (HQ, R&D, Archives, Server N, Grip, Stack, Heap, ICE, Memory...), checked against `docs/GLOSSARY.md` by `test/terms.test.ts`.
+- `src/hints.ts` — one plain hint per engine refusal reason.
+- `src/hand.ts` — one per seat, kept between turns: hand cards, draw flight (250ms), discard flight, picker marks, picked-card glow, press and long-press (350ms).
 - `src/cardFace.ts` — generated placeholder card art (shapes seeded by the card's `art` key).
 - `src/tween.ts` — tiny tween engine; `finishAll()` = tap-to-skip, so animations never lock input.
 - `src/input.ts` — tap / long-press gestures for mouse and touch.
@@ -39,10 +44,10 @@ Add `?seed=123` to the URL to get the same deal every time.
 `window.__overclock = { getView(), dispatch(action), lastEvents(), layout(), anims(), clearAnims(), lastInput(), endTurn() }`.
 
 - `dispatch(action)` submits as seat `action.player`; `getView()` is the bottom (active) seat's view.
-- `layout()` returns CSS-pixel boxes for each side's deck/credits/clicks/discard/label (keyed `corp`/`runner` wherever they are drawn), `viewer`, `safeArea` insets, hand cards (with `marked`), `endTurn`, `picker`, `gameOver`, hint, zoom, the on-screen texts and an `animating` flag.
-- `anims()` lists `{kind, startedAt, scheduledMs, text?, box?}` for every animation or hint when it *starts* (`draw_flight`, `credit_pop`, `discard_flight`, `turn_change`, `hint`). Specs assert the tap budget from these (start < 100ms after the tap, scheduled <= 600ms) and read hints from them instead of polling a 1.1s on-screen state.
+- `layout()` returns CSS-pixel boxes for each side's deck/credits/clicks/discard/label (keyed `corp`/`runner` wherever they are drawn), `mode` (`landscape`/`portrait`), `viewer`, `safeArea` insets, hand cards (with `marked`, `selected`), `servers` (`{id, label, box, labelBox, root, ice[], content[]}` with each installed card's `{uid, cardId, faceUp, box}`), `rig`, `memory`, `targets` (`{kind, server?, box, label, lit, reject}` while a card is picked), `selected`, `labels` (every board text on screen), `endTurn`, `picker`, `gameOver`, hint, zoom (`cardId` null for a face-down card; `textOverflow`), the on-screen texts and an `animating` flag.
+- `anims()` lists `{kind, startedAt, scheduledMs, text?, box?}` for every animation or hint when it *starts* (`draw_flight`, `credit_pop`, `discard_flight`, `turn_change`, `hint`, `install_flight`, `play_flight`, `server_open`). Specs assert the tap budget from these (start < 100ms after the tap, scheduled <= 600ms) and read hints from them instead of polling a 1.1s on-screen state.
 
-- `lastInput()` is `{eventAt, handledAt}` for the last pointer release a game target handled: the DOM event's timestamp and when `src/input.ts` started on it. Tap budgets (state and animation start < 100ms) count from `handledAt`; `handledAt - eventAt` is the browser's input-queue delay (the page was busy drawing a frame), recorded as an annotation only.
+- `lastInput()` is `{eventAt, handledAt, target}` for the last pointer release a game target handled: the DOM event's timestamp, when `src/input.ts` started on it, and the label of the object that took it (e.g. `target:install:`, `board:empty`). Tap budgets (state and animation start < 100ms) count from `handledAt`; `handledAt - eventAt` is the browser's input-queue delay (the page was busy drawing a frame), recorded as an annotation only.
 - `endTurn()` is the game's own End turn clock: `armedAt` (End turn ignores taps before it: the double-tap guard, 300ms after the tap that ended the last turn) and `flipDueAt` (when the last turn change's board flip is scheduled, after any discard flight). Turn-change budgets are checked on these, not on wall-clock frames.
 
 Always on for now; it will move behind a build flag later.

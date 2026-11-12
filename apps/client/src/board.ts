@@ -159,6 +159,8 @@ export interface BoardCallbacks {
   /** An install/play action taken from view.handOptions. */
   onAction(action: Action): void;
   onNewGame(): void;
+  /** The board changed outside a dispatch (a card picked or let go): redraw, and hit-test the new places at once. */
+  changed(): void;
   log(rec: Omit<AnimRecord, 'startedAt'>): void;
 }
 
@@ -1029,6 +1031,7 @@ export class Board {
       }
       hand.setMarked(this.marked);
       this.applyView(view, true);
+      this.callbacks.changed();
       return;
     }
     if (this.selected === index) {
@@ -1053,6 +1056,7 @@ export class Board {
     this.showTargets();
     this.applyView(view, false);
     if (options.every((o) => o.reject === 'not_implemented')) this.showHint(hintFor('not_implemented', view));
+    this.callbacks.changed();
   }
 
   private cancelSelection(): void {
@@ -1063,6 +1067,7 @@ export class Board {
     this.hands[view.viewer].setSelected(null);
     this.showTargets();
     this.applyView(view, false);
+    this.callbacks.changed();
   }
 
   /** Lights every place the picked card can go, with its price (view.handOptions only). */

@@ -153,6 +153,8 @@ export interface InputStamp {
   eventAt: number;
   /** When the game's input handler started on it; budgets count from here. */
   handledAt: number;
+  /** The label of the display object that handled it (e.g. "deck:corp", "target:install:"). */
+  target?: string;
 }
 
 /** The game's own End turn clock (performance.now() timestamps; 0 before the first turn change). */

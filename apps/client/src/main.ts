@@ -3,7 +3,7 @@
 // (no 'unsafe-eval'; see vite.config.ts) and in locked-down WebViews.
 import 'pixi.js/unsafe-eval';
 import type { Action } from '@overclock/engine';
-import { Application } from 'pixi.js';
+import { Application, updateRenderGroupTransforms } from 'pixi.js';
 import { Board } from './board';
 import { setCardRenderer } from './cardFace';
 import type { AnimRecord, OverclockTestHook } from './hook-types';
@@ -47,8 +47,14 @@ async function start(): Promise<void> {
   // Render on demand: only while something moves or after a change.
   // Idle boards cost no GPU time (battery on phones, CPU in CI).
   let dirty = true;
+  // Pixi hit-tests against world transforms, which are otherwise refreshed only
+  // when a frame is drawn. A tap that lands before the next frame (a fast tap on
+  // a just-lit target, a tap right after a turn change) must hit what is on
+  // screen now, so changes from input refresh transforms at once (no draw).
   const invalidate = () => {
     dirty = true;
+    const group = app.stage.renderGroup;
+    if (group) updateRenderGroupTransforms(group, true);
   };
 
   const dispatch: OverclockTestHook['dispatch'] = (action: Action) => {
@@ -66,6 +72,7 @@ async function start(): Promise<void> {
     // Install / play actions come straight from the view's handOptions.
     onAction: (action) => dispatch(action),
     onNewGame: () => window.location.assign(window.location.pathname),
+    changed: () => invalidate(),
     log,
   });
   app.stage.addChild(board.stage);

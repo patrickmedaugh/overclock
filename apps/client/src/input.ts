@@ -88,7 +88,7 @@ export function attachPress(target: Container, handlers: PressHandlers, opts: Pr
   const onUp = (e: FederatedPointerEvent) => {
     const handledAt = performance.now();
     const native: unknown = e.nativeEvent;
-    last = { eventAt: native instanceof Event ? native.timeStamp : e.timeStamp, handledAt };
+    last = { eventAt: native instanceof Event ? native.timeStamp : e.timeStamp, handledAt, target: target.label };
     if (pointerId === e.pointerId) end(true);
   };
   const onUpOutside = (e: FederatedPointerEvent) => {
