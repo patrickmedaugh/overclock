@@ -6,9 +6,11 @@ import type { Action } from '@overclock/engine';
 import { Application, updateRenderGroupTransforms } from 'pixi.js';
 import { Board } from './board';
 import { setCardRenderer } from './cardFace';
+import { readDevice, setRotatePrompt } from './device';
 import type { AnimRecord, OverclockTestHook } from './hook-types';
 import { HotSeat, seedFromUrl } from './hotseat';
 import { computeLayout } from './layout';
+import { previewFromUrl } from './preview';
 import { readSafeArea } from './safeArea';
 import { theme } from './theme';
 import { Tweens } from './tween';
@@ -65,6 +67,7 @@ async function start(): Promise<void> {
     onDiscard: (handIndices) => dispatch({ type: 'discard', player: game.seat, handIndices }),
     onNewGame: () => window.location.assign(window.location.pathname),
     log,
+    preview: previewFromUrl(window.location.search),
     onRebuilt: () => {
       // New widgets have no world transform until a render; hit tests need one now.
       const group = app.stage.renderGroup;
@@ -90,15 +93,22 @@ async function start(): Promise<void> {
   });
 
   let lastKey = '';
+  let rotatePrompt = false;
   const relayout = () => {
     const w = window.innerWidth;
     const h = window.innerHeight;
     const insets = readSafeArea();
-    const key = `${w}x${h}:${insets.top},${insets.right},${insets.bottom},${insets.left}`;
+    const device = readDevice();
+    const key = `${w}x${h}:${insets.top},${insets.right},${insets.bottom},${insets.left}:${device.mode}:${device.rotatePrompt}`;
     if (key === lastKey) return;
     lastKey = key;
+    rotatePrompt = device.rotatePrompt;
+    setRotatePrompt(rotatePrompt, app.canvas);
     app.renderer.resize(w, h);
-    board.setLayout(computeLayout(w, h, insets));
+    // Upright phone: the board keeps its last (sideways) layout under the
+    // prompt; the match and its animations carry on untouched.
+    if (rotatePrompt) return;
+    board.setLayout(computeLayout(w, h, insets, device.mode));
     invalidate();
   };
   relayout();
@@ -113,7 +123,7 @@ async function start(): Promise<void> {
     getView: () => game.view(),
     dispatch,
     lastEvents: () => game.lastEvents(),
-    layout: () => board.snapshot(),
+    layout: () => ({ ...board.snapshot(), rotatePrompt }),
     anims: () => records.map((r) => ({ ...r, box: r.box ? { ...r.box } : undefined })),
     clearAnims: () => {
       records.length = 0;

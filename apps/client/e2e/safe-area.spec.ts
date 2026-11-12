@@ -3,9 +3,12 @@
 // is exactly how a notched phone reports its insets (env(safe-area-inset-*)).
 import { expect, test } from '@playwright/test';
 import type { Insets } from './helpers';
-import { dispatch, expectCleanLayout, layout, openBoard, playUntilGameOver, toRunnerTurn, waitIdle } from './helpers';
+import { dispatch, expectCleanLayout, isPhoneProject, layout, openBoard, playUntilGameOver, toRunnerTurn, waitIdle } from './helpers';
 
 const SHAPES: [string, Partial<Insets>][] = [
+  // Phones held sideways (S-02-6 AC2): the notch is on the left or the right.
+  ['sideways, notch left + home bar', { left: 47, bottom: 21 }],
+  ['sideways, notch right + home bar', { right: 47, bottom: 21 }],
   ['iPhone notch + home bar', { top: 47, bottom: 34 }],
   ['Android status bar + gesture bar', { top: 24, bottom: 48 }],
 ];
@@ -38,11 +41,13 @@ for (const [name, insets] of SHAPES) {
       expectCleanLayout(over);
     });
 
-    test('a small 360x640 phone still fits everything inside the safe area', async ({ page }) => {
-      await page.setViewportSize({ width: 360, height: 640 });
+    test('a small phone (640x360 sideways; 360x640 window on desktop) still fits everything inside the safe area', async ({ page }) => {
+      const small = isPhoneProject() ? { width: 640, height: 360 } : { width: 360, height: 640 };
+      await page.setViewportSize(small);
       await openBoard(page, { insets });
       const l = await layout(page);
-      expect(l.viewport).toEqual({ width: 360, height: 640 });
+      expect(l.viewport).toEqual(small);
+      expect(l.mode).toBe(isPhoneProject() ? 'phone' : 'desktop');
       expectCleanLayout(l);
       for (const b of [l.corp.deck, l.corp.credits, l.endTurn!.box]) {
         expect(b.width).toBeGreaterThanOrEqual(44);

@@ -13,6 +13,7 @@ import { Hand } from './hand';
 import type { AnimRecord, Box, LayoutSnapshot, SideLayout } from './hook-types';
 import type { Presentation } from './hotseat';
 import { attachPress } from './input';
+import { type PreviewKind, drawPreview } from './preview';
 import type { BoardLayout, SideRow } from './layout';
 import { sideColor, theme, timing } from './theme';
 import { ease, type Tweens } from './tween';
@@ -100,7 +101,9 @@ class Counter {
     this.root.position.set(box.x + w / 2, box.y + h / 2);
     this.root.hitArea = new Rectangle(-w / 2, -h / 2, w, h);
     this.root.addChild(this.inner);
-    const r = h / 2;
+    // Narrow pills (the phone's rail): number over a small label, no icon.
+    const compact = w < h * 2.2;
+    const r = compact ? Math.min(12 * scale, h / 2, w / 2) : h / 2;
     this.glow.roundRect(-w / 2 - 3, -h / 2 - 3, w + 6, h + 6, r + 3).stroke({ width: Math.max(1.5, 2 * scale), color, alpha: 0.75 });
     this.glow.alpha = 0;
     const g = new Graphics();
@@ -109,7 +112,9 @@ class Counter {
     // Icon.
     const ix = -w / 2 + h * 0.5;
     const ir = h * 0.24;
-    if (kind === 'credits') {
+    if (compact) {
+      // No room for an icon: the label says what the number is.
+    } else if (kind === 'credits') {
       const pts: number[] = [];
       for (let i = 0; i < 6; i++) {
         const a = Math.PI / 6 + (i * Math.PI) / 3;
@@ -130,15 +135,23 @@ class Counter {
       text: '0',
       style: { fontFamily: theme.monoFamily, fontSize: h * 0.42, fontWeight: '700', fill: theme.text },
     });
-    this.valueText.anchor.set(0, 0.5);
-    this.valueText.position.set(textX, -h * 0.08);
     const label = new Text({
       text: kind === 'credits' ? 'CREDITS' : 'CLICKS',
-      style: { fontFamily: theme.monoFamily, fontSize: Math.max(8, h * 0.17), fill: color, letterSpacing: 1 },
+      style: { fontFamily: theme.monoFamily, fontSize: Math.max(8, h * 0.17), fill: color, letterSpacing: compact ? 0.5 : 1 },
     });
-    label.anchor.set(0, 0.5);
-    label.position.set(textX, h * 0.27);
-    fitText(label, w / 2 - textX - 6);
+    if (compact) {
+      this.valueText.anchor.set(0.5, 0.5);
+      this.valueText.position.set(0, -h * 0.1);
+      label.anchor.set(0.5, 0.5);
+      label.position.set(0, h * 0.28);
+      fitText(label, w - 8);
+    } else {
+      this.valueText.anchor.set(0, 0.5);
+      this.valueText.position.set(textX, -h * 0.08);
+      label.anchor.set(0, 0.5);
+      label.position.set(textX, h * 0.27);
+      fitText(label, w / 2 - textX - 6);
+    }
     this.inner.addChild(this.valueText, label);
   }
 
@@ -430,6 +443,8 @@ export interface BoardCallbacks {
    * arrives before the next frame (a busy phone) must still find its button.
    */
   onRebuilt(): void;
+  /** Layout preview (`?preview=busy`): draws a sample busy board into the installed-card slots. */
+  preview?: PreviewKind | null;
 }
 
 export class Board {
@@ -549,6 +564,8 @@ export class Board {
     const button = this.button;
     const pending = view?.pendingDiscard ?? 0;
     return {
+      mode: layout?.mode ?? 'desktop',
+      rotatePrompt: false,
       viewport: layout?.viewport ?? { width: 0, height: 0 },
       safeArea: layout?.insets ?? { top: 0, right: 0, bottom: 0, left: 0 },
       viewer: view?.viewer ?? 'corp',
@@ -665,6 +682,7 @@ export class Board {
       bottom: this.buildSide(viewer, layout.bottom, layout, true),
     };
     this.buildCenter(layout, viewer);
+    if (this.callbacks.preview) this.boardLayer.addChild(drawPreview(layout, viewer));
 
     const ids = view.players[viewer].hand ?? [];
     const drawn = events.filter((e) => e.type === 'card_drawn' && e.player === viewer).length;
@@ -893,9 +911,21 @@ export class Board {
     for (const [pos, s] of [['top', opponent], ['bottom', viewer]] as const) {
       const row = layout[pos].row;
       const color = sideColor(s);
-      g.rect(row.x, row.y, row.width, row.height).fill({ color, alpha: pos === 'bottom' ? 0.08 : 0.04 });
+      if (layout.rail) {
+        // Phone: the bands are half the screen; a translucent fill that big costs a
+        // frame of fill rate on software GPUs. A side-colored edge marks the band.
+        g.rect(row.x, row.y, 3, row.height).fill({ color, alpha: pos === 'bottom' ? 0.7 : 0.4 });
+      } else {
+        g.rect(row.x, row.y, row.width, row.height).fill({ color, alpha: pos === 'bottom' ? 0.08 : 0.04 });
+      }
       const edgeY = pos === 'top' ? row.y + row.height : row.y;
       g.moveTo(row.x + layout.pad, edgeY).lineTo(row.x + row.width - layout.pad, edgeY).stroke({ width: 1, color, alpha: 0.6 });
+    }
+    const rail = layout.rail;
+    if (rail) {
+      // Phone: a divider left of the rail.
+      const x = rail.x - layout.gap / 2;
+      g.moveTo(x, rail.y).lineTo(x, rail.y + rail.height).stroke({ width: 1, color: theme.grid, alpha: 0.9 });
     }
     this.bgLayer.addChild(g);
   }

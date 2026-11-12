@@ -8,6 +8,8 @@ export interface OpenOptions {
   seed?: number;
   /** Simulated notch / gesture bar: overrides #safe-probe's env() padding. */
   insets?: Partial<Insets>;
+  /** Extra URL query, e.g. 'preview=busy'. */
+  query?: string;
 }
 
 /** Opens the board with a fixed deal and waits until the test hook is live. */
@@ -30,7 +32,7 @@ export async function openBoard(page: Page, opts: OpenOptions | number = {}): Pr
     const cdp = await page.context().newCDPSession(page);
     await cdp.send('Emulation.setCPUThrottlingRate', { rate: throttle });
   }
-  await page.goto(`./?seed=${o.seed ?? 1}`);
+  await page.goto(`./?seed=${o.seed ?? 1}${o.query ? `&${o.query}` : ''}`);
   await page.waitForFunction(() => document.body.dataset.ready === 'true' && !!window.__overclock);
 }
 
@@ -70,6 +72,17 @@ export async function toRunnerTurn(page: Page): Promise<void> {
   expect((await getView(page)).activePlayer).toBe('runner');
 }
 
+/**
+ * Waits until the previous tap's feedback (press, shake, pops: at most 260ms) has
+ * stopped moving, so the next measured tap meets an idle board. On GPU-less CI
+ * browsers a touch made during an animation waits behind software-rendered frames
+ * (DECISIONS 2026-11-12: accepted CI artifact, not the game's budget).
+ */
+export async function waitFeedbackSettled(page: Page): Promise<void> {
+  await waitIdle(page);
+  await page.waitForTimeout(300);
+}
+
 /** End turn ignores taps briefly after the tap that ended the last turn (double-tap guard). */
 export async function waitEndTurnArmed(page: Page): Promise<void> {
   await page.waitForTimeout(350);
@@ -79,8 +92,14 @@ export function center(b: Box): { x: number; y: number } {
   return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
 }
 
-function isTouch(page: Page): boolean {
-  return (page.viewportSize()?.width ?? 1000) < 600;
+/** Touch projects (phones) tap with a finger; desktop clicks with a mouse. */
+function isTouch(_page: Page): boolean {
+  return test.info().project.use.hasTouch === true;
+}
+
+/** True on the phone projects (sideways phone layout). */
+export function isPhoneProject(): boolean {
+  return test.info().project.use.isMobile === true;
 }
 
 /** A real tap: touchscreen on the phone project, mouse click on desktop. */
@@ -219,8 +238,17 @@ export function expectCleanLayout(l: LayoutSnapshot): void {
       expect(overlaps(elements[i]![1], h), `${elements[i]![0]} overlaps ${hn}`).toBe(false);
     }
   }
-  // Hand cards may only overlap when there are too many to fit; with <= 10
-  // cards they sit side by side.
+  // Phone (one-row hand strip): up to 9 cards keep 44px of each card showing.
+  if (l.mode === 'phone') {
+    for (let i = 1; i < hand.length; i++) {
+      const step = hand[i]![1].x - hand[i - 1]![1].x;
+      if (hand.length <= 9) expect(step, `${hand[i]![0]} shows 44px`).toBeGreaterThanOrEqual(44 - 0.5);
+      else expect(step, `${hand[i]![0]} shows`).toBeGreaterThan(0);
+    }
+    return;
+  }
+  // Desktop: hand cards may only overlap when there are too many to fit; with
+  // <= 10 cards they sit side by side.
   if (hand.length <= 10) {
     for (let i = 0; i < hand.length; i++) {
       for (let j = i + 1; j < hand.length; j++) {

@@ -28,6 +28,10 @@ export interface SideLayout {
 }
 
 export interface LayoutSnapshot {
+  /** 'phone' = sideways phone layout (touch, short side <= 500px); 'desktop' = the portrait column. */
+  mode: 'phone' | 'desktop';
+  /** True while an upright phone shows "Turn your phone sideways" instead of the board. */
+  rotatePrompt: boolean;
   viewport: { width: number; height: number };
   /** Safe-area insets the layout used (env(safe-area-inset-*), read from #safe-probe). */
   safeArea: Insets;
