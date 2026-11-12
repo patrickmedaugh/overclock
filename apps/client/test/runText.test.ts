@@ -1,6 +1,6 @@
 import type { CardOption, RunView } from '@overclock/engine';
 import { describe, expect, it } from 'vitest';
-import { infoLines, optionLabel, runTitle, stepLabel } from '../src/runText';
+import { infoLines, optionLabel, runEndText, runTitle, stepLabel } from '../src/runText';
 
 const base: RunView = {
   server: 'remote1',
@@ -75,5 +75,26 @@ describe('run panel labels', () => {
       'Inside Job: next ICE bypassed',
       '+2 R&D cards if you get in',
     ]);
+  });
+});
+
+describe('runEndText (QA-S3-3)', () => {
+  const ended = (outcome: 'accessed' | 'jacked_out' | 'ended_by_ice' | 'flatline', server: RunView['server'] = 'remote1') =>
+    ({ type: 'run_ended', server, outcome }) as const;
+  it('a run that got in and ended in the same action with nothing accessed says so', () => {
+    const e = ended('accessed');
+    expect(runEndText(e, [{ type: 'run_successful', server: 'remote1' }, e])).toBe('Nothing to access in Server 1');
+    const a = ended('accessed', 'archives');
+    expect(runEndText(a, [{ type: 'run_successful', server: 'archives' }, a])).toBe('Nothing to access in Archives');
+  });
+  it('a run that accessed cards ends quietly (the cards already showed)', () => {
+    const e = ended('accessed', 'hq');
+    expect(runEndText(e, [{ type: 'run_successful', server: 'hq' }, { type: 'card_accessed', from: 'hq', cardId: 'c01' }, e])).toBeNull();
+    expect(runEndText(e, [e])).toBeNull();
+  });
+  it('jack out and ICE ending the run keep their notices', () => {
+    expect(runEndText(ended('jacked_out'), [])).toBe('Jacked out');
+    expect(runEndText(ended('ended_by_ice'), [])).toBe('Run ended');
+    expect(runEndText(ended('flatline'), [])).toBeNull();
   });
 });

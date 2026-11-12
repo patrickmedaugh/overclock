@@ -4,7 +4,7 @@
 // strengths come from `run.ice` / `run.breakerStrength`. Card data is read only
 // for names and for an ability's printed "+N strength".
 import { getCard } from '@overclock/cards';
-import type { Action, CardOption, RunView, Side } from '@overclock/engine';
+import type { Action, CardOption, GameEvent, RunView, Side } from '@overclock/engine';
 import { SIDE_NAME, TERMS, plural, priceText, serverLabel } from './terms';
 
 /** A card's name, or `fallback` for a card the viewer can't see. */
@@ -115,4 +115,24 @@ export function infoLines(run: RunView, rig: RigIds): string[] {
   if (run.bypassPending && run.step !== 'access') lines.push('Inside Job: next ICE bypassed');
   if (run.extraAccess > 0 && run.step !== 'access') lines.push(`+${run.extraAccess} R&D ${run.extraAccess === 1 ? 'card' : 'cards'} if you get in`);
   return lines;
+}
+
+/** What a run's end says in the notice (the result of a run that did not end the game). */
+export const RUN_END: Record<string, string> = {
+  jacked_out: 'Jacked out',
+  ended_by_ice: 'Run ended',
+};
+
+/**
+ * The notice for a run's end, given the events of the same action. A run that got
+ * in (`run_successful`) and ended in that same action accessed nothing (a remote
+ * holding only ICE, an empty Archives): say so instead of ending silently (QA-S3-3).
+ */
+export function runEndText(e: Extract<GameEvent, { type: 'run_ended' }>, batch: readonly GameEvent[]): string | null {
+  if (e.outcome === 'accessed') {
+    const gotIn = batch.some((x) => x.type === 'run_successful');
+    const accessed = batch.some((x) => x.type === 'card_accessed');
+    return gotIn && !accessed ? `Nothing to access in ${serverLabel(e.server)}` : null;
+  }
+  return RUN_END[e.outcome] ?? null;
 }

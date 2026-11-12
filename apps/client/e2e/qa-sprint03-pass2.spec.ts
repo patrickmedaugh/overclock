@@ -476,7 +476,6 @@ test.describe('QA snappiness: run steps', () => {
 
 test.describe('QA-S3-3 a successful run with nothing to access ends silently', () => {
   test('Continue into a server that holds only ICE: some notice says the run got in and found nothing', async ({ page }) => {
-    test.fail(true, 'QA-S3-3: run_ended{accessed} with no card accessed shows no notice; the run panel just disappears');
     await openBoard(page, 2);
     await toStep(page, 2, 'wall_of_static_encounter');
     await tap(page, runButtonOf(await layout(page), /^\+1 strength/).box);

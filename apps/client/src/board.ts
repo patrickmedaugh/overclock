@@ -20,7 +20,7 @@ import { hintFor } from './hints';
 import { attachPress, inputTime } from './input';
 import { type BoardLayout, type BoardShape, CARD_RATIO, type SideRow, computeLayout } from './layout';
 import { RunDisplay } from './runDisplay';
-import { nameOf } from './runText';
+import { RUN_END, nameOf, runEndText } from './runText';
 import { SIDE_NAME, TERMS, plural, pointsText, priceText, serverLabel, zoneName } from './terms';
 import { sideColor, theme, timing } from './theme';
 import { ease, type Tweens } from './tween';
@@ -49,12 +49,6 @@ export function gameOverText(result: { winner: Side; reason: WinReason }): strin
   const { title, reason } = gameOverLines(result);
   return `${title}: ${reason}`;
 }
-
-/** What a run's end says in the notice (the result of a run that did not end the game). */
-const RUN_END: Record<string, string> = {
-  jacked_out: 'Jacked out',
-  ended_by_ice: 'Run ended',
-};
 
 export function bannerText(view: PlayerView): string {
   if (view.result) return 'GAME OVER';
@@ -344,12 +338,12 @@ export class Board {
         this.showHint(hintFor(e.reason, view));
         if (e.reason === 'no_clicks') this.seatAt('bottom')?.clicks.shake();
       }
-      this.animateRunEvent(e, layout, before, prevRun, notices);
+      this.animateRunEvent(e, layout, before, prevRun, notices, events);
     }
     if (newStep && view.run) this.stepFlash();
     // A fired subroutine already says what happened: no extra "loses 1 click" / "Run ended" lines.
     const fired = events.some((e) => e.type === 'subroutine_fired');
-    const shown = fired ? notices.filter((n) => !n.startsWith(`${SIDE_NAME.runner} loses`) && n !== RUN_END.ended_by_ice) : notices;
+    const shown = fired ? notices.filter((n) => !n.startsWith(`${SIDE_NAME.runner} loses`) && n !== RUN_END['ended_by_ice']) : notices;
     if (shown.length > 0 && !events.some((e) => e.type === 'action_rejected')) this.showHint(shown.join('\n'), 'notice');
   }
 
@@ -1191,7 +1185,7 @@ export class Board {
   }
 
   /** One run / advance / score event on screen (all on the skippable fx queue, <= 300ms). */
-  private animateRunEvent(e: GameEvent, layout: BoardLayout, before: Map<string, Box>, prevRun: PlayerView['run'], notices: string[]): void {
+  private animateRunEvent(e: GameEvent, layout: BoardLayout, before: Map<string, Box>, prevRun: PlayerView['run'], notices: string[], batch: readonly GameEvent[]): void {
     const gen = this.gen;
     const view = this.view;
     if (!gen || !view) return;
@@ -1282,7 +1276,7 @@ export class Board {
         notices.push(`Inside Job: ${TERMS.ice} bypassed`);
         return;
       case 'run_ended': {
-        const t = RUN_END[e.outcome];
+        const t = runEndText(e, batch);
         if (t) notices.push(t);
         return;
       }
