@@ -1,15 +1,13 @@
-// QA (Sprint 0, S-00-4 AC4): "all placeholder names and art are original".
-// The card-data IP check covers names/text/flavor. This adds the two gaps:
-//  1. Art: every card's art is a key for runtime-generated glyphs, and the
-//     client ships no image/font files that could be copied official art.
-//  2. On-screen words: the client's own UI strings and page title contain no
-//     banned names or trademarks.
+// QA (Sprint 0, S-00-4 AC4), reworked in Sprint 2: the game now uses real card
+// names and text (owner decision 2026-11-12, CLAUDE.md rule 3), so the
+// banned-word checks are retired. What stays ours is the art: every card's art
+// is a key for runtime-generated glyphs, and the client ships no image/font
+// files that could be copied official art or logos.
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, extname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { ALL_CARDS } from '../src/index';
-import { BANNED_WORDS } from './banned-words';
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const clientDir = join(repoRoot, 'apps', 'client');
@@ -21,14 +19,7 @@ function walk(dir: string): string[] {
   });
 }
 
-function bannedIn(text: string): string[] {
-  return BANNED_WORDS.filter((w) => {
-    const esc = w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    return new RegExp(`(?<![\\p{L}\\p{N}])${esc}(?![\\p{L}\\p{N}])`, 'iu').test(text);
-  });
-}
-
-describe('IP check: art and on-screen text (QA)', () => {
+describe('Art check: our own runtime-drawn art (QA)', () => {
   it('every card uses a generated glyph key for art, not an image file or URL', () => {
     for (const c of ALL_CARDS) {
       expect(c.art, c.id).toMatch(/^glyph:[a-z0-9-]+$/);
@@ -51,11 +42,5 @@ describe('IP check: art and on-screen text (QA)', () => {
       const svg = readFileSync(f, 'utf8');
       expect(svg, f).not.toMatch(/<image|href=|<text/i);
     }
-  });
-
-  it('client UI text and page title contain no banned names or trademarks', () => {
-    const files = [...walk(join(clientDir, 'src')), join(clientDir, 'index.html'), ...walk(join(clientDir, 'public'))];
-    const hits = files.flatMap((f) => bannedIn(readFileSync(f, 'utf8')).map((w) => `${relative(repoRoot, f)}: ${w}`));
-    expect(hits).toEqual([]);
   });
 });
