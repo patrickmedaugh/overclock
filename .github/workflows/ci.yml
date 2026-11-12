@@ -51,3 +51,20 @@ jobs:
           name: playwright-report
           path: apps/client/playwright-report
           retention-days: 7
+
+  # S-03-6: the End turn double-tap-guard e2e must still fail when the guard is
+  # broken (guard 0ms, judged by handling time, check removed). Builds each
+  # broken version in a temporary worktree and runs the guard specs against it.
+  guard-mutation:
+    name: guard-mutation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium || npx playwright install chromium
+      - run: npm run test:guard-mutation
