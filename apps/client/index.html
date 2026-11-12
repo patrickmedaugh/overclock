@@ -4,7 +4,15 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
     <meta name="theme-color" content="#07060d" />
+    <!-- Home-screen launch opens full-screen (Android via the manifest, iOS via these tags). -->
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="OVERCLOCK" />
+    <!-- Relative paths so the build works under any base path (/overclock/ on Pages, / on Netlify). -->
+    <link rel="manifest" href="manifest.webmanifest" />
     <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+    <link rel="apple-touch-icon" href="icon-180.png" />
     <title>Project OVERCLOCK</title>
     <style>
       html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: #07060d; }
@@ -21,9 +29,17 @@
         position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
         color: #19e6ff; font: 700 14px ui-monospace, Menlo, Consolas, monospace; letter-spacing: 3px;
       }
+      /* Read by src/safeArea.ts: the browser fills these paddings with the
+         notch / status bar / gesture bar sizes. Never visible. */
+      #safe-probe {
+        position: fixed; inset: 0; visibility: hidden; pointer-events: none; box-sizing: border-box;
+        padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px)
+          env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
+      }
     </style>
   </head>
   <body>
+    <div id="safe-probe" aria-hidden="true"></div>
     <div id="boot">BOOTING…</div>
     <div id="app"></div>
     <script type="module" src="/src/main.ts"></script>
