@@ -6,6 +6,7 @@ import {
   newGame,
   replay,
   viewEvents,
+  waitingOn,
   viewFor,
   type Action,
   type GameState,
@@ -14,6 +15,7 @@ import {
   type Side,
 } from '../src/index';
 import { clone, finishTurn, rejection, run, withHand, withPlayer } from './helpers';
+import { expectRunnerEventsClean, expectRunnerViewClean } from './hidden';
 
 const install = (player: Side, handIndex: number, server?: ServerId | 'new'): Action =>
   server === undefined ? { type: 'install', player, handIndex } : { type: 'install', player, handIndex, server };
@@ -109,7 +111,7 @@ describe('play: every rejection reason, state unchanged', () => {
   });
 
   it('precedence: not_implemented beats no_credits (a card that needs runs says so even when broke)', () => {
-    expect(rejection(apply(runnerWith(['r11'], 0), play('runner', 0)).events)).toBe('not_implemented');
+    expect(rejection(apply(runnerWith(['r11'], 0), { type: 'play', player: 'runner', handIndex: 0, server: 'hq' }).events)).toBe('not_implemented');
   });
 });
 
@@ -382,7 +384,7 @@ function randomGame(seed: number, steps: number): Action[] {
   let s = newGame(seed);
   const log: Action[] = [];
   for (let i = 0; i < steps && s.phase !== 'over'; i++) {
-    const acts = legalActions(s, s.activePlayer);
+    const acts = legalActions(s, waitingOn(s)!);
     const busy = acts.filter((a) => a.type === 'install' || a.type === 'play');
     let a = (busy.length > 0 && pick(3) > 0 ? busy[pick(busy.length)] : acts[pick(acts.length)])!;
     if (a.type === 'discard') {
@@ -416,25 +418,15 @@ describe('replay and hidden information (property tests)', () => {
       const pick = picker(seed);
       let s = newGame(seed);
       for (let i = 0; i < 200 && s.phase !== 'over'; i++) {
-        const acts = legalActions(s, s.activePlayer);
+        const acts = legalActions(s, waitingOn(s)!);
         const busy = acts.filter((a) => a.type === 'install' || a.type === 'play');
         let a = (busy.length > 0 && pick(3) > 0 ? busy[pick(busy.length)] : acts[pick(acts.length)])!;
         if (a.type === 'discard') a = { ...a, handIndices: [...a.handIndices] };
         const r = apply(s, a);
         s = r.state;
-
-        // Events: only card_played / agenda_scored may name a Corp card (face up for both).
-        for (const e of viewEvents('runner', r.events)) {
-          if (e.type === 'card_installed' && e.player === 'corp') corpInstalls++;
-          if (e.type === 'card_played' || e.type === 'agenda_scored') continue;
-          expect(JSON.stringify(e), `seed ${seed} step ${i}`).not.toMatch(/"c\d\d"/);
-        }
-        // View: Corp ids appear only in face-up Archives entries.
-        const v = viewFor('runner', s);
-        expect(v.players.corp.discard).toEqual(s.players.corp.discard.map((d) => (d.faceUp ? d.cardId : null)));
-        expect(v.players.corp.scored).toEqual(s.players.corp.scoreArea);
-        const rest = { ...v, players: { ...v.players, corp: { ...v.players.corp, discard: [], scored: [] } } };
-        expect(JSON.stringify(rest), `seed ${seed} step ${i}`).not.toMatch(/"c\d\d"/);
+        for (const e of r.events) if (e.type === 'card_installed' && e.player === 'corp') corpInstalls++;
+        expectRunnerEventsClean(r.events, `seed ${seed} step ${i}`);
+        expectRunnerViewClean(s, `seed ${seed} step ${i}`);
       }
     }
     expect(corpInstalls).toBeGreaterThan(100); // the property was really exercised

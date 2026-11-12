@@ -5,7 +5,7 @@
 // never asked for anything, and the hand-limit step only appears when it is
 // really needed (5 or fewer cards: it is skipped automatically).
 import { describe, expect, it } from 'vitest';
-import { apply, legalActions, newGame, type Action, type GameState, type Side } from '../src/index';
+import { apply, legalActions, newGame, waitingOn, type Action, type GameState, type Side } from '../src/index';
 
 /** Small deterministic PRNG for picking actions (independent of the engine's). */
 function picker(seed: number): (n: number) => number {
@@ -25,7 +25,8 @@ function playAndCheck(seed: number): { steps: number; discardSteps: number; over
   let discardSteps = 0;
   let steps = 0;
   for (; steps < 2000 && s.phase !== 'over'; steps++) {
-    const me = s.activePlayer;
+    // Sprint 3: during a run the Corp decides at approach, so "the player the game waits on" is waitingOn(s).
+    const me = waitingOn(s)!;
     const mine = legalActions(s, me);
     // The player the game waits on always has something to do...
     expect(mine.length, `seed ${seed} step ${steps}: active player has a legal action`).toBeGreaterThan(0);
@@ -83,7 +84,7 @@ describe('QA: no empty timing windows (auto-pass) in random full games', () => {
   it('the game-over state waits on nobody', () => {
     let s = newGame(3);
     for (let i = 0; i < 5000 && s.phase !== 'over'; i++) {
-      const a = legalActions(s, s.activePlayer)[0]!;
+      const a = legalActions(s, waitingOn(s)!)[0]!;
       s = apply(s, a).state;
     }
     expect(s.phase).toBe('over');

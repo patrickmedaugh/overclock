@@ -30,6 +30,7 @@ export type {
 } from './view';
 
 export { newGame } from './state';
-export { apply, legalActions } from './apply';
+export { apply, hasMeaningfulResponse, legalActions } from './apply';
+export { waitingOn } from './rules';
 export { viewFor, viewEvents } from './view';
 export { replay } from './replay';

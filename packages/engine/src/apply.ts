@@ -4,15 +4,24 @@ import type { CardOption } from './view';
 import { getCard } from '@overclock/cards';
 import {
   ADVANCE_COST,
+  breakerCard,
+  breakerIceType,
+  currentIce,
   discardCount,
   handCard,
   installedAgenda,
   installCardCheck,
   installCost,
   installTargetCheck,
+  openRunEffect,
   playCost,
   rejectionFor,
+  rezCost,
+  trashCost,
+  unstolenAgendaShown,
+  waitingOn,
 } from './rules';
+import { doJackOut, doPass, doRez, doRun, doSteal, doTrash, doUseAbility, resolveEffect } from './run';
 import {
   checkPointsWin,
   drawTop,
@@ -129,21 +138,10 @@ function doPlay(state: GameState, a: ActionOf<'play'>): ApplyResult {
   s = withPlayer(s, a.player, { discard: [...me.discard, { cardId, faceUp: true }] });
   events.push({ type: 'card_played', player: a.player, cardId, handIndex: a.handIndex });
 
+  const ctx = a.server !== undefined ? { cardId, server: a.server } : { cardId };
   for (const effect of card?.onPlay ?? []) {
-    switch (effect.op) {
-      case 'gain_credits':
-        s = withPlayer(s, a.player, { credits: s.players[a.player].credits + effect.amount });
-        events.push({ type: 'credit_gained', player: a.player, amount: effect.amount });
-        break;
-      case 'draw':
-        // Effect draws stop at an empty deck; only the Corp's mandatory draw can lose.
-        for (let k = 0; k < effect.count && s.players[a.player].deck.length > 0; k++) {
-          const drawn = drawTop(s, a.player);
-          s = drawn.state;
-          events.push({ type: 'card_drawn', player: a.player, cardId: drawn.cardId });
-        }
-        break;
-    }
+    s = resolveEffect(s, effect, a.player, events, ctx);
+    if (s.phase === 'over') break;
   }
   return { state: s, events };
 }
@@ -207,9 +205,20 @@ export function apply(state: GameState, action: Action): ApplyResult {
       return doAdvance(state, action);
     case 'score':
       return doScore(state, action);
-    default:
-      // Sprint 3 actions: rejected by the table until built (E2-E5).
-      return { state, events: [{ type: 'action_rejected', reason: 'not_implemented' }] };
+    case 'run':
+      return doRun(state, action);
+    case 'rez':
+      return doRez(state, action);
+    case 'pass':
+      return doPass(state);
+    case 'jack_out':
+      return doJackOut(state);
+    case 'use_ability':
+      return doUseAbility(state, action);
+    case 'steal':
+      return doSteal(state, action);
+    case 'trash':
+      return doTrash(state, action);
   }
 }
 
@@ -234,8 +243,73 @@ export function legalActions(state: GameState, player: Side): Action[] {
   const installed = Object.values(installedOptions(state, player)).flat();
   return [
     ...candidates.filter((a) => rejectionFor(state, a) === null),
-    ...[...installs, ...plays, ...installed].filter((o) => o.reject === null).map((o) => o.action),
+    ...[...installs, ...plays, ...runStartOptions(state, player), ...installed, ...runStepOptions(state, player)]
+      .filter((o) => o.reject === null)
+      .map((o) => o.action),
   ];
+}
+
+/**
+ * True when `player` has something to decide now. The engine already
+ * auto-passes windows nobody can act in; hosts/AI use this to know whom to ask.
+ */
+export function hasMeaningfulResponse(state: GameState, player: Side): boolean {
+  return legalActions(state, player).length > 0;
+}
+
+const option = (state: GameState, action: Action, cost: number): CardOption => ({
+  action,
+  cost,
+  reject: rejectionFor(state, action),
+});
+
+/** Runner only: one `run` per server (corpServers order), listed off-turn too with its reason. Corp: []. */
+export function runStartOptions(state: GameState, player: Side): CardOption[] {
+  if (player !== 'runner') return [];
+  return state.servers.map((sv) => option(state, { type: 'run', player, server: sv.id }, 0));
+}
+
+/**
+ * The deciding player's moves at the current run step (empty for the other
+ * player and outside a run). bad_target moves are never listed.
+ */
+export function runStepOptions(state: GameState, player: Side): CardOption[] {
+  const run = state.run;
+  if (state.phase !== 'run' || !run || waitingOn(state) !== player) return [];
+  const out: CardOption[] = [];
+  const pass: Action = { type: 'pass', player };
+  if (run.step === 'approach') {
+    const ice = currentIce(state) as Installed;
+    out.push(option(state, { type: 'rez', player, uid: ice.uid }, rezCost(ice)), option(state, pass, 0));
+  } else if (run.step === 'encounter') {
+    const ice = currentIce(state) as Installed;
+    const iceCard = getCard(ice.cardId);
+    for (const c of state.rig) {
+      const b = breakerCard(state, c.uid);
+      if (!b || breakerIceType(b.card) !== iceCard?.subtype) continue;
+      (b.card.abilities ?? []).forEach((ab, ability) => {
+        if (ab.op === 'strength') {
+          out.push(option(state, { type: 'use_ability', player, uid: c.uid, ability }, ab.cost));
+          return;
+        }
+        (iceCard?.subroutines ?? []).forEach((_, sub) => {
+          if (!run.broken.includes(sub)) out.push(option(state, { type: 'use_ability', player, uid: c.uid, ability, sub }, ab.cost));
+        });
+      });
+    }
+    out.push(option(state, pass, 0));
+  } else if (run.step === 'continue') {
+    out.push(option(state, pass, 0), option(state, { type: 'jack_out', player }, 0));
+  } else {
+    (run.access?.cards ?? []).forEach((c, card) => {
+      if (c.stolen || c.trashed) return;
+      const def = getCard(c.cardId);
+      if (def?.type === 'agenda') out.push(option(state, { type: 'steal', player, card }, 0));
+      else if (def?.trashCost !== undefined && c.from !== 'archives') out.push(option(state, { type: 'trash', player, card }, trashCost(c)));
+    });
+    if (!unstolenAgendaShown(state)) out.push(option(state, pass, 0));
+  }
+  return out.filter((o) => o.reject !== 'bad_target');
 }
 
 /**
@@ -270,8 +344,11 @@ function candidatesFor(state: GameState, player: Side, handIndex: number): Actio
     player === 'corp' ? [...state.servers.map((sv) => install(sv.id)), install('new')] : [install()];
   const offered = installs.filter((a) => installCardCheck(state, a) === null && installTargetCheck(state, a) === null);
   if (offered.length > 0) return offered;
-  const type = handCard(state, player, handIndex)?.type;
-  return type === (player === 'corp' ? 'operation' : 'event') ? [{ type: 'play', player, handIndex }] : [];
+  const card = handCard(state, player, handIndex);
+  if (card?.type !== (player === 'corp' ? 'operation' : 'event')) return [];
+  // Run events with no fixed server (Inside Job): one option per server.
+  if (openRunEffect(card)) return state.servers.map((sv) => ({ type: 'play', player, handIndex, server: sv.id }));
+  return [{ type: 'play', player, handIndex }];
 }
 
 /**

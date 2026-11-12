@@ -1,7 +1,8 @@
 import type { Action } from './actions';
-import { handOptions, installedOptions, legalActions } from './apply';
+import { handOptions, installedOptions, legalActions, runStartOptions, runStepOptions } from './apply';
 import type { GameEvent, RejectReason } from './events';
-import { discardCount, memoryUsed } from './rules';
+import { getCard } from '@overclock/cards';
+import { breakerCard, breakerStrength, currentIce, discardCount, iceStrength, memoryUsed, waitingOn } from './rules';
 import {
   MEMORY_LIMIT,
   pointsOf,
@@ -156,6 +157,47 @@ function copyResult(r: GameResult | null): PlayerView['result'] {
   return r ? { winner: r.winner, reason: r.reason } : null;
 }
 
+function runView(state: GameState, viewer: Side): RunView | null {
+  const run = state.run;
+  if (!run) return null;
+  const ice = currentIce(state);
+  let iceView: RunIceView | null = null;
+  if (ice) {
+    const visible = viewer === 'corp' || ice.rezzed;
+    const subs = getCard(ice.cardId)?.subroutines ?? [];
+    iceView = {
+      cardId: visible ? ice.cardId : null,
+      strength: visible ? iceStrength(ice) : null,
+      subroutines: visible ? subs.map((sub, i) => ({ text: sub.text, broken: run.broken.includes(i) })) : [],
+    };
+  }
+  const breakers: Record<string, number> = {};
+  for (const c of state.rig) if (breakerCard(state, c.uid)) breakers[c.uid] = breakerStrength(state, c.uid);
+  return {
+    server: run.server,
+    position: run.position,
+    step: run.step,
+    waitingOn: waitingOn(state) as Side,
+    iceUid: ice?.uid ?? null,
+    ice: iceView,
+    breakerStrength: breakers,
+    access: run.access
+      ? {
+          cards: run.access.cards.map((c) => ({
+            // Deck order is hidden from the Corp too.
+            cardId: viewer === 'corp' && c.from === 'rd' ? null : c.cardId,
+            from: c.from,
+            stolen: c.stolen,
+            uid: c.uid ?? null,
+          })),
+        }
+      : null,
+    extraAccess: run.extraAccess,
+    bypassPending: run.bypassNext,
+    options: runStepOptions(state, viewer),
+  };
+}
+
 export function viewFor(player: Side, state: GameState): PlayerView {
   const pendingDiscard =
     state.phase === 'discard' && state.activePlayer === player
@@ -180,16 +222,17 @@ export function viewFor(player: Side, state: GameState): PlayerView {
     rig: state.rig.map((c) => ({ uid: c.uid, cardId: c.cardId, faceUp: true, advancements: c.advancements })),
     memory: { used: memoryUsed(state), limit: MEMORY_LIMIT },
     handOptions: handOptions(state, player),
-    runOptions: [],
+    runOptions: runStartOptions(state, player),
     installedOptions: installedOptions(state, player),
-    run: null,
+    run: runView(state, player),
     legalActions: legalActions(state, player),
   };
 }
 
 /** Projects one event for `player`, removing what they may not see. */
 function viewEvent(player: Side, e: GameEvent): GameEvent {
-  if (!('player' in e) || e.player === player) return e;
+  if (!('player' in e)) return viewNeutralEvent(player, e);
+  if (e.player === player) return e;
   if (e.type === 'card_drawn') return { type: 'card_drawn', player: e.player };
   if (e.type === 'cards_discarded') {
     const base = { type: 'cards_discarded', player: e.player, count: e.count } as const;
@@ -203,6 +246,16 @@ function viewEvent(player: Side, e: GameEvent): GameEvent {
   }
   if (e.type === 'card_played') {
     const { handIndex: _hidden, ...rest } = e;
+    return rest;
+  }
+  return e;
+}
+
+/** Events without a `player` field that still hide something from one side. */
+function viewNeutralEvent(player: Side, e: GameEvent): GameEvent {
+  // R&D order is hidden from the Corp too: it learns that a card was accessed, not which.
+  if (e.type === 'card_accessed' && e.from === 'rd' && player === 'corp') {
+    const { cardId: _hidden, ...rest } = e;
     return rest;
   }
   return e;
