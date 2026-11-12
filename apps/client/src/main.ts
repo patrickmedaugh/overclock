@@ -106,7 +106,7 @@ async function start(): Promise<void> {
     invalidate();
   };
   relayout();
-  board.render(game.view(), []);
+  board.render(game.view(), [], game.decision());
   window.addEventListener('resize', relayout);
   window.addEventListener('orientationchange', relayout);
   // Insets can settle a moment after an orientation change on iOS.
@@ -115,6 +115,7 @@ async function start(): Promise<void> {
   // Test hook for Playwright (always on for now; build flag later).
   window.__overclock = {
     getView: () => game.view(),
+    decision: () => game.decision(),
     dispatch,
     lastEvents: () => game.lastEvents(),
     layout: () => board.snapshot(),

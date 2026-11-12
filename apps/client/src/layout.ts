@@ -112,6 +112,23 @@ export interface BoardLayout {
   hintArea: Box;
   /** End turn button; also the discard picker's Confirm button. */
   endTurn: Box;
+  /**
+   * A second choice slot next to `action` (a picked agenda's Score beside
+   * Advance). Sideways: below `action` in the rail; column: left of `action`.
+   */
+  action2: Box;
+  /**
+   * During a run: the tracker's info (step, ICE, strengths, subroutines) and its
+   * decision buttons. Sideways: info in the rail (instead of help / Play),
+   * buttons in the hand strip (the hand is put away during a run). Column: the
+   * hand area, info on the left, buttons on the right.
+   */
+  runInfo: Box;
+  runButtons: Box;
+  /** Accessed cards are shown large over both bands. */
+  access: Box;
+  /** Score pills ("Corp 1 point", "Runner 2 points") at the right of the opponent's header. */
+  scores: Record<Side, Box>;
   gameOver: Box;
   handArea: Box;
   /** Hand card size. */
@@ -426,7 +443,11 @@ function landscapeLayout(vw: number, vh: number, insets: Insets, safe: Box, view
   const chipW = Math.max(52, Math.round(60 * s));
   const oppClicks = box(bx + bw - chipW, top, chipW, headerH);
   const oppCredits = box(oppClicks.x - k.g - chipW, top, chipW, headerH);
-  const oppLabel = box(bx, top, oppCredits.x - k.gc - bx, headerH);
+  // Score pills between the opponent's name and its chips.
+  const scoreW = Math.max(64, Math.round(80 * s));
+  const scoreRunner = box(oppCredits.x - k.gc - scoreW, top, scoreW, headerH);
+  const scoreCorp = box(scoreRunner.x - k.g - scoreW, top, scoreW, headerH);
+  const oppLabel = box(bx, top, scoreCorp.x - k.gc - bx, headerH);
 
   // Rail, top down: banner, help / Play, hint ... and bottom up: End turn, clicks, credits, name.
   const rg = 4;
@@ -445,6 +466,7 @@ function landscapeLayout(vw: number, vh: number, insets: Insets, safe: Box, view
   const action = box(railX, subY, railW, Math.min(sub.height, pillH));
   const hintY = action.y + action.height + rg;
   const hintArea = box(railX, hintY, railW, Math.max(0, sub.y + sub.height - hintY));
+  const action2 = box(railX, hintY, railW, Math.min(pillH, Math.max(0, sub.y + sub.height - hintY)));
 
   const topRegion = union(box(bx, top, bw, headerH), box(bx, topBandY, bw, topBandH));
   const { top: topRow, bottom: bottomRow } = sideRows(
@@ -458,6 +480,7 @@ function landscapeLayout(vw: number, vh: number, insets: Insets, safe: Box, view
   const goH = Math.min(availH, Math.round(150 * s));
   const goW = Math.min(bw, Math.round(360 * s));
   const gameOver = box(bx + Math.round((bw - goW) / 2), top + Math.round((availH - goH) / 2), goW, goH);
+  const access = box(bx, topBandY, bw, bottomBandY + bottomBandH - topBandY);
   return {
     mode: 'landscape',
     viewport: { width: vw, height: vh },
@@ -477,6 +500,11 @@ function landscapeLayout(vw: number, vh: number, insets: Insets, safe: Box, view
     action,
     hintArea,
     endTurn,
+    action2,
+    runInfo: sub,
+    runButtons: handArea,
+    access,
+    scores: { corp: scoreCorp, runner: scoreRunner },
     gameOver,
     handArea,
     card: { width: cardW, height: cardHt },
@@ -503,9 +531,11 @@ function portraitLayout(vw: number, vh: number, insets: Insets, safe: Box, viewe
   const pillH = Math.max(MIN_TOUCH, Math.round(52 * s));
   const rowH = labelH + labelGap + pillH;
   const pillW = Math.max(MIN_TOUCH * 2, Math.min(Math.round(124 * s), Math.floor((avail - gap) / 2)));
-  const row = (y: number) => ({
+  // Score pills at the right end of the opponent's name row.
+  const scoreW = Math.max(72, Math.min(Math.round(104 * s), Math.floor(avail / 4)));
+  const row = (y: number, scores = false) => ({
     row: box(boardX, y, boardW, rowH),
-    label: box(left, y, avail, labelH),
+    label: box(left, y, scores ? avail - 2 * scoreW - 2 * gap : avail, labelH),
     credits: box(left, y + labelH + labelGap, pillW, pillH),
     clicks: box(left + pillW + gap, y + labelH + labelGap, pillW, pillH),
   });
@@ -542,7 +572,9 @@ function portraitLayout(vw: number, vh: number, insets: Insets, safe: Box, viewe
   const cardHt = Math.floor(cardW * CARD_RATIO);
   const uh = cardH(u);
 
-  const topRow = row(safe.y + pad);
+  const topRow = row(safe.y + pad, true);
+  const scoreRunner = box(left + avail - scoreW, topRow.label.y, scoreW, labelH);
+  const scoreCorp = box(scoreRunner.x - gap - scoreW, topRow.label.y, scoreW, labelH);
   const handArea = box(left, safe.y + safe.height - pad - cardHt, avail, cardHt);
   const bottomRow = row(handArea.y - gap - rowH);
   const centerY = topRow.row.y + rowH + gap;
@@ -568,6 +600,11 @@ function portraitLayout(vw: number, vh: number, insets: Insets, safe: Box, viewe
   const barY = sub.y + subH + cg;
   const endTurn = box(left + avail - endW, barY, endW, barH);
   const hintArea = box(left, barY, endTurn.x - gap - left, barH);
+  const action2 = box(action.x - gap - endW, sub.y, endW, subH);
+  const infoW = Math.round(handArea.width * 0.4);
+  const runInfo = box(handArea.x, handArea.y, infoW, handArea.height);
+  const runButtons = box(handArea.x + infoW + gap, handArea.y, handArea.width - infoW - gap, handArea.height);
+  const access = box(left, topBandY, avail, bottomBandY + bottomBandH - topBandY);
 
   const { top, bottom } = sideRows(
     viewer,
@@ -598,6 +635,11 @@ function portraitLayout(vw: number, vh: number, insets: Insets, safe: Box, viewe
     action,
     hintArea,
     endTurn,
+    action2,
+    runInfo,
+    runButtons,
+    access,
+    scores: { corp: scoreCorp, runner: scoreRunner },
     gameOver,
     handArea,
     card: { width: cardW, height: cardHt },
@@ -640,4 +682,42 @@ export function handSlots(layout: BoardLayout, count: number): Box[] {
     }
   }
   return out;
+}
+
+/**
+ * Boxes for `count` decision buttons inside `area`: one row while each button
+ * can be at least `minW` wide (up to `maxW`), else more rows. Buttons are at
+ * least MIN_TOUCH tall when the area allows it (at most `maxH`), centered.
+ */
+export function buttonGrid(area: Box, count: number, opts: { gap: number; minW: number; maxW: number; maxH: number }): Box[] {
+  if (count <= 0) return [];
+  const { gap, minW, maxW, maxH } = opts;
+  const perRowMax = Math.max(1, Math.floor((area.width + gap) / (minW + gap)));
+  const rows = Math.ceil(count / perRowMax);
+  const perRow = Math.ceil(count / rows);
+  const w = Math.min(maxW, (area.width - (perRow - 1) * gap) / perRow);
+  const h = Math.min(maxH, (area.height - (rows - 1) * gap) / rows);
+  const blockH = rows * h + (rows - 1) * gap;
+  const top = area.y + (area.height - blockH) / 2;
+  const out: Box[] = [];
+  for (let r = 0; r < rows; r++) {
+    const inRow = Math.min(perRow, count - r * perRow);
+    const rowW = inRow * w + (inRow - 1) * gap;
+    const left = area.x + (area.width - rowW) / 2;
+    for (let i = 0; i < inRow; i++) out.push(box(left + i * (w + gap), top + r * (h + gap), w, h));
+  }
+  return out;
+}
+
+/** Card boxes for `count` accessed cards shown large in `area` (one row, as big as fits, `tagH` kept below each). */
+export function accessSlots(area: Box, count: number, tagH: number, gap: number): Box[] {
+  if (count <= 0) return [];
+  const maxH = Math.max(1, area.height - tagH - 2 * gap);
+  let w = Math.min(maxH / CARD_RATIO, (area.width - (count + 1) * gap) / count, 220);
+  w = Math.max(1, Math.floor(w));
+  const h = Math.floor(w * CARD_RATIO);
+  const rowW = count * w + (count - 1) * gap;
+  const left = area.x + (area.width - rowW) / 2;
+  const top = area.y + (area.height - h - tagH) / 2;
+  return Array.from({ length: count }, (_, i) => box(left + i * (w + gap), top, w, h));
 }

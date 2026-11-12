@@ -3,13 +3,32 @@
 // acting seat and always shows the active player's seat at the bottom. No
 // rules here: who is active comes from the projected view, and events are
 // only split for presentation (what the actor sees leave, then the flip).
-import type { Action, GameEvent, PlayerView, Side } from '@overclock/engine';
+//
+// During a run the Runner stays at the bottom. When the run waits on the Corp
+// (Rez / Don't rez at approach), the board shows the Corp seat's own run
+// options (`Decision`) on the shared screen (owner answer Q1 A) and submits
+// them as the Corp. The Runner seat's view is never merged with the Corp's.
+import type { Action, GameEvent, PlayerView, RunView, Side } from '@overclock/engine';
 import { LocalMatch } from '@overclock/match';
 
 /** What the board should animate for one submitted action. */
+/**
+ * A run decision that belongs to the seat *not* at the bottom (the Corp's rez
+ * choice while the Runner is on screen): that seat's own run view, whose
+ * `options` the board shows as buttons and submits as `seat`.
+ */
+export interface Decision {
+  seat: Side;
+  run: RunView;
+}
+
 export type Presentation =
-  /** Same seat stays at the bottom: show `view` and animate `events`. */
-  | { kind: 'same'; view: PlayerView; events: GameEvent[] }
+  /**
+   * Same seat stays at the bottom: show `view` and animate `events` (the bottom
+   * seat's projection, also when the other seat acted). `decision` is set while
+   * the other seat must decide.
+   */
+  | { kind: 'same'; view: PlayerView; events: GameEvent[]; decision: Decision | null }
   /**
    * The turn passed. First the actor's own events up to and including
    * `turn_ended` animate in the actor's view (e.g. their discards fly to the
@@ -45,6 +64,17 @@ export class HotSeat {
     return this.match.view(this.bottom);
   }
 
+  /**
+   * The run decision of the seat that is not at the bottom, if the game waits on
+   * it (the Corp's Rez / Don't rez during the Runner's run); otherwise null.
+   */
+  decision(): Decision | null {
+    const waiting = this.match.view(this.bottom).run?.waitingOn;
+    if (!waiting || waiting === this.bottom) return null;
+    const run = this.match.view(waiting).run;
+    return run ? { seat: waiting, run } : null;
+  }
+
   /** The events of the last submit, as the submitting seat saw them. */
   lastEvents(): GameEvent[] {
     return this.last.slice();
@@ -60,10 +90,11 @@ export class HotSeat {
     const next = update[shown].view.activePlayer;
     const endIdx = mine.events.findIndex((e) => e.type === 'turn_ended');
     if (next === shown || endIdx < 0) {
-      // A seat that is not at the bottom (only possible through the test hook
-      // or, later, the network) still gets its rejection hint shown.
-      const events = actor === shown ? mine.events : mine.events.filter((e) => e.type === 'action_rejected');
-      return { kind: 'same', view: update[shown].view, events };
+      // The other seat acted (the Corp's rez decision mid-run, or the test hook):
+      // the bottom seat's own projection animates, plus the actor's rejection hint
+      // (rejections go to the submitting seat only).
+      const events = actor === shown ? mine.events : [...update[shown].events, ...mine.events.filter((e) => e.type === 'action_rejected')];
+      return { kind: 'same', view: update[shown].view, events, decision: this.decision() };
     }
     this.bottom = next;
     const theirs = update[next].events;

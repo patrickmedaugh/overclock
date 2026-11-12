@@ -1,7 +1,7 @@
 import { type CDPSession, type Page, expect, test } from '@playwright/test';
 import type { Action, GameEvent, PlayerView } from '@overclock/engine';
 import { getCard } from '@overclock/cards';
-import { planBusyBoard } from '@overclock/match/testing';
+import { type StepGoal, type StepPlan, planBusyBoard, planToStep } from '@overclock/match/testing';
 import type { AnimRecord, Box, EndTurnClock, InputStamp, Insets, LayoutSnapshot, TargetSnapshot } from '../src/hook-types';
 
 export type { AnimRecord, Box, EndTurnClock, InputStamp, Insets, LayoutSnapshot, TargetSnapshot };
@@ -289,6 +289,11 @@ export function boardElements(l: LayoutSnapshot): [string, Box][] {
   }
   l.rig.forEach((c, i) => out.push([`rig card ${i}`, c.box]));
   out.push(['memory', l.memory.box]);
+  for (const s of ['corp', 'runner'] as const) if (l.score[s].box.width > 0) out.push([`${s} score`, l.score[s].box]);
+  if (l.runButton) out.push(['Run button', l.runButton.box]);
+  if (l.run) {
+    l.run.buttons.forEach((b, i) => out.push([`run button ${i} "${b.label}"`, b.box]));
+  }
   if (l.endTurn) out.push(['End turn', l.endTurn.box]);
   if (l.picker) out.push(['Confirm', l.picker.confirm.box]);
   return out;
@@ -435,4 +440,44 @@ export async function passTurn(page: Page): Promise<void> {
     if (w.pendingDiscard > 0) hook.dispatch({ type: 'discard', player: w.viewer, handIndices: Array.from({ length: w.pendingDiscard }, (_, i) => i) });
   });
   await waitIdle(page);
+}
+
+/**
+ * Plays the page (opened with `seed`) to a Sprint 3 step (`@overclock/match/testing`
+ * planToStep): each planned action is dispatched through the hook as its own player
+ * (the Corp's rez decisions happen during the Runner's turn). Leaves the board idle.
+ */
+export async function toStep(page: Page, seed: number, goal: StepGoal): Promise<StepPlan> {
+  const plan = planToStep(seed, goal);
+  const rejected = await page.evaluate((actions) => {
+    const hook = window.__overclock!;
+    for (const a of actions) {
+      const events = hook.dispatch(a);
+      const r = events.find((e) => e.type === 'action_rejected');
+      if (r) return JSON.stringify({ a, r });
+    }
+    return null;
+  }, plan.actions);
+  expect(rejected).toBeNull();
+  await waitIdle(page);
+  const v = await getView(page);
+  expect(v.activePlayer).toBe(plan.activePlayer);
+  return plan;
+}
+
+/** The run panel button whose label matches, from the layout snapshot. */
+export function runButtonOf(l: LayoutSnapshot, label: string | RegExp): NonNullable<LayoutSnapshot['run']>['buttons'][number] {
+  const b = l.run?.buttons.find((x) => (typeof label === 'string' ? x.label === label : label.test(x.label)));
+  if (!b) throw new Error(`no run button ${String(label)} in ${JSON.stringify(l.run?.buttons.map((x) => x.label))}`);
+  return b;
+}
+
+/** Taps Run, then the lit server `server`; returns the layout after the run started. */
+export async function startRun(page: Page, server: string): Promise<LayoutSnapshot> {
+  let l = await layout(page);
+  expect(l.runButton, 'the Run button shows').not.toBeNull();
+  await tap(page, l.runButton!.box);
+  l = await layout(page);
+  await tap(page, targetOf(l, 'run', server).box);
+  return waitIdle(page);
 }

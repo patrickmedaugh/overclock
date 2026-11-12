@@ -55,6 +55,15 @@ export const timing = {
   playFlight: 260,
   /** A new server's column flashes in. */
   serverOpen: 300,
+  /** Run steps (Sprint 3): each <= 300ms on the skippable fx queue. */
+  runStep: 200,
+  rezFlip: 220,
+  subBreak: 180,
+  subFlash: 300,
+  /** Damage, steal, score and trash flights. */
+  runFlight: 300,
+  strengthPop: 220,
+  advancePop: 220,
   /** End turn ignores taps this long after the tap that ended the last turn (stops a double tap ending two turns). */
   endTurnGuard: 300,
 } as const;

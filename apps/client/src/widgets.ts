@@ -531,3 +531,127 @@ export class TargetMarker {
     this.pill.roundRect(-Math.min(pw, w - 4) / 2, y - ph / 2, Math.min(pw, w - 4), ph, Math.min(6, ph / 2)).fill({ color, alpha: 0.95 });
   }
 }
+
+/**
+ * A big decision button (run panel, Run): a rounded box with a wrapped label.
+ * Lit = the engine would accept it; dim = shown with its price, refused with a
+ * hint when tapped (the engine judges every tap).
+ */
+export class PanelButton {
+  readonly root = new Container();
+  private readonly g = new Graphics();
+  private readonly label: Text;
+  private readonly inner = new Container();
+  private drawn = '';
+  box: Box = { x: 0, y: 0, width: 0, height: 0 };
+  lit = false;
+
+  constructor(
+    private readonly scale: number,
+    name: string,
+  ) {
+    this.root.label = name;
+    this.label = new Text({
+      text: '',
+      style: {
+        fontFamily: theme.fontFamily,
+        fontSize: Math.max(12, Math.round(14 * Math.min(scale, 1.15))),
+        fontWeight: '800',
+        fill: theme.text,
+        align: 'center',
+        wordWrap: true,
+        wordWrapWidth: 100,
+        lineHeight: Math.max(14, Math.round(16 * Math.min(scale, 1.15))),
+      },
+    });
+    this.label.anchor.set(0.5);
+    this.inner.addChild(this.g, this.label);
+    this.root.addChild(this.inner);
+  }
+
+  get text(): string {
+    return this.label.text;
+  }
+
+  /** `glow`: filled and bright (e.g. Run while servers are lit). */
+  set(b: Box, text: string, lit: boolean, color: number, glow = false): void {
+    this.box = { ...b };
+    this.lit = lit;
+    placeAt(this.root, b);
+    const { width: w, height: h } = b;
+    this.root.hitArea = new Rectangle(-w / 2, -h / 2, w, h);
+    const key = `${w}x${h}:${text}:${lit}:${color}:${glow}`;
+    if (key === this.drawn) return;
+    this.drawn = key;
+    const r = Math.min(12 * this.scale, h / 2, 14);
+    const g = this.g;
+    g.clear();
+    if (glow) {
+      g.roundRect(-w / 2, -h / 2, w, h, r).fill({ color, alpha: 0.95 });
+      g.roundRect(-w / 2, -h / 2, w, h, r).stroke({ width: 2, color: 0xffffff, alpha: 0.85 });
+      this.label.style.fill = 0x0a0612;
+    } else if (lit) {
+      g.roundRect(-w / 2, -h / 2, w, h, r).fill({ color: 0x000000, alpha: 0.7 });
+      glowRoundRect(g, -w / 2, -h / 2, w, h, r, color, Math.max(1.5, 2 * this.scale), 0.7);
+      this.label.style.fill = theme.text;
+    } else {
+      g.roundRect(-w / 2, -h / 2, w, h, r).fill({ color: 0x000000, alpha: 0.55 }).stroke({ width: 1, color: theme.textDim, alpha: 0.6 });
+      this.label.style.fill = theme.textDim;
+    }
+    this.label.style.wordWrapWidth = Math.max(30, w - 10);
+    this.label.text = text;
+    fitText(this.label, w - 8, h - 4);
+  }
+
+  /** A quick pop when it appears (run step changes). */
+  pop(ui: Tweens): void {
+    ui.cancel(this.inner.scale);
+    this.inner.scale.set(0.9);
+    ui.add({ target: this.inner.scale, to: { x: 1, y: 1 }, duration: 160, ease: ease.outBack, owner: this.inner });
+  }
+}
+
+/** "Runner 2 points": a small read-only pill in the side's color. */
+export class ScorePill {
+  readonly root = new Container();
+  private readonly g = new Graphics();
+  private readonly label: Text;
+  private readonly inner = new Container();
+  private drawn = '';
+  box: Box = { x: 0, y: 0, width: 0, height: 0 };
+
+  constructor(private readonly side: Side) {
+    this.root.label = `score:${side}`;
+    this.root.eventMode = 'none';
+    this.label = new Text({ text: '', style: { fontFamily: theme.monoFamily, fontSize: 11, fontWeight: '700', fill: sideColor(side) } });
+    this.label.anchor.set(0.5);
+    this.inner.addChild(this.g, this.label);
+    this.root.addChild(this.inner);
+  }
+
+  get text(): string {
+    return this.label.text;
+  }
+
+  set(b: Box, text: string, points: number): void {
+    this.box = { ...b };
+    placeAt(this.root, b);
+    const key = `${b.width}x${b.height}:${text}:${points > 0}`;
+    if (key === this.drawn) return;
+    this.drawn = key;
+    const { width: w, height: h } = b;
+    const color = sideColor(this.side);
+    this.g.clear();
+    this.g.roundRect(-w / 2, -h / 2, w, h, h / 2).fill({ color: points > 0 ? color : 0x000000, alpha: points > 0 ? 0.22 : 0.5 }).stroke({ width: 1, color, alpha: 0.8 });
+    this.label.style.fontSize = Math.max(9, Math.round(h * 0.68));
+    this.label.style.fill = points > 0 ? theme.text : color;
+    this.label.text = text;
+    fitText(this.label, w - 8, h);
+  }
+
+  pop(ui: Tweens): void {
+    ui.cancel(this.inner.scale);
+    this.inner.scale.set(1.35);
+    ui.add({ target: this.inner.scale, to: { x: 1, y: 1 }, duration: 260, ease: ease.outBack, owner: this.inner });
+  }
+}

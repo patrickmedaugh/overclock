@@ -24,6 +24,21 @@ export const TERMS = {
   play: 'Play',
   endTurn: 'End turn',
   handLimit: 'Hand limit',
+  // Sprint 3: runs, advancing and scoring.
+  run: 'Run',
+  jackOut: 'Jack out',
+  rez: 'Rez',
+  subroutine: 'Subroutine',
+  icebreaker: 'Icebreaker',
+  strength: 'Strength',
+  break: 'Break',
+  access: 'Access',
+  steal: 'Steal',
+  trash: 'Trash',
+  advance: 'Advance',
+  score: 'Score',
+  netDamage: 'Net damage',
+  flatline: 'Flatline',
 } as const;
 
 export const SIDE_NAME: Record<Side, string> = { corp: TERMS.corp, runner: TERMS.runner };
@@ -52,6 +67,11 @@ export function zoneName(side: Side, zone: 'hand' | 'deck' | 'discard'): string 
 
 export function plural(n: number, one: string, many: string): string {
   return `${n} ${n === 1 ? one : many}`;
+}
+
+/** "Corp 1 point", "Runner 2 points". */
+export function pointsText(side: Side, points: number): string {
+  return `${SIDE_NAME[side]} ${plural(points, 'point', 'points')}`;
 }
 
 /** "free", "1 credit", "3 credits". */
