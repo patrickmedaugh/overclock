@@ -1,12 +1,13 @@
 # Project state
 
-phase: DEMO
-sprint: 1
-open_pr: (none — Sprint 1 proposal PR #3 approved and merged by owner 2026-11-12; build on branch `sprint-01`)
-last_owner_activity: 2026-11-12 — "Approved" on PR #3 with answers (no hand-over screen — game will be networked; End turn button; may end turn early); merged PR #3 and PR #4 (Netlify backup host)
+phase: AWAITING_APPROVAL
+sprint: 2
+open_pr: PR_PLACEHOLDER (Sprint 2 proposal, branch `sprint-02-proposal`, label sprint-proposal)
+last_owner_activity: 2026-11-12 04:51 UTC — owner opened PR #5 (sprint-01 → main) himself, commented "Approved" + review "approved", merged it. Recorded as acceptance of all Sprint 1 stories (see DECISIONS.md).
 
 ## Accepted stories
 - Sprint 0 (owner "approved" on PR #2, 2026-11-11): S-00-1 project skeleton & checks, S-00-2 demo link, S-00-3 game board, S-00-4 draw / no-clicks hint / long-press zoom / originality check, S-00-5 rules engine starter.
+- Sprint 1 (owner "Approved" on PR #5, 2026-11-12): S-01-1..S-01-6 — core turn loop, hot-seat play, End turn, hand-limit discard, Corp deck-out, safe areas. Owner checks still open (asked in Sprint 2 proposal): Add to Home Screen on his phone; is the 180ms discard flight easy to follow? Demo notes: docs/sprints/sprint-01-demo.md.
 - Follow-ups from Sprint 0 (not blocking): owner still to set Pages Source = "GitHub Actions" (+ allow `sprint-*` in the github-pages environment), then team re-checks the demo link loads <5s; optional branch rule on `main`.
 
 ## Sprint 0 history
@@ -30,5 +31,9 @@ Details: docs/sprints/sprint-00-tech-plan.md, sprint-00-qa.md, sprint-00-demo.md
 - Checks: lint, typecheck, 292 unit tests, build, e2e 116/116.
 - For the owner at demo: is the faster discard flight (180ms) still easy to follow?
 
+## Sprint 1 DEMO / review — 2026-11-12
+- main (incl. Sprint 1) deployed to GitHub Pages via the deploy workflow (success on 4b0e88a); Netlify preview for PR #5 was green. Sandbox cannot open the hosts directly.
+- Demo notes written after the fact as the record: docs/sprints/sprint-01-demo.md. Backlog updated by pm.
+
 ## Next run
-Phase DEMO for Sprint 1: deploy preview from `sprint-01` and verify the link loads; `pm` writes docs/sprints/sprint-01-demo.md; open PR `Sprint 01 demo — ready for you to play` (sprint-01 → main, label sprint-demo) with demo notes + PR file guide; set AWAITING_REVIEW and stop.
+Phase AWAITING_APPROVAL for Sprint 2: read comments AND review bodies on the Sprint 2 proposal PR. Owner "approved" → merge, set BUILD, create `sprint-02`, continue. Change requests → pm revises. Nothing → stop (one friendly reminder only after 3+ days, i.e. not before 2026-11-15).
