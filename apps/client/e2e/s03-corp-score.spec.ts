@@ -1,7 +1,7 @@
 // S-03-2 (advance and score agendas; 7 points wins) and S-03-5 (The Maker's Eye,
 // Inside Job, Neural EMP; no "Needs runs (coming soon)" anywhere).
 import { getCard } from '@overclock/cards';
-import { expect, test } from '@playwright/test';
+import { type Page, expect, test } from '@playwright/test';
 import {
   anims,
   dispatch,
@@ -22,7 +22,7 @@ import {
 } from './helpers';
 
 /** The installed card `uid` as drawn, wherever it is. */
-async function installed(page: import('@playwright/test').Page, uid: string) {
+async function installed(page: Page, uid: string) {
   const l = await layout(page);
   const c = l.servers.flatMap((s) => [...s.content, ...s.ice]).find((x) => x.uid === uid);
   if (!c) throw new Error(`${uid} not on the table`);
