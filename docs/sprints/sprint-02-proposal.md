@@ -2,12 +2,22 @@
 
 **Reply "approved" to start, or comment on any story to change it.**
 
+## What changed after your comment (2026-11-12)
+- **Q1 (tap or drag):** tap to play this sprint, as you chose. Dragging is now on the backlog for later, in your words.
+- **Q2 (names):** we weren't sure which names you meant, so question 2 now asks one short follow-up. Until you answer, we build with our own plain words.
+- **Q3 (home-screen check):** skipped for now. It stays on the backlog, and we'll come back to it as you said.
+- **Q4 (discard speed):** kept at 0.18 seconds. Closed.
+- **Landscape on phones:** new story **S-02-6** turns the phone board sideways. One new question (5) on how far to take it. The busy-board check (S-02-5) now uses sideways phone sizes.
+- **Bigger sprint:** six stories now. If we run short, S-02-4 (play money and draw cards) still moves to next sprint first.
+
 ## Goal
-By the end of this sprint, your cards finally do something. The Corp can hide cards face down in servers and put defenses in front of them. The Runner can set up programs and gear. Both sides can play their money and draw cards. There's still no attacking (that's next sprint), but the board starts to look like a real game.
+By the end of this sprint, your cards finally do something, on a phone held sideways. The Corp can hide cards face down in servers and put defenses in front of them. The Runner can set up programs and gear. Both sides can play their money and draw cards. There's still no attacking (that's next sprint), but the board starts to look like a real game.
 
-*Quick refresher:* a **server** is a spot on the Corp's side where it keeps cards. The Corp starts with three built-in ones (its hand, its deck and its discard pile) and can open new ones. **Defenses** are Corp cards placed in front of a server to stop the Runner getting in. **Installing** means putting a card from your hand onto the table. More terms: `docs/GLOSSARY.md`.
+*Quick refresher:* a **server** is a spot on the Corp's side where it keeps cards. The Corp starts with three built-in ones (its hand, its deck and its discard pile) and can open new ones. **Defenses** are Corp cards placed in front of a server to stop the Runner getting in. **Installing** means putting a card from your hand onto the table. **Landscape** means the phone held sideways (wide), **portrait** means upright (tall). More terms: `docs/GLOSSARY.md`.
 
-*Names on screen:* this proposal says "defense", "Server 1" and so on. The exact on-screen words are question 2 below.
+*Names on screen:* this proposal says "defense", "Server 1" and so on. The exact on-screen words depend on question 2 below.
+
+*How you play cards:* tap the card, then tap where it goes (your answer to question 1).
 
 ## Stories
 
@@ -56,39 +66,55 @@ By the end of this sprint, your cards finally do something. The Corp can hide ca
 ### S-02-5: A busy board still fits and reads right on a phone
 *Why it matters:* servers and installed cards take space. The board has to stay clear and quick on a small phone.
 *Acceptance criteria:*
-- Given the Corp has 3 new servers, each with 2 defenses, and the Runner has 4 installed cards, when you look at the board on a normal phone and on a small one (360×640), then nothing overlaps, every server and card can be tapped and held to zoom, and nothing is under the notch or swipe bar. (automated check, with screenshots in the demo)
+- Given the Corp has 3 new servers, each with 2 defenses, and the Runner has 4 installed cards, when you look at the board on a normal phone held sideways (844×390) and a small one (640×360), then nothing overlaps, every server and card can be tapped and held to zoom, and nothing is under the notch or swipe bar. (automated check, with screenshots in the demo) *If you pick 5B, we also check upright phones (390×844 and 360×640); if 5C, upright only.*
 - Given you install or play a card, when you tap, then the game answers in under 0.1 seconds and the animation is done within 0.6 seconds. (automated check)
-- Given any card or label on screen, when you read it, then it uses the words you choose in question 2 (no leftover genre words on card faces). (automated check)
+- Given any card or label on screen, when you read it, then it uses the set of words you pick in question 2, the same everywhere (cards, labels and the glossary agree). (automated check)
 *Size:* S
+
+### S-02-6: Phone board in landscape (new, from your comment)
+*Why it matters:* you said the game should be played with the phone sideways. Doing it now means the new servers and installed cards are laid out for sideways from the start, instead of being redone later.
+*Acceptance criteria (assuming you pick 5A):*
+- Given a phone held sideways (844×390, and a small one at 640×360), when the game opens, then the whole board (both sides, servers, your hand, End turn) fits on one screen with no scrolling, and every card and button is big enough to tap.
+- Given a phone with a camera notch held sideways, when the notch is on the left or the right, then nothing you need to read or tap is under the notch or the swipe bar. (automated check simulates both sides; you can also try it on your phone)
+- Given a phone held upright in the browser, when the game is open, then a "Turn your phone sideways" screen shows instead of the board, and turning the phone brings the game straight back where you left it.
+- Given the game is added to your home screen, when you open it from there, then it opens sideways. (automated check that the home-screen settings ask for landscape; on your phone only when we circle back to question 3)
+- Given a computer browser, when you open the demo, then it looks and works as it does today. (automated check)
+- Given a full Sprint 1 turn (draw, gain credits, end turn, hand-limit discard) on a sideways phone, when you play it, then every step still works and responds as fast as before. (automated check)
+*Size:* L
+
+*Why it's large:* today the board is drawn as one tall column. On a sideways phone it currently shows as a thin strip in the middle at half size, so the layout has to be redesigned, not just stretched. The good news: all positions come from one layout file, so the game's rules and animations don't change.
 
 ## Not in this sprint (and why)
 - **Runs (attacking a server), flipping defenses face up, and scoring agendas.** That's the next epic ("Runs"). This sprint sets up the board they need.
 - **Abilities on installed cards** (for example, a Corp card that pays 1 credit each turn, or a Runner card you click for 2 credits). They need a bigger "card effects" system. They sit on the table but don't do anything yet. The card text will still show what they'll do later.
 - **Removing an installed card to make room** (when memory is full, or to replace a card in a server). For now you're told there's no room.
-- **Drag to play.** This sprint uses taps (see question 1). Dragging cards around is part of the later "Real board UI" epic.
+- **Drag to play.** You chose tap for now and drag for the future. It's on the backlog with the later "Real board UI" work.
+- **The home-screen check on your phone** (question 3). Skipped for now, as you said; we'll circle back, at the latest when the Android app is built.
+- **A sideways layout for computers.** Computers keep today's look; only phones change.
 - **Playing against the computer, the Android app, the smoother hand reshuffle at the 6th card.** Still on the backlog, in that order.
 
 ## Questions for you
-1. **How should you play a card from your hand?** — **Recommended:** A. Options:
-   A) Tap the card, then tap where it goes. This works one-handed and avoids mis-drops on a small screen. Dragging can come later.
-   B) Drag the card to where it goes (feels more like Hearthstone, but fiddly on a small phone, and slower to build this sprint).
-   C) Both, from the start (more work; S-02-4 would probably move to next sprint).
-2. **What should the Corp's defenses and built-in servers be called on screen?** — **Recommended:** A. Options:
-   A) Plain words: defenses are just **"Defenses"**. The built-in servers are labelled **"Hand", "Deck", "Discard"**, and new ones **"Server 1", "Server 2"…** Clearest for new players, with no risk of copying anyone.
-   B) Themed words: defenses are **"Wards"**, the built-in servers are **"Vault"** (hand), **"Mainframe"** (deck) and **"Shredder"** (discard), and new ones are **"Node 1", "Node 2"…** More flavour, but one more thing to learn.
-   C) Keep the genre's own words (ICE, HQ, R&D, Archives). Fans would recognise them, but they come straight from the game we're inspired by, so we advise against it.
+2. **Quick follow-up on names: when you said "keep original names", which did you mean?** *(We ask because the two readings are opposites.)* — **Recommended:** A. Options:
+   A) **Our own words, already in this proposal:** "Defenses", "Hand", "Deck", "Discard", "Server 1", "Server 2"… Made up by us, safe to use, and clear for new players.
+   B) **Our own themed words:** "Wards", "Vault", "Mainframe", "Shredder", "Node 1"… Also ours and safe; more flavour, one more thing to learn.
+   C) **The words from the game we're inspired by** (ICE, HQ, R&D, Archives). *In one line: those are that game's own terms, and our rule is to use only things we made up, so putting them on screen and on cards is a legal risk we advise against.* If you still want them, tell us and we'll note that the choice is yours.
    D) Your own names. Just tell us (we'll check they're original).
-3. **Sprint 1 check, about 30 seconds: on your phone, add the demo to your home screen and open it from there. Is anything hidden under the notch or swipe bar?** — **Recommended:** A (try it once). Options:
-   A) Tried it: nothing is hidden.
-   B) Tried it: something is hidden (tell us where).
-   C) Skip for now. We'll check again when the Android app is built.
-4. **Sprint 1 check: when you confirm discards, the cards now fly to the pile a bit faster (0.18 seconds, was 0.25). Is it still easy to see what happened?** — **Recommended:** A. Options:
-   A) Yes, keep it.
-   B) Too fast. Slow it back down (we'd keep End turn responsive another way).
-   C) No opinion.
+
+5. **Landscape on phones: how far should we go this sprint?** — **Recommended:** A. Options:
+   A) **Sideways only on phones.** Holding the phone upright shows "Turn your phone sideways". One layout to build and test, so it fits this sprint.
+   B) **Both ways.** Sideways and upright both work. Every screen is designed and tested twice from now on; S-02-4 would almost certainly move to next sprint.
+   C) **Sideways later, not this sprint.** Keep the upright board for now. Quickest this sprint, but the new servers would be laid out twice.
+
+   *Heads-up that comes with this answer:* the team's quality checklist (in the team rule book, `CLAUDE.md`) says every story must work on "a 390×844 phone", which is an upright phone. If you pick A, the team will test the sideways size (844×390) instead; with B, both. That checklist only changes with your OK, so your answer here is that OK. With C, nothing changes.
+
+### Already answered (thanks)
+1. **How should you play a card?** You chose: tap now, drag later. Built as tap-to-play; drag is on the backlog.
+3. **Home-screen check on your phone.** You chose: not now, we'll circle back. On the backlog.
+4. **Discard speed (0.18 seconds).** You chose: seems fine. Kept as it is.
 
 ## Risks
-- **The board gets crowded on small phones.** Servers, defenses and installed cards all need room. We'll test a busy board on a small phone and show you screenshots. If the Corp opens more servers than fit, they'll shrink or scroll sideways. We'll show you which in the demo.
-- **This sprint is bigger than the last** (three medium stories). If we run short, S-02-4 (play money and draw cards) moves to the next sprint, and the demo will say so.
+- **This sprint is now bigger** (three medium stories plus a large one). If we run short, S-02-4 (play money and draw cards) moves to the next sprint first, and the demo will say so. We'd rather keep landscape, because every later screen builds on it.
+- **Sideways phones are short.** At 360 pixels tall, two players' areas, servers and a hand of cards all have to fit in a thin strip. We'll put things side by side, and show you screenshots on a small phone. If the Corp opens more servers than fit, they'll shrink or scroll sideways; the demo will show which.
+- **A phone browser can't be forced to stay sideways.** In the browser we show "Turn your phone sideways" instead. The home-screen version and the future Android app can be locked sideways.
 - **Hidden cards must stay hidden.** On one shared screen you can see both sides anyway, but the real game will be online, so automatic checks make sure the Runner's side of the game never receives the names of face-down cards.
 - **Names may change.** Until you answer question 2, we build with option A. Changing the words later is quick.
