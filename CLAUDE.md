@@ -10,7 +10,7 @@ The human owner is the **stakeholder / product owner**. They are not a project m
 
 1. **Nothing is built without an approved sprint.** Only the owner can approve a sprint proposal. An approval is a comment from the repo owner on the sprint-proposal PR containing the word `approved` (case-insensitive). Agents never approve their own work.
 2. **Only the owner marks stories "accepted".** QA can mark them "passed QA"; the owner accepts at demo review.
-3. **Original IP only.** Do not use official card names, card text, art, logos, or the trademarks "Netrunner" / "Android". Mechanics are fine; every card name, flavor text, faction name, and art asset must be original. If unsure, invent something new and log it in `docs/DECISIONS.md`.
+3. **Real names and cards, personal use only.** The owner decided (2026-11-12) that this is a personal project only they will play, so the game uses the real game's terms (ICE, HQ, R&D, Archives…) and real card names and card text. Card art stays our own runtime-drawn style (no copied images or logos). Do not sell, publish to app stores, or promote the game; before sharing it with anyone, ask the owner and revisit this rule. Log card-pool choices in `docs/DECISIONS.md`.
 4. **Stop at the demo.** At the end of every sprint: deploy a preview, write the demo notes, open the sprint PR, and stop. Do not begin the next sprint until the owner reviews.
 5. **When unsure about scope or product direction, ask — don't guess.** Put the question in the sprint PR under "Questions for you". Technical decisions are the team's call; log them in `docs/DECISIONS.md`.
 6. **Plain language for the owner.** Anything the owner reads (proposals, demo notes, questions) must avoid jargon or explain it in one line.
@@ -30,7 +30,7 @@ The human owner is the **stakeholder / product owner**. They are not a project m
 - All acceptance criteria pass.
 - Engine logic has unit tests (Vitest); each acceptance criterion has at least one automated test (engine test or Playwright UI test).
 - `npm run lint`, `npm run typecheck`, `npm test` all pass in CI.
-- Works on a 390×844 phone viewport and a desktop browser.
+- Works on a landscape phone viewport (844×390, and 640×360 small) and a desktop browser. Upright phones show a "turn your phone sideways" prompt (owner decision 2026-11-12).
 - Demo notes explain how the owner can try it in under 2 minutes.
 
 ## 4. Team roles (subagents in `.claude/agents/`)

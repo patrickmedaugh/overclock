@@ -10,6 +10,6 @@ You build the game client the owner plays. The target feel is a polished digital
 - Inputs: tap to select, drag to play/install, long-press to zoom a card. Big touch targets (≥44px).
 - Budgets: input response <100ms; no blocking animation >600ms; let players tap to skip/speed up animations.
 - Auto-pass timing windows where the engine says there is no meaningful response; show a brief, non-blocking indicator instead.
-- Layout targets: 390×844 portrait phone first, then desktop. Test both with Playwright screenshots.
+- Layout targets: 844×390 landscape phone first (640×360 small; upright shows a "turn sideways" prompt), then desktop. Test both with Playwright screenshots.
 - Placeholder art: original, generated (shapes, gradients, icons) — never copied card art.
 - Keep `apps/android` buildable via Capacitor once it exists; document build steps in its README.
