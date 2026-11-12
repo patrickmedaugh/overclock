@@ -1,4 +1,4 @@
-import { apply, newGame, viewFor, type Action } from '@overclock/engine';
+import { apply, newGame, viewFor, waitingOn, type Action, type GameState } from '@overclock/engine';
 import { describe, expect, it } from 'vitest';
 import { chooseAction } from '../src/index';
 
@@ -23,5 +23,24 @@ describe('chooseAction (stub)', () => {
       s = r.state;
     }
     expect(s.turn).toBeGreaterThan(2);
+  });
+
+  it('Sprint 3: answers run decisions from the deciding seat view (rez question, encounter, access)', () => {
+    let s: GameState = newGame(2);
+    s = apply(s, { type: 'end_turn', player: 'corp' }).state;
+    if (s.phase === 'discard') s = apply(s, { type: 'discard', player: 'corp', handIndices: [0] }).state;
+    s = apply(s, { type: 'run', player: 'runner', server: 'hq' }).state;
+    expect(s.phase).toBe('run');
+    for (let i = 0; i < 10 && s.phase === 'run'; i++) {
+      const decider = waitingOn(s)!;
+      const view = viewFor(decider, s);
+      expect(view.run!.waitingOn).toBe(decider);
+      const action = chooseAction(view) as Action;
+      expect(view.legalActions).toContainEqual(action);
+      const r = apply(s, action);
+      expect(r.events.some((e) => e.type === 'action_rejected')).toBe(false);
+      s = r.state;
+    }
+    expect(s.phase).toBe('action');
   });
 });

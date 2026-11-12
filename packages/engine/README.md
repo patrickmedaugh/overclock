@@ -278,6 +278,14 @@ Seats receive Sprint 2 events already projected (`card_installed` without `cardI
 
 **Test-only:** `@overclock/match/testing` exports `planBusyBoard(seed, goal?) -> { seed, actions, activePlayer }` (drives a `LocalMatch` through seat views until 3 remotes have 2 ICE each and the Runner has 4 installs; `actions` replay to that board for the same seed) and `busyBoardReached(view)`. For Node-side e2e setup only; the client must not import it.
 
+**Test-only (Sprint 3):** `@overclock/match/testing` also exports `planToStep(seed, goal) -> { seed, goal, actions, waitingOn, activePlayer, info }`, `stepReached(goal, {corp, runner})` and `STEP_GOALS`. It plays a real game from `newGame(seed)` (both seats, through seat views) until `goal`:
+- `corp_rez_prompt` — a run waits on the Corp's Rez / Don't rez (face-down ICE it can pay for). `info: {server, iceUid}`.
+- `wall_of_static_encounter` — the Runner encounters a rezzed Wall of Static, Corroder installed, ≥ 2 credits. `info: {server, iceUid, breakerUid}`.
+- `agenda_one_advance` — Corp's action step with a click and a credit, an installed agenda one advancement short. `info: {uid, cardId, server}`.
+- `corp_one_score_from_win` — Corp's action step, an installed agenda ready to score that brings the Corp to 7. `info: {uid, cardId, server}`. **Not every seed works** (7 points needs Priority Requisition; if it lies deep in R&D the Corp runs out of cards first): seeds 1, 2, 3, 4, 5, 7, 12345 do (~80% of 1-100).
+- `runner_one_steal_from_win` — Runner's action step with a click, a remote with no ICE holding an agenda that brings the Runner to 7. `info: {uid, cardId, server}`.
+Dispatch `actions` in order, each as its own `action.player` (Corp actions happen during the Runner's turn: the rez decisions). Throws if the goal isn't reached.
+
 The client and AI may import only the public index of engine/cards/match. The client may not import `apply`, `newGame`, `legalActions`, `viewFor` or `replay` (it goes through the match).
 
 ## Rules for contributors
