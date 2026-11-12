@@ -40,7 +40,9 @@ export default tseslint.config(
   {
     // The rules engine must be pure and deterministic: no randomness, clocks,
     // timers, or DOM. Randomness comes only from the seeded RNG in GameState.
-    files: ['packages/engine/**/*.ts'],
+    // The match host (packages/match) is held to the same rules so a game is
+    // replayable from (seed, actions) whatever drives it.
+    files: ['packages/engine/**/*.ts', 'packages/match/**/*.ts'],
     rules: {
       'no-restricted-globals': [
         'error',
@@ -72,7 +74,7 @@ export default tseslint.config(
     },
   },
   {
-    // Client and AI use only the engine's public index (CLAUDE.md §2).
+    // Client and AI use only the public index of engine/cards/match (CLAUDE.md §2).
     files: ['apps/client/**/*.ts', 'packages/ai/**/*.ts'],
     ignores: ['**/*.config.ts'],
     rules: {
@@ -80,7 +82,37 @@ export default tseslint.config(
         'error',
         {
           patterns: [
-            { group: ['@overclock/engine/*', '@overclock/cards/*'], message: 'Import the package public index only.' },
+            {
+              group: ['@overclock/engine/*', '@overclock/cards/*', '@overclock/match/*'],
+              message: 'Import the package public index only.',
+            },
+            { group: ['**/packages/*/src/**'], message: 'Import the package public index only.' },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    // The client never runs the rules loop itself: it goes through the match
+    // host (@overclock/match), which hands it per-seat projections.
+    files: ['apps/client/**/*.ts'],
+    ignores: ['**/*.config.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              name: '@overclock/engine',
+              importNames: ['apply', 'newGame', 'legalActions', 'viewFor', 'replay'],
+              message: 'The client goes through @overclock/match (LocalMatch); it never runs the engine directly.',
+            },
+          ],
+          patterns: [
+            {
+              group: ['@overclock/engine/*', '@overclock/cards/*', '@overclock/match/*'],
+              message: 'Import the package public index only.',
+            },
             { group: ['**/packages/*/src/**'], message: 'Import the package public index only.' },
           ],
         },
@@ -102,7 +134,10 @@ export default tseslint.config(
             },
           ],
           patterns: [
-            { group: ['@overclock/engine/*', '@overclock/cards/*'], message: 'Import the package public index only.' },
+            {
+              group: ['@overclock/engine/*', '@overclock/cards/*', '@overclock/match/*'],
+              message: 'Import the package public index only.',
+            },
             { group: ['**/packages/*/src/**'], message: 'Import the package public index only.' },
           ],
         },
