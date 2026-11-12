@@ -284,8 +284,11 @@ test.describe('QA snappiness: longest turn change', () => {
 // past it) the whole scenario reruns on a fresh page, up to 3 times, then fails.
 
 interface Poke {
-  /** performance.now() when the tap was sent. */
+  /** performance.now() just before the tap was sent. */
   at: number;
+  /** performance.now() just after the game handled it. The guard check ran between `at`
+   * and `end`, so a tap with at < armedAt <= end is on the boundary and judged neither way. */
+  end: number;
   /** True for the one sent inside the ending tap's release. */
   sync: boolean;
   accepted: boolean;
@@ -335,8 +338,9 @@ async function pokeAfterTap(page: Page, at: Box): Promise<void> {
           const when = performance.now();
           canvas.dispatchEvent(new PointerEvent('pointerdown', { ...init, buttons: 1 }));
           canvas.dispatchEvent(new PointerEvent('pointerup', { ...init, buttons: 0 }));
+          const end = performance.now();
           const accepted = JSON.stringify(hook.lastEvents()) !== before;
-          run.pokes.push({ at: when, sync, accepted });
+          run.pokes.push({ at: when, end, sync, accepted });
           return accepted;
         };
         const round = (sync: boolean): boolean => {
@@ -344,7 +348,8 @@ async function pokeAfterTap(page: Page, at: Box): Promise<void> {
           const b = hook.layout().endTurn?.box;
           return !!b && hit(b, sync);
         };
-        const lateAccepted = () => run.pokes.some((p) => p.accepted && p.at >= run.armedAt);
+        // Answered after the guard opened (ending at/after armedAt; see Poke.end).
+        const lateAccepted = () => run.pokes.some((p) => p.accepted && p.end >= run.armedAt);
         round(true);
         const tick = () => {
           if (round(false) && lateAccepted()) run.done = true;
@@ -385,17 +390,17 @@ async function checkGuard(
     await tap(page, spot);
     const run = await guardResult(page);
     const rel = (t: number) => Math.round(t - run.handledAt);
-    const late = run.pokes.filter((p) => !p.sync && p.at - run.handledAt >= LATE_FROM_MS && p.at < run.armedAt);
+    const late = run.pokes.filter((p) => !p.sync && p.at - run.handledAt >= LATE_FROM_MS && p.end < run.armedAt);
     tries.push({ attempt, armedMs: rel(run.armedAt), flipDueMs: rel(run.flipDueAt), late: late.length, pokes: run.pokes.map((p) => [rel(p.at), p.accepted]) });
     test.info().annotations.push({ type: 'guard', description: JSON.stringify(tries.at(-1)) });
 
     expect(Number.isFinite(run.handledAt), 'the ending tap reached the game').toBe(true);
     expect(run.armedAt - run.handledAt, 'End turn stays guarded >= 300ms after the ending tap').toBeGreaterThanOrEqual(300);
     // Never pass with zero taps inside the guard: the synchronous one always is.
-    const early = run.pokes.filter((p) => p.at < run.armedAt);
+    const early = run.pokes.filter((p) => p.end < run.armedAt);
     expect(early.some((p) => p.sync), 'a tap landed inside the guard').toBe(true);
     for (const p of early) expect(p.accepted, `tap ${rel(p.at)}ms after the ending tap (guard until ${rel(run.armedAt)}ms)`).toBe(false);
-    expect(run.pokes.some((p) => p.accepted && p.at >= run.armedAt), 'a tap after the guard is answered').toBe(true);
+    expect(run.pokes.some((p) => p.accepted && p.end >= run.armedAt), 'a tap after the guard is answered').toBe(true);
     if (late.length > 0) return { page, run };
   }
   throw new Error(`no timed tap landed in [${LATE_FROM_MS}ms, armedAt) in ${MAX_ATTEMPTS} runs: ${JSON.stringify(tries)}`);
