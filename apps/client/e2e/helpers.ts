@@ -87,14 +87,15 @@ export function center(b: Box): { x: number; y: number } {
   return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
 }
 
-function isTouch(page: Page): boolean {
-  return (page.viewportSize()?.width ?? 1000) < 600;
+/** Touch input when the Playwright project emulates a touch screen (phones), else the mouse. */
+function isTouch(): boolean {
+  return test.info().project.use.hasTouch === true;
 }
 
-/** A real tap: touchscreen on the phone project, mouse click on desktop. */
+/** A real tap: touchscreen on the phone projects, mouse click on desktop. */
 export async function tap(page: Page, b: Box): Promise<void> {
   const { x, y } = center(b);
-  if (isTouch(page)) await page.touchscreen.tap(x, y);
+  if (isTouch()) await page.touchscreen.tap(x, y);
   else await page.mouse.click(x, y);
 }
 
@@ -189,7 +190,7 @@ export function expectSnappy(m: TapMeasure, kinds: AnimRecord['kind'][]): void {
  */
 export async function pressAndHold(page: Page, b: Box): Promise<() => Promise<void>> {
   const { x, y } = center(b);
-  if (isTouch(page)) {
+  if (isTouch()) {
     const cdp = await page.context().newCDPSession(page);
     await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
     return async () => {

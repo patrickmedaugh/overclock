@@ -17,7 +17,7 @@ flying to the pile) play first, then the board fades in for the new seat.
 | `npm run build` | Production build to `apps/client/dist` (base path `/overclock/` for GitHub Pages) |
 | `npm run preview -w @overclock/client` | Serves the build at http://localhost:4173/overclock/ |
 | `npm test -w @overclock/client` | Vitest unit tests (layout math incl. safe areas, tweens, hot-seat) |
-| `npm run test:e2e` | Playwright: builds, previews, runs `e2e/` on `phone` (390x844 touch) and `desktop` (1280x800) |
+| `npm run test:e2e` | Playwright: builds, previews, runs `e2e/` on `phone` (844x390 touch), `phone-small` (640x360 touch) and `desktop` (1280x800); `portrait` (390x844 touch) runs only `rotate.spec.ts`. Temporary until the landscape layout (U2): `board`/`safe-area` specs run in `portrait-legacy` (390x844 mouse) instead of the phone sizes. `E2E_PORT=4391` picks another port when 4173 is taken. |
 
 Add `?seed=123` to the URL to get the same deal every time.
 
@@ -54,6 +54,7 @@ slows the page's CPU 6x (Chrome DevTools `Emulation.setCPUThrottlingRate`, appli
 
 ## Phones: safe areas, full screen, CSP
 
+- Phones are played sideways. The manifest asks for `orientation: landscape`; an upright phone (CSS: `orientation: portrait` and `pointer: coarse` and width < 600px) shows the `#rotate` "Turn your phone sideways" overlay from `index.html` over the still-running game, so turning it back shows the same board. Tablets and desktop windows never see it.
 - Everything except the backdrop is laid out inside the safe area (no counter, button or card under a notch or gesture bar). Specs simulate notched phones by overriding `#safe-probe`'s padding.
 - `public/manifest.webmanifest` (`display: standalone`) and the iOS `apple-mobile-web-app-*` tags make a home-screen launch full-screen. All paths are relative, so the build works at `/overclock/` (GitHub Pages) and `/` (Netlify, `BASE_PATH=/`).
 - Production builds carry a strict Content-Security-Policy meta tag (no `unsafe-eval`; see `vite.config.ts`), so every e2e run executes under it.
