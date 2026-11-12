@@ -10,7 +10,8 @@ import { createCardBack, createCardFace, glowRoundRect } from './cardFace';
 import type { AnimRecord, Box, InstalledSnapshot, ServerSnapshot, TargetSnapshot } from './hook-types';
 import { attachPress } from './input';
 import { type BoardLayout, type ColumnGeom, type RigGeom, corpColumns, runnerRig } from './layout';
-import { TERMS, memoryText, pileLabel, priceText, serverLabel } from './terms';
+import { targetText } from './picking';
+import { memoryText, pileLabel, serverLabel } from './terms';
 import { sideColor, theme, timing } from './theme';
 import { ease, type Tweens } from './tween';
 
@@ -230,11 +231,10 @@ export class Tabletop {
     const out: TargetSpec[] = [];
     for (const option of options) {
       const a = option.action;
-      const price = priceText(option.cost);
+      const { label, chip } = targetText(a, option.cost);
       if (a.type === 'install' && a.server !== undefined) {
         const col = this.columns.find((c) => c.id === a.server);
         if (!col) continue;
-        const name = serverLabel(a.server);
         // ICE: the chip where the next ICE goes (outer end); other cards: at the root.
         const isIce = getCard(this.handCardId(a.handIndex) ?? '')?.type === 'ice';
         const chipH = Math.min(col.column.height, 2 * layout.zoneLabel + 12);
@@ -243,18 +243,18 @@ export class Tabletop {
             ? { x: col.column.x, y: col.column.y + col.column.height - chipH, width: col.column.width, height: chipH }
             : { x: col.column.x, y: col.column.y, width: col.column.width, height: chipH }
           : { x: col.root.x, y: col.root.y + (col.root.height - chipH) / 2, width: col.root.width, height: chipH };
-        out.push({ option, box: col.column, label: `${name} · ${price}`, chip: a.server === 'new' ? `${name}\n${price}` : price, chipAt });
+        out.push({ option, box: col.column, label, chip, chipAt });
       } else if (a.type === 'install') {
         const b = this.rig?.install;
         if (!b) continue;
-        out.push({ option, box: b, label: `${TERMS.install} · ${price}`, chip: `${TERMS.install}\n${price}`, chipAt: b });
+        out.push({ option, box: b, label, chip, chipAt: b });
       } else if (a.type === 'play') {
         const w = Math.min(layout.board.width, Math.max(132, Math.round(layout.card.width * 2.4)));
         const h = 44;
         const x = Math.max(layout.board.x, Math.min(from.x + from.width / 2 - w / 2, layout.board.x + layout.board.width - w));
         const y = Math.max(layout.safe.y, from.y - layout.gap - h);
         const b = { x, y, width: w, height: h };
-        out.push({ option, box: b, label: `${TERMS.play} · ${price}`, chip: `${TERMS.play} · ${price}`, chipAt: b });
+        out.push({ option, box: b, label, chip, chipAt: b });
       }
     }
     return out;

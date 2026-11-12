@@ -1,5 +1,7 @@
 import { type Page, expect, test } from '@playwright/test';
+import { getCard } from '@overclock/cards';
 import type { Action, GameEvent, PlayerView, Side } from '@overclock/engine';
+import { LocalMatch } from '@overclock/match';
 // Node-side e2e setup only (packages/engine/README.md, "Test-only"); the game itself never imports it.
 // eslint-disable-next-line no-restricted-imports
 import { planBusyBoard } from '@overclock/match/testing';
@@ -319,4 +321,84 @@ export async function toBusyBoard(page: Page, opts: { seed?: number; side?: Side
   }
   await waitIdle(page);
   if (opts.side) expect((await getView(page)).activePlayer).toBe(opts.side);
+}
+
+// ---- Sprint 2 scenarios (Node side, through the same match host the page uses) ----
+
+export type CardType = NonNullable<ReturnType<typeof getCard>>['type'];
+export const typeOf = (id: string | null | undefined): CardType | undefined => (id ? getCard(id)?.type : undefined);
+
+/** First seed (from 1) whose opening hands satisfy `pred` (Corp hand after its free draw, Runner's 5). */
+export function findSeed(pred: (corp: readonly string[], runner: readonly string[]) => boolean, max = 3000): number {
+  for (let seed = 1; seed <= max; seed++) {
+    const m = new LocalMatch(seed);
+    if (pred(m.view('corp').players.corp.hand ?? [], m.view('runner').players.runner.hand ?? [])) return seed;
+  }
+  throw new Error('no seed found');
+}
+
+/**
+ * Plays a game with a LocalMatch for `seed`, asking `choose` for each move of
+ * the active seat (null = end turn; discards keep the first cards) until
+ * `until(view)` holds. Returns the actions, to replay on the page.
+ */
+export function planTo(seed: number, choose: (v: PlayerView) => Action | null, until: (v: PlayerView) => boolean, max = 300): Action[] {
+  const m = new LocalMatch(seed);
+  for (let n = 0; n < max; n++) {
+    const v = m.view(m.view('corp').activePlayer);
+    if (until(v)) return [...m.actions()];
+    if (v.phase === 'over') break;
+    const me = v.viewer;
+    let a: Action;
+    if (v.phase === 'discard') {
+      const k = v.players[me].handCount;
+      a = { type: 'discard', player: me, handIndices: Array.from({ length: v.pendingDiscard }, (_, i) => k - v.pendingDiscard + i) };
+    } else a = (v.players[me].clicks > 0 ? choose(v) : null) ?? { type: 'end_turn', player: me };
+    const u = m.submit(me, a);
+    const refused = u[me].events.find((e) => e.type === 'action_rejected');
+    if (refused) throw new Error(`planTo(${seed}): ${JSON.stringify(a)} refused: ${JSON.stringify(refused)}`);
+  }
+  throw new Error(`planTo(${seed}): not reached`);
+}
+
+/** Dispatches planned actions on the page (all must be accepted) and waits until idle. */
+export async function replayOnPage(page: Page, actions: readonly Action[]): Promise<void> {
+  await page.evaluate((list) => {
+    const hook = window.__overclock!;
+    for (const a of list) {
+      const refused = hook.dispatch(a).find((e) => e.type === 'action_rejected');
+      if (refused) throw new Error(`${JSON.stringify(a)} refused: ${JSON.stringify(refused)}`);
+    }
+  }, actions);
+  await waitIdle(page);
+}
+
+/** Taps the hand card at `index` and waits for the board to settle. */
+export async function pick(page: Page, index: number): Promise<LayoutSnapshot> {
+  const l = await waitIdle(page);
+  await tap(page, l.hand[index]!.box);
+  return layout(page);
+}
+
+/** Every tappable / drawn element of a Sprint 2 board: inside the safe area, no overlaps, targets >= 44. */
+export function expectCleanTable(l: LayoutSnapshot): void {
+  const safe = safeRect(l);
+  const items: [string, Box][] = [];
+  for (const s of l.servers) {
+    expect(inside(s.box, safe), `${s.label} column inside the safe area`).toBe(true);
+    for (const [k, c] of s.ice.entries()) items.push([`${s.label} ICE ${k}`, c.box]);
+    for (const [k, c] of s.content.entries()) items.push([`${s.label} card ${k}`, c.box]);
+  }
+  for (const [k, c] of l.rig.entries()) items.push([`rig ${k}`, c.box]);
+  for (const [name, b] of items) {
+    expect(inside(b, safe), `${name} ${JSON.stringify(b)} inside the safe area`).toBe(true);
+    expect(b.width, `${name} width`).toBeGreaterThanOrEqual(44);
+    expect(b.height, `${name} height`).toBeGreaterThanOrEqual(44);
+  }
+  const others: [string, Box][] = [...boardElements(l), ...l.hand.map((h, i): [string, Box] => [`hand ${i}`, h.box]), ['memory', l.memory.box]];
+  for (let i = 0; i < items.length; i++) {
+    for (let j = i + 1; j < items.length; j++) expect(overlaps(items[i]![1], items[j]![1]), `${items[i]![0]} overlaps ${items[j]![0]}`).toBe(false);
+    for (const [on, ob] of others) expect(overlaps(items[i]![1], ob), `${items[i]![0]} overlaps ${on}`).toBe(false);
+  }
+  expect(inside(l.memory.box, safe)).toBe(true);
 }

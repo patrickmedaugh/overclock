@@ -3,7 +3,7 @@
 // comes from an engine event, and every button's enabled state comes from
 // view.legalActions / view.pendingDiscard. Viewer-relative: the seat in
 // `view.viewer` is drawn in the bottom row.
-import type { CardOption, GameEvent, PlayerView, RejectReason, Side, WinReason } from '@overclock/engine';
+import type { CardOption, GameEvent, PlayerView, Side, WinReason } from '@overclock/engine';
 import { getCard } from '@overclock/cards';
 import { Container, Graphics, Rectangle, Text } from 'pixi.js';
 import { createCardBack, createCardFace, glowRoundRect, retireCardTextures } from './cardFace';
@@ -13,6 +13,7 @@ import type { AnimRecord, Box, EndTurnClock, Insets, LayoutSnapshot, SideLayout 
 import type { Presentation } from './hotseat';
 import { attachPress } from './input';
 import { type BoardLayout, type SideRow, computeLayout } from './layout';
+import { hintFor, pickOutcome } from './picking';
 import { Tabletop } from './tabletop';
 import { SIDE_LABEL, TERMS, pileLabel } from './terms';
 import { sideColor, theme, timing } from './theme';
@@ -20,38 +21,7 @@ import { ease, type Tweens } from './tween';
 
 type Pos = 'top' | 'bottom';
 
-/** Plain-language hints for refused actions. */
-function hintFor(reason: RejectReason, view: PlayerView | null): string {
-  switch (reason) {
-    case 'no_clicks':
-      return 'No clicks left';
-    case 'not_your_turn':
-      return 'Not your turn';
-    case 'deck_empty':
-      return 'Your deck is empty';
-    case 'game_over':
-      return 'The game is over';
-    case 'wrong_phase':
-      return view?.pendingDiscard ? 'Pick your discards first' : "You can't do that right now";
-    case 'bad_discard':
-      return 'Pick exactly the cards asked for';
-    case 'invalid_action':
-    case 'bad_card':
-    case 'bad_target':
-      return "That move isn't allowed";
-    case 'no_credits':
-      return 'Not enough credits';
-    case 'no_memory':
-      return 'Not enough memory';
-    case 'not_implemented':
-      return 'Needs runs (coming soon)';
-  }
-}
-
 const SIDE_NAME = SIDE_LABEL;
-
-/** Reasons that refuse every use of a hand card right now: say so at once instead of lighting targets. */
-const BLOCKING: ReadonlySet<RejectReason> = new Set(['no_clicks', 'not_your_turn', 'wrong_phase', 'game_over', 'not_implemented']);
 
 /** Why the game ended, in plain words (completes "<Winner> wins: ..."). */
 const WIN_REASON: Record<WinReason, string> = {
@@ -952,15 +922,14 @@ export class Board {
       return;
     }
     this.clearSelection();
-    const options = view.handOptions[index] ?? [];
-    if (options.length === 0) {
+    const outcome = pickOutcome(view.handOptions[index] ?? []);
+    if (outcome.kind === 'none') {
       this.showHint("That card can't be used yet");
       return;
     }
-    const first = options[0]!.reject;
-    if (first !== null && BLOCKING.has(first) && options.every((o) => o.reject === first)) {
-      this.showHint(hintFor(first, view));
-      if (first === 'no_clicks') this.rows.bottom?.clicks.shake();
+    if (outcome.kind === 'hint') {
+      this.showHint(hintFor(outcome.reason, view));
+      if (outcome.reason === 'no_clicks') this.rows.bottom?.clicks.shake();
       return;
     }
     this.selected = index;
