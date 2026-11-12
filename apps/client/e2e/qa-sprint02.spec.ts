@@ -403,3 +403,68 @@ test.describe('QA-S2-2 upgrade in HQ', () => {
     expect(found).toEqual([]);
   });
 });
+
+// Round 2 (after the QA-S2-1..3 fixes): edge cases beyond the developers' own checks.
+test.describe('QA round 2: fixes hold in harder cases', () => {
+  test('an upgrade in R&D and in Archives never covers the R&D / Archives pile either', async ({ page }) => {
+    // Two upgrades needed: find a seed whose Corp opens with Akitaro and draws a second soon; else use one per game.
+    for (const server of ['rd', 'archives'] as const) {
+      await openBoard(page, 2);
+      const l0 = await pickCard(page, 'Akitaro Watanabe');
+      await tap(page, targetOf(l0, 'server', server).box);
+      for (let side = 0; side < 2; side++) {
+        const l = await waitIdle(page);
+        const s = l.servers.find((x) => x.id === server)!;
+        const root = s.root!;
+        const card = s.content[0]!.box;
+        const eps = 0.5;
+        const overlap = root.x + eps < card.x + card.width && card.x + eps < root.x + root.width && root.y + eps < card.y + card.height && card.y + eps < root.y + root.height;
+        expect(overlap, `${server} pile ${JSON.stringify(root)} vs upgrade ${JSON.stringify(card)} (${l.viewer} view)`).toBe(false);
+        expectCleanLayout(l);
+        if (side === 0) {
+          await shot(page, `r2-upgrade-in-${server}`);
+          await passTurn(page);
+        }
+      }
+    }
+  });
+
+  test('busy board plus an upgrade in HQ: still clean, every card at least 44px, on both views', async ({ page }) => {
+    await openBoard(page, 1);
+    await toBusyBoard(page, 1);
+    const l0 = await pickCard(page, 'Akitaro Watanabe');
+    await tap(page, targetOf(l0, 'server', 'hq').box);
+    for (let side = 0; side < 2; side++) {
+      const l = await waitIdle(page);
+      expect(l.servers.find((s) => s.id === 'hq')!.content).toHaveLength(1);
+      expectCleanLayout(l);
+      for (const b of [...l.servers.flatMap((s) => [...s.content.map((c) => c.box), ...s.ice.map((c) => c.box)]), ...l.rig.map((c) => c.box), ...l.hand.map((h) => h.box)]) {
+        expect(Math.min(b.width, b.height), JSON.stringify(b)).toBeGreaterThanOrEqual(44);
+      }
+      await shot(page, `r2-busy-board-upgrade-in-hq-${l.viewer}-view`);
+      if (side === 0) await passTurn(page);
+    }
+  });
+
+  test('a hint shown while a card is picked never covers the lit Play / Install spot or End turn', async ({ page }) => {
+    await openBoard(page, 2);
+    await toRunnerTurn(page);
+    await page.evaluate(() => window.__overclock!.clearAnims());
+    let l = await pickCard(page, "The Maker's Eye");
+    await tap(page, targetOf(l, 'play').box);
+    l = await layout(page);
+    const h = (await anims(page)).filter((a) => a.kind === 'hint').pop()!;
+    expect(h.text).toBe('Needs runs (coming soon)');
+    const eps = 0.5;
+    const ov = (a: { x: number; y: number; width: number; height: number }, b: typeof a) =>
+      a.x + eps < b.x + b.width && b.x + eps < a.x + a.width && a.y + eps < b.y + b.height && b.y + eps < a.y + a.height;
+    for (const t of l.targets) expect(ov(h.box!, t.box), `hint over ${t.kind} target`).toBe(false);
+    expect(ov(h.box!, l.endTurn!.box)).toBe(false);
+    expect(ov(h.box!, l.runner.credits)).toBe(false);
+    expect(ov(h.box!, l.runner.label)).toBe(false);
+    await page.waitForTimeout(250);
+    await shot(page, 'r2-needs-runs-hint-with-play-lit');
+    // The tap on the dim Play spot is still the snappy refusal path.
+    expect(h.startedAt).toBeGreaterThan(0);
+  });
+});
