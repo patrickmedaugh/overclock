@@ -14,7 +14,8 @@
     "typecheck": "tsc -b",
     "test": "npm run test --workspaces --if-present",
     "test:e2e": "npm run test:e2e --workspaces --if-present",
-    "build": "npm run build --workspaces --if-present"
+    "build": "npm run build --workspaces --if-present",
+    "test:guard-mutation": "npm run test:guard-mutation --workspace apps/client"
   },
   "devDependencies": {
     "@eslint/js": "^9.30.0",

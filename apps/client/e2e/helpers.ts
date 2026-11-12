@@ -109,8 +109,13 @@ const cdpSessions = new WeakMap<Page, Promise<CDPSession>>();
  * busy, and the page handles it whenever it can. The promise settles once the
  * page has handled it. Used to tap "during" slow frames, which page timers can't.
  * `touch` overrides the project's input kind (touch needs a context with hasTouch).
+ *
+ * `madeAt` (wall clock, ms since the epoch, i.e. a `Date.now()` value) stamps the
+ * tap as made at that moment: Chrome uses a CDP input event's `timestamp` as the
+ * DOM `event.timeStamp` (verified for touch and mouse, also while the page is busy;
+ * see DECISIONS 2026-11-12 S-03-6). Only pass a moment that has already passed.
  */
-export function sendTap(page: Page, b: Box, opts: { touch?: boolean } = {}): Promise<void> {
+export function sendTap(page: Page, b: Box, opts: { touch?: boolean; madeAt?: number } = {}): Promise<void> {
   const { x, y } = center(b);
   let cdp = cdpSessions.get(page);
   if (!cdp) {
@@ -118,15 +123,16 @@ export function sendTap(page: Page, b: Box, opts: { touch?: boolean } = {}): Pro
     cdpSessions.set(page, cdp);
   }
   const touch = opts.touch ?? isTouch();
+  const stamp = opts.madeAt === undefined ? {} : { timestamp: opts.madeAt / 1000 };
   return cdp.then(async (s) => {
     const sent = touch
       ? [
-          s.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] }),
-          s.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] }),
+          s.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }], ...stamp }),
+          s.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [], ...stamp }),
         ]
       : [
-          s.send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 }),
-          s.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 }),
+          s.send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1, ...stamp }),
+          s.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1, ...stamp }),
         ];
     await Promise.all(sent);
   });

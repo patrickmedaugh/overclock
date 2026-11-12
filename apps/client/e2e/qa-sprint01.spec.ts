@@ -3,9 +3,9 @@
 // - S-01-5 AC3: discards fly to the actor's own discard pile.
 // - S-01-6 AC2: the notch / gesture-bar bands are empty on screen (pixels), and a zoomed card stays inside.
 // - Snappiness: the longest turn change (4 discards, then the Corp's free draw) never keeps input away > 600ms.
-import { expect, test, type BrowserContext, type Page } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import type { Box } from './helpers';
-import { dispatch, getView, layout, measureTap, openBoard, pressAndHold, safeRect, tap, toRunnerTurn, waitEndTurnArmed, waitIdle } from './helpers';
+import { center, dispatch, getView, layout, measureTap, openBoard, pressAndHold, safeRect, sendTap, tap, toRunnerTurn, waitEndTurnArmed, waitIdle } from './helpers';
 
 interface Stats {
   mean: number;
@@ -276,151 +276,141 @@ test.describe('QA snappiness: longest turn change', () => {
 // fast double (or triple) tap cannot end two turns. On the discard path the Confirm
 // button and the next seat's End turn sit in the same spot.
 //
-// Sprint 2 T0 (timing hardening): measured on the game's own clock. The first extra
-// tap is sent synchronously inside the release of the tap that ended the turn, then
-// a timer keeps tapping every few ms until a tap after the guard (`armedAt`) is
-// answered. Every tap before `armedAt` must be refused. If no timed tap happened to
-// land late in the guard window (150ms .. armedAt; a slow runner can stall the timers
-// past it) the whole scenario reruns on a fresh page, up to 3 times, then fails.
+// Sprint 3 S-03-6 (no timers, no reruns): every tap goes through the browser's input
+// pipeline (CDP) with an explicit "made at" time, and the game judges End turn taps
+// by that time (DECISIONS 2026-11-12: the guard judges taps by when they were made).
+// So a page stall can delay *when* a tap is handled, but not *when it was made*:
+// the taps below are made 50, 150, 250 and 295ms after the ending tap, and just
+// after `armedAt`, on every run. Each is sent once real time has passed its stamp
+// and the next seat's End turn shows (the flip), so it really reaches the button and
+// the guard is what refuses it. The 295ms tap is held back until the guard has
+// opened, so it is also handled late (the slow-phone double tap). Everything is
+// asserted from the event times the page recorded.
 
-interface Poke {
-  /** performance.now() just before the tap was sent. */
-  at: number;
-  /** performance.now() just after the game handled it. The guard check ran between `at`
-   * and `end`, so a tap with at < armedAt <= end is on the boundary and judged neither way. */
-  end: number;
-  /** True for the one sent inside the ending tap's release. */
-  sync: boolean;
+/** A tap the page saw, read in the window's pointer listeners (performance.now() clock). */
+interface Seen {
+  /** DOM event time of the release (when the tap was made). */
+  ts: number;
+  /** performance.now() right after the game handled it. */
+  handled: number;
+  /** The game handled this release on the End turn / Confirm button. */
+  reached: boolean;
+  /** The game did something (its last events changed between press and release). */
   accepted: boolean;
 }
 
-interface GuardRun {
-  /** DOM event time of the ending tap (the guard counts from when the tap was made). */
-  madeAt: number;
-  /** When the game started handling the tap that ended the turn. */
-  handledAt: number;
-  armedAt: number;
-  flipDueAt: number;
-  pokes: Poke[];
-  done: boolean;
-}
-
-/** Timed taps from this long after the ending tap count as "late in the guard window". */
+/** Taps made this long after the ending tap count as "late in the guard window". */
 const LATE_FROM_MS = 150;
-/** First run plus up to 3 reruns. */
-const MAX_ATTEMPTS = 4;
+/** When the extra taps are made, ms after the ending tap; the last is held back until the guard opens. */
+const IN_WINDOW_MS = [50, 150, 250, 295];
+/** The tap after the guard is made this long after `armedAt`. */
+const AFTER_GUARD_MS = 10;
 
-/**
- * Armed before the tap that ends a turn. From that tap's release, taps the spot `at`
- * (and End turn, wherever it is once shown) until a tap after `armedAt` is answered.
- */
-async function pokeAfterTap(page: Page, at: Box): Promise<void> {
-  await page.evaluate((at) => {
-    const w = window as unknown as { __guard?: GuardRun };
-    window.addEventListener(
-      'pointerup',
-      (e) => {
-        const hook = window.__overclock!;
-        const input = hook.lastInput();
-        const clock = hook.endTurn();
-        const run: GuardRun = {
-          madeAt: e.timeStamp,
-          handledAt: input && input.eventAt === e.timeStamp ? input.handledAt : NaN,
-          armedAt: clock.armedAt,
-          flipDueAt: clock.flipDueAt,
-          pokes: [],
-          done: false,
-        };
-        w.__guard = run;
-        const canvas = document.querySelector('canvas')!;
-        const r = canvas.getBoundingClientRect();
-        const hit = (b: Box, sync: boolean): boolean => {
-          const init = { bubbles: true, cancelable: true, pointerId: 11, pointerType: 'mouse', isPrimary: true, button: 0,
-            clientX: r.left + b.x + b.width / 2, clientY: r.top + b.y + b.height / 2 };
-          const before = JSON.stringify(hook.lastEvents());
-          const when = performance.now();
-          canvas.dispatchEvent(new PointerEvent('pointerdown', { ...init, buttons: 1 }));
-          canvas.dispatchEvent(new PointerEvent('pointerup', { ...init, buttons: 0 }));
-          const end = performance.now();
-          const accepted = JSON.stringify(hook.lastEvents()) !== before;
-          run.pokes.push({ at: when, end, sync, accepted });
-          return accepted;
-        };
-        const round = (sync: boolean): boolean => {
-          if (hit(at, sync)) return true;
-          const b = hook.layout().endTurn?.box;
-          return !!b && hit(b, sync);
-        };
-        // Answered after the guard opened (ending at/after armedAt; see Poke.end).
-        const lateAccepted = () => run.pokes.some((p) => p.accepted && p.end >= run.armedAt);
-        round(true);
-        const tick = () => {
-          if (round(false) && lateAccepted()) run.done = true;
-          else if (performance.now() - run.handledAt < 3000) setTimeout(tick, 4);
-          else run.done = true;
-        };
-        setTimeout(tick, 4);
-      },
-      { once: true },
-    );
-  }, at);
+/** Records every tap the page sees from now on. */
+async function recordTaps(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const w = window as unknown as { __seen: Seen[] };
+    w.__seen = [];
+    let before = '';
+    // Capture phase on window: runs before the game sees the press.
+    window.addEventListener('pointerdown', () => (before = JSON.stringify(window.__overclock!.lastEvents())), true);
+    // Bubble phase on window: runs after the game's capture-phase release handler.
+    window.addEventListener('pointerup', (e) => {
+      const hook = window.__overclock!;
+      const input = hook.lastInput();
+      w.__seen.push({
+        ts: e.timeStamp,
+        handled: performance.now(),
+        reached: !!input && input.eventAt === e.timeStamp && input.target === 'button:action',
+        accepted: JSON.stringify(hook.lastEvents()) !== before,
+      });
+    });
+  });
 }
 
-async function guardResult(page: Page): Promise<GuardRun> {
-  await page.waitForFunction(() => (window as unknown as { __guard?: GuardRun }).__guard?.done === true, undefined, { timeout: 10_000 });
-  return page.evaluate(() => (window as unknown as { __guard: GuardRun }).__guard);
+function until(wallMs: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, Math.max(0, wallMs - Date.now() + 1)));
 }
 
 /**
- * Runs `scenario` (sets up the board and returns the spot whose tap ends the turn) on
- * fresh pages until a timed poke lands late in the guard window, checking the guard on
- * every run. Returns the page and run that passed.
+ * `spot` (from the scenario) is where the tap that ends the turn goes. Ends the turn
+ * there, then makes the extra taps on the next seat's End turn (and on `spot` too
+ * where that is elsewhere, as on desktop) and checks the guard.
  */
-async function checkGuard(
-  context: BrowserContext,
-  first: Page,
-  scenario: (page: Page) => Promise<Box>,
-): Promise<{ page: Page; run: GuardRun }> {
-  const tries: unknown[] = [];
-  let page = first;
-  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-    if (attempt > 1) {
-      await page.close();
-      page = await context.newPage();
-    }
-    const spot = await scenario(page);
-    await pokeAfterTap(page, spot);
-    await tap(page, spot);
-    const run = await guardResult(page);
-    const rel = (t: number) => Math.round(t - run.handledAt);
-    const late = run.pokes.filter((p) => !p.sync && p.at - run.handledAt >= LATE_FROM_MS && p.end < run.armedAt);
-    tries.push({ attempt, armedMs: rel(run.armedAt), flipDueMs: rel(run.flipDueAt), late: late.length, pokes: run.pokes.map((p) => [rel(p.at), p.accepted]) });
-    test.info().annotations.push({ type: 'guard', description: JSON.stringify(tries.at(-1)) });
-
-    expect(Number.isFinite(run.handledAt), 'the ending tap reached the game').toBe(true);
-    // Counted from when the ending tap was made (its event time), which is also how
-    // every later tap is judged (sprint-02 guard fix: a tap queued behind a slow frame
-    // is judged by when it was made, not when it was handled).
-    expect(run.armedAt - run.madeAt, 'End turn stays guarded >= 300ms after the ending tap').toBeGreaterThanOrEqual(300);
-    // Never pass with zero taps inside the guard: the synchronous one always is.
-    const early = run.pokes.filter((p) => p.end < run.armedAt);
-    expect(early.some((p) => p.sync), 'a tap landed inside the guard').toBe(true);
-    for (const p of early) expect(p.accepted, `tap ${rel(p.at)}ms after the ending tap (guard until ${rel(run.armedAt)}ms)`).toBe(false);
-    expect(run.pokes.some((p) => p.accepted && p.end >= run.armedAt), 'a tap after the guard is answered').toBe(true);
-    if (late.length > 0) return { page, run };
+async function checkGuard(page: Page, spot: Box): Promise<void> {
+  await recordTaps(page);
+  const t0 = Date.now();
+  await sendTap(page, spot, { madeAt: t0 });
+  // The turn has passed and the next seat's End turn shows (after any discard flight).
+  await page.waitForFunction(
+    () => {
+      const hook = window.__overclock!;
+      return (window as unknown as { __seen: Seen[] }).__seen.length >= 1 && hook.getView().activePlayer === 'corp' && hook.layout().endTurn !== null;
+    },
+    undefined,
+    { polling: 'raf' },
+  );
+  const s = await page.evaluate(() => ({
+    madeAt: (window as unknown as { __seen: Seen[] }).__seen[0]!.ts,
+    clock: window.__overclock!.endTurn(),
+    next: window.__overclock!.layout().endTurn!.box,
+  }));
+  const guardMs = s.clock.armedAt - s.madeAt;
+  // Counted from when the ending tap was made (its event time), which is also how
+  // every later tap is judged.
+  expect(guardMs, 'End turn stays guarded >= 300ms after the ending tap').toBeGreaterThanOrEqual(300);
+  const same = Math.abs(center(spot).x - center(s.next).x) < 1 && Math.abs(center(spot).y - center(s.next).y) < 1;
+  // What is tapped, in order: per in-window time, `spot` (if elsewhere) then End turn; then End turn after the guard.
+  const plan: { ms: number; onEndTurn: boolean }[] = [
+    ...IN_WINDOW_MS.flatMap((ms) => [...(same ? [] : [{ ms, onEndTurn: false }]), { ms, onEndTurn: true }]),
+    { ms: guardMs + AFTER_GUARD_MS, onEndTurn: true },
+  ];
+  for (const { ms, onEndTurn } of plan) {
+    // Sent once real time has passed the stamp; the last in-window time only once the guard has opened.
+    await until(t0 + (ms === IN_WINDOW_MS.at(-1) ? guardMs + 5 : ms));
+    await sendTap(page, onEndTurn ? s.next : spot, { madeAt: t0 + ms });
   }
-  throw new Error(`no timed tap landed in [${LATE_FROM_MS}ms, armedAt) in ${MAX_ATTEMPTS} runs: ${JSON.stringify(tries)}`);
+  await waitIdle(page);
+
+  const seen = await page.evaluate(() => (window as unknown as { __seen: Seen[] }).__seen);
+  const rel = (t: number) => Math.round((t - s.madeAt) * 10) / 10;
+  test.info().annotations.push({
+    type: 'guard',
+    description: JSON.stringify({
+      armedMs: rel(s.clock.armedAt),
+      flipDueMs: rel(s.clock.flipDueAt),
+      taps: seen.slice(1).map((p) => [rel(p.ts), rel(p.handled), p.reached, p.accepted]),
+    }),
+  });
+
+  const ending = seen[0]!;
+  const taps = seen.slice(1);
+  expect(ending.accepted, 'the ending tap ended the turn').toBe(true);
+  expect(taps.length, 'every extra tap reached the page').toBe(plan.length);
+  // Chrome made each tap when we said (within 2ms), so the windows below are what was asked for.
+  taps.forEach((p, i) => expect(Math.abs(rel(p.ts) - plan[i]!.ms), `tap ${i + 1} made ${plan[i]!.ms}ms after the ending tap`).toBeLessThanOrEqual(2));
+
+  const early = taps.filter((p) => p.ts < s.clock.armedAt);
+  expect(early.length, 'taps made inside the guard').toBe(plan.length - 1);
+  for (const p of early) expect(p.accepted, `tap made ${rel(p.ts)}ms after the ending tap (guard until ${rel(s.clock.armedAt)}ms)`).toBe(false);
+  // The guard, not a hidden button, refused them: each one aimed at End turn reached it.
+  taps.forEach((p, i) => {
+    if (plan[i]!.onEndTurn) expect(p.reached, `tap made ${rel(p.ts)}ms after the ending tap reached End turn`).toBe(true);
+  });
+  expect(early.filter((p) => p.reached && p.ts - s.madeAt >= LATE_FROM_MS).length, `End turn taps made in [${LATE_FROM_MS}ms, armedAt)`).toBeGreaterThanOrEqual(1);
+  expect(early.some((p) => p.reached && p.handled >= s.clock.armedAt), 'a tap made inside the guard was handled after it opened').toBe(true);
+
+  const after = taps.at(-1)!;
+  expect(after.ts, 'the last tap was made after the guard').toBeGreaterThanOrEqual(s.clock.armedAt);
+  expect(after.reached && after.accepted, 'a tap after the guard is answered').toBe(true);
 }
 
 test.describe('QA round 2: End turn double-tap guard', () => {
-  test('extra End turn taps in the 300ms after ending a turn do nothing (no discard)', async ({ page: first, context }) => {
-    const { page } = await checkGuard(context, first, async (page) => {
-      await openBoard(page);
-      await toRunnerTurn(page);
-      await waitEndTurnArmed(page);
-      return (await layout(page)).endTurn!.box;
-    });
-    await waitIdle(page);
+  test('extra End turn taps in the 300ms after ending a turn do nothing (no discard)', async ({ page }) => {
+    await openBoard(page);
+    await toRunnerTurn(page);
+    await waitEndTurnArmed(page);
+    await checkGuard(page, (await layout(page)).endTurn!.box);
     const v = await getView(page);
     // Only one turn ended: the tap after the guard was the Corp's End turn, which opens
     // its hand-limit step (6 cards), not a turn end.
@@ -429,18 +419,15 @@ test.describe('QA round 2: End turn double-tap guard', () => {
     expect(v.pendingDiscard).toBe(1);
   });
 
-  test('after a 4-card discard, extra taps on the Confirm / End turn spot in the next 300ms do nothing', async ({ page: first, context }) => {
-    const { page } = await checkGuard(context, first, async (page) => {
-      await openBoard(page);
-      await toRunnerTurn(page);
-      for (let i = 0; i < 4; i++) await dispatch(page, { type: 'draw', player: 'runner' });
-      await dispatch(page, { type: 'end_turn', player: 'runner' });
-      let l = await waitIdle(page);
-      for (const i of [0, 1, 2, 3]) await tap(page, l.hand[i]!.box);
-      l = await layout(page);
-      return l.picker!.confirm.box;
-    });
-    await waitIdle(page);
+  test('after a 4-card discard, extra taps on the Confirm / End turn spot in the next 300ms do nothing', async ({ page }) => {
+    await openBoard(page);
+    await toRunnerTurn(page);
+    for (let i = 0; i < 4; i++) await dispatch(page, { type: 'draw', player: 'runner' });
+    await dispatch(page, { type: 'end_turn', player: 'runner' });
+    let l = await waitIdle(page);
+    for (const i of [0, 1, 2, 3]) await tap(page, l.hand[i]!.box);
+    l = await layout(page);
+    await checkGuard(page, l.picker!.confirm.box);
     const v = await getView(page);
     expect(v.activePlayer).toBe('corp');
     expect(v.turn).toBe(3);
