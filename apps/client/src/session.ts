@@ -1,31 +1,34 @@
-// Local game session: owns the engine state for this browser tab and exposes
-// only the Runner's view. All rules live in @overclock/engine.
-import { type Action, type GameEvent, type GameState, type PlayerView, type Side, apply, newGame, viewEvents, viewFor } from '@overclock/engine';
+// Interim bridge (Sprint 1, engine-dev): keeps the Sprint 0 Session API that
+// main.ts uses, backed by the LocalMatch host. ui-dev replaces this with the
+// hot-seat flow from the Sprint 1 tech plan. All rules live in the engine.
+import type { Action, GameEvent, PlayerView, Side } from '@overclock/engine';
+import { LocalMatch } from '@overclock/match';
 
 export class Session {
-  private state: GameState;
+  private readonly match: LocalMatch;
   private events: GameEvent[] = [];
 
-  constructor(
-    seed: number,
-    readonly viewer: Side = 'runner',
-  ) {
-    this.state = newGame(seed);
+  constructor(seed: number) {
+    this.match = new LocalMatch(seed);
+  }
+
+  /** Hot-seat: the seat whose turn it is. */
+  get viewer(): Side {
+    return this.match.view('corp').activePlayer;
   }
 
   view(): PlayerView {
-    return viewFor(this.viewer, this.state);
+    return this.match.view(this.viewer);
   }
 
   lastEvents(): GameEvent[] {
     return this.events.slice();
   }
 
-  /** Sends an action to the engine; returns the events as the viewer may see them. */
+  /** Submits as seat `action.player`; returns the events as that seat may see them. */
   dispatch(action: Action): GameEvent[] {
-    const result = apply(this.state, action);
-    this.state = result.state;
-    this.events = viewEvents(this.viewer, result.events);
+    const update = this.match.submit(action.player, action);
+    this.events = update[action.player].events;
     return this.events.slice();
   }
 }

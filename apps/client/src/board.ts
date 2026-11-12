@@ -18,6 +18,9 @@ const HINTS: Record<RejectReason, string> = {
   deck_empty: 'Your deck is empty',
   not_your_turn: 'Not your turn',
   invalid_action: "Can't do that",
+  game_over: 'The game is over',
+  wrong_phase: 'Finish discarding first',
+  bad_discard: 'Pick the right number of cards',
 };
 
 function toBox(c: Container): Box {
