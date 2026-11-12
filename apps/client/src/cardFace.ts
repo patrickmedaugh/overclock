@@ -134,6 +134,9 @@ export function createCardBack(side: Side, w: number, h: number): Container {
   });
   mono.anchor.set(0.5);
   c.addChild(mono);
+  // Static art: draw it once into a texture so each frame is one sprite, not
+  // dozens of translucent vector strokes (big win on low-end / software GPUs).
+  c.cacheAsTexture(true);
   return c;
 }
 
@@ -285,5 +288,8 @@ export function createCardFace(card: CardDef, w: number, h: number, detail: 'sma
       c.addChild(st);
     }
   }
+  // Static art: draw it once into a texture so each frame is one sprite, not
+  // dozens of translucent vector strokes (big win on low-end / software GPUs).
+  c.cacheAsTexture(true);
   return c;
 }

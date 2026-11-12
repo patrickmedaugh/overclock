@@ -91,15 +91,20 @@ export class Tweens {
     this.running = this.running.filter((r) => r.target !== target);
   }
 
-  /** Advances all tweens by dt milliseconds. */
-  tick(dt: number): void {
-    if (this.running.length === 0) return;
+  /**
+   * Advances all tweens by dt milliseconds. Returns true if anything moved
+   * (a tween waiting out its delay changes nothing, so needs no redraw).
+   */
+  tick(dt: number): boolean {
+    if (this.running.length === 0) return false;
     this.running = this.running.filter((r) => !dead(r));
     const done: Running[] = [];
+    let changed = false;
     for (const r of this.running) {
       r.elapsed += dt;
       const local = r.elapsed - r.delay;
       if (local < 0) continue;
+      changed = true;
       if (!r.started) this.start(r);
       const t = r.duration === 0 ? 1 : Math.min(1, local / r.duration);
       this.applyAt(r, t);
@@ -109,6 +114,7 @@ export class Tweens {
       this.running = this.running.filter((r) => !done.includes(r));
       for (const r of done) if (!dead(r)) r.onComplete?.();
     }
+    return changed;
   }
 
   /** Snaps every running tween to its end state and fires completions. */

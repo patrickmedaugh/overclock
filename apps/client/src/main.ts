@@ -42,7 +42,7 @@ async function start(): Promise<void> {
     if (records.length > 200) records.splice(0, records.length - 200);
   };
 
-  // Render on demand: only while something animates or after a change.
+  // Render on demand: only while something moves or after a change.
   // Idle boards cost no GPU time (battery on phones, CPU in CI).
   let dirty = true;
   const invalidate = () => {
@@ -71,10 +71,11 @@ async function start(): Promise<void> {
   // time, up to 250ms, so animations finish on wall-clock budget.
   app.ticker.minFPS = 4;
   app.ticker.add((t) => {
-    const animating = fx.active || ui.active;
-    fx.tick(t.deltaMS);
-    ui.tick(t.deltaMS);
-    if (dirty || animating) {
+    // Only frames where a tween actually moved something are drawn: a hint
+    // sitting on screen (waiting for its fade-out) costs no GPU time.
+    const fxMoved = fx.tick(t.deltaMS);
+    const uiMoved = ui.tick(t.deltaMS);
+    if (dirty || fxMoved || uiMoved) {
       dirty = false;
       app.render();
     }

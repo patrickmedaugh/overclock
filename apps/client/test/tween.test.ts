@@ -77,3 +77,16 @@ describe('Tweens owner and after()', () => {
     expect(tw.active).toBe(false);
   });
 });
+
+describe('Tweens.tick reports movement', () => {
+  it('returns false while a tween only waits out its delay, true once it moves', () => {
+    const tw = new Tweens();
+    const o = { a: 1 };
+    tw.add({ target: o, to: { a: 0 }, delay: 1000, duration: 200 });
+    expect(tw.tick(500)).toBe(false);
+    expect(tw.active).toBe(true);
+    expect(tw.tick(600)).toBe(true);
+    expect(tw.tick(200)).toBe(true);
+    expect(tw.tick(16)).toBe(false);
+  });
+});
