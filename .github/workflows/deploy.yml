@@ -9,6 +9,9 @@ name: deploy
 on:
   push:
     branches: [main, 'sprint-*']
+    # Docs-only pushes (e.g. STATE.md updates on main) don't redeploy, so they
+    # can't replace a sprint branch's demo build at the shared link.
+    paths-ignore: ['docs/**']
   workflow_dispatch:
 
 permissions:
