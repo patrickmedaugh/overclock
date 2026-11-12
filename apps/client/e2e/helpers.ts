@@ -1,8 +1,21 @@
 import { type Page, expect, test } from '@playwright/test';
 import type { Action, GameEvent, PlayerView } from '@overclock/engine';
-import type { AnimRecord, Box, Insets, LayoutSnapshot } from '../src/hook-types';
+import type { AnimRecord, Box, EndTurnClock, InputStamp, Insets, LayoutSnapshot } from '../src/hook-types';
 
-export type { AnimRecord, Box, Insets, LayoutSnapshot };
+export type { AnimRecord, Box, EndTurnClock, InputStamp, Insets, LayoutSnapshot };
+
+/**
+ * `E2E_CPU_THROTTLE=6` slows the page's CPU 6x (Chrome DevTools
+ * `Emulation.setCPUThrottlingRate`) to prove the timing tests hold on a slow
+ * runner. Applied to every page `openBoard` opens.
+ */
+const CPU_THROTTLE = Number(process.env.E2E_CPU_THROTTLE ?? '1');
+
+async function throttle(page: Page): Promise<void> {
+  if (!(CPU_THROTTLE > 1)) return;
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send('Emulation.setCPUThrottlingRate', { rate: CPU_THROTTLE });
+}
 
 export interface OpenOptions {
   seed?: number;
@@ -24,6 +37,7 @@ export async function openBoard(page: Page, opts: OpenOptions | number = {}): Pr
       });
     }, `#safe-probe { padding: ${i.top}px ${i.right}px ${i.bottom}px ${i.left}px !important; }`);
   }
+  await throttle(page);
   await page.goto(`./?seed=${o.seed ?? 1}`);
   await page.waitForFunction(() => document.body.dataset.ready === 'true' && !!window.__overclock);
 }
@@ -73,23 +87,32 @@ export function center(b: Box): { x: number; y: number } {
   return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
 }
 
-function isTouch(page: Page): boolean {
-  return (page.viewportSize()?.width ?? 1000) < 600;
+/** Touch input when the Playwright project emulates a touch screen (phones), else the mouse. */
+function isTouch(): boolean {
+  return test.info().project.use.hasTouch === true;
 }
 
-/** A real tap: touchscreen on the phone project, mouse click on desktop. */
+/** A real tap: touchscreen on the phone projects, mouse click on desktop. */
 export async function tap(page: Page, b: Box): Promise<void> {
   const { x, y } = center(b);
-  if (isTouch(page)) await page.touchscreen.tap(x, y);
+  if (isTouch()) await page.touchscreen.tap(x, y);
   else await page.mouse.click(x, y);
+}
+
+export function endTurnClock(page: Page): Promise<EndTurnClock> {
+  return page.evaluate(() => window.__overclock!.endTurn());
 }
 
 /** What the page saw at the release of a measured tap. */
 export interface TapMeasure {
   /** pointerup event timestamp (includes any input queueing delay). */
   tapAt: number;
+  /** When the game's input handler started on this release (budgets count from here). */
+  handledAt: number;
   /** When the game state was read, right after the game handled the release. */
   stateAt: number;
+  /** The End turn clock right after the tap. */
+  clock: EndTurnClock;
   /** The bottom seat's view at that moment. */
   view: PlayerView;
   events: GameEvent[];
@@ -111,7 +134,17 @@ export async function measureTap(page: Page, b: Box): Promise<TapMeasure> {
       'pointerup',
       (e) => {
         const hook = window.__overclock!;
-        w.__m = { tapAt: e.timeStamp, stateAt: performance.now(), view: hook.getView(), events: hook.lastEvents() };
+        const stateAt = performance.now();
+        const input = hook.lastInput();
+        w.__m = {
+          tapAt: e.timeStamp,
+          // NaN: this release never reached a game target (fails expectSnappy).
+          handledAt: input && input.eventAt === e.timeStamp ? input.handledAt : NaN,
+          stateAt,
+          clock: hook.endTurn(),
+          view: hook.getView(),
+          events: hook.lastEvents(),
+        };
       },
       { once: true },
     );
@@ -123,22 +156,29 @@ export async function measureTap(page: Page, b: Box): Promise<TapMeasure> {
 }
 
 /**
- * The snappiness budget for one tap: state changed < 100ms after the
- * release, every animation it caused started < 100ms after it and is
- * scheduled for <= 600ms. Wall-clock landing is only an annotation (GPU-less
- * CI runners add render latency that is not the game's budget).
+ * The snappiness budget for one tap: state changed < 100ms after the game
+ * started handling the release (`handledAt`), every animation it caused
+ * started < 100ms after that and is scheduled for <= 600ms. The browser's
+ * input-queue delay (`handledAt - tapAt`: the page was busy drawing a frame
+ * when the release came in) and wall-clock landing are annotations only
+ * (GPU-less CI runners add render latency that is not the game's budget).
  */
 export function expectSnappy(m: TapMeasure, kinds: AnimRecord['kind'][]): void {
   test.info().annotations.push({
     type: 'timing',
-    description: JSON.stringify({ stateMs: m.stateAt - m.tapAt, anims: m.anims.map((a) => ({ kind: a.kind, startMs: a.startedAt - m.tapAt, scheduledMs: a.scheduledMs })) }),
+    description: JSON.stringify({
+      queueMs: m.handledAt - m.tapAt,
+      stateMs: m.stateAt - m.handledAt,
+      anims: m.anims.map((a) => ({ kind: a.kind, startMs: a.startedAt - m.handledAt, scheduledMs: a.scheduledMs })),
+    }),
   });
-  expect(m.stateAt - m.tapAt, 'state updated within 100ms of the tap').toBeLessThan(100);
+  expect(Number.isFinite(m.handledAt), 'the tap reached a game target').toBe(true);
+  expect(m.stateAt - m.handledAt, 'state updated within 100ms of the tap').toBeLessThan(100);
   for (const kind of kinds) {
     const recs = m.anims.filter((a) => a.kind === kind);
     expect(recs.length, `${kind} animation started`).toBeGreaterThan(0);
     for (const r of recs) {
-      expect(r.startedAt - m.tapAt, `${kind} started within 100ms of the tap`).toBeLessThan(100);
+      expect(r.startedAt - m.handledAt, `${kind} started within 100ms of the tap`).toBeLessThan(100);
       expect(r.scheduledMs, `${kind} scheduled within the 600ms budget`).toBeLessThanOrEqual(600);
     }
   }
@@ -150,7 +190,7 @@ export function expectSnappy(m: TapMeasure, kinds: AnimRecord['kind'][]): void {
  */
 export async function pressAndHold(page: Page, b: Box): Promise<() => Promise<void>> {
   const { x, y } = center(b);
-  if (isTouch(page)) {
+  if (isTouch()) {
     const cdp = await page.context().newCDPSession(page);
     await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
     return async () => {

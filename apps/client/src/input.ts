@@ -1,7 +1,19 @@
 // Pointer gestures on Pixi display objects: press feedback, tap, long-press.
 // Works for mouse and touch (Pixi normalizes both to pointer events).
 import type { Container, FederatedPointerEvent } from 'pixi.js';
+import type { InputStamp } from './hook-types';
 import { timing } from './theme';
+
+let last: InputStamp | null = null;
+
+/**
+ * The most recent pointer release that reached a pressable target: the DOM
+ * event's timestamp and when our handler started running (both
+ * performance.now() clock). The gap is browser input queueing, not game time.
+ */
+export function lastInput(): InputStamp | null {
+  return last ? { ...last } : null;
+}
 
 export interface PressHandlers {
   /** Fires immediately on pointer down (visual feedback; <100ms budget). */
@@ -74,6 +86,9 @@ export function attachPress(target: Container, handlers: PressHandlers, opts: Pr
     if (Math.hypot(e.global.x - startX, e.global.y - startY) > tolerance) clearTimer();
   };
   const onUp = (e: FederatedPointerEvent) => {
+    const handledAt = performance.now();
+    const native: unknown = e.nativeEvent;
+    last = { eventAt: native instanceof Event ? native.timeStamp : e.timeStamp, handledAt };
     if (pointerId === e.pointerId) end(true);
   };
   const onUpOutside = (e: FederatedPointerEvent) => {

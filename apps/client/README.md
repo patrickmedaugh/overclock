@@ -17,7 +17,7 @@ flying to the pile) play first, then the board fades in for the new seat.
 | `npm run build` | Production build to `apps/client/dist` (base path `/overclock/` for GitHub Pages) |
 | `npm run preview -w @overclock/client` | Serves the build at http://localhost:4173/overclock/ |
 | `npm test -w @overclock/client` | Vitest unit tests (layout math incl. safe areas, tweens, hot-seat) |
-| `npm run test:e2e` | Playwright: builds, previews, runs `e2e/` on `phone` (390x844 touch) and `desktop` (1280x800) |
+| `npm run test:e2e` | Playwright: builds, previews, runs `e2e/` on `phone` (844x390 touch), `phone-small` (640x360 touch) and `desktop` (1280x800); `portrait` (390x844 touch) runs only `rotate.spec.ts`. Temporary until the landscape layout (U2): `board`/`safe-area` specs run in `portrait-legacy` (390x844 mouse) instead of the phone sizes. `E2E_PORT=4391` picks another port when 4173 is taken. |
 
 Add `?seed=123` to the URL to get the same deal every time.
 
@@ -36,16 +36,25 @@ Add `?seed=123` to the URL to get the same deal every time.
 
 ## Test hook
 
-`window.__overclock = { getView(), dispatch(action), lastEvents(), layout(), anims(), clearAnims() }`.
+`window.__overclock = { getView(), dispatch(action), lastEvents(), layout(), anims(), clearAnims(), lastInput(), endTurn() }`.
 
 - `dispatch(action)` submits as seat `action.player`; `getView()` is the bottom (active) seat's view.
 - `layout()` returns CSS-pixel boxes for each side's deck/credits/clicks/discard/label (keyed `corp`/`runner` wherever they are drawn), `viewer`, `safeArea` insets, hand cards (with `marked`), `endTurn`, `picker`, `gameOver`, hint, zoom, the on-screen texts and an `animating` flag.
 - `anims()` lists `{kind, startedAt, scheduledMs, text?, box?}` for every animation or hint when it *starts* (`draw_flight`, `credit_pop`, `discard_flight`, `turn_change`, `hint`). Specs assert the tap budget from these (start < 100ms after the tap, scheduled <= 600ms) and read hints from them instead of polling a 1.1s on-screen state.
 
+- `lastInput()` is `{eventAt, handledAt}` for the last pointer release a game target handled: the DOM event's timestamp and when `src/input.ts` started on it. Tap budgets (state and animation start < 100ms) count from `handledAt`; `handledAt - eventAt` is the browser's input-queue delay (the page was busy drawing a frame), recorded as an annotation only.
+- `endTurn()` is the game's own End turn clock: `armedAt` (End turn ignores taps before it: the double-tap guard, 300ms after the tap that ended the last turn) and `flipDueAt` (when the last turn change's board flip is scheduled, after any discard flight). Turn-change budgets are checked on these, not on wall-clock frames.
+
 Always on for now; it will move behind a build flag later.
+
+## Timing tests on a slow CPU
+
+`E2E_CPU_THROTTLE=6 npx playwright test e2e/turn.spec.ts e2e/qa-sprint01.spec.ts --repeat-each=10`
+slows the page's CPU 6x (Chrome DevTools `Emulation.setCPUThrottlingRate`, applied by `openBoard`) to check the timing tests hold on a slow runner. Budgets are never widened for it.
 
 ## Phones: safe areas, full screen, CSP
 
+- Phones are played sideways. The manifest asks for `orientation: landscape`; an upright phone (CSS: `orientation: portrait` and `pointer: coarse` and width < 600px) shows the `#rotate` "Turn your phone sideways" overlay from `index.html` over the still-running game, so turning it back shows the same board. Tablets and desktop windows never see it.
 - Everything except the backdrop is laid out inside the safe area (no counter, button or card under a notch or gesture bar). Specs simulate notched phones by overriding `#safe-probe`'s padding.
 - `public/manifest.webmanifest` (`display: standalone`) and the iOS `apple-mobile-web-app-*` tags make a home-screen launch full-screen. All paths are relative, so the build works at `/overclock/` (GitHub Pages) and `/` (Netlify, `BASE_PATH=/`).
 - Production builds carry a strict Content-Security-Policy meta tag (no `unsafe-eval`; see `vite.config.ts`), so every e2e run executes under it.

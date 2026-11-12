@@ -81,6 +81,22 @@ export interface AnimRecord {
   box?: Box;
 }
 
+/** Timestamps (performance.now() clock) of the last pointer release handled by a target. */
+export interface InputStamp {
+  /** The DOM event's timeStamp (when the browser saw the release). */
+  eventAt: number;
+  /** When the game's input handler started on it; budgets count from here. */
+  handledAt: number;
+}
+
+/** The game's own End turn clock (performance.now() timestamps; 0 before the first turn change). */
+export interface EndTurnClock {
+  /** End turn ignores taps before this (double-tap guard). */
+  armedAt: number;
+  /** When the last turn change's board flip is scheduled (after any discard flight). */
+  flipDueAt: number;
+}
+
 export interface OverclockTestHook {
   /** The bottom seat's view. */
   getView(): PlayerView;
@@ -90,6 +106,9 @@ export interface OverclockTestHook {
   layout(): LayoutSnapshot;
   anims(): AnimRecord[];
   clearAnims(): void;
+  /** The last pointer release a game target handled (null before the first). */
+  lastInput(): InputStamp | null;
+  endTurn(): EndTurnClock;
 }
 
 declare global {

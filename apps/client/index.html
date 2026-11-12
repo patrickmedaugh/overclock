@@ -35,12 +35,49 @@
         padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px)
           env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
       }
+      /* Phones are played sideways. An upright phone (portrait, touch, short
+         side under 600px) gets this prompt over the game, which keeps running
+         underneath: rotating back shows the same board. Tablets and desktop
+         windows never see it. Pure CSS, so it reacts the instant the phone turns. */
+      #rotate {
+        display: none; position: fixed; inset: 0; z-index: 10;
+        flex-direction: column; align-items: center; justify-content: center; gap: 28px;
+        background: radial-gradient(circle at 50% 40%, #120a1f 0%, #07060d 70%);
+        color: #e8f6ff; text-align: center;
+        font: 700 20px "Segoe UI", Roboto, "Helvetica Neue", Arial, system-ui, sans-serif; letter-spacing: 1px;
+        padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px)
+          env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
+      }
+      #rotate p { margin: 0 24px; }
+      #rotate .phone {
+        width: 46px; height: 80px; border: 3px solid #19e6ff; border-radius: 9px; position: relative;
+        box-shadow: 0 0 14px rgba(25, 230, 255, 0.55), inset 0 0 10px rgba(25, 230, 255, 0.25);
+        animation: rotate-hint 1.8s ease-in-out infinite;
+      }
+      #rotate .phone::after {
+        content: ''; position: absolute; left: 50%; bottom: 6px; width: 12px; height: 3px;
+        margin-left: -6px; border-radius: 2px; background: #ff2bd6;
+      }
+      @keyframes rotate-hint {
+        0%, 20% { transform: rotate(0deg); }
+        55%, 100% { transform: rotate(-90deg); }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #rotate .phone { animation: none; transform: rotate(-90deg); }
+      }
+      @media (orientation: portrait) and (pointer: coarse) and (max-width: 599.98px) {
+        #rotate { display: flex; }
+      }
     </style>
   </head>
   <body>
     <div id="safe-probe" aria-hidden="true"></div>
     <div id="boot">BOOTING…</div>
     <div id="app"></div>
+    <div id="rotate" role="alert">
+      <div class="phone" aria-hidden="true"></div>
+      <p>Turn your phone sideways</p>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
