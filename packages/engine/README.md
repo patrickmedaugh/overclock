@@ -99,7 +99,8 @@ class LocalMatch {
   /** seat must equal action.player, otherwise invalid_action (state unchanged).
    *  Rejections go to the submitting seat only; the other seat gets events: []. */
   submit(seat: Side, action: Action): MatchUpdate;
-  actions(): readonly Action[];   // every submitted action, for replay(seed, actions)
+  actions(): readonly Action[];   // every submitted action that reached the engine (not seat
+                                  // mismatches), as JSON copies, for replay(seed, actions)
 }
 ```
 The client and AI may import only the public index of engine/cards/match. The client may not import `apply`, `newGame`, `legalActions`, `viewFor` or `replay` (it goes through the match).
