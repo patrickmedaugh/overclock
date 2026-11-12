@@ -377,6 +377,7 @@ export class Board {
         cardId: v.cardId,
         faceUp: v.faceUp,
         box: c ? centeredBox(c.root, ice ? u.height : u.width, ice ? u.width : u.height) : zero,
+        counter: c && c.badge.visible ? c.badgeText.text : null,
       };
     };
     const corp = this.seatOf('corp');

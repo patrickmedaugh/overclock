@@ -35,6 +35,8 @@ export interface InstalledSnapshot {
   faceUp: boolean;
   /** Drawn bounds (ICE: sideways, wider than tall). */
   box: Box;
+  /** The advancement counter drawn on it ("2"), or null when none is shown. */
+  counter: string | null;
 }
 
 export interface ServerSnapshot {
