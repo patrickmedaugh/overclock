@@ -48,3 +48,32 @@ describe('Tweens', () => {
     expect(done).toBe(0);
   });
 });
+
+describe('Tweens owner and after()', () => {
+  it('drops tweens whose owner was destroyed, without completing them', () => {
+    const tw = new Tweens();
+    const owner = { destroyed: false };
+    const o = { x: 0 };
+    let done = false;
+    tw.add({ target: o, to: { x: 10 }, duration: 100, owner, onComplete: () => (done = true) });
+    tw.tick(10);
+    owner.destroyed = true;
+    tw.tick(200);
+    expect(done).toBe(false);
+    expect(tw.active).toBe(false);
+  });
+
+  it('after() runs a step later, or at once on finishAll (tap to skip), including chained steps', () => {
+    const tw = new Tweens();
+    const order: string[] = [];
+    tw.after(250, () => {
+      order.push('a');
+      tw.after(200, () => order.push('b'));
+    });
+    tw.tick(100);
+    expect(order).toEqual([]);
+    tw.finishAll();
+    expect(order).toEqual(['a', 'b']);
+    expect(tw.active).toBe(false);
+  });
+});

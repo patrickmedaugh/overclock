@@ -49,7 +49,8 @@ export function attachPress(target: Container, handlers: PressHandlers, opts: Pr
     } else if (fireTap) {
       handlers.onTap?.();
     }
-    handlers.onRelease?.();
+    // The tap may have rebuilt the board (turn change) and destroyed us.
+    if (!target.destroyed) handlers.onRelease?.();
   };
 
   const onDown = (e: FederatedPointerEvent) => {

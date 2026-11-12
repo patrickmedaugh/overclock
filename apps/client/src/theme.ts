@@ -36,6 +36,19 @@ export const timing = {
   zoomIn: 120,
   zoomOut: 90,
   longPress: 350,
+  hintIn: 120,
   hintVisible: 1100,
   hintFade: 200,
+  creditPop: 200,
+  creditFloat: 300,
+  /** Hand-limit discards fly to the pile; each extra card starts this much later. */
+  discardFlight: 250,
+  discardStagger: 15,
+  /** The board fades in for the new seat after a turn change. */
+  flip: 200,
+  /** The new turn's draw starts this far into the flip. */
+  drawAfterFlip: 100,
+  gameOverIn: 250,
+  /** End turn ignores taps this long after a new turn is shown (stops a double tap ending two turns). */
+  endTurnGuard: 300,
 } as const;
