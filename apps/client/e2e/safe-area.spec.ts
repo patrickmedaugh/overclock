@@ -5,10 +5,23 @@ import { expect, test } from '@playwright/test';
 import type { Insets } from './helpers';
 import { dispatch, expectCleanLayout, layout, openBoard, playUntilGameOver, toRunnerTurn, waitIdle } from './helpers';
 
+// Sideways phones (S-02-6): the notch is on the left or the right, the swipe
+// bar at the bottom. The upright shapes stay for desktop/tablet windows.
 const SHAPES: [string, Partial<Insets>][] = [
-  ['iPhone notch + home bar', { top: 47, bottom: 34 }],
-  ['Android status bar + gesture bar', { top: 24, bottom: 48 }],
+  // Upright shapes (@upright: not run on the sideways phone projects, see playwright.config.ts).
+  ['iPhone notch + home bar @upright', { top: 47, bottom: 34 }],
+  ['Android status bar + gesture bar @upright', { top: 24, bottom: 48 }],
+  ['sideways Android, status bar + gesture bar', { top: 24, bottom: 20 }],
+  ['sideways, notch on the left + swipe bar', { left: 47, bottom: 21 }],
+  ['sideways, notch on the right + swipe bar', { right: 47, bottom: 21 }],
+  ['sideways iPhone, both sides + home bar', { left: 47, right: 47, bottom: 21 }],
 ];
+
+/** The small phone: sideways on the phone projects and for sideways shapes; a 360x640 window for upright shapes on desktop. */
+function smallPhone(insets: Partial<Insets>): { width: number; height: number } {
+  const upright = (insets.top ?? 0) + (insets.bottom ?? 0) > 50;
+  return test.info().project.use.hasTouch || !upright ? { width: 640, height: 360 } : { width: 360, height: 640 };
+}
 
 for (const [name, insets] of SHAPES) {
   test.describe(`S-01-6 safe area: ${name}`, () => {
@@ -38,11 +51,12 @@ for (const [name, insets] of SHAPES) {
       expectCleanLayout(over);
     });
 
-    test('a small 360x640 phone still fits everything inside the safe area', async ({ page }) => {
-      await page.setViewportSize({ width: 360, height: 640 });
+    test('a small phone (640x360 sideways; 360x640 window on desktop) still fits everything inside the safe area', async ({ page }) => {
+      const size = smallPhone(insets);
+      await page.setViewportSize(size);
       await openBoard(page, { insets });
       const l = await layout(page);
-      expect(l.viewport).toEqual({ width: 360, height: 640 });
+      expect(l.viewport).toEqual(size);
       expectCleanLayout(l);
       for (const b of [l.corp.deck, l.corp.credits, l.endTurn!.box]) {
         expect(b.width).toBeGreaterThanOrEqual(44);

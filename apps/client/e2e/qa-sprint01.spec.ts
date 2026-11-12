@@ -89,9 +89,13 @@ test.describe('QA S-01-5 discard flight', () => {
   });
 });
 
-const SHAPES: [string, { top: number; bottom: number }][] = [
-  ['iPhone notch + home bar', { top: 47, bottom: 34 }],
-  ['Android status bar + gesture bar', { top: 24, bottom: 48 }],
+const SHAPES: [string, { top: number; bottom: number; left: number; right: number }][] = [
+  // @upright: not run on the sideways phone projects (see playwright.config.ts).
+  ['iPhone notch + home bar @upright', { top: 47, bottom: 34, left: 0, right: 0 }],
+  ['Android status bar + gesture bar @upright', { top: 24, bottom: 48, left: 0, right: 0 }],
+  // Sideways phones (S-02-6): notch on the left, then on the right, swipe bar at the bottom.
+  ['sideways, notch left + swipe bar', { top: 0, bottom: 21, left: 47, right: 0 }],
+  ['sideways, notch right + swipe bar', { top: 0, bottom: 21, left: 0, right: 47 }],
 ];
 
 for (const [name, insets] of SHAPES) {
@@ -102,7 +106,9 @@ for (const [name, insets] of SHAPES) {
       const bands: Box[] = [
         { x: 0, y: 0, width: vp.width, height: insets.top },
         { x: 0, y: vp.height - insets.bottom, width: vp.width, height: insets.bottom },
-      ];
+        { x: 0, y: 0, width: insets.left, height: vp.height },
+        { x: vp.width - insets.right, y: 0, width: insets.right, height: vp.height },
+      ].filter((b) => b.width > 0 && b.height > 0);
       // Board, then the hand-limit picker with a full hand.
       for (const step of ['board', 'picker'] as const) {
         if (step === 'picker') {

@@ -81,7 +81,7 @@ test.describe('board layout', () => {
     expectCleanLayout(picking);
   });
 
-  test('re-lays out when the window is resized (incl. a small 360x640 phone)', async ({ page }) => {
+  test('re-lays out when the window is resized (incl. a small phone)', async ({ page }) => {
     // Resizes retire baked card textures: a texture freed while still in use
     // would throw on a later render, so collect page errors.
     const errors: string[] = [];
@@ -89,7 +89,11 @@ test.describe('board layout', () => {
     await openBoard(page);
     const handBefore = (await getView(page)).players.corp.handCount;
     const before = page.viewportSize()!;
-    for (const size of [{ width: 360, height: 640 }, { width: 1024, height: 700 }, before]) {
+    // Touch projects are phones held sideways: resize between sideways sizes.
+    const sizes = test.info().project.use.hasTouch
+      ? [{ width: 640, height: 360 }, { width: 740, height: 360 }, before]
+      : [{ width: 360, height: 640 }, { width: 1024, height: 700 }, before];
+    for (const size of sizes) {
       await page.setViewportSize(size);
       await page.waitForFunction(
         ([w, h]) => {
