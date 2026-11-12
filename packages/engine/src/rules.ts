@@ -133,8 +133,19 @@ const memoryFree = (s: GameState, a: ActionOf<'install'>): RejectReason | null =
 const canAffordInstall = (s: GameState, a: ActionOf<'install'>): RejectReason | null =>
   s.players[a.player].credits >= installCost(s, a) ? null : 'no_credits';
 
-/** Placeholder until play lands (Sprint 2 E5). */
-const notBuiltYet = (): RejectReason | null => 'bad_card';
+/** Only your own operations (Corp) and events (Runner) can be played. */
+const playableCard = (s: GameState, a: ActionOf<'play'>): RejectReason | null => {
+  const card = handCard(s, a);
+  const type = a.player === 'corp' ? 'operation' : 'event';
+  return card && card.side === a.player && card.type === type ? null : 'bad_card';
+};
+
+/** Cards that need runs can't be played until runs are built. */
+const notNeedingRuns = (s: GameState, a: ActionOf<'play'>): RejectReason | null =>
+  handCard(s, a)?.needs === 'runs' ? 'needs_runs' : null;
+
+const canAffordPlay = (s: GameState, a: ActionOf<'play'>): RejectReason | null =>
+  s.players[a.player].credits >= (handCard(s, a)?.cost ?? 0) ? null : 'no_credits';
 
 export const RULES: RuleTable = {
   draw: [playerShape, notOver, yourTurn, inPhase('action'), hasClick, deckNotEmpty],
@@ -155,7 +166,17 @@ export const RULES: RuleTable = {
     memoryFree,
     canAffordInstall,
   ],
-  play: [playerShape, handIndexShape, notOver, yourTurn, inPhase('action'), hasClick, notBuiltYet],
+  play: [
+    playerShape,
+    handIndexShape,
+    notOver,
+    yourTurn,
+    inPhase('action'),
+    hasClick,
+    playableCard,
+    notNeedingRuns,
+    canAffordPlay,
+  ],
 };
 
 /** How many cards a hand of `handSize` must discard at end of turn. */
@@ -170,7 +191,7 @@ export function discardCount(handSize: number): number {
  */
 export const STRUCTURAL: { readonly [T in 'install' | 'play']: readonly Check<T>[] } = {
   install: [installableCard, validTarget, slotFree],
-  play: [],
+  play: [playableCard],
 };
 
 function isKnownType(t: unknown): t is ActionType {

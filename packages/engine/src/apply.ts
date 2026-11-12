@@ -1,6 +1,7 @@
 import type { Action, ActionOf } from './actions';
 import type { GameEvent } from './events';
 import { doInstall } from './install';
+import { doPlay } from './play';
 import { discardCount, rejectionFor } from './rules';
 import { drawTop, opponentOf, startTurn, withPlayer, type GameState, type Side } from './state';
 
@@ -76,7 +77,7 @@ export function apply(state: GameState, action: Action): ApplyResult {
     case 'install':
       return doInstall(state, action);
     case 'play':
-      return { state, events: [{ type: 'action_rejected', reason: 'bad_card' }] };
+      return doPlay(state, action);
   }
 }
 
