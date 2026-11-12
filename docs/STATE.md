@@ -36,4 +36,5 @@ Details: docs/sprints/sprint-00-tech-plan.md, sprint-00-qa.md, sprint-00-demo.md
 - Demo notes written after the fact as the record: docs/sprints/sprint-01-demo.md. Backlog updated by pm.
 
 ## Next run
+- First BUILD task for Sprint 2 (technical, qa + ui-dev): `apps/client/e2e/qa-sprint01.spec.ts` double-tap-guard tests fail on slow CI when no timer poke lands inside 300ms ("extra taps landed inside the guard", received 0) — seen on PR #6 run 43158623799, passed on one re-run. Make the pokes independent of main-thread delay (e.g. schedule relative to the tap timestamp / use the test hook's guard clock) without loosening the guard.
 Phase AWAITING_APPROVAL for Sprint 2: read comments AND review bodies on the Sprint 2 proposal PR. Owner "approved" → merge, set BUILD, create `sprint-02`, continue. Change requests → pm revises. Nothing → stop (one friendly reminder only after 3+ days, i.e. not before 2026-11-15).
