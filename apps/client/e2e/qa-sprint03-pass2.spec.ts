@@ -426,26 +426,29 @@ test.describe('QA snappiness: run steps', () => {
   test('every run step answers within 100ms, animates within 600ms, and the next buttons are there at once', async ({ page }) => {
     await openBoard(page, 2);
     await toStep(page, 2, 'wall_of_static_encounter');
-    // Encounter: +1 strength, Break, then Continue -> access; no waiting for animations between taps.
-    // (This server holds only the ICE, so Continue ends the run: nothing to animate; see QA-S3-3.)
+    // Encounter: +1 strength, Break, then Continue; no waiting for animations between taps.
+    // This server holds only the ICE, so Continue ends the run with the "Nothing to access in
+    // Server 1" notice (QA-S3-3 fix): a ~1.4s toast that never blocks input, so it is outside
+    // the 600ms animation budget (checked below: the next tap is answered while it shows).
     const steps: [RegExp, AnimRecord['kind'][]][] = [
       [/^\+1 strength/, ['strength_pop']],
       [/^Break/, ['sub_broken', 'run_step']],
-      [/^Continue$/, []],
+      [/^Continue$/, ['notice']],
     ];
     for (const [label, kinds] of steps) {
       const l = await layout(page); // no waitIdle: tap as soon as the buttons are there
       const m = await measureTap(page, runButtonOf(l, label).box);
-      expectSnappy(m, kinds);
-      for (const a of m.anims) expect(a.scheduledMs, `${a.kind} scheduled <= 600ms`).toBeLessThanOrEqual(600);
+      const blocking = kinds.filter((k) => k !== 'notice' && k !== 'hint');
+      expectSnappy(m, blocking);
+      expect(kinds.every((k) => m.anims.some((a) => a.kind === k)), `${String(label)}: ${kinds.join(', ')} shown`).toBe(true);
+      for (const a of m.anims.filter((x) => x.kind !== 'notice' && x.kind !== 'hint')) expect(a.scheduledMs, `${a.kind} scheduled <= 600ms`).toBeLessThanOrEqual(600);
     }
+    // The run is over; while the notice still shows, Run answers at once.
     const l = await layout(page);
-    if (l.run) {
-      expect(l.run.step).toBe('access');
-      const m = await measureTap(page, runButtonOf(l, /^(Steal|Trash|Leave it|Done)/).box);
-      expect(Number.isFinite(m.handledAt)).toBe(true);
-      expect(m.stateAt - m.handledAt).toBeLessThan(100);
-    }
+    expect(l.run).toBeNull();
+    expect((await anims(page)).some((a) => a.kind === 'notice' && /Nothing to access/.test(a.text ?? ''))).toBe(true);
+    await tap(page, l.runButton!.box);
+    expect((await layout(page)).runButton?.picking).toBe(true);
   });
 
   test('the Corp rez prompt: Rez answers within 100ms and the Runner can act at once', async ({ page }) => {
@@ -474,7 +477,7 @@ test.describe('QA snappiness: run steps', () => {
 
 // ---- bugs found by QA (known failures until fixed) -------------------------------------------------
 
-test.describe('QA-S3-3 a successful run with nothing to access ends silently', () => {
+test.describe('QA-S3-3 (fixed) a successful run with nothing to access says so', () => {
   test('Continue into a server that holds only ICE: some notice says the run got in and found nothing', async ({ page }) => {
     await openBoard(page, 2);
     await toStep(page, 2, 'wall_of_static_encounter');
@@ -484,7 +487,7 @@ test.describe('QA-S3-3 a successful run with nothing to access ends silently', (
     await waitIdle(page);
     const m = await measureTap(page, runButtonOf(await layout(page), 'Continue').box);
     expect(m.events.map((e) => e.type)).toEqual(['run_successful', 'run_ended']);
-    expect(m.anims.filter((a) => a.kind === 'notice').length, 'a notice explains the run result').toBeGreaterThan(0);
+    expect(m.anims.filter((a) => a.kind === 'notice').map((a) => a.text), 'a notice explains the run result').toEqual(['Nothing to access in Server 1']);
   });
 });
 

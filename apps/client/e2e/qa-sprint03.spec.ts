@@ -48,6 +48,8 @@ const PREFIX: Record<string, string> = {
 };
 
 async function shot(page: Page, name: string): Promise<void> {
+  // Only with QA_SCREENS=1, so a normal e2e run leaves the committed PNGs alone.
+  if (process.env.QA_SCREENS !== '1') return;
   const p = PREFIX[test.info().project.name] ?? test.info().project.name;
   await page.screenshot({ path: `${SHOTS}${p}-${name}.png` });
 }
