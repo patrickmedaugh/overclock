@@ -43,6 +43,8 @@ const MUTATIONS = [
 const SPECS = ['e2e/qa-sprint01.spec.ts', 'e2e/guard-slow-frame.spec.ts'];
 const GREP = 'double-tap guard';
 const PROJECTS = ['phone', 'phone-small', 'desktop'];
+/** Terminal colour codes in Playwright's error messages. */
+const ANSI = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, 'g');
 /** Tests that tap inside the guard; the slow-frame "control" (tap after the guard) may pass when broken. */
 const mustFail = (title) => !title.startsWith('control:');
 
@@ -76,7 +78,7 @@ function runGuardSpecs() {
     for (const spec of suite.specs ?? []) {
       for (const t of spec.tests) {
         const res = t.results.at(-1);
-        const msg = res?.error?.message?.split('\n')[0] ?? '';
+        const msg = (res?.error?.message ?? '').replace(ANSI, '').split('\n')[0];
         out.push({ project: t.projectName, title: spec.title, status: res?.status ?? 'none', msg });
       }
     }
