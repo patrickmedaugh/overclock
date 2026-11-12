@@ -2,10 +2,11 @@
 // `new Function`, so the game runs under a strict Content Security Policy
 // (no 'unsafe-eval'; see vite.config.ts) and in locked-down WebViews.
 import 'pixi.js/unsafe-eval';
+import { getCard } from '@overclock/cards';
 import type { Action } from '@overclock/engine';
 import { Application, updateRenderGroupTransforms } from 'pixi.js';
 import { Board } from './board';
-import { setCardRenderer } from './cardFace';
+import { setCardRenderer, smallFaceLayout } from './cardFace';
 import type { AnimRecord, OverclockTestHook } from './hook-types';
 import { HotSeat, seedFromUrl } from './hotseat';
 import { lastInput } from './input';
@@ -123,6 +124,10 @@ async function start(): Promise<void> {
     },
     lastInput,
     endTurn: () => board.endTurnClock(),
+    smallFace: (cardId, width, height) => {
+      const def = getCard(cardId);
+      return def ? smallFaceLayout(def, width, height) : null;
+    },
   };
   document.getElementById('boot')?.remove();
   document.body.dataset.ready = 'true';

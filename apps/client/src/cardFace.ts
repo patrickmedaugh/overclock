@@ -252,10 +252,71 @@ function buildCardFace(card: CardDef, w: number, h: number, detail: 'small' | 'f
     }
     return drawCardFace(card, w, h, detail, 0.14, 0.6).root;
   }
-  return drawCardFace(card, w, h, detail, 0.4, 1).root;
+  return smallFace(card, w, h).root;
 }
 
-function drawCardFace(card: CardDef, w: number, h: number, detail: 'small' | 'full', artFrac: number, textK: number): { root: Container; fits: boolean } {
+/**
+ * Small face (hand / installed card). A long name (e.g. "Private Security
+ * Force" on a phone) first gets room from a shorter art window, then a slightly
+ * smaller font; as a last resort it is cut to the lines that fit, with an ellipsis. The
+ * name never runs into the type label (QA-S2-3).
+ */
+function smallFace(card: CardDef, w: number, h: number): FaceDraw {
+  for (const artFrac of [0.4, 0.34, 0.28]) {
+    for (const nameK of artFrac > 0.28 ? [1] : [1, 0.9, 0.82]) {
+      const c = drawCardFace(card, w, h, 'small', artFrac, 1, nameK);
+      if (c.fits) return c;
+      c.root.destroy({ children: true });
+    }
+  }
+  return drawCardFace(card, w, h, 'small', 0.28, 1, 0.82, true);
+}
+
+/** Where a small face draws its name and type label (card-local, centered at 0,0), for tests. */
+export interface SmallFaceLayout {
+  name: { x: number; y: number; width: number; height: number };
+  type: { x: number; y: number; width: number; height: number };
+  /** Name font size as drawn (px at card size). */
+  nameFontPx: number;
+  /** The drawn name (may end in an ellipsis if it had to be cut). */
+  nameText: string;
+}
+
+export function smallFaceLayout(card: CardDef, w: number, h: number): SmallFaceLayout {
+  const c = smallFace(card, w, h);
+  const out = c.small!;
+  c.root.destroy({ children: true });
+  return out;
+}
+
+interface FaceDraw {
+  root: Container;
+  fits: boolean;
+  small?: SmallFaceLayout;
+}
+
+/** Cuts wrapped text to `lines` lines, ending with an ellipsis. */
+function clampLines(t: Text, lines: number): void {
+  const lh = Number(t.style.lineHeight);
+  if (!(lh > 0) || t.height <= lines * lh + 0.5) return;
+  const words = t.text.split(/\s+/);
+  while (words.length > 1) {
+    words.pop();
+    t.text = `${words.join(' ')}…`;
+    if (t.height <= lines * lh + 0.5) return;
+  }
+}
+
+function drawCardFace(
+  card: CardDef,
+  w: number,
+  h: number,
+  detail: 'small' | 'full',
+  artFrac: number,
+  textK: number,
+  nameK = 1,
+  clampName = false,
+): FaceDraw {
   const c = new Container();
   const color = sideColor(card.side);
   const r = Math.max(3, w * 0.07);
@@ -288,7 +349,7 @@ function drawCardFace(card: CardDef, w: number, h: number, detail: 'small' | 'fu
   cost.position.set(ccx, ccy);
   c.addChild(cost);
 
-  const nameSize = detail === 'full' ? w * 0.068 : Math.max(7, w * 0.125);
+  const nameSize = detail === 'full' ? w * 0.068 : Math.max(7, w * 0.125) * nameK;
   const nameX = detail === 'full' ? ccx + cr + w * 0.04 : left + w * 0.06;
   const name = new Text({
     text: card.name,
@@ -325,6 +386,20 @@ function drawCardFace(card: CardDef, w: number, h: number, detail: 'small' | 'fu
   c.addChild(type);
 
   let fits = true;
+  let small: SmallFaceLayout | undefined;
+  if (detail === 'small') {
+    const typeTop = type.y - type.height;
+    // A small gap between the name's last line and the type label.
+    const nameBottom = typeTop - h * 0.01;
+    if (clampName) clampLines(name, Math.max(1, Math.floor((nameBottom - name.y) / (nameSize * 1.1))));
+    fits = name.y + name.height <= nameBottom;
+    small = {
+      name: { x: name.x, y: name.y, width: name.width, height: name.height },
+      type: { x: type.x, y: typeTop, width: type.width, height: type.height },
+      nameFontPx: nameSize,
+      nameText: name.text,
+    };
+  }
   if (detail === 'full') {
     const bodyTop = type.y + typeSize * 1.8;
     const textSize = Math.max(9, Math.max(12, w * 0.052) * textK);
@@ -375,5 +450,5 @@ function drawCardFace(card: CardDef, w: number, h: number, detail: 'small' | 'fu
     }
     fits = bodyTop + body.height <= bottomLimit && y - textSize * 0.7 <= bottomLimit;
   }
-  return { root: c, fits };
+  return { root: c, fits, small };
 }

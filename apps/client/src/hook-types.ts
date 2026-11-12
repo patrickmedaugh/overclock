@@ -179,6 +179,18 @@ export interface OverclockTestHook {
   /** The last pointer release a game target handled (null before the first). */
   lastInput(): InputStamp | null;
   endTurn(): EndTurnClock;
+  /**
+   * Where a small (hand / installed) face of `cardId` drawn at w x h puts its
+   * name and type label, card-local with (0, 0) at the card's center. Null for an unknown id.
+   */
+  smallFace(cardId: string, width: number, height: number): SmallFaceSnapshot | null;
+}
+
+export interface SmallFaceSnapshot {
+  name: Box;
+  type: Box;
+  nameFontPx: number;
+  nameText: string;
 }
 
 declare global {
