@@ -1,7 +1,7 @@
 // S-01-5: hand limit, discard down to 5.
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 import { dispatch, getView, lastEvents, layout, measureTap, openBoard, pressAndHold, tap, toRunnerTurn, waitEndTurnArmed, waitIdle } from './helpers';
-import type { Page } from '@playwright/test';
+import type { Page } from './fixtures';
 
 /** Corp draws 2 (8 cards) and taps End turn: must discard 3. */
 async function openPicker(page: Page) {

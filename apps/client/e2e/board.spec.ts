@@ -1,6 +1,6 @@
 // S-01-4: both players on one screen, active player's side at the bottom.
 // Plus the board-wide layout checks (on screen, no overlaps) from Sprint 0.
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 import { dispatch, expectCleanLayout, getView, layout, openBoard, toRunnerTurn, waitIdle } from './helpers';
 import type { LayoutSnapshot } from './helpers';
 import type { PlayerView } from '@overclock/engine';

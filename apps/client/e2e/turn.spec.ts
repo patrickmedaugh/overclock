@@ -1,5 +1,5 @@
 // S-01-1: Corp goes first and turns alternate. S-01-3: End turn.
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 import {
   dispatch,
   expectCleanLayout,

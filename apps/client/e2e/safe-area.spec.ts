@@ -1,7 +1,7 @@
 // S-01-6: nothing under the notch, status bar or gesture bar.
 // The safe-area probe's padding is overridden with an injected style, which
 // is exactly how a notched phone reports its insets (env(safe-area-inset-*)).
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 import type { Insets } from './helpers';
 import { dispatch, expectCleanLayout, layout, openBoard, playUntilGameOver, toRunnerTurn, waitIdle } from './helpers';
 

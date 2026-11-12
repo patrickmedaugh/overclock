@@ -1,6 +1,6 @@
 // S-00-2: the demo loads in under 5 seconds. S-01-6 / U3: it runs under a
 // strict CSP and can be added to the home screen as a full-screen app.
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 
 test('first load is interactive in under 5 seconds', async ({ page }) => {
   const start = Date.now();
