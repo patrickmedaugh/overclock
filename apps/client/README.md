@@ -48,7 +48,7 @@ Add `?seed=123` to the URL to get the same deal every time.
 - `anims()` lists `{kind, startedAt, scheduledMs, text?, box?}` for every animation or hint when it *starts* (`draw_flight`, `credit_pop`, `discard_flight`, `turn_change`, `hint`, `install_flight`, `play_flight`, `server_open`). Specs assert the tap budget from these (start < 100ms after the tap, scheduled <= 600ms) and read hints from them instead of polling a 1.1s on-screen state.
 
 - `lastInput()` is `{eventAt, handledAt, target}` for the last pointer release a game target handled: the DOM event's timestamp, when `src/input.ts` started on it, and the label of the object that took it (e.g. `target:install:`, `board:empty`). Tap budgets (state and animation start < 100ms) count from `handledAt`; `handledAt - eventAt` is the browser's input-queue delay (the page was busy drawing a frame), recorded as an annotation only.
-- `endTurn()` is the game's own End turn clock: `armedAt` (End turn ignores taps before it: the double-tap guard, 300ms after the tap that ended the last turn) and `flipDueAt` (when the last turn change's board flip is scheduled, after any discard flight). Turn-change budgets are checked on these, not on wall-clock frames.
+- `endTurn()` is the game's own End turn clock: `armedAt` (End turn ignores taps *made* before it, judged by each tap's event timestamp, so a double tap queued behind a slow frame is still refused: the double-tap guard, 300ms after the event time of the tap that ended the last turn) and `flipDueAt` (when the last turn change's board flip is scheduled, after any discard flight). Turn-change budgets are checked on these, not on wall-clock frames.
 
 Always on for now; it will move behind a build flag later.
 

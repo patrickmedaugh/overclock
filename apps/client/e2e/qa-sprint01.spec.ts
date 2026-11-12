@@ -295,6 +295,8 @@ interface Poke {
 }
 
 interface GuardRun {
+  /** DOM event time of the ending tap (the guard counts from when the tap was made). */
+  madeAt: number;
   /** When the game started handling the tap that ended the turn. */
   handledAt: number;
   armedAt: number;
@@ -322,6 +324,7 @@ async function pokeAfterTap(page: Page, at: Box): Promise<void> {
         const input = hook.lastInput();
         const clock = hook.endTurn();
         const run: GuardRun = {
+          madeAt: e.timeStamp,
           handledAt: input && input.eventAt === e.timeStamp ? input.handledAt : NaN,
           armedAt: clock.armedAt,
           flipDueAt: clock.flipDueAt,
@@ -395,7 +398,10 @@ async function checkGuard(
     test.info().annotations.push({ type: 'guard', description: JSON.stringify(tries.at(-1)) });
 
     expect(Number.isFinite(run.handledAt), 'the ending tap reached the game').toBe(true);
-    expect(run.armedAt - run.handledAt, 'End turn stays guarded >= 300ms after the ending tap').toBeGreaterThanOrEqual(300);
+    // Counted from when the ending tap was made (its event time), which is also how
+    // every later tap is judged (sprint-02 guard fix: a tap queued behind a slow frame
+    // is judged by when it was made, not when it was handled).
+    expect(run.armedAt - run.madeAt, 'End turn stays guarded >= 300ms after the ending tap').toBeGreaterThanOrEqual(300);
     // Never pass with zero taps inside the guard: the synchronous one always is.
     const early = run.pokes.filter((p) => p.end < run.armedAt);
     expect(early.some((p) => p.sync), 'a tap landed inside the guard').toBe(true);
