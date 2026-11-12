@@ -1,5 +1,5 @@
 // S-01-2: spend a click to gain a credit or draw a card, on both sides.
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 import type { Side } from '@overclock/engine';
 import {
   anims,
@@ -16,7 +16,7 @@ import {
   toRunnerTurn,
   waitIdle,
 } from './helpers';
-import type { Page } from '@playwright/test';
+import type { Page } from './fixtures';
 
 async function openOn(page: Page, side: Side): Promise<void> {
   await openBoard(page);

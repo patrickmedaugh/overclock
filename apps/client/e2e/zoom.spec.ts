@@ -1,6 +1,6 @@
 // S-00-4: Long-press a hand card to zoom it; release to let go.
 import { getCard } from '@overclock/cards';
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 import { inside, layout, openBoard, pressAndHold, safeRect, tap } from './helpers';
 
 test.describe('S-00-4 zoom', () => {

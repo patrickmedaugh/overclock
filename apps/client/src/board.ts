@@ -461,6 +461,8 @@ export class Board {
   private readonly marked = new Set<number>();
   /** End turn ignores taps until this time (double-tap guard after a turn change). */
   private endTurnArmedAt = 0;
+  /** When the last turn change's flip is scheduled (performance.now() clock; the tap that ended the turn + discard flight). */
+  private flipDueAt = 0;
   /**
    * True while the actor's discards fly out and the board still shows the
    * actor's seat, although the turn already belongs to the next seat. A tap on
@@ -565,7 +567,7 @@ export class Board {
       },
       endTurn:
         button && button.root.visible && button.mode === 'end'
-          ? { box: button.box(), label: button.text, glowing: button.glowing, enabled: button.enabled }
+          ? { box: button.box(), label: button.text, glowing: button.glowing, enabled: button.enabled, armedAt: this.endTurnArmedAt }
           : null,
       picker:
         button && button.root.visible && button.mode === 'confirm' && pending > 0
@@ -575,6 +577,7 @@ export class Board {
       hint: this.hint && this.hint.root.alpha > 0.05 ? { text: this.hint.text, box: this.hint.box } : null,
       zoom: this.zoom ? { cardId: this.zoom.cardId, box: centeredBox(this.zoom.card, this.zoom.width, this.zoom.height), texts: textsOf(this.zoom.card) } : null,
       animating: this.fx.active,
+      turnClock: { endTurnArmedAt: this.endTurnArmedAt, flipDueAt: this.flipDueAt },
     };
   }
 
@@ -604,6 +607,7 @@ export class Board {
       }
     }
     this.callbacks.log({ kind: 'turn_change', scheduledMs: discardMs + timing.flip });
+    this.flipDueAt = tappedAt + discardMs;
     const flip = () => {
       this.flipPending = false;
       this.view = p.nextView;

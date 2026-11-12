@@ -8,6 +8,7 @@ import { Board } from './board';
 import { setCardRenderer } from './cardFace';
 import type { AnimRecord, OverclockTestHook } from './hook-types';
 import { HotSeat, seedFromUrl } from './hotseat';
+import { lastInput } from './input';
 import { computeLayout } from './layout';
 import { readSafeArea } from './safeArea';
 import { theme } from './theme';
@@ -112,6 +113,7 @@ async function start(): Promise<void> {
     clearAnims: () => {
       records.length = 0;
     },
+    lastInput,
   };
   document.getElementById('boot')?.remove();
   document.body.dataset.ready = 'true';

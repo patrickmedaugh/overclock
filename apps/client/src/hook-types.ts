@@ -53,8 +53,11 @@ export interface LayoutSnapshot {
     corpDiscard: string;
     runnerDiscard: string;
   };
-  /** End turn button; null while the discard picker shows or the game is over. */
-  endTurn: { box: Box; label: string; glowing: boolean; enabled: boolean } | null;
+  /**
+   * End turn button; null while the discard picker shows or the game is over.
+   * `armedAt`: End turn ignores taps before this time (double-tap guard; performance.now() clock).
+   */
+  endTurn: { box: Box; label: string; glowing: boolean; enabled: boolean; armedAt: number } | null;
   /** Hand-limit discard picker, when the viewer must discard. */
   picker: { remaining: number; label: string; confirm: { box: Box; enabled: boolean } } | null;
   gameOver: { text: string; box: Box } | null;
@@ -64,6 +67,13 @@ export interface LayoutSnapshot {
   zoom: { cardId: string; box: Box; texts: string[] } | null;
   /** True while any event animation runs (never blocks input). */
   animating: boolean;
+  /**
+   * The game's own turn-change clock (performance.now(), same clock as event.timeStamp), so
+   * tests measure budgets from what the game scheduled rather than from wall-clock frames.
+   * `endTurnArmedAt`: End turn ignores taps before this (0 before the first turn change).
+   * `flipDueAt`: when the last turn change's flip was scheduled to show the next seat.
+   */
+  turnClock: { endTurnArmedAt: number; flipDueAt: number };
 }
 
 export type AnimKind = 'draw_flight' | 'credit_pop' | 'discard_flight' | 'turn_change' | 'hint';
@@ -90,6 +100,12 @@ export interface OverclockTestHook {
   layout(): LayoutSnapshot;
   anims(): AnimRecord[];
   clearAnims(): void;
+  /**
+   * The last pointer press/release a game control handled: `eventAt` is the browser
+   * event's timeStamp, `handledAt` when the game's handler started (performance.now()).
+   * `handledAt - eventAt` is input-queue delay outside the game's control.
+   */
+  lastInput(): { eventAt: number; handledAt: number } | null;
 }
 
 declare global {

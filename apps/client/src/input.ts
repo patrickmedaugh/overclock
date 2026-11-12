@@ -22,6 +22,28 @@ export interface PressOptions {
   moveTolerance?: number;
 }
 
+/** When the game last handled a pointer press or release (see `lastInput`). */
+export interface InputStamp {
+  /** The browser event's timeStamp (performance.now() clock; includes input queueing delay). */
+  eventAt: number;
+  /** performance.now() when a press handler started handling it. */
+  handledAt: number;
+}
+
+let last: InputStamp | null = null;
+
+/** The most recent press/release a press handler took (test hook: budgets count from `handledAt`). */
+export function lastInput(): InputStamp | null {
+  return last ? { ...last } : null;
+}
+
+function stamp(e: FederatedPointerEvent): void {
+  const handledAt = performance.now();
+  // The browser event Pixi was given (touch points normalized by Pixi carry no timeStamp).
+  const n = e.nativeEvent as Partial<Event> | undefined;
+  last = { eventAt: n?.timeStamp ?? e.timeStamp, handledAt };
+}
+
 export function attachPress(target: Container, handlers: PressHandlers, opts: PressOptions = {}): () => void {
   const longPressMs = opts.longPressMs ?? timing.longPress;
   const tolerance = opts.moveTolerance ?? 12;
@@ -55,6 +77,7 @@ export function attachPress(target: Container, handlers: PressHandlers, opts: Pr
 
   const onDown = (e: FederatedPointerEvent) => {
     if (pointerId !== null) return;
+    stamp(e);
     pointerId = e.pointerId;
     startX = e.global.x;
     startY = e.global.y;
@@ -74,10 +97,14 @@ export function attachPress(target: Container, handlers: PressHandlers, opts: Pr
     if (Math.hypot(e.global.x - startX, e.global.y - startY) > tolerance) clearTimer();
   };
   const onUp = (e: FederatedPointerEvent) => {
-    if (pointerId === e.pointerId) end(true);
+    if (pointerId !== e.pointerId) return;
+    stamp(e);
+    end(true);
   };
   const onUpOutside = (e: FederatedPointerEvent) => {
-    if (pointerId === e.pointerId) end(false);
+    if (pointerId !== e.pointerId) return;
+    stamp(e);
+    end(false);
   };
 
   target.on('pointerdown', onDown);

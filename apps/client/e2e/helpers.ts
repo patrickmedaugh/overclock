@@ -64,9 +64,15 @@ export async function toRunnerTurn(page: Page): Promise<void> {
   expect((await getView(page)).activePlayer).toBe('runner');
 }
 
-/** End turn ignores taps briefly after the tap that ended the last turn (double-tap guard). */
+/**
+ * End turn ignores taps briefly after the tap that ended the last turn (double-tap
+ * guard). Waits, on the page's own clock, until the guard the game reports has passed.
+ */
 export async function waitEndTurnArmed(page: Page): Promise<void> {
-  await page.waitForTimeout(350);
+  await page.waitForFunction(() => {
+    const e = window.__overclock!.layout().endTurn;
+    return !!e && performance.now() >= e.armedAt;
+  }, undefined, { polling: 'raf' });
 }
 
 export function center(b: Box): { x: number; y: number } {
@@ -86,8 +92,10 @@ export async function tap(page: Page, b: Box): Promise<void> {
 
 /** What the page saw at the release of a measured tap. */
 export interface TapMeasure {
-  /** pointerup event timestamp (includes any input queueing delay). */
+  /** pointerup event timestamp (includes any input queueing delay outside the game). */
   tapAt: number;
+  /** When the game's press handler started handling the release (hook `lastInput().handledAt`). */
+  handledAt: number;
   /** When the game state was read, right after the game handled the release. */
   stateAt: number;
   /** The bottom seat's view at that moment. */
@@ -110,35 +118,49 @@ export async function measureTap(page: Page, b: Box): Promise<TapMeasure> {
     window.addEventListener(
       'pointerup',
       (e) => {
+        const stateAt = performance.now();
         const hook = window.__overclock!;
-        w.__m = { tapAt: e.timeStamp, stateAt: performance.now(), view: hook.getView(), events: hook.lastEvents() };
+        const input = hook.lastInput();
+        // The game handled this very release (same event), or the tap missed every control.
+        if (!input || input.eventAt !== e.timeStamp) {
+          w.__m = { error: `the game did not handle this tap: lastInput ${JSON.stringify(input)}, pointerup at ${e.timeStamp}` };
+          return;
+        }
+        w.__m = { tapAt: e.timeStamp, handledAt: input.handledAt, stateAt, view: hook.getView(), events: hook.lastEvents() };
       },
       { once: true },
     );
   });
   await tap(page, b);
   await page.waitForFunction(() => (window as unknown as { __m?: unknown }).__m !== undefined);
-  const m = await page.evaluate(() => (window as unknown as { __m: Omit<TapMeasure, 'anims'> }).__m);
+  const m = await page.evaluate(() => (window as unknown as { __m: Omit<TapMeasure, 'anims'> | { error: string } }).__m);
+  if ('error' in m) throw new Error(`measureTap: ${m.error}`);
   return { ...m, anims: await anims(page) };
 }
 
 /**
- * The snappiness budget for one tap: state changed < 100ms after the
- * release, every animation it caused started < 100ms after it and is
- * scheduled for <= 600ms. Wall-clock landing is only an annotation (GPU-less
- * CI runners add render latency that is not the game's budget).
+ * The snappiness budget for one tap, on the game's own clock: state changed
+ * < 100ms after the game took the release (`handledAt`), every animation it
+ * caused started < 100ms after it and is scheduled for <= 600ms. Input-queue
+ * delay (`handledAt - tapAt`: the browser had not delivered the event yet) and
+ * wall-clock landing are only annotations (GPU-less CI runners add frame and
+ * queue latency that is not the game's budget).
  */
 export function expectSnappy(m: TapMeasure, kinds: AnimRecord['kind'][]): void {
   test.info().annotations.push({
     type: 'timing',
-    description: JSON.stringify({ stateMs: m.stateAt - m.tapAt, anims: m.anims.map((a) => ({ kind: a.kind, startMs: a.startedAt - m.tapAt, scheduledMs: a.scheduledMs })) }),
+    description: JSON.stringify({
+      queueMs: m.handledAt - m.tapAt,
+      stateMs: m.stateAt - m.handledAt,
+      anims: m.anims.map((a) => ({ kind: a.kind, startMs: a.startedAt - m.handledAt, scheduledMs: a.scheduledMs })),
+    }),
   });
-  expect(m.stateAt - m.tapAt, 'state updated within 100ms of the tap').toBeLessThan(100);
+  expect(m.stateAt - m.handledAt, 'state updated within 100ms of the tap').toBeLessThan(100);
   for (const kind of kinds) {
     const recs = m.anims.filter((a) => a.kind === kind);
     expect(recs.length, `${kind} animation started`).toBeGreaterThan(0);
     for (const r of recs) {
-      expect(r.startedAt - m.tapAt, `${kind} started within 100ms of the tap`).toBeLessThan(100);
+      expect(r.startedAt - m.handledAt, `${kind} started within 100ms of the tap`).toBeLessThan(100);
       expect(r.scheduledMs, `${kind} scheduled within the 600ms budget`).toBeLessThanOrEqual(600);
     }
   }
