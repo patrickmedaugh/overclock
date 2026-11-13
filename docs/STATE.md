@@ -67,5 +67,10 @@ Details: docs/sprints/sprint-00-tech-plan.md, sprint-00-qa.md, sprint-00-demo.md
 - For demo: Corp 7-point win needs Priority Requisition (~80% of seeds); extra taps (Let it through, Done, Continue after each ICE); Akitaro discount not applied; only agendas can be advanced.
 - Owner chat feedback mid-sprint: hold a card then slide left/right to browse the hand → backlog (P1 hand UI rework), not in Sprint 3.
 
+## Sprint 3 QA — round 1 done, round 2 in progress
+- Two QA passes ran on 73eec24 (docs/sprints/sprint-03-qa.md: bugs QA-S3-1, QA-S3-2; docs/sprints/sprint-03-qa-pass2.md: QA-S3-3..6). Developer fixes for all six are on sprint-03 (024c12f..49cb721).
+- CI on 49cb721 is red: QA's own snappiness test (qa-sprint03-pass2 "every run step answers within 100ms…") now sees the new "Nothing to access" notice toast (1.4s, never blocks input) and applies the 600ms limit to it. Test-side fix (exclude toasts, as the same file already does elsewhere) goes into QA round 2.
+- Round 2 started 2026-11-13 00:10 UTC by the scheduled run (architect review of the fixes + QA re-verification). Another run starting now should not redo it; check the branch log first.
+
 ## Next run
-Phase QA for Sprint 3: qa verifies every S-03 criterion (docs/sprints/sprint-03-qa.md), BUILD↔QA up to 3 rounds, then DEMO.
+Phase QA for Sprint 3: finish round 2 (architect review of fixes, QA re-verifies QA-S3-1..6, CI green), then set DEMO.
