@@ -1,0 +1,22 @@
+{
+  "name": "@overclock/server",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "dev": "wrangler dev",
+    "test:dev": "node scripts/dev-integration.mjs",
+    "deploy": "wrangler deploy"
+  },
+  "dependencies": {
+    "@overclock/engine": "*",
+    "@overclock/match": "*",
+    "@overclock/protocol": "*"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "5.20261113.1",
+    "@types/node": "^22.0.0",
+    "wrangler": "4.162.0"
+  }
+}
