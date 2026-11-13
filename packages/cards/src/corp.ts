@@ -99,6 +99,10 @@ export const CORP_CARDS: readonly CardDef[] = [
     agendaPoints: 1,
     text: 'When you score Hostile Takeover, gain 7 credits and take 1 bad publicity.',
     art: 'glyph:merge',
+    onScore: [
+      { op: 'gain_credits', amount: 7 },
+      { op: 'bad_publicity', amount: 1 },
+    ],
   },
   {
     id: 'c09',
@@ -121,6 +125,7 @@ export const CORP_CARDS: readonly CardDef[] = [
     agendaPoints: 3,
     text: 'When you score Priority Requisition, you may rez a piece of ICE ignoring all costs.',
     art: 'glyph:brain-lock',
+    onScore: [{ op: 'free_rez', what: 'ice' }],
   },
   {
     id: 'c11',

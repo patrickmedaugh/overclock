@@ -3,6 +3,8 @@ export type { GameEvent, InstallZone, RejectReason, RunOutcome } from './events'
 export type {
   AccessFrom,
   CentralServerId,
+  ChoiceKind,
+  ChoiceState,
   DiscardEntry,
   GameResult,
   GameState,
@@ -21,6 +23,7 @@ export type { ApplyResult } from './apply';
 export type {
   AccessCardView,
   CardOption,
+  ChoiceView,
   InstalledView,
   PlayerSideView,
   PlayerView,

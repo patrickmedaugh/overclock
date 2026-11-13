@@ -43,4 +43,37 @@ describe('chooseAction (stub)', () => {
     }
     expect(s.phase).toBe('action');
   });
+
+  describe('Sprint 4: free-rez choice (Priority Requisition)', () => {
+    /** Corp turn 1: Ice Wall (i1, cost 1), Neural Katana (i2, cost 4), Enigma (i3, cost 3), PR (i4) ready; scored. */
+    function choiceState(): GameState {
+      let s = newGame(21);
+      s = { ...s, players: { ...s.players, corp: { ...s.players.corp, hand: ['c05', 'c07', 'c06', 'c10'], clicks: 4 } } };
+      for (let k = 0; k < 4; k++) s = apply(s, { type: 'install', player: 'corp', handIndex: 0, server: 'new' }).state;
+      s = { ...s, servers: s.servers.map((sv) => ({ ...sv, content: sv.content.map((c) => ({ ...c, advancements: 5 })) })) };
+      s = apply(s, { type: 'score', player: 'corp', uid: 'i4' }).state;
+      expect(s.phase).toBe('choice');
+      return s;
+    }
+
+    it('the deciding Corp view: rezzes the costliest offered ICE (Neural Katana), a legal action', () => {
+      const s = choiceState();
+      expect(waitingOn(s)).toBe('corp');
+      const view = viewFor('corp', s);
+      const action = chooseAction(view);
+      expect(action).toEqual({ type: 'rez', player: 'corp', uid: 'i2' });
+      expect(view.legalActions).toContainEqual(action);
+      const r = apply(s, action!);
+      expect(r.events.some((e) => e.type === 'action_rejected')).toBe(false);
+      expect(r.state.phase).toBe('action');
+    });
+
+    it('skips when only Skip is offered; the Runner view has nothing to do', () => {
+      const s = choiceState();
+      const view = viewFor('corp', s);
+      const onlySkip = { ...view, choice: { ...view.choice!, options: view.choice!.options.filter((o) => o.action.type === 'pass') } };
+      expect(chooseAction(onlySkip)).toEqual({ type: 'pass', player: 'corp' });
+      expect(chooseAction(viewFor('runner', s))).toBeNull();
+    });
+  });
 });

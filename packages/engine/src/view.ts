@@ -1,5 +1,5 @@
 import type { Action } from './actions';
-import { handOptions, installedOptions, legalActions, runStartOptions, runStepOptions } from './apply';
+import { choiceOptions, handOptions, installedOptions, legalActions, runStartOptions, runStepOptions } from './apply';
 import type { GameEvent, RejectReason } from './events';
 import { getCard } from '@overclock/cards';
 import { breakerCard, breakerStrength, currentIce, discardCount, iceStrength, memoryUsed, waitingOn } from './rules';
@@ -7,6 +7,7 @@ import {
   MEMORY_LIMIT,
   pointsOf,
   type AccessFrom,
+  type ChoiceKind,
   type GameResult,
   type GameState,
   type Installed,
@@ -103,6 +104,22 @@ export interface RunView {
   readonly bypassPending: boolean;
   /** The viewer's offered moves at this step, with engine `cost` and `reject` (empty when not the viewer's decision). */
   readonly options: readonly CardOption[];
+  /** The Runner's run-only credits left (from bad publicity; both players see it). 0 when none. */
+  readonly tempCredits: number;
+}
+
+/** An open choice (phase 'choice'), as one player sees it. */
+export interface ChoiceView {
+  readonly kind: ChoiceKind;
+  /** Who must decide (the Corp for `free_rez`). */
+  readonly waitingOn: Side;
+  /** The card whose effect opened it (the scored agenda; public). */
+  readonly cardId: string;
+  /**
+   * The deciding viewer's options: `free_rez` = one `rez` (cost 0) per unrezzed installed ICE uid
+   * (servers in `corpServers` order, then ICE index order), then `pass` (= Skip). Empty for the other player.
+   */
+  readonly options: readonly CardOption[];
 }
 
 /** What one player may see. Deck order is never included. */
@@ -130,6 +147,10 @@ export interface PlayerView {
   readonly installedOptions: Readonly<Record<string, readonly CardOption[]>>;
   /** The run in progress, or null. */
   readonly run: RunView | null;
+  /** The Corp's bad publicity (both players see it). */
+  readonly badPublicity: number;
+  /** The open choice (phase 'choice'), or null. */
+  readonly choice: ChoiceView | null;
   /** Actions the viewer may take now (so the AI/client never need the full state). */
   readonly legalActions: readonly Action[];
 }
@@ -195,7 +216,14 @@ function runView(state: GameState, viewer: Side): RunView | null {
     extraAccess: run.extraAccess,
     bypassPending: run.bypassNext,
     options: runStepOptions(state, viewer),
+    tempCredits: run.tempCredits,
   };
+}
+
+function choiceView(state: GameState, viewer: Side): ChoiceView | null {
+  const c = state.choice;
+  if (state.phase !== 'choice' || !c) return null;
+  return { kind: c.kind, waitingOn: c.player, cardId: c.cardId, options: choiceOptions(state, viewer) };
 }
 
 export function viewFor(player: Side, state: GameState): PlayerView {
@@ -225,6 +253,8 @@ export function viewFor(player: Side, state: GameState): PlayerView {
     runOptions: runStartOptions(state, player),
     installedOptions: installedOptions(state, player),
     run: runView(state, player),
+    badPublicity: state.badPublicity,
+    choice: choiceView(state, player),
     legalActions: legalActions(state, player),
   };
 }

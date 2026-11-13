@@ -28,11 +28,22 @@ The engine implements this document. It is a simplified, genre-standard ruleset;
 - If several things stop an install or play, the reason given follows this order: not your turn, wrong step, no clicks, wrong card, wrong place, needs a system not built yet, its play condition is not met (e.g. Neural EMP without a run last turn), not enough credits, not enough memory.
 
 ## Corp cards
-- Installed face down. **Rez** = pay the card's rez cost to turn it face up; it stays face up for the rest of the game. *(Sprint 3: only ICE can be rezzed, and only when the Runner approaches it during a run. Rez-cost discounts such as Akitaro Watanabe's are not applied yet.)*
+- Installed face down. **Rez** = pay the card's rez cost to turn it face up; it stays face up for the rest of the game. *(Sprint 3: only ICE can be rezzed, and only when the Runner approaches it during a run, or (Sprint 4) for free when Priority Requisition is scored. Rez-cost discounts such as Akitaro Watanabe's are not applied yet.)*
 
 ## Advancing and scoring (Sprint 3)
 - **Advance** (Corp, 1 click + 1 credit): put 1 advancement counter on one of your installed agendas. *(Only agendas can be advanced this sprint; Ice Wall's advancing comes later.)* The Runner sees how many counters a card has, but not the face-down card.
-- **Score** (Corp, no click): on your turn, outside a run, when an installed agenda has at least as many counters as its advancement requirement, move it face up to your score area; you gain its agenda points. *(Agendas' "when scored" effects are not built yet; they score only their points.)*
+- **Score** (Corp, no click): on your turn, outside a run, when an installed agenda has at least as many counters as its advancement requirement, move it face up to your score area; you gain its agenda points.
+- **"When scored" bonuses (Sprint 4).** Some agendas do something when the **Corp scores** them. A **stolen** agenda never does: the bonus is for the Corp scoring only. The bonus happens right after the agenda reaches the score area, in the order its text says. If the agenda's points bring the Corp to 7, the Corp wins at once and the bonus does not happen.
+  - **Hostile Takeover:** the Corp gains 7 credits, then takes 1 bad publicity (see below).
+  - **Priority Requisition:** the Corp *may* rez one of its installed, face-down ICE (on any server) for free. The game waits for the Corp to pick one, or **Skip**. Nothing else can happen until it decides. If the Corp has no face-down ICE installed, nothing happens and there is no question. Rezzing this way costs nothing and the ICE stays face up for the rest of the game, as usual.
+
+## Bad publicity (Sprint 4)
+- **Bad publicity** is a counter the Corp collects (it starts at 0 and never goes down in this card pool). Both players see it.
+- When the Runner **starts a run**, it gets 1 extra credit for each bad publicity the Corp has. These credits are **for this run only**:
+  - During the run, whenever the Runner pays (breaking or raising strength with an icebreaker, trashing an accessed card), these run-only credits are used first, then the Runner's own credits. *(The real game lets the Runner choose which credits to use; with these cards using the run-only ones first is always best, so the game does it.)*
+  - "Can the Runner afford it?" counts both kinds together.
+  - Any left over **disappear when the run ends**, however it ends (accessed, jacked out, ended by ICE, flatline, or the game ending).
+- Run-only credits are never added to the Runner's own credits, and the Runner never has any outside a run.
 
 ## Runs (Sprint 3)
 1. **Start:** the Runner spends 1 click (or plays a run event such as The Maker's Eye or Inside Job) and names a server: HQ, R&D, Archives or a remote. While the run lasts, neither player can take other actions.

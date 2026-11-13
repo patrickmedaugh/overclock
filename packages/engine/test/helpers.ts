@@ -152,3 +152,22 @@ export function liveness(state: GameState): Side | null {
   if (corp === runner) throw new Error(`liveness: corp ${corp}, runner ${runner} (phase ${state.phase}, step ${state.run?.step})`);
   return corp ? 'corp' : 'runner';
 }
+
+/**
+ * Corp turn 1: `hand` installed one by one into new servers (uids i1, i2, ...; ICE too),
+ * then `ready` agendas get their full advancement counters; clicks/credits set.
+ */
+export function corpBoard(hand: string[], opts: { credits?: number; clicks?: number; scored?: string[]; ready?: string[] } = {}): GameState {
+  let s = withPlayer(withHand(newGame(21), 'corp', hand), 'corp', { clicks: hand.length });
+  s = run(s, hand.map(() => ({ type: 'install', player: 'corp', handIndex: 0, server: 'new' }) as Action)).state;
+  const need: Record<string, number> = { c08: 2, c09: 4, c10: 5 };
+  const ready = new Set(opts.ready ?? []);
+  s = {
+    ...s,
+    servers: s.servers.map((sv) => ({
+      ...sv,
+      content: sv.content.map((c) => (ready.has(c.uid) ? { ...c, advancements: need[c.cardId] ?? 0 } : c)),
+    })),
+  };
+  return withPlayer(s, 'corp', { clicks: opts.clicks ?? 3, credits: opts.credits ?? 5, scoreArea: opts.scored ?? [] });
+}
