@@ -7,7 +7,7 @@ import { centeredBox } from './geometry';
 import { createCardBack, createCardFace, glowRoundRect } from './cardFace';
 import type { AnimRecord, Box } from './hook-types';
 import { attachPress } from './input';
-import { type BoardLayout, handSlots } from './layout';
+import { type BoardLayout, handSlots, nearestSlot } from './layout';
 import { theme, timing } from './theme';
 import { ease, type Tweens } from './tween';
 
@@ -24,6 +24,8 @@ export interface HandCard {
   marked: boolean;
   /** Glow shown while the card is picked to play (made on first use). */
   glow: Graphics | null;
+  /** Outline shown while the zoom shows this card during a hold-and-slide (made on first use). */
+  outline: Graphics | null;
   selected: boolean;
   detach: () => void;
   pressed: boolean;
@@ -33,6 +35,8 @@ export interface HandCallbacks {
   onTap(index: number): void;
   onLongPress(cardId: string, from: Box): void;
   onLongPressEnd(): void;
+  /** S-04-3: the held finger slid onto another hand card: show it in the zoom. `at`: the move's event time. */
+  onZoomSlide(cardId: string, box: Box, at: number): void;
   log(rec: Omit<AnimRecord, 'startedAt'>): void;
 }
 
@@ -42,6 +46,8 @@ export class Hand {
   private layout: BoardLayout | null = null;
   /** The layout generation the sprites were made for (sizes). */
   sizeKey = '';
+  /** The card the zoom shows while a hand card is held (outlined), or null. */
+  private browsing: HandCard | null = null;
 
   constructor(
     private readonly side: Side,
@@ -55,6 +61,38 @@ export class Hand {
 
   get count(): number {
     return this.cards.length;
+  }
+
+  /** The hand index outlined by a hold-and-slide, or null. */
+  get browsingIndex(): number | null {
+    const i = this.browsing ? this.cards.indexOf(this.browsing) : -1;
+    return i >= 0 ? i : null;
+  }
+
+  /** Outlines `card` as the one the zoom shows (null: none). */
+  private setBrowsing(card: HandCard | null): void {
+    const prev = this.browsing;
+    if (prev === card) return;
+    if (prev?.outline && !prev.root.destroyed) prev.outline.visible = false;
+    this.browsing = card;
+    if (!card || card.root.destroyed) return;
+    if (!card.outline) {
+      card.outline = this.createOutline();
+      card.flip.addChild(card.outline);
+    }
+    card.outline.visible = true;
+    this.restack();
+  }
+
+  /** The held finger is at global x/y: the zoom follows the nearest hand card (S-04-3). */
+  private slide(x: number, y: number, at: number): void {
+    const layout = this.layout;
+    if (!layout || !this.browsing) return;
+    const i = nearestSlot(handSlots(layout, this.cards.length), x, y);
+    const card = this.cards[i];
+    if (!card || card === this.browsing) return;
+    this.setBrowsing(card);
+    this.callbacks.onZoomSlide(card.cardId, this.cardBox(card), at);
   }
 
   /** Drops every sprite (they are rebuilt the next time this hand is shown). */
@@ -231,8 +269,8 @@ export class Hand {
   }
 
   /** Rendered bounds of each hand card (CSS px). */
-  boxes(): { cardId: string; box: Box; marked: boolean; selected: boolean }[] {
-    return this.cards.map((c) => ({ cardId: c.cardId, box: this.cardBox(c), marked: c.marked, selected: c.selected }));
+  boxes(): { cardId: string; box: Box; marked: boolean; selected: boolean; outlined: boolean }[] {
+    return this.cards.map((c) => ({ cardId: c.cardId, box: this.cardBox(c), marked: c.marked, selected: c.selected, outlined: c === this.browsing }));
   }
 
   private slideTo(slots: Box[], count: number): void {
@@ -265,6 +303,14 @@ export class Hand {
     const h = this.layout?.card.height ?? 84;
     const g = new Graphics();
     glowRoundRect(g, -w / 2, -h / 2, w, h, Math.max(4, w * 0.08), theme.credit, Math.max(2, w * 0.04), 1.6);
+    return g;
+  }
+
+  private createOutline(): Graphics {
+    const w = this.layout?.card.width ?? 60;
+    const h = this.layout?.card.height ?? 84;
+    const g = new Graphics();
+    glowRoundRect(g, -w / 2, -h / 2, w, h, Math.max(4, w * 0.08), theme.text, Math.max(2, w * 0.035), 1.4);
     return g;
   }
 
@@ -305,7 +351,7 @@ export class Hand {
     root.hitArea = new Rectangle(-w / 2, -h / 2, w, h);
     this.container.addChild(root);
 
-    const card: HandCard = { cardId, root, flip, back, face, mark: null, marked: false, glow: null, selected: false, detach: () => {}, pressed: false };
+    const card: HandCard = { cardId, root, flip, back, face, mark: null, marked: false, glow: null, outline: null, selected: false, detach: () => {}, pressed: false };
     card.detach = attachPress(root, {
       onDown: () => {
         card.pressed = true;
@@ -324,9 +370,14 @@ export class Hand {
         if (i >= 0) this.callbacks.onTap(i);
       },
       onLongPress: () => {
+        this.setBrowsing(card);
         this.callbacks.onLongPress(cardId, this.cardBox(card));
       },
-      onLongPressEnd: () => this.callbacks.onLongPressEnd(),
+      onHoldMove: (x, y, at) => this.slide(x, y, at),
+      onLongPressEnd: () => {
+        this.setBrowsing(null);
+        this.callbacks.onLongPressEnd();
+      },
     });
     return card;
   }
@@ -378,12 +429,13 @@ export class Hand {
 
   private restack(): void {
     this.cards.forEach((c, i) => {
-      if (!c.pressed) c.root.zIndex = c.selected ? 900 : i;
+      if (!c.pressed) c.root.zIndex = c === this.browsing ? 950 : c.selected ? 900 : i;
     });
   }
 
   private destroyCard(card: HandCard): void {
     if (card.root.destroyed) return;
+    if (this.browsing === card) this.browsing = null;
     card.detach();
     this.fx.cancel(card.root);
     this.ui.cancel(card.root);

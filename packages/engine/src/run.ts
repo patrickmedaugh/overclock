@@ -18,6 +18,7 @@ import {
   findServer,
   rezCost,
   trashCost,
+  unrezzedIce,
 } from './rules';
 import {
   CENTRAL_SERVERS,
@@ -30,6 +31,7 @@ import {
   type AccessFrom,
   type AccessNext,
   type AccessState,
+  type ChoiceState,
   type GameState,
   type Installed,
   type RunState,
@@ -87,17 +89,24 @@ export function startRun(state: GameState, server: ServerId, opts: RunOptions, e
     bypassNext: opts.bypassFirst ?? false,
     extraAccess: opts.extraAccess ?? 0,
     access: null,
+    // Bad publicity: 1 run-only credit each.
+    tempCredits: state.badPublicity,
   };
   const s: GameState = { ...state, phase: 'run', lastRunTurn: state.turn, run };
   events.push(opts.cardId !== undefined ? { type: 'run_started', server, cardId: opts.cardId } : { type: 'run_started', server });
+  if (run.tempCredits > 0) events.push({ type: 'temp_credits_gained', amount: run.tempCredits });
   // No ICE: straight in (no Continue stop before the first ICE).
   return iceCount === 0 ? succeed(s, events) : approach(s, events);
 }
 
-/** Ends the run: boosts drop back, `run_ended`, back to the action phase (the Runner keeps its clicks). */
+/**
+ * Ends the run: boosts drop back, unspent run-only credits vanish, `run_ended`,
+ * back to the action phase (the Runner keeps its clicks).
+ */
 export function endRun(state: GameState, outcome: RunOutcome, events: Events): GameState {
   const run = theRun(state);
   const s = changeBoosts(state, { encounterBoost: {}, runBoost: {} }, events);
+  if (run.tempCredits > 0) events.push({ type: 'temp_credits_lost', amount: run.tempCredits });
   events.push({ type: 'run_ended', server: run.server, outcome });
   return { ...s, phase: 'action', run: null };
 }
@@ -327,10 +336,36 @@ export function resolveEffect(state: GameState, effect: Effect, owner: Side, eve
       };
       return startRun(state, server, opts, events);
     }
+    case 'bad_publicity': {
+      // Always the Corp's counter, whoever's card it is.
+      const total = state.badPublicity + effect.amount;
+      events.push({ type: 'bad_publicity_gained', amount: effect.amount, total });
+      return { ...state, badPublicity: total };
+    }
+    case 'free_rez': {
+      // No unrezzed installed ICE: nothing to choose, no window (auto-pass, no event).
+      if (unrezzedIce(state).length === 0) return state;
+      const cardId = ctx.cardId as string;
+      events.push({ type: 'choice_opened', kind: 'free_rez', player: owner, cardId });
+      return { ...state, phase: 'choice', choice: { kind: 'free_rez', player: owner, cardId } };
+    }
   }
 }
 
 // ---- actions (already validated by rules.ts) ----------------------------------------
+
+/**
+ * The Runner pays `amount` during the run: run-only credits first, then its own
+ * credits (`credits_spent.temp` = the run-only part). Caller checked affordability.
+ */
+function payRunner(state: GameState, amount: number, events: Events): GameState {
+  if (amount <= 0) return state;
+  const run = theRun(state);
+  const temp = Math.min(amount, run.tempCredits);
+  events.push(temp > 0 ? { type: 'credits_spent', player: 'runner', amount, temp } : { type: 'credits_spent', player: 'runner', amount });
+  const s = withPlayer(state, 'runner', { credits: state.players.runner.credits - (amount - temp) });
+  return setRun(s, { tempCredits: run.tempCredits - temp });
+}
 
 export function doRun(state: GameState, a: ActionOf<'run'>): { state: GameState; events: GameEvent[] } {
   const events: Events = [];
@@ -338,20 +373,39 @@ export function doRun(state: GameState, a: ActionOf<'run'>): { state: GameState;
   return { state: startRun(s, a.server, {}, events), events };
 }
 
+/** Rezzes installed Corp ICE `uid` (no payment). */
+function setRezzed(state: GameState, uid: string): GameState {
+  const fix = (list: readonly Installed[]) => list.map((c) => (c.uid === uid ? { ...c, rezzed: true } : c));
+  return { ...state, servers: state.servers.map((sv) => ({ ...sv, ice: fix(sv.ice) })) };
+}
+
+/** Closes the open choice: back to the action phase (the Corp's turn goes on). */
+function closeChoice(state: GameState, skipped: boolean, events: Events): GameState {
+  const choice = state.choice as ChoiceState;
+  events.push({ type: 'choice_closed', kind: choice.kind, skipped });
+  return { ...state, phase: 'action', choice: null };
+}
+
 export function doRez(state: GameState, a: ActionOf<'rez'>): { state: GameState; events: GameEvent[] } {
   const events: Events = [];
+  if (state.phase === 'choice') {
+    // Priority Requisition: any unrezzed installed ICE, ignoring all costs.
+    const ice = unrezzedIce(state).find((c) => c.uid === a.uid) as Installed;
+    const s = setRezzed(state, a.uid);
+    events.push({ type: 'ice_rezzed', uid: ice.uid, cardId: ice.cardId });
+    return { state: closeChoice(s, false, events), events };
+  }
   const ice = currentIce(state) as Installed;
   const cost = rezCost(ice);
   if (cost > 0) events.push({ type: 'credits_spent', player: 'corp', amount: cost });
-  let s = withPlayer(state, 'corp', { credits: state.players.corp.credits - cost });
-  const fix = (list: readonly Installed[]) => list.map((c) => (c.uid === a.uid ? { ...c, rezzed: true } : c));
-  s = { ...s, servers: s.servers.map((sv) => ({ ...sv, ice: fix(sv.ice) })) };
+  const s = setRezzed(withPlayer(state, 'corp', { credits: state.players.corp.credits - cost }), a.uid);
   events.push({ type: 'ice_rezzed', uid: ice.uid, cardId: ice.cardId });
   return { state: encounter(s, events), events };
 }
 
 export function doPass(state: GameState): { state: GameState; events: GameEvent[] } {
   const events: Events = [];
+  if (state.phase === 'choice') return { state: closeChoice(state, true, events), events }; // Skip
   const step = theRun(state).step;
   let s: GameState;
   if (step === 'approach') s = passIce(state, events); // Don't rez: passed face down
@@ -370,8 +424,7 @@ export function doUseAbility(state: GameState, a: ActionOf<'use_ability'>): { st
   const events: Events = [];
   const ability = abilityTarget(state, a);
   if (!ability) return { state, events }; // unreachable: validated
-  if (ability.cost > 0) events.push({ type: 'credits_spent', player: 'runner', amount: ability.cost });
-  let s = withPlayer(state, 'runner', { credits: state.players.runner.credits - ability.cost });
+  let s = payRunner(state, ability.cost, events);
   const run = theRun(s);
   if (ability.op === 'strength') {
     const key = ability.until === 'run' ? 'runBoost' : 'encounterBoost';
@@ -406,9 +459,7 @@ export function doSteal(state: GameState, a: ActionOf<'steal'>): { state: GameSt
 export function doTrash(state: GameState, a: ActionOf<'trash'>): { state: GameState; events: GameEvent[] } {
   const events: Events = [];
   const card = accessCard(state, a.card) as AccessCard;
-  const cost = trashCost(card);
-  if (cost > 0) events.push({ type: 'credits_spent', player: 'runner', amount: cost });
-  let s = withPlayer(state, 'runner', { credits: state.players.runner.credits - cost });
+  let s = payRunner(state, trashCost(card), events);
   s = removeFromZone(s, a.card);
   s = markTaken(s, a.card, { trashed: true });
   // Trashed cards go face up to Archives.

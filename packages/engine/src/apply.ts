@@ -18,6 +18,7 @@ import {
   rejectionFor,
   rezCost,
   trashCost,
+  unrezzedIce,
   unstolenAgendaShown,
   waitingOn,
 } from './rules';
@@ -176,7 +177,12 @@ function doScore(state: GameState, a: ActionOf<'score'>): ApplyResult {
     servers: state.servers.map((sv) => ({ ...sv, content: sv.content.filter((c) => c.uid !== a.uid) })),
   };
   s = withPlayer(s, a.player, { scoreArea: [...s.players[a.player].scoreArea, card.cardId] });
+  // A score that wins ends the game first: the "when scored" bonus is skipped.
   s = checkPointsWin(s, a.player, events);
+  for (const effect of getCard(card.cardId)?.onScore ?? []) {
+    if (s.phase !== 'action') break; // game over, or a choice opened (free_rez is last)
+    s = resolveEffect(s, effect, a.player, events, { cardId: card.cardId });
+  }
   return { state: s, events };
 }
 
@@ -243,7 +249,14 @@ export function legalActions(state: GameState, player: Side): Action[] {
   const installed = Object.values(installedOptions(state, player)).flat();
   return [
     ...candidates.filter((a) => rejectionFor(state, a) === null),
-    ...[...installs, ...plays, ...runStartOptions(state, player), ...installed, ...runStepOptions(state, player)]
+    ...[
+      ...installs,
+      ...plays,
+      ...runStartOptions(state, player),
+      ...installed,
+      ...runStepOptions(state, player),
+      ...choiceOptions(state, player),
+    ]
       .filter((o) => o.reject === null)
       .map((o) => o.action),
   ];
@@ -310,6 +323,17 @@ export function runStepOptions(state: GameState, player: Side): CardOption[] {
     if (!unstolenAgendaShown(state)) out.push(option(state, pass, 0));
   }
   return out.filter((o) => o.reject !== 'bad_target');
+}
+
+/**
+ * The deciding player's options in an open choice (empty for the other player
+ * and outside phase 'choice'). `free_rez`: one `rez` (cost 0) per unrezzed
+ * installed ICE (servers in order, then ICE index order), then `pass` (Skip).
+ */
+export function choiceOptions(state: GameState, player: Side): CardOption[] {
+  if (state.phase !== 'choice' || !state.choice || waitingOn(state) !== player) return [];
+  const rezzes = unrezzedIce(state).map((c) => option(state, { type: 'rez', player, uid: c.uid }, 0));
+  return [...rezzes, option(state, { type: 'pass', player }, 0)];
 }
 
 /**

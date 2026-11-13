@@ -75,6 +75,7 @@ async function start(): Promise<void> {
     onNewGame: () => window.location.assign(window.location.pathname),
     changed: () => invalidate(),
     log,
+    buildTime: __BUILD_TIME__,
   });
   app.stage.addChild(board.stage);
 
@@ -111,25 +112,54 @@ async function start(): Promise<void> {
   window.addEventListener('orientationchange', relayout);
   // Insets can settle a moment after an orientation change on iOS.
   window.visualViewport?.addEventListener('resize', relayout);
+  // S-04-2: the GPU can drop the drawing surface (low memory, the app sent to
+  // the background). Pixi restores the context; every baked card picture is
+  // then gone, so the board draws everything again (after Pixi's own handler).
+  app.canvas.addEventListener('webglcontextrestored', () => board.redrawAll());
 
-  // Test hook for Playwright (always on for now; build flag later).
-  window.__overclock = {
-    getView: () => game.view(),
-    decision: () => game.decision(),
-    dispatch,
-    lastEvents: () => game.lastEvents(),
-    layout: () => board.snapshot(),
-    anims: () => records.map((r) => ({ ...r, box: r.box ? { ...r.box } : undefined })),
-    clearAnims: () => {
-      records.length = 0;
-    },
-    lastInput,
-    endTurn: () => board.endTurnClock(),
-    smallFace: (cardId, width, height) => {
-      const def = getCard(cardId);
-      return def ? smallFaceLayout(def, width, height) : null;
-    },
+  // S-04-2: the phone's Back button. Closing the app exists only in the app;
+  // the web build counts the request (for the tests).
+  let exitRequests = 0;
+  const exit = (): void => {
+    exitRequests++;
+    if (__NATIVE__) void import('@capacitor/app').then(({ App }) => App.exitApp());
   };
+  const back = () => board.back(exit);
+  if (__NATIVE__) {
+    void import('@capacitor/app').then(({ App }) => {
+      void App.addListener('backButton', () => back());
+      // Back from another app: draw every card again (none blank).
+      void App.addListener('resume', () => board.redrawAll());
+    });
+  }
+
+  // The Android app's SystemBars plugin sets --safe-area-inset-* on <html>
+  // whenever the insets change (after load, on rotation): lay out again then.
+  new MutationObserver(relayout).observe(document.documentElement, { attributes: true, attributeFilter: ['style'] });
+
+  // Test hook for Playwright. Left out of the Android app (__TEST_HOOK__ is a
+  // compile-time constant, so the bundler drops this whole block there).
+  if (__TEST_HOOK__) {
+    window.__overclock = {
+      getView: () => game.view(),
+      decision: () => game.decision(),
+      dispatch,
+      lastEvents: () => game.lastEvents(),
+      layout: () => board.snapshot(),
+      anims: () => records.map((r) => ({ ...r, box: r.box ? { ...r.box } : undefined })),
+      clearAnims: () => {
+        records.length = 0;
+      },
+      lastInput,
+      endTurn: () => board.endTurnClock(),
+      smallFace: (cardId, width, height) => {
+        const def = getCard(cardId);
+        return def ? smallFaceLayout(def, width, height) : null;
+      },
+      back,
+      exitRequests: () => exitRequests,
+    };
+  }
   document.getElementById('boot')?.remove();
   document.body.dataset.ready = 'true';
 }

@@ -11,20 +11,22 @@
 import type { Action, CardOption, GameEvent, InstalledView, PlayerView, RejectReason, ServerId, Side, WinReason } from '@overclock/engine';
 import { getCard } from '@overclock/cards';
 import { Container, Graphics, Rectangle, Text } from 'pixi.js';
-import { createCardBack, createCardFace, glowRoundRect, retireCardTextures } from './cardFace';
+import { type BackAction, backAction } from './back';
+import { createCardBack, createCardFace, dropCardTextures, glowRoundRect, retireCardTextures } from './cardFace';
 import { centeredBox } from './geometry';
 import { Hand, type HandCard } from './hand';
 import type { AnimRecord, Box, EndTurnClock, InstalledSnapshot, Insets, LayoutSnapshot, SideLayout, TargetSnapshot } from './hook-types';
 import type { Decision, Presentation } from './hotseat';
-import { hintFor } from './hints';
+import { CHOICE_HINT, hintFor } from './hints';
 import { attachPress, inputTime } from './input';
-import { type BoardLayout, type BoardShape, CARD_RATIO, type SideRow, computeLayout } from './layout';
+import { BUILD_LINE, type BoardLayout, type BoardShape, CARD_RATIO, type SideRow, computeLayout } from './layout';
+import { LeaveDialog } from './leaveDialog';
 import { RunDisplay } from './runDisplay';
 import { RUN_END, nameOf, runEndText } from './runText';
-import { SIDE_NAME, TERMS, plural, pointsText, priceText, serverLabel, zoneName } from './terms';
+import { SIDE_NAME, TERMS, badPublicityText, plural, pointsText, priceText, serverLabel, tempCreditsText, zoneName } from './terms';
 import { sideColor, theme, timing } from './theme';
 import { ease, type Tweens } from './tween';
-import { ActionButton, Counter, DeckPile, DiscardPile, MemoryCounter, PanelButton, ScorePill, TargetMarker, fitText, placeAt } from './widgets';
+import { ActionButton, Counter, DeckPile, DiscardPile, MemoryCounter, PanelButton, ScorePill, StatusTag, TargetMarker, fitText, placeAt } from './widgets';
 
 type Pos = 'top' | 'bottom';
 const SIDES: readonly Side[] = ['corp', 'runner'];
@@ -55,6 +57,11 @@ export function bannerText(view: PlayerView): string {
   const who = view.activePlayer.toUpperCase();
   if (view.phase === 'discard') return `TURN ${view.turn} · ${who} · hand limit`;
   return `TURN ${view.turn} · ${who} · ${plural(view.players[view.activePlayer].clicks, 'click', 'clicks')} left`;
+}
+
+/** Markers are kept per kind and place: a server, or an installed card (free rez). */
+function targetKey(kind: TargetSnapshot['kind'], where: { server?: string; uid?: string }): string {
+  return `${kind}:${where.server ?? (kind === 'free_rez' ? (where.uid ?? '') : '')}`;
 }
 
 function handText(side: Side, n: number): string {
@@ -113,6 +120,8 @@ interface SeatWidgets {
   handText: Text;
   credits: Counter;
   clicks: Counter;
+  /** S-04-4: "Bad publicity 1" (Corp) / "+1 for this run" (Runner). */
+  tag: StatusTag;
 }
 
 interface InstalledCard {
@@ -182,6 +191,8 @@ export interface BoardCallbacks {
   /** The board changed outside a dispatch (a card picked or let go): redraw, and hit-test the new places at once. */
   changed(): void;
   log(rec: Omit<AnimRecord, 'startedAt'>): void;
+  /** When this copy of the game was built, e.g. "2026-11-13 14:32 UTC" (S-04-1: shown small in a corner). */
+  buildTime: string;
 }
 
 export class Board {
@@ -201,6 +212,13 @@ export class Board {
   private readonly fxLayer = new Container();
   private readonly hintLayer = new Container();
   private readonly zoomLayer = new Container();
+  /** The small build date (S-04-1). */
+  private readonly buildText: Text;
+  /** The agenda whose free-rez choice was open before this update (for the "skipped" notice). */
+  private lastChoiceCard: string | null = null;
+  /** "Leave the game?" over everything (S-04-2). */
+  private readonly dialogLayer = new Container();
+  private leave: { dialog: LeaveDialog; onLeave: () => void } | null = null;
   /** One hand per seat, kept between turns. */
   private readonly hands: Record<Side, Hand>;
   /** Catches taps on empty board (cancels a picked card). */
@@ -217,7 +235,18 @@ export class Board {
   /** Installed card picked for its choices (Corp agenda: Advance / Score). */
   private pickedInstalled: string | null = null;
   private hint: { text: string; root: Container; box: Box } | null = null;
-  private zoom: { cardId: string | null; root: Container; card: Container; width: number; height: number; overflow: boolean } | null = null;
+  private zoom: {
+    cardId: string | null;
+    root: Container;
+    card: Container;
+    width: number;
+    height: number;
+    overflow: boolean;
+    /** Faces already made during this zoom (a slide back and forth reuses them). */
+    faces: Map<string, { card: Container; overflow: boolean }>;
+    /** Hand zooms: an undimmed outline over the hand card the zoom shows (S-04-3). */
+    frame: Graphics | null;
+  } | null = null;
   /** Hand indices picked in the discard picker (UI state only). */
   private readonly marked = new Set<number>();
   /** Hand index picked to play (UI state only). */
@@ -244,8 +273,9 @@ export class Board {
   ) {
     const handCallbacks = (side: Side) => ({
       onTap: (i: number) => this.onCardTap(i),
-      onLongPress: (id: string, from: Box) => this.openZoom(id, side, from),
+      onLongPress: (id: string, from: Box) => this.openZoom(id, side, from, true),
       onLongPressEnd: () => this.closeZoom(),
+      onZoomSlide: (id: string, box: Box, at: number) => this.swapZoom(id, box, at),
       log: (r: Omit<AnimRecord, 'startedAt'>) => callbacks.log(r),
     });
     this.hands = { corp: new Hand('corp', fx, ui, handCallbacks('corp')), runner: new Hand('runner', fx, ui, handCallbacks('runner')) };
@@ -257,8 +287,15 @@ export class Board {
     attachPress(this.catcher, { onTap: () => this.cancelSelection() });
     this.catcher.cursor = 'default';
     this.runLayer.eventMode = 'none';
-    this.table.addChild(this.catcher, this.bgLayer, this.boardLayer, this.installedLayer, this.runLayer, this.centerLayer, this.accessLayer, this.targetLayer, this.handLayer);
-    this.stage.addChild(this.table, this.fxLayer, this.hintLayer, this.zoomLayer);
+    this.buildText = new Text({
+      text: '',
+      style: { fontFamily: theme.fontFamily, fontSize: 9, fill: theme.textDim, align: 'center', lineHeight: BUILD_LINE },
+    });
+    this.buildText.label = 'build-time';
+    this.buildText.eventMode = 'none';
+    this.buildText.alpha = 0.85;
+    this.table.addChild(this.catcher, this.bgLayer, this.boardLayer, this.installedLayer, this.runLayer, this.centerLayer, this.accessLayer, this.targetLayer, this.handLayer, this.buildText);
+    this.stage.addChild(this.table, this.fxLayer, this.hintLayer, this.zoomLayer, this.dialogLayer);
   }
 
   /** New viewport size / safe-area insets (start, resize, rotate). */
@@ -269,6 +306,65 @@ export class Board {
     if (this.view) this.fullRender();
     if (this.hint) this.positionHint(this.hint);
     this.syncHelp();
+    // The question stays open across a rotation / inset change, laid out anew.
+    if (this.leave) this.openLeave(this.leave.onLeave);
+  }
+
+  /**
+   * The phone's Back button (S-04-2, owner answer A): closes the leave
+   * question or a zoom; on the game-over screen calls `exit`; otherwise asks
+   * "Leave the game?" (Leave calls `exit`). Returns what it did.
+   */
+  back(exit: () => void): BackAction {
+    const action = backAction({ dialogOpen: this.leave !== null, zoomOpen: this.zoom !== null, gameOver: !!this.view?.result });
+    if (action === 'close_dialog') this.closeLeave();
+    else if (action === 'close_zoom') this.closeZoom();
+    else if (action === 'exit') exit();
+    else this.openLeave(exit);
+    this.callbacks.changed();
+    return action;
+  }
+
+  private openLeave(onLeave: () => void): void {
+    this.closeLeave();
+    const layout = this.layout;
+    if (!layout) return;
+    const dialog = new LeaveDialog(
+      layout,
+      () => {
+        this.closeLeave();
+        this.callbacks.changed();
+      },
+      () => {
+        this.closeLeave();
+        this.callbacks.changed();
+        onLeave();
+      },
+    );
+    this.dialogLayer.addChild(dialog.root);
+    this.leave = { dialog, onLeave };
+  }
+
+  private closeLeave(): void {
+    this.leave?.dialog.destroy();
+    this.leave = null;
+  }
+
+  /**
+   * Draws every card again from scratch (S-04-2): after the GPU dropped the
+   * drawing surface (webglcontextrestored) or the app comes back from the
+   * background. Baked card pictures lived on the GPU, so they are all remade.
+   * Game state, the leave question and hints are kept.
+   */
+  redrawAll(): void {
+    this.fx.finishAll();
+    this.closeZoom(true);
+    this.destroyGeneration();
+    for (const s of SIDES) this.hands[s].reset();
+    dropCardTextures();
+    if (this.view) this.fullRender();
+    if (this.leave) this.openLeave(this.leave.onLeave);
+    this.callbacks.changed();
   }
 
   /** Shows the result of one action (see Presentation). */
@@ -286,6 +382,7 @@ export class Board {
   render(view: PlayerView, events: readonly GameEvent[], decision: Decision | null = null): void {
     this.fx.finishAll();
     const prev = this.view;
+    if (prev?.choice) this.lastChoiceCard = prev.choice.cardId;
     const prevDecision = this.decision;
     this.view = view;
     this.decision = decision;
@@ -332,7 +429,9 @@ export class Board {
     const notices: string[] = [];
     for (const e of events) {
       if (e.type === 'server_created') this.serverOpen(e.server, layout);
-      if (e.type === 'credits_spent' && e.player === viewer) this.creditFloat(-e.amount);
+      // Run-only credits (bad publicity) are paid first: only the rest leaves the credits pill.
+      if (e.type === 'credits_spent' && e.player === viewer) this.creditFloat(-(e.amount - (e.temp ?? 0)));
+      this.animateBonusEvent(e, notices);
       if (e.type === 'credit_gained' && e.player === viewer) this.creditFloat(e.amount);
       if (e.type === 'action_rejected') {
         this.showHint(hintFor(e.reason, view));
@@ -432,6 +531,11 @@ export class Board {
         runnerHand: runner?.handText.text ?? '',
         corpDiscard: gen?.discards.corp.text ?? '',
         runnerDiscard: gen?.discards.runner.text ?? '',
+        help: gen?.subHelp.visible && gen.subHelp.renderable ? gen.subHelp.text : '',
+      },
+      tags: {
+        corp: corp && corp.tag.text ? { text: corp.tag.text, box: { ...corp.tag.box } } : null,
+        runner: runner && runner.tag.text ? { text: runner.tag.text, box: { ...runner.tag.box } } : null,
       },
       endTurn:
         button && button.root.visible && button.mode === 'end'
@@ -453,6 +557,11 @@ export class Board {
       },
       selectedInstalled: this.pickedInstalled,
       hint: this.hint && this.hint.root.alpha > 0.05 ? { text: this.hint.text, box: this.hint.box } : null,
+      dialog: this.leave ? this.leave.dialog.snapshot() : null,
+      buildLabel:
+        layout && this.buildText.visible && this.buildText.text
+          ? { text: this.buildText.text, box: this.buildTextBox() }
+          : null,
       zoom: this.zoom
         ? { cardId: this.zoom.cardId, box: centeredBox(this.zoom.card, this.zoom.width, this.zoom.height), texts: textsOf(this.zoom.card), textOverflow: this.zoom.overflow }
         : null,
@@ -601,6 +710,7 @@ export class Board {
     const layout = computeLayout(vp.width, vp.height, vp.insets, { viewer: view.viewer, shape: shapeOf(view) });
     if (!this.gen || this.gen.sizeKey !== layout.sizeKey) this.newGeneration(layout);
     this.layout = layout;
+    this.placeBuildLabel(layout);
     const gen = this.gen!;
     const viewer = view.viewer;
     const opponent = other(viewer);
@@ -821,9 +931,10 @@ export class Board {
       clicks.root.eventMode = 'none';
       if (pos === 'bottom') gen.detachers.push(this.pressFeedback(credits.root, () => this.boardTap(() => this.callbacks.onCreditsTap())));
       else credits.root.eventMode = 'none';
-      root.addChild(label, credits.root, clicks.root);
+      const tag = new StatusTag(`tag:${side}`, side === 'corp' ? 'bad' : 'run');
+      root.addChild(label, credits.root, clicks.root, tag.root);
       this.boardLayer.addChild(root);
-      w = { side, pos, root, label, name, handText: hand, credits, clicks };
+      w = { side, pos, root, label, name, handText: hand, credits, clicks, tag };
       gen.seats.set(key, w);
     }
     w.label.position.set(row.label.x, row.label.y + Math.max(0, (row.label.height - w.name.height) / 2));
@@ -948,6 +1059,9 @@ export class Board {
       w.handText.x = w.name.width + fs * 0.7;
       const row = layout[w.pos].label;
       w.label.scale.set(Math.min(1, row.width / Math.max(1, w.handText.x + w.handText.width)));
+      // The client shows the engine's numbers; it never adds run-only credits to the Runner's credits.
+      const note = s === 'corp' ? (view.badPublicity > 0 ? badPublicityText(view.badPublicity) : null) : view.run && view.run.tempCredits > 0 ? tempCreditsText(view.run.tempCredits) : null;
+      w.tag.set(layout[w.pos].tag, note, layout.mode === 'landscape' && w.pos === 'bottom' ? 'center' : 'right');
       const mine = s === viewer;
       gen.decks[s].setActionable(mine && view.legalActions.some((a) => a.type === 'draw'));
       w.credits.setActionable(mine && view.legalActions.some((a) => a.type === 'gain_credit'));
@@ -972,7 +1086,12 @@ export class Board {
     // Sideways, the run's info panel takes the help text's room in the rail.
     help.visible = !view.result && !(view.run && layout.mode === 'landscape');
     let helpText: string;
-    if (view.run) {
+    const choiceCard = view.choice ? (getCard(view.choice.cardId)?.name ?? 'Agenda') : '';
+    if (view.choice && view.choice.options.length > 0) {
+      helpText = `${choiceCard}: rez one ${TERMS.ice} for free.\nTap a lit ${TERMS.ice}, or ${TERMS.skip}.`;
+    } else if (view.choice) {
+      helpText = `${SIDE_NAME[view.choice.waitingOn]} is choosing (${choiceCard})…`;
+    } else if (view.run) {
       helpText = 'Tap a button to decide.\nHold a card to read it.';
     } else if (this.runPicking) {
       helpText = `Tap a lit server to run on it.\nTap ${TERMS.run} again to cancel.`;
@@ -1036,7 +1155,7 @@ export class Board {
 
     // Run button: where Play goes, while the view offers runs and nothing is picked.
     const rb = gen.runButton;
-    const showRun = !view.run && !view.result && pending === 0 && view.runOptions.length > 0 && this.selected === null && this.pickedInstalled === null;
+    const showRun = !view.run && !view.choice && !view.result && pending === 0 && view.runOptions.length > 0 && this.selected === null && this.pickedInstalled === null;
     rb.root.visible = showRun;
     if (showRun) rb.set(layout.action, TERMS.run, view.runOptions.some((o) => o.reject === null), theme.runner, this.runPicking);
 
@@ -1285,6 +1404,53 @@ export class Board {
     }
   }
 
+  /**
+   * S-04-4 "when scored" bonuses and bad publicity (fx queue, <= 300ms each):
+   * the status notes pop, the offered ICE flash, and a short notice says what happened.
+   */
+  private animateBonusEvent(e: GameEvent, notices: string[]): void {
+    const gen = this.gen;
+    const view = this.view;
+    if (!gen || !view) return;
+    const popTag = (side: Side) => {
+      const tag = this.seatOf(side)?.tag;
+      if (!tag || !tag.text) return null;
+      this.callbacks.log({ kind: 'tag_pop', text: tag.text, scheduledMs: timing.tagPop, box: { ...tag.box } });
+      tag.pop(this.fx, timing.tagPop);
+      return tag;
+    };
+    switch (e.type) {
+      case 'bad_publicity_gained':
+        popTag('corp');
+        notices.push(`${SIDE_NAME.corp} takes ${e.amount} ${TERMS.badPublicity.toLowerCase()}`);
+        return;
+      case 'temp_credits_gained':
+        popTag('runner');
+        notices.push(`${tempCreditsText(e.amount)} (${TERMS.badPublicity.toLowerCase()})`);
+        return;
+      case 'credits_spent': {
+        if (!e.temp) return;
+        const tag = popTag('runner');
+        const b = tag?.box ?? this.seatOf('runner')?.credits.box();
+        if (b) this.floatText(`-${e.temp}`, b, theme.warn, timing.tagPop);
+        return;
+      }
+      case 'choice_opened': {
+        const boxes = (view.choice?.options ?? []).flatMap((o) => (o.action.type === 'rez' ? [gen.installed.get(o.action.uid)?.box] : [])).filter((b): b is Box => !!b);
+        this.callbacks.log({ kind: 'choice_open', text: e.cardId, scheduledMs: timing.choiceFlash });
+        for (const b of boxes) this.flash(b, theme.credit, timing.choiceFlash);
+        return;
+      }
+      case 'choice_closed': {
+        const name = getCard(this.lastChoiceCard ?? '')?.name ?? 'Bonus';
+        notices.push(e.skipped ? `${name}: skipped` : `${name}: ${TERMS.ice} rezzed for free`);
+        return;
+      }
+      default:
+        return;
+    }
+  }
+
   /** A glow over `b` that fades out. */
   private flash(b: Box, color: number, ms: number): void {
     const g = new Graphics();
@@ -1336,6 +1502,11 @@ export class Board {
       return;
     }
     const hand = this.hands[view.viewer];
+    if (view.choice) {
+      // Only the choice can be answered now (S-04-4).
+      this.showHint(view.choice.options.length > 0 ? CHOICE_HINT : `${SIDE_NAME[view.choice.waitingOn]} is choosing`);
+      return;
+    }
     if (view.pendingDiscard > 0) {
       const pending = view.pendingDiscard;
       if (this.marked.has(index)) this.marked.delete(index);
@@ -1402,6 +1573,18 @@ export class Board {
     }
     // The price pill sits on the Runner's side of a Corp column (where the next ICE goes).
     const columnSide: 'top' | 'bottom' = layout.corp.outward === 'down' ? 'bottom' : 'top';
+    if (view.choice) {
+      // S-04-4: the free-rez choice. Only its options show: each offered ICE, and Skip where Play goes.
+      for (const option of view.choice.options) {
+        const a = option.action;
+        if (a.type === 'rez') {
+          const c = gen.installed.get(a.uid);
+          if (c) this.addTarget(gen, layout, 'free_rez', option, c.box, `${TERMS.rez} · free`, 'center', { uid: a.uid });
+        } else if (a.type === 'pass') this.addTarget(gen, layout, 'skip', option, layout.action, TERMS.skip, 'center', {});
+      }
+      this.setNewServerLabel(false);
+      return;
+    }
     if (this.runPicking) {
       for (const option of view.runOptions) {
         const a = option.action;
@@ -1473,7 +1656,7 @@ export class Board {
     where: { server?: string; uid?: string },
   ): void {
     // Markers are kept per place: advance / score always use the same two slots.
-    const key = `${kind}:${where.server ?? ''}`;
+    const key = targetKey(kind, where);
     let marker = gen.targets.get(key);
     if (!marker) {
       const m = new TargetMarker(layout.scale);
@@ -1503,6 +1686,13 @@ export class Board {
     }
     if (this.pickedInstalled === uid) {
       this.cancelSelection();
+      return;
+    }
+    if (view.choice) {
+      // The offered ICE are lit; a tap on one (or its marker) rezzes it for free.
+      const rez = view.choice.options.find((o) => o.action.type === 'rez' && o.action.uid === uid);
+      if (rez) this.callbacks.onAction(rez.action);
+      else this.showHint(view.choice.options.length > 0 ? CHOICE_HINT : `${SIDE_NAME[view.choice.waitingOn]} is choosing`);
       return;
     }
     const options = view.installedOptions[uid] ?? [];
@@ -1555,7 +1745,7 @@ export class Board {
   }
 
   private onTargetTap(key: string): void {
-    const t = this.activeTargets.find((x) => `${x.kind}:${x.server ?? ''}` === key);
+    const t = this.activeTargets.find((x) => targetKey(x.kind, x) === key);
     if (!t || this.flipPending) return;
     // The engine judges it; a refusal comes back as action_rejected and shows its hint.
     this.callbacks.onAction(t.option.action);
@@ -1770,6 +1960,28 @@ export class Board {
   private syncHelp(): void {
     const help = this.gen?.subHelp;
     if (help) help.renderable = !(this.hint && this.layout?.mode === 'landscape');
+    // In the column the build date shares the hint's slot: hide it while a hint shows.
+    this.buildText.visible = !(this.hint && this.layout?.mode === 'portrait');
+  }
+
+  /** Where the build date's text is drawn (CSS px). */
+  private buildTextBox(): Box {
+    const b = this.buildText.getBounds();
+    return { x: b.x, y: b.y, width: b.width, height: b.height };
+  }
+
+  /** The build date: the date and time centered in the narrow rail (sideways), "Built …" in the column's hint slot. */
+  private placeBuildLabel(layout: BoardLayout): void {
+    const t = this.buildText;
+    const when = this.callbacks.buildTime;
+    const rail = layout.mode === 'landscape';
+    const text = rail ? when : `Built ${when}`;
+    if (t.text !== text) t.text = text;
+    const b = layout.buildLabel;
+    t.style.align = rail ? 'center' : 'left';
+    t.anchor.set(rail ? 0.5 : 0, 0.5);
+    fitText(t, b.width, b.height);
+    t.position.set(rail ? b.x + b.width / 2 : b.x, b.y + b.height / 2);
   }
 
   private positionHint(hint: { root: Container; box: Box }): void {
@@ -1784,7 +1996,7 @@ export class Board {
   }
 
   /** Zooms a card: a face for a known card id, a back for a face-down card the viewer may not see. */
-  private openZoom(cardId: string | null, side: Side, from: Box): void {
+  private openZoom(cardId: string | null, side: Side, from: Box, fromHand = false): void {
     const layout = this.layout;
     if (!layout) return;
     const def = cardId ? getCard(cardId) : undefined;
@@ -1812,13 +2024,63 @@ export class Board {
     const cy = z.y + z.height / 2;
     card.position.set(from.x + from.width / 2, from.y + from.height / 2);
     card.scale.set(Math.min(from.width, from.height) / z.width);
-    root.addChild(dim, card);
+    root.addChild(dim);
+    let frame: Graphics | null = null;
+    if (fromHand) {
+      frame = new Graphics();
+      const { width: w, height: h } = layout.card;
+      glowRoundRect(frame, -w / 2, -h / 2, w, h, Math.max(4, w * 0.08), theme.text, Math.max(2, w * 0.035), 1.4);
+      frame.position.set(from.x + from.width / 2, from.y + from.height / 2);
+      root.addChild(frame);
+    }
+    root.addChild(card);
     root.alpha = 0;
     this.zoomLayer.addChild(root);
-    this.zoom = { cardId: def ? cardId : null, root, card, width: z.width, height: z.height, overflow };
+    const faces = new Map<string, { card: Container; overflow: boolean }>();
+    if (def && cardId) faces.set(cardId, { card, overflow });
+    this.zoom = { cardId: def ? cardId : null, root, card, width: z.width, height: z.height, overflow, faces, frame };
     this.ui.add({ target: root, to: { alpha: 1 }, duration: timing.zoomIn, owner: root });
     this.ui.add({ target: card, to: { x: cx, y: cy }, duration: timing.zoomIn, ease: ease.outCubic, owner: card });
     this.ui.add({ target: card.scale, to: { x: 1, y: 1 }, duration: timing.zoomIn, ease: ease.outBack, owner: card });
+  }
+
+  /**
+   * S-04-3: the held finger slid onto another hand card. The zoom shows it at
+   * once, in place (no zoom-in tween), so reading a hand is instant. `inputAt`:
+   * the move's event time, logged for the <100ms check.
+   */
+  private swapZoom(cardId: string, from: Box, inputAt: number): void {
+    const zoom = this.zoom;
+    const layout = this.layout;
+    const def = getCard(cardId);
+    if (!zoom || !layout || !def || zoom.cardId === cardId) return;
+    const z = layout.zoom;
+    // Finish the zoom-in now: the slide is the reader moving on.
+    this.ui.cancel(zoom.root);
+    this.ui.cancel(zoom.card);
+    this.ui.cancel(zoom.card.scale);
+    zoom.root.alpha = 1;
+    zoom.frame?.position.set(from.x + from.width / 2, from.y + from.height / 2);
+    let next = zoom.faces.get(cardId);
+    if (!next) {
+      const card = createCardFace(def, z.width, z.height, 'full');
+      next = { card, overflow: textOverflows(card, z.width, z.height) };
+      zoom.faces.set(cardId, next);
+    }
+    zoom.card.visible = false;
+    zoom.root.removeChild(zoom.card);
+    // A face made during this zoom is kept (destroyed with the zoom); one not in the cache is dropped.
+    if (![...zoom.faces.values()].some((f) => f.card === zoom.card)) zoom.card.destroy({ children: true });
+    const card = next.card;
+    card.visible = true;
+    card.position.set(z.x + z.width / 2, z.y + z.height / 2);
+    card.scale.set(1);
+    zoom.root.addChild(card);
+    zoom.card = card;
+    zoom.cardId = cardId;
+    zoom.overflow = next.overflow;
+    this.callbacks.changed();
+    this.callbacks.log({ kind: 'zoom_swap', text: cardId, scheduledMs: 0, inputAt });
   }
 
   private closeZoom(immediate = false): void {
@@ -1828,6 +2090,8 @@ export class Board {
     this.ui.cancel(zoom.root);
     this.ui.cancel(zoom.card);
     this.ui.cancel(zoom.card.scale);
+    // Faces made during a slide but not on screen now are not under zoom.root.
+    for (const f of zoom.faces.values()) if (f.card !== zoom.card && !f.card.destroyed) f.card.destroy({ children: true });
     if (immediate) {
       zoom.root.destroy({ children: true });
       return;

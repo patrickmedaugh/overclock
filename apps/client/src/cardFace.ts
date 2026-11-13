@@ -137,6 +137,17 @@ export function retireCardTextures(): void {
   baked = new Map();
 }
 
+/**
+ * Frees every baked texture at once (S-04-2): after the GPU context was lost
+ * and restored, or the app resumed, their pixels may be gone. Call only once
+ * nothing on screen uses them (the board was torn down first).
+ */
+export function dropCardTextures(): void {
+  for (const m of [retired, baked]) for (const e of m.values()) e.texture.destroy(true);
+  retired = new Map();
+  baked = new Map();
+}
+
 function bake(key: string, build: () => Container): Container {
   const renderer = bakeRenderer;
   if (!renderer) {

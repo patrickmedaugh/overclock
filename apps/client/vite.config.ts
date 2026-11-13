@@ -43,19 +43,62 @@ function cspMeta(): Plugin {
   };
 }
 
-export default defineConfig(({ command, isPreview }) => ({
-  base: basePath ?? (command === 'build' || isPreview ? '/overclock/' : '/'),
-  plugins: [cspMeta()],
-  build: {
-    target: 'es2022',
-    chunkSizeWarningLimit: 1200,
-  },
-  preview: {
-    port: 4173,
-    strictPort: true,
-  },
-  test: {
-    include: ['test/**/*.test.ts'],
-    environment: 'node',
-  },
-}));
+/**
+ * The build date shown in a board corner (S-04-1), e.g. "2026-11-13 14:32 UTC".
+ * CI sets OVERCLOCK_BUILD_TIME once so the app, the web build and the release
+ * page show the same time; otherwise it is the time of this build.
+ */
+export function buildTime(now = new Date()): string {
+  const fromEnv = process.env['OVERCLOCK_BUILD_TIME'];
+  if (fromEnv) return fromEnv;
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${now.getUTCFullYear()}-${p(now.getUTCMonth() + 1)}-${p(now.getUTCDate())} ${p(now.getUTCHours())}:${p(now.getUTCMinutes())} UTC`;
+}
+
+/**
+ * Android app build (`vite build --mode android`): the "Turn your phone
+ * sideways" prompt is dropped (the app is locked sideways), markup and styles
+ * between the `rotate:start` / `rotate:end` markers in index.html go with it.
+ */
+function dropRotate(): Plugin {
+  return {
+    name: 'overclock-drop-rotate',
+    apply: 'build',
+    transformIndexHtml: {
+      order: 'pre',
+      handler: (html) =>
+        html
+          .replace(/\/\* rotate:start \*\/[\s\S]*?\/\* rotate:end \*\//g, '')
+          .replace(/<!-- rotate:start -->[\s\S]*?<!-- rotate:end -->/g, ''),
+    },
+  };
+}
+
+export default defineConfig(({ command, isPreview, mode }) => {
+  const android = mode === 'android';
+  return {
+    // Capacitor serves the app from the web root (https://localhost/).
+    base: android ? '/' : (basePath ?? (command === 'build' || isPreview ? '/overclock/' : '/')),
+    plugins: [cspMeta(), ...(android ? [dropRotate()] : [])],
+    define: {
+      // The Playwright test hook (window.__overclock) is left out of the app.
+      __TEST_HOOK__: JSON.stringify(!android),
+      // Native-only code (Back button, app resume) is loaded only in the app.
+      __NATIVE__: JSON.stringify(android),
+      __BUILD_TIME__: JSON.stringify(buildTime()),
+    },
+    build: {
+      target: 'es2022',
+      chunkSizeWarningLimit: 1200,
+      outDir: android ? 'dist-android' : 'dist',
+    },
+    preview: {
+      port: 4173,
+      strictPort: true,
+    },
+    test: {
+      include: ['test/**/*.test.ts'],
+      environment: 'node',
+    },
+  };
+});

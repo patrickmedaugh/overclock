@@ -12,3 +12,4 @@ blob-report/
 .env
 .env.*
 .claude/worktrees/
+dist-android/

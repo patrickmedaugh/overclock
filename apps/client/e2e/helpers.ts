@@ -296,6 +296,13 @@ export function boardElements(l: LayoutSnapshot): [string, Box][] {
   }
   if (l.endTurn) out.push(['End turn', l.endTurn.box]);
   if (l.picker) out.push(['Confirm', l.picker.confirm.box]);
+  // S-04-1: the small build date in a corner.
+  if (l.buildLabel) out.push(['build date', l.buildLabel.box]);
+  // S-04-4: "Bad publicity 1" / "+1 for this run" by the credits.
+  for (const s of ['corp', 'runner'] as const) {
+    const t = l.tags?.[s];
+    if (t) out.push([`${s} note "${t.text}"`, t.box]);
+  }
   return out;
 }
 

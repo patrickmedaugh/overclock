@@ -25,4 +25,10 @@ describe('hintFor', () => {
     expect(h.length).toBeGreaterThan(5);
     expect(h.length).toBeLessThanOrEqual(32);
   });
+
+  it('S-04-4: during the free-rez choice a refused tap says what to do', () => {
+    const choice = { kind: 'free_rez' as const, waitingOn: 'corp' as const, cardId: 'c11', options: [] };
+    expect(hintFor('wrong_phase', { viewer: 'corp', pendingDiscard: 0, choice })).toBe('Rez one ICE for free, or tap Skip');
+    expect(hintFor('wrong_phase', { viewer: 'corp', pendingDiscard: 0, choice: null })).toBe("You can't do that right now");
+  });
 });

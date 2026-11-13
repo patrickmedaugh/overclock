@@ -39,7 +39,21 @@ export const TERMS = {
   score: 'Score',
   netDamage: 'Net damage',
   flatline: 'Flatline',
+  // Sprint 4: "when scored" bonuses.
+  badPublicity: 'Bad publicity',
+  forThisRun: 'for this run',
+  skip: 'Skip',
 } as const;
+
+/** The Corp's black mark: "Bad publicity 2". */
+export function badPublicityText(n: number): string {
+  return `${TERMS.badPublicity} ${n}`;
+}
+
+/** The Runner's run-only credits: "+2 for this run". */
+export function tempCreditsText(n: number): string {
+  return `+${n} ${TERMS.forThisRun}`;
+}
 
 export const SIDE_NAME: Record<Side, string> = { corp: TERMS.corp, runner: TERMS.runner };
 
