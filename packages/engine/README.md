@@ -312,6 +312,45 @@ Then `phase = 'action'`, `choice = null` (the Corp's turn continues). Rejections
 ### Bad publicity in runs
 At run start `run.tempCredits = badPublicity` (`temp_credits_gained` right after `run_started`, only if > 0). Runner payments during the run (break, pump, trash) use run-only credits first, then credits; `credits_spent.temp` says how much came from run-only credits. "Can afford" (`no_credits`, options' `reject`) counts credits + run-only credits. Left-overs vanish whenever the run ends (accessed, jacked out, ended by ICE, flatline, a steal that wins): `temp_credits_lost{amount}` right before `run_ended`. Run-only credits are never added to `players.runner.credits`. **The client never computes which ICE may be rezzed or how many credits a run has.**
 
+## Sprint 5 interface (pinned: implement exactly this; changes go through the architect)
+
+Everything in the Sprint 1–4 interfaces still holds. Rules: `docs/RULES_SPEC.md` § Runs step 4 (Last run). Tech plan: `docs/sprints/sprint-05-tech-plan.md`. No new actions.
+
+```ts
+// ---- events.ts ----
+type SubOutcome = { sub: number; op: Effect['op']; amount: number };
+//   amount = the actual size: clicks really lost ("if able", may be 0), net damage dealt (printed),
+//   credits gained, cards drawn; 0 for end_run.
+type GameEvent = /* Sprint 1–4 events */
+  | { type: 'subroutine_resolved'; iceUid: string; cardId: string; outcome: SubOutcome };   // public
+
+// ---- state additions (plain JSON) ----
+// GameState.lastRun: { server: ServerId; cards: { cardId: string; from: AccessFrom }[] } | null
+//   {server, cards: []} at run_started (replaces the previous one); a card appended at each
+//   card_accessed (access order; stolen/trashed/left all kept); null when the Runner's turn ends.
+
+// ---- view additions ----
+interface RunView { /* ... */
+  letFire: { iceCardId: string; outcomes: SubOutcome[]; ends: 'run' | 'game' | null } | null;
+}
+interface PlayerView { /* ... */
+  lastRun: { server: ServerId; cards: { cardId: string; from: AccessFrom }[] } | null;
+}
+```
+
+### `subroutine_resolved`
+Pushed for every fired subroutine right after its own effect events and before anything the effect ends: `subroutine_fired`, (`clicks_lost` | `net_damage` | …), `subroutine_resolved`, then (`temp_credits_lost`, `run_ended`, `game_over`) if it ended the run / game. Examples:
+- Enigma, Runner has clicks: `subroutine_fired{0}`, `clicks_lost{1}`, `subroutine_resolved{0, lose_clicks, 1}`, `subroutine_fired{1}`, `subroutine_resolved{1, end_run, 0}`, `run_ended{ended_by_ice}`.
+- Enigma, no clicks: `subroutine_fired{0}`, `subroutine_resolved{0, lose_clicks, 0}`, …
+- Neural Katana, flatline: `subroutine_fired{0}`, `net_damage{3}`, `subroutine_resolved{0, net_damage, 3}`, `run_ended{flatline}`, `game_over{corp, flatline}`.
+`subroutine_fired` is unchanged.
+
+### `RunView.letFire`
+Non-null only in the **Runner's** view at step `encounter` with rezzed ICE while `pass` is offered (null for the Corp, at every other step and outside runs). `outcomes` = exactly the `subroutine_resolved` outcomes that `pass` would produce now, in order, stopping after the one that ends the run or the game; `ends` = `'run'` (ended by ICE), `'game'` (flatline), `null` (the run goes on; `outcomes: []` = every subroutine broken). Computed by running the real resolution on a throw-away copy of the state (same code path; the real state and RNG are untouched). Carries no hidden information (no discarded card ids). **The client never works out what ICE will do.**
+
+### `PlayerView.lastRun`
+Runner's view only, only when no run is in progress and `cards.length > 0`; otherwise null. Always null for the Corp. Stolen agendas (`players.runner.scored`) and face-up Archives (`discard` non-null entries) are already in the view.
+
 ## `@overclock/match` (host; `packages/match`)
 Owns one game's `GameState` and talks to seats only through projections. It is the same contract a network server will expose later.
 

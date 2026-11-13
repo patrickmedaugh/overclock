@@ -1,5 +1,5 @@
 export type { Action, ActionType } from './actions';
-export type { GameEvent, InstallZone, RejectReason, RunOutcome } from './events';
+export type { GameEvent, InstallZone, RejectReason, RunOutcome, SubOutcome } from './events';
 export type {
   AccessFrom,
   CentralServerId,
@@ -9,6 +9,8 @@ export type {
   GameResult,
   GameState,
   Installed,
+  LastRun,
+  LastRunCard,
   Phase,
   PlayerState,
   RunState,
@@ -25,6 +27,8 @@ export type {
   CardOption,
   ChoiceView,
   InstalledView,
+  LastRunView,
+  LetFireView,
   PlayerSideView,
   PlayerView,
   RunIceView,

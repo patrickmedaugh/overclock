@@ -1,6 +1,6 @@
 import type { Action } from './actions';
 import { choiceOptions, handOptions, installedOptions, legalActions, runStartOptions, runStepOptions } from './apply';
-import type { GameEvent, RejectReason } from './events';
+import type { GameEvent, RejectReason, SubOutcome } from './events';
 import { getCard } from '@overclock/cards';
 import { breakerCard, breakerStrength, currentIce, discardCount, iceStrength, memoryUsed, waitingOn } from './rules';
 import {
@@ -106,6 +106,27 @@ export interface RunView {
   readonly options: readonly CardOption[];
   /** The Runner's run-only credits left (from bad publicity; both players see it). 0 when none. */
   readonly tempCredits: number;
+  /**
+   * Sprint 5: what `pass` ("let it fire") would do now. Non-null only in the Runner's view at
+   * step `encounter` with rezzed ICE while `pass` is offered. Computed by the real resolution
+   * on a throw-away copy of the state.
+   */
+  readonly letFire: LetFireView | null;
+}
+
+/** Sprint 5: the preview of letting the encountered ICE fire. */
+export interface LetFireView {
+  readonly iceCardId: string;
+  /** What `pass` would resolve, in order, stopping after the one that ends the run/game. */
+  readonly outcomes: readonly SubOutcome[];
+  /** 'run' = ended by the ICE, 'game' = flatline, null = the run goes on (`[]` = all broken). */
+  readonly ends: 'run' | 'game' | null;
+}
+
+/** Sprint 5: the Runner's most recent run, as the Runner sees it. */
+export interface LastRunView {
+  readonly server: ServerId;
+  readonly cards: readonly { readonly cardId: string; readonly from: AccessFrom }[];
 }
 
 /** An open choice (phase 'choice'), as one player sees it. */
@@ -153,6 +174,11 @@ export interface PlayerView {
   readonly choice: ChoiceView | null;
   /** Actions the viewer may take now (so the AI/client never need the full state). */
   readonly legalActions: readonly Action[];
+  /**
+   * Sprint 5: the cards accessed in the Runner's most recent run. Runner's view only, only
+   * when no run is in progress and at least one card was accessed; always null for the Corp.
+   */
+  readonly lastRun: LastRunView | null;
 }
 
 function sideView(p: PlayerState, side: Side, viewer: Side): PlayerSideView {
@@ -217,6 +243,7 @@ function runView(state: GameState, viewer: Side): RunView | null {
     bypassPending: run.bypassNext,
     options: runStepOptions(state, viewer),
     tempCredits: run.tempCredits,
+    letFire: null,
   };
 }
 
@@ -256,6 +283,7 @@ export function viewFor(player: Side, state: GameState): PlayerView {
     badPublicity: state.badPublicity,
     choice: choiceView(state, player),
     legalActions: legalActions(state, player),
+    lastRun: null,
   };
 }
 
