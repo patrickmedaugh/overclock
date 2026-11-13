@@ -1,5 +1,5 @@
 import type { Action } from './actions';
-import { choiceOptions, handOptions, installedOptions, legalActions, runStartOptions, runStepOptions } from './apply';
+import { apply, choiceOptions, handOptions, installedOptions, legalActions, runStartOptions, runStepOptions } from './apply';
 import type { GameEvent, RejectReason, SubOutcome } from './events';
 import { getCard } from '@overclock/cards';
 import { breakerCard, breakerStrength, currentIce, discardCount, iceStrength, memoryUsed, waitingOn } from './rules';
@@ -204,6 +204,28 @@ function copyResult(r: GameResult | null): PlayerView['result'] {
   return r ? { winner: r.winner, reason: r.reason } : null;
 }
 
+/**
+ * What `pass` ("let it fire") would do now, for the Runner at an encounter with rezzed ICE
+ * while `pass` is offered; else null. Runs the real `pass` on the (immutable) state and keeps
+ * only the public outcome: the result is thrown away, the real state and RNG are untouched.
+ */
+function letFireView(state: GameState, viewer: Side, options: readonly CardOption[]): LetFireView | null {
+  const run = state.run;
+  const ice = currentIce(state);
+  if (viewer !== 'runner' || !run || run.step !== 'encounter' || !ice?.rezzed) return null;
+  const pass = options.find((o) => o.action.type === 'pass' && o.reject === null);
+  if (!pass) return null;
+  const { events } = apply(state, pass.action);
+  const outcomes: SubOutcome[] = [];
+  let ends: LetFireView['ends'] = null;
+  for (const e of events) {
+    if (e.type === 'subroutine_resolved') outcomes.push({ sub: e.outcome.sub, op: e.outcome.op, amount: e.outcome.amount });
+    else if (e.type === 'game_over') ends = 'game';
+    else if (e.type === 'run_ended' && ends === null) ends = 'run';
+  }
+  return { iceCardId: ice.cardId, outcomes, ends };
+}
+
 function runView(state: GameState, viewer: Side): RunView | null {
   const run = state.run;
   if (!run) return null;
@@ -220,6 +242,7 @@ function runView(state: GameState, viewer: Side): RunView | null {
   }
   const breakers: Record<string, number> = {};
   for (const c of state.rig) if (breakerCard(state, c.uid)) breakers[c.uid] = breakerStrength(state, c.uid);
+  const options = runStepOptions(state, viewer);
   return {
     server: run.server,
     position: run.position,
@@ -241,9 +264,9 @@ function runView(state: GameState, viewer: Side): RunView | null {
       : null,
     extraAccess: run.extraAccess,
     bypassPending: run.bypassNext,
-    options: runStepOptions(state, viewer),
+    options,
     tempCredits: run.tempCredits,
-    letFire: null,
+    letFire: letFireView(state, viewer, options),
   };
 }
 

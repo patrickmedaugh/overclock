@@ -57,6 +57,8 @@ export function expectRunnerViewClean(s: GameState, where: string): void {
     const real = s.run!;
     const ice = s.servers.find((sv) => sv.id === real.server)!.ice[real.position];
     if (v.run.ice) expect(v.run.ice.cardId, where).toBe(ice && ice.rezzed ? ice.cardId : null);
+    // Sprint 5 (spec change): the let-it-fire preview names only the encountered ICE, which is rezzed.
+    if (v.run.letFire) expect(ice?.rezzed === true && v.run.letFire.iceCardId === ice.cardId, `${where}: letFire names rezzed ICE`).toBe(true);
     expect(v.run.access?.cards.map((c) => c.cardId) ?? null, where).toEqual(real.access?.cards.map((c) => c.cardId) ?? null);
   }
   // An open choice names the agenda that opened it, which is face up in the score area.
@@ -73,7 +75,7 @@ export function expectRunnerViewClean(s: GameState, where: string): void {
       ice: sv.ice.filter((c) => !c.faceUp),
       content: sv.content.filter((c) => !c.faceUp),
     })),
-    run: v.run ? { ...v.run, ice: null, access: null } : null,
+    run: v.run ? { ...v.run, ice: null, access: null, letFire: v.run.letFire ? { ...v.run.letFire, iceCardId: '' } : null } : null,
     choice: v.choice ? { ...v.choice, cardId: '' } : null,
   };
   expect(JSON.stringify(rest), where).not.toMatch(CORP_ID);
