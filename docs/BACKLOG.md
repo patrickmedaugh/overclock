@@ -86,7 +86,7 @@ P1 = must, P2 = should, P3 = nice. The PM agent keeps this ordered.
 ## Follow-ups from Sprint 2 planning
 - ~~**P2 — Replace genre words on card faces and labels with our own**~~ — dropped 2026-11-12: the owner chose the real game's words and cards instead (see "Which names on screen?" and DECISIONS.md). Words like "Interface", "Subroutine" and "net damage" stay as the real game uses them.
 - **P2 — Removing an installed card to make room** (memory full; replacing an agenda/asset in a server). Left out of Sprint 2 to keep it small.
-- **P2 — Abilities on installed cards** (e.g. "When your turn begins, gain 1 credit", "Click: gain 2 credits", "+1 memory"). Needs the card-effects system to grow. After Runs (Sprint 3 builds only the icebreaker abilities, because runs need them).
+- **P2 — Abilities on installed cards** (owner asked about Armitage Codebusting's click ability in chat 2026-11-13 and chose to leave it here; two-phone play comes first) (e.g. "When your turn begins, gain 1 credit", "Click: gain 2 credits", "+1 memory"). Needs the card-effects system to grow. After Runs (Sprint 3 builds only the icebreaker abilities, because runs need them).
 
 ## Follow-ups from Sprint 0 and 1
 
