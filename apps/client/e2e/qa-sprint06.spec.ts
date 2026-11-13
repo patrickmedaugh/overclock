@@ -260,20 +260,54 @@ test.describe('QA S-06-2 not your turn', () => {
     await runner.context.close();
   });
 
-  test('a move on my own turn reaches my board and the other phone fast (local service)', async ({ browser }) => {
-    const { corp, runner } = await twoPhones(browser, 'corp', { seed: 7, actions: [] });
-    const before = (await view(corp)).players.corp.credits;
-    const cl = await layoutOf(corp);
-    const t0 = Date.now();
-    await tap(corp.page, cl.corp.credits);
-    await waitView(corp, (v) => v.players.corp.credits === before + 1);
-    const own = Date.now() - t0;
-    await waitView(runner, (v) => v.players.corp.credits === before + 1);
-    const other = Date.now() - t0;
-    test.info().annotations.push({ type: 'qa-move-ms', description: JSON.stringify({ own, other }) });
-    expect(other).toBeLessThan(1000);
-    await corp.context.close();
-    await runner.context.close();
+  test('a move on my own turn reaches my board and the other phone fast (local service, measured in the pages)', async ({ browser }) => {
+    // Plain contexts: the game sockets go straight to the service (openPhone relays
+    // them through the test process, which adds its own delay on a busy runner).
+    const use = test.info().project.use;
+    const plain = async (query: string): Promise<Page> => {
+      const context = await browser.newContext({ viewport: use.viewport ?? null, deviceScaleFactor: use.deviceScaleFactor, isMobile: use.isMobile, hasTouch: use.hasTouch, baseURL: use.baseURL });
+      const page = await context.newPage();
+      await page.goto(`./${query}`);
+      await page.waitForFunction(() => document.body.dataset.ready === 'true' && !!window.__overclockStart);
+      return page;
+    };
+    const corp = await plain('');
+    await corp.evaluate(() => window.__overclockStart!.startOnline('corp', { seed: 7, actions: [] }));
+    await expect(corp.locator('#start .code-big')).toHaveText(/^[A-Z2-9]{4}$/);
+    const code = (await corp.locator('#start .code-big').textContent())!;
+    const runner = await plain(`?join=${code}`);
+    for (const p of [corp, runner]) await p.waitForFunction(() => window.__overclock?.online()?.phase === 'playing');
+    const results: { own: number; other: number }[] = [];
+    for (let i = 0; i < 3; i++) {
+      await corp.waitForTimeout(700);
+      const before = (await corp.evaluate(() => window.__overclock!.getView())).players.corp.credits;
+      // Both pages note the wall clock (same machine) when they see the new credits.
+      const watch = (p: Page) =>
+        p.evaluate((c) => {
+          const w = window as unknown as { __seen?: number };
+          w.__seen = undefined;
+          const loop = () => {
+            if (window.__overclock!.getView().players.corp.credits === c) w.__seen = Date.now();
+            else requestAnimationFrame(loop);
+          };
+          requestAnimationFrame(loop);
+        }, before + 1);
+      await watch(corp);
+      await watch(runner);
+      await corp.evaluate(() => {
+        window.addEventListener('pointerup', () => ((window as unknown as { __up: number }).__up = Date.now()), { once: true, capture: true });
+      });
+      await tap(corp, (await corp.evaluate(() => window.__overclock!.layout())).corp.credits);
+      for (const p of [corp, runner]) await p.waitForFunction(() => (window as unknown as { __seen?: number }).__seen !== undefined, undefined, { timeout: 5000 });
+      const up = await corp.evaluate(() => (window as unknown as { __up: number }).__up);
+      const own = (await corp.evaluate(() => (window as unknown as { __seen: number }).__seen)) - up;
+      const other = (await runner.evaluate(() => (window as unknown as { __seen: number }).__seen)) - up;
+      results.push({ own, other });
+    }
+    test.info().annotations.push({ type: 'qa-move-ms', description: JSON.stringify(results) });
+    for (const r of results) expect(r.other, 'the other phone sees the move within a second').toBeLessThan(1000);
+    await corp.context().close();
+    await runner.context().close();
   });
 });
 
