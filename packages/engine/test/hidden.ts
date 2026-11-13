@@ -16,6 +16,8 @@ const REVEALING: ReadonlySet<GameEvent['type']> = new Set([
   'agenda_stolen',
   'card_trashed',
   'agenda_scored',
+  // Sprint 4: names the agenda just scored (face up in the score area).
+  'choice_opened',
 ]);
 
 /** The Runner's projection of `events` names Corp cards only in revealing events, and those match the state. */
@@ -47,6 +49,8 @@ export function expectRunnerViewClean(s: GameState, where: string): void {
     if (v.run.ice) expect(v.run.ice.cardId, where).toBe(ice && ice.rezzed ? ice.cardId : null);
     expect(v.run.access?.cards.map((c) => c.cardId) ?? null, where).toEqual(real.access?.cards.map((c) => c.cardId) ?? null);
   }
+  // An open choice names the agenda that opened it, which is face up in the score area.
+  if (v.choice) expect(s.players.corp.scoreArea, where).toContain(v.choice.cardId);
   // Nothing else names a Corp card.
   const rest = {
     ...v,
@@ -60,6 +64,7 @@ export function expectRunnerViewClean(s: GameState, where: string): void {
       content: sv.content.filter((c) => !c.faceUp),
     })),
     run: v.run ? { ...v.run, ice: null, access: null } : null,
+    choice: v.choice ? { ...v.choice, cardId: '' } : null,
   };
   expect(JSON.stringify(rest), where).not.toMatch(CORP_ID);
 }

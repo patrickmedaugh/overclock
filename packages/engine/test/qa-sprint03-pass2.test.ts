@@ -125,6 +125,10 @@ function checkRunnerEvents(before: GameState, after: GameState, events: readonly
       case 'card_trashed':
       case 'card_played':
         break; // public
+      case 'choice_opened':
+        // Sprint 4 (engine-dev): names the agenda scored by this same action (face up now).
+        expect(events.some((x) => x.type === 'agenda_scored' && x.cardId === e.cardId), `${where}: choice names the scored agenda`).toBe(true);
+        break;
       case 'card_accessed':
         // Either still on screen, or it was accessed and the run already ended in this same action.
         if (after.run) expect(accessed.has(e.cardId!), `${where}: accessed ${e.cardId} is in the access list`).toBe(true);

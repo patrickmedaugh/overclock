@@ -18,6 +18,7 @@ import {
   findServer,
   rezCost,
   trashCost,
+  unrezzedIce,
 } from './rules';
 import {
   CENTRAL_SERVERS,
@@ -30,6 +31,7 @@ import {
   type AccessFrom,
   type AccessNext,
   type AccessState,
+  type ChoiceState,
   type GameState,
   type Installed,
   type RunState,
@@ -334,8 +336,13 @@ export function resolveEffect(state: GameState, effect: Effect, owner: Side, eve
       events.push({ type: 'bad_publicity_gained', amount: effect.amount, total });
       return { ...state, badPublicity: total };
     }
-    case 'free_rez':
-      return state; // Sprint 4 E3
+    case 'free_rez': {
+      // No unrezzed installed ICE: nothing to choose, no window (auto-pass, no event).
+      if (unrezzedIce(state).length === 0) return state;
+      const cardId = ctx.cardId as string;
+      events.push({ type: 'choice_opened', kind: 'free_rez', player: owner, cardId });
+      return { ...state, phase: 'choice', choice: { kind: 'free_rez', player: owner, cardId } };
+    }
   }
 }
 
@@ -347,20 +354,39 @@ export function doRun(state: GameState, a: ActionOf<'run'>): { state: GameState;
   return { state: startRun(s, a.server, {}, events), events };
 }
 
+/** Rezzes installed Corp ICE `uid` (no payment). */
+function setRezzed(state: GameState, uid: string): GameState {
+  const fix = (list: readonly Installed[]) => list.map((c) => (c.uid === uid ? { ...c, rezzed: true } : c));
+  return { ...state, servers: state.servers.map((sv) => ({ ...sv, ice: fix(sv.ice) })) };
+}
+
+/** Closes the open choice: back to the action phase (the Corp's turn goes on). */
+function closeChoice(state: GameState, skipped: boolean, events: Events): GameState {
+  const choice = state.choice as ChoiceState;
+  events.push({ type: 'choice_closed', kind: choice.kind, skipped });
+  return { ...state, phase: 'action', choice: null };
+}
+
 export function doRez(state: GameState, a: ActionOf<'rez'>): { state: GameState; events: GameEvent[] } {
   const events: Events = [];
+  if (state.phase === 'choice') {
+    // Priority Requisition: any unrezzed installed ICE, ignoring all costs.
+    const ice = unrezzedIce(state).find((c) => c.uid === a.uid) as Installed;
+    const s = setRezzed(state, a.uid);
+    events.push({ type: 'ice_rezzed', uid: ice.uid, cardId: ice.cardId });
+    return { state: closeChoice(s, false, events), events };
+  }
   const ice = currentIce(state) as Installed;
   const cost = rezCost(ice);
   if (cost > 0) events.push({ type: 'credits_spent', player: 'corp', amount: cost });
-  let s = withPlayer(state, 'corp', { credits: state.players.corp.credits - cost });
-  const fix = (list: readonly Installed[]) => list.map((c) => (c.uid === a.uid ? { ...c, rezzed: true } : c));
-  s = { ...s, servers: s.servers.map((sv) => ({ ...sv, ice: fix(sv.ice) })) };
+  const s = setRezzed(withPlayer(state, 'corp', { credits: state.players.corp.credits - cost }), a.uid);
   events.push({ type: 'ice_rezzed', uid: ice.uid, cardId: ice.cardId });
   return { state: encounter(s, events), events };
 }
 
 export function doPass(state: GameState): { state: GameState; events: GameEvent[] } {
   const events: Events = [];
+  if (state.phase === 'choice') return { state: closeChoice(state, true, events), events }; // Skip
   const step = theRun(state).step;
   let s: GameState;
   if (step === 'approach') s = passIce(state, events); // Don't rez: passed face down

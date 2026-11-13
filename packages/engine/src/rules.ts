@@ -151,9 +151,13 @@ const playCondition = (s: GameState, a: ActionOf<'play'>): RejectReason | null =
 
 // ---- runs: pure queries -------------------------------------------------------
 
-/** Who the game waits on: the run's decider (Corp at approach, else Runner), else the active player; null when over. */
+/**
+ * Who the game waits on: the open choice's player; the run's decider (Corp at
+ * approach, else Runner); else the active player; null when over.
+ */
 export function waitingOn(s: GameState): Side | null {
   if (s.phase === 'over') return null;
+  if (s.phase === 'choice' && s.choice) return s.choice.player;
   if (s.phase === 'run' && s.run) return s.run.step === 'approach' ? 'corp' : 'runner';
   return s.activePlayer;
 }
@@ -229,13 +233,27 @@ export function rezCost(ice: Installed): number {
   return getCard(ice.cardId)?.cost ?? 0;
 }
 
+/** Every unrezzed installed Corp ICE: servers in order, then ICE index order (innermost first). */
+export function unrezzedIce(s: GameState): Installed[] {
+  return s.servers.flatMap((sv) => sv.ice.filter((c) => !c.rezzed));
+}
+
+/** `free_rez` choice: any unrezzed installed ICE. Run: the approached ICE, still unrezzed. */
 const rezTarget = (s: GameState, a: ActionOf<'rez'>): RejectReason | null => {
+  if (s.phase === 'choice') return unrezzedIce(s).some((c) => c.uid === a.uid) ? null : 'bad_target';
   const ice = currentIce(s);
   return ice && ice.uid === a.uid && !ice.rezzed ? null : 'bad_target';
 };
 
+/** The free-rez choice costs nothing. */
 const canAffordRez = (s: GameState): RejectReason | null =>
-  s.players.corp.credits >= rezCost(currentIce(s) as Installed) ? null : 'no_credits';
+  s.phase === 'choice' || s.players.corp.credits >= rezCost(currentIce(s) as Installed) ? null : 'no_credits';
+
+/** `rez`/`pass` also answer an open choice (Priority Requisition: rez one ICE for free, or Skip). */
+const atStepOrChoice =
+  (...steps: RunStep[]) =>
+  (s: GameState): RejectReason | null =>
+    s.phase === 'choice' && s.choice ? null : atStep(...steps)(s);
 
 /** Leave it / Done is refused while an agenda that must be stolen is shown. */
 const passAllowed = (s: GameState): RejectReason | null =>
@@ -394,8 +412,8 @@ export const RULES: RuleTable = {
     canAffordPlay,
   ],
   run: [playerShape, runServerShape, notOver, yourTurn, inPhase('action'), hasClick, runTarget],
-  rez: [playerShape, rezUidShape, notOver, decides, atStep('approach'), rezTarget, canAffordRez],
-  pass: [playerShape, notOver, decides, atStep(...ALL_STEPS), passAllowed],
+  rez: [playerShape, rezUidShape, notOver, decides, atStepOrChoice('approach'), rezTarget, canAffordRez],
+  pass: [playerShape, notOver, decides, atStepOrChoice(...ALL_STEPS), passAllowed],
   jack_out: [playerShape, notOver, decides, atStep('continue')],
   use_ability: [
     playerShape,

@@ -18,6 +18,7 @@ import {
   rejectionFor,
   rezCost,
   trashCost,
+  unrezzedIce,
   unstolenAgendaShown,
   waitingOn,
 } from './rules';
@@ -248,7 +249,14 @@ export function legalActions(state: GameState, player: Side): Action[] {
   const installed = Object.values(installedOptions(state, player)).flat();
   return [
     ...candidates.filter((a) => rejectionFor(state, a) === null),
-    ...[...installs, ...plays, ...runStartOptions(state, player), ...installed, ...runStepOptions(state, player)]
+    ...[
+      ...installs,
+      ...plays,
+      ...runStartOptions(state, player),
+      ...installed,
+      ...runStepOptions(state, player),
+      ...choiceOptions(state, player),
+    ]
       .filter((o) => o.reject === null)
       .map((o) => o.action),
   ];
@@ -322,8 +330,10 @@ export function runStepOptions(state: GameState, player: Side): CardOption[] {
  * and outside phase 'choice'). `free_rez`: one `rez` (cost 0) per unrezzed
  * installed ICE (servers in order, then ICE index order), then `pass` (Skip).
  */
-export function choiceOptions(_state: GameState, _player: Side): CardOption[] {
-  return []; // Sprint 4 E3
+export function choiceOptions(state: GameState, player: Side): CardOption[] {
+  if (state.phase !== 'choice' || !state.choice || waitingOn(state) !== player) return [];
+  const rezzes = unrezzedIce(state).map((c) => option(state, { type: 'rez', player, uid: c.uid }, 0));
+  return [...rezzes, option(state, { type: 'pass', player }, 0)];
 }
 
 /**
