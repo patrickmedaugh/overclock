@@ -8,6 +8,7 @@
     { "path": "packages/match" },
     { "path": "packages/protocol" },
     { "path": "apps/server" },
+    { "path": "apps/server/tsconfig.worker.json" },
     { "path": "apps/client" },
     { "path": "apps/client/tsconfig.node.json" }
   ]

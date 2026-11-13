@@ -13,7 +13,7 @@ export const PROTOCOL_VERSION = 1;
 
 /** Largest client → server frame accepted (UTF-8 bytes). */
 export const MAX_CLIENT_MESSAGE_BYTES = 8 * 1024;
-/** Largest server → client frame accepted (a full view of a busy board is ~10–30 KB). */
+/** Largest server → client frame accepted (a busy-board view is ~3 KB; views grow with the board, so the client allows headroom). */
 export const MAX_SERVER_MESSAGE_BYTES = 512 * 1024;
 
 /** WebSocket paths. */
