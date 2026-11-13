@@ -19,7 +19,7 @@ test.describe('S-03-4 break ICE with icebreakers', () => {
     expect(l.run!.buttons.map((b) => [b.label, b.lit, b.reject])).toEqual([
       [BREAK, false, 'too_weak'],
       [PUMP, true, null],
-      ['Let it through', true, null],
+      ['Let it fire: run ends', true, null],
     ]);
     for (const b of l.run!.buttons) expect(Math.min(b.box.width, b.box.height)).toBeGreaterThanOrEqual(44);
     expectCleanLayout(l);
@@ -80,11 +80,13 @@ test.describe('S-03-3 Let it through', () => {
   test('Wall of Static let through: "End the run" happens, nothing accessed, with a notice', async ({ page }) => {
     await openBoard(page, 2);
     await toStep(page, 2, 'wall_of_static_encounter');
-    const m = await measureTap(page, runButtonOf(await layout(page), 'Let it through').box);
-    expect(m.events.map((e) => e.type)).toEqual(['subroutine_fired', 'run_ended']);
-    expect(m.events[1]).toMatchObject({ outcome: 'ended_by_ice' });
-    expectSnappy(m, ['sub_fired']);
-    expect(m.anims.find((a) => a.kind === 'notice')?.text).toBe('Wall of Static: End the run');
+    const m = await measureTap(page, runButtonOf(await layout(page), /^Let it fire/).box);
+    expect(m.events.map((e) => e.type)).toEqual(['subroutine_fired', 'subroutine_resolved', 'run_ended']);
+    expect(m.events[2]).toMatchObject({ outcome: 'ended_by_ice' });
+    expectSnappy(m, ['sub_fired', 'ice_report']);
+    // S-05-2: the message names the ICE and what it did (it replaced the old notice).
+    expect(m.anims.find((a) => a.kind === 'ice_report')?.text).toBe('Wall of Static ended your run.');
+    expect(m.anims.find((a) => a.kind === 'notice')).toBeUndefined();
     const l = await waitIdle(page);
     expect(l.run).toBeNull();
   });
@@ -94,13 +96,13 @@ test.describe('S-03-3 Let it through', () => {
     await toStep(page, 1, 'corp_rez_prompt'); // Enigma, a code gate; no Gordian Blade installed
     await tap(page, runButtonOf(await layout(page), /^Rez /).box);
     const l = await waitIdle(page);
-    expect(l.run!.buttons.map((b) => b.label)).toEqual(['Let it through']);
+    expect(l.run!.buttons.map((b) => b.label)).toEqual(['Let it fire: lose 1 click, run ends']);
     expect(l.run!.subroutines.map((s) => s.text)).toEqual(['The Runner loses 1 click, if able', 'End the run']);
     const before = await getView(page);
-    const m = await measureTap(page, runButtonOf(l, 'Let it through').box);
-    expect(m.events.map((e) => e.type)).toEqual(['subroutine_fired', 'clicks_lost', 'subroutine_fired', 'run_ended']);
+    const m = await measureTap(page, runButtonOf(l, /^Let it fire/).box);
+    expect(m.events.map((e) => e.type)).toEqual(['subroutine_fired', 'clicks_lost', 'subroutine_resolved', 'subroutine_fired', 'subroutine_resolved', 'run_ended']);
     expect(m.view.players.runner.clicks).toBe(before.players.runner.clicks - 1);
     expectSnappy(m, ['sub_fired', 'clicks_lost']);
-    expect(m.anims.find((a) => a.kind === 'notice')?.text).toBe('Enigma: The Runner loses 1 click, if able\nEnigma: End the run');
+    expect(m.anims.find((a) => a.kind === 'ice_report')?.text).toBe('Enigma: you lost 1 click. Enigma ended your run.');
   });
 });

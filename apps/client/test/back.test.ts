@@ -19,4 +19,9 @@ describe('backAction', () => {
   it('on the game-over screen, Back closes the app', () => {
     expect(backAction({ ...none, gameOver: true })).toBe('exit');
   });
+  it('S-05: with the ICE report or the Last run strip open, Back closes it (a zoom over it first)', () => {
+    expect(backAction({ ...none, panelOpen: true })).toBe('close_panel');
+    expect(backAction({ ...none, panelOpen: true, zoomOpen: true })).toBe('close_zoom');
+    expect(backAction({ ...none, panelOpen: true, gameOver: true })).toBe('close_panel');
+  });
 });

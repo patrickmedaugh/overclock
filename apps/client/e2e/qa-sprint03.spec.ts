@@ -36,6 +36,7 @@ import {
   toRunnerTurn,
   toStep,
   waitIdle,
+  dismissReport,
 } from './helpers';
 
 test.use({ deviceScaleFactor: 2 });
@@ -196,7 +197,7 @@ test.describe('QA S-03-4: the most crowded encounter', () => {
       ['Break "The Runner loses 1 click, if able" · 1 credit', true],
       ['Break "End the run" · 1 credit', true],
       ['+1 strength · 1 credit', true],
-      ['Let it through', true],
+      ['Let it fire: lose 1 click, run ends', true],
     ]);
     for (const b of l.run!.buttons) expect(Math.min(b.box.width, b.box.height), b.label).toBeGreaterThanOrEqual(44);
     // Every button and the info panel are inside the safe area and clear of each other.
@@ -213,7 +214,7 @@ test.describe('QA S-03-4: the most crowded encounter', () => {
       { text: 'The Runner loses 1 click, if able', broken: true },
       { text: 'End the run', broken: false },
     ]);
-    expect(l.run!.buttons.map((b) => b.label)).toEqual(['Break "End the run" · 1 credit', '+1 strength · 1 credit', 'Let it through']);
+    expect(l.run!.buttons.map((b) => b.label)).toEqual(['Break "End the run" · 1 credit', '+1 strength · 1 credit', 'Let it fire: run ends']);
     await shot(page, '04-enigma-one-sub-crossed-out');
     m = await measureTap(page, runButtonOf(l, /^Break "End the run"/).box);
     expect(m.events.map((e) => e.type)).toEqual(expect.arrayContaining(['subroutine_broken', 'ice_passed']));
@@ -341,8 +342,11 @@ test.describe('QA S-03-3 AC5: flatline', () => {
     l = await waitIdle(page);
     expect(l.run!.subroutines).toEqual([{ text: 'Do 3 net damage', broken: false }]);
     await shot(page, '07-neural-katana-encounter');
-    const m = await measureTap(page, runButtonOf(l, 'Let it through').box);
+    const m = await measureTap(page, runButtonOf(l, /^Let it fire/).box);
     expect(m.events.map((e) => e.type)).toEqual(expect.arrayContaining(['subroutine_fired', 'net_damage', 'game_over']));
+    // S-05-2: the game-over screen shows once the ICE's message is tapped away.
+    await waitIdle(page);
+    await dismissReport(page);
     l = await waitIdle(page);
     expect(l.gameOver).toMatchObject({ title: 'Corp wins', reason: 'Runner flatlined' });
     v = await getView(page);
@@ -393,25 +397,24 @@ test.describe('QA S-03-2 AC1: the agenda stays picked', () => {
 });
 
 test.describe('QA run notices and input', () => {
-  test('the "End the run" notice is a toast: it covers no button and the next tap (Run) answers at once', async ({ page }) => {
+  // S-05-2 (owner answer A) replaced the Sprint 3 toast: the message now stays until a tap,
+  // that tap only closes it, and the next tap acts at once.
+  test('"Wall of Static ended your run." stays until a tap; that tap only closes it; the next tap (Run) answers at once', async ({ page }) => {
     await openBoard(page, 2);
     await toStep(page, 2, 'wall_of_static_encounter');
-    await tap(page, runButtonOf(await layout(page), 'Let it through').box);
-    // While the notice shows (it fades in over a few frames).
-    await page.waitForFunction(() => window.__overclock!.layout().hint !== null, undefined, { polling: 'raf' });
-    const l = await layout(page);
+    await tap(page, runButtonOf(await layout(page), /^Let it fire/).box);
+    await page.waitForFunction(() => window.__overclock!.layout().report !== null, undefined, { polling: 'raf' });
+    let l = await layout(page);
     expect(l.run).toBeNull();
-    expect(l.hint?.text).toBe('Wall of Static: End the run');
-    for (const [n, b] of [
-      ['Run button', l.runButton?.box],
-      ['End turn', l.endTurn?.box],
-      ...l.hand.map((h, i) => [`hand ${i}`, h.box] as const),
-    ] as const) {
-      if (b) expect(overlaps(l.hint!.box, b), `notice over ${n}`).toBe(false);
-    }
-    expectCleanLayout(l);
+    expect(l.report?.text).toBe('Wall of Static ended your run.');
+    expect(inside(l.report!.box, safeRect(l))).toBe(true);
     await shot(page, '10-end-the-run-notice');
-    // Tap Run while the notice is still up: servers light inside the same tap.
+    // The first tap on Run only closes the message.
+    await tap(page, l.runButton!.box);
+    l = await layout(page);
+    expect(l.report).toBeNull();
+    expect(l.runButton?.picking).toBe(false);
+    // The next tap on Run lights the servers inside the same tap.
     const t0 = await page.evaluate(() => performance.now());
     await tap(page, l.runButton!.box);
     const after = await layout(page);
@@ -419,7 +422,6 @@ test.describe('QA run notices and input', () => {
     expect(after.runButton?.picking).toBe(true);
     expect(after.targets.length).toBeGreaterThanOrEqual(3);
     test.info().annotations.push({ type: 'run-after-notice', description: `${Math.round(t1 - t0)}ms round trip` });
-    expect((await layout(page)).hint?.text ?? 'gone').toBeDefined();
   });
 
   test('jack out shows a notice and leaves a clean board', async ({ page }) => {

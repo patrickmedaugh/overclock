@@ -41,7 +41,7 @@ test.describe('QA-S3-4 run panel text size', () => {
       'Break "The Runner loses 1 click, if able" · 1 credit',
       'Break "End the run" · 1 credit',
       '+1 strength · 1 credit',
-      'Let it through',
+      'Let it fire: lose 1 click, run ends',
     ]);
     const project = test.info().project.name;
     test.info().annotations.push({

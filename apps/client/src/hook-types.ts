@@ -200,6 +200,19 @@ export interface LayoutSnapshot {
      */
     carousel: { cardId: string; index: number; offset: number; box: Box; full: boolean }[];
   } | null;
+  /**
+   * S-05-2: what the ICE just did ("Enigma: you lost 1 click. Enigma ended your run."),
+   * shown until the next tap anywhere (that tap only closes it). `box`: the message.
+   */
+  report: { text: string; box: Box } | null;
+  /**
+   * S-05-1: the Last run button (while the view has a last run) and its strip
+   * of found cards (while open; hold a card to zoom it).
+   */
+  lastRun: {
+    button: { box: Box; label: string } | null;
+    strip: { title: string; box: Box; cards: { cardId: string; from: string; box: Box }[] } | null;
+  };
   /** S-04-2: the "Leave the game?" question, if showing. */
   dialog: { title: string; text: string; box: Box; buttons: { label: string; box: Box }[] } | null;
   /** S-04-1: the build date as shown ("Built 2026-11-13 14:32 UTC"), or null while hidden. */
@@ -246,6 +259,8 @@ export type AnimKind =
   | 'zoom_swap'
   /** S-05-3: the carousel behind the zoom slides (`text`: the newly zoomed card id). */
   | 'carousel_slide'
+  /** S-05-2: the ICE report opened (`text`: its words). */
+  | 'ice_report'
   /** S-04-4: a status note pops (bad publicity taken, run-only credits gained or spent). */
   | 'tag_pop'
   /** S-04-4: the free-rez choice lights the offered ICE. */
@@ -312,7 +327,7 @@ export interface OverclockTestHook {
    */
   smallFace(cardId: string, width: number, height: number): SmallFaceSnapshot | null;
   /** S-04-2: presses the phone's Back button (same handler as the app's); returns what it did. */
-  back(): 'close_dialog' | 'close_zoom' | 'exit' | 'ask_leave';
+  back(): 'close_dialog' | 'close_zoom' | 'close_panel' | 'exit' | 'ask_leave';
   /** How many times the game asked to close the app (Leave, or Back after the game ended). Web only counts. */
   exitRequests(): number;
 }

@@ -212,7 +212,7 @@ test.describe('QA S-04-4 bonuses on screen', () => {
     await shot(page, '04-run-only-credits');
     // Finish the run without spending (Leave it / Done / Jack out / Continue until the run is over).
     for (let i = 0; i < 6 && l.run; i++) {
-      const b = l.run.buttons.find((x) => /^(Leave it|Done|Jack out|No action)$/.test(x.label)) ?? l.run.buttons.find((x) => /Continue|Let it through/.test(x.label));
+      const b = l.run.buttons.find((x) => /^(Leave it|Done|Jack out|No action)$/.test(x.label)) ?? l.run.buttons.find((x) => /Continue|Let it through|Let it fire/.test(x.label));
       expect(b, JSON.stringify(l.run.buttons.map((x) => x.label))).toBeDefined();
       await tap(page, b!.box);
       l = await waitIdle(page);

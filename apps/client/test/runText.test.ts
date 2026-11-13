@@ -1,6 +1,6 @@
-import type { CardOption, RunView } from '@overclock/engine';
+import type { CardOption, GameEvent, RunView } from '@overclock/engine';
 import { describe, expect, it } from 'vitest';
-import { infoLines, optionLabel, runEndText, runTitle, stepLabel } from '../src/runText';
+import { iceReport, infoLines, letFireLabel, optionLabel, runEndText, runTitle, stepLabel } from '../src/runText';
 
 const base: RunView = {
   server: 'remote1',
@@ -98,5 +98,67 @@ describe('runEndText (QA-S3-3)', () => {
     expect(runEndText(ended('jacked_out'), [])).toBe('Jacked out');
     expect(runEndText(ended('ended_by_ice'), [])).toBe('Run ended');
     expect(runEndText(ended('flatline'), [])).toBeNull();
+  });
+});
+
+describe('S-05-2 let it fire: the button says what will happen', () => {
+  const lf = (outcomes: { sub: number; op: 'lose_clicks' | 'net_damage' | 'end_run' | 'gain_credits' | 'draw'; amount: number }[], ends: 'run' | 'game' | null) => ({ iceCardId: 'c06', outcomes, ends });
+
+  it('Enigma with clicks: lose 1 click, run ends', () => {
+    expect(letFireLabel(lf([{ sub: 0, op: 'lose_clicks', amount: 1 }, { sub: 1, op: 'end_run', amount: 0 }], 'run'))).toBe('Let it fire: lose 1 click, run ends');
+  });
+
+  it('a 0-size outcome is skipped (Enigma with no clicks left)', () => {
+    expect(letFireLabel(lf([{ sub: 0, op: 'lose_clicks', amount: 0 }, { sub: 1, op: 'end_run', amount: 0 }], 'run'))).toBe('Let it fire: run ends');
+  });
+
+  it('Neural Katana: take 3 damage, and when it is fatal, you flatline (Corp wins)', () => {
+    expect(letFireLabel(lf([{ sub: 0, op: 'net_damage', amount: 3 }], null))).toBe('Let it fire: take 3 damage');
+    expect(letFireLabel(lf([{ sub: 0, op: 'net_damage', amount: 3 }], 'game'))).toBe('Let it fire: take 3 damage, you flatline (Corp wins)');
+  });
+
+  it('everything broken: Continue; no preview: the old label', () => {
+    expect(letFireLabel(lf([], null))).toBe('Continue');
+    expect(letFireLabel(null)).toBeNull();
+    const run: RunView = { ...base, letFire: lf([], null) };
+    expect(optionLabel(opt({ type: 'pass', player: 'runner' }), run, [], rig)).toBe('Continue');
+    const enigma: RunView = { ...base, letFire: lf([{ sub: 1, op: 'end_run', amount: 0 }], 'run') };
+    expect(optionLabel(opt({ type: 'pass', player: 'runner' }), enigma, [], rig)).toBe('Let it fire: run ends');
+  });
+
+  it('nothing left to say: nothing happens', () => {
+    expect(letFireLabel(lf([{ sub: 0, op: 'lose_clicks', amount: 0 }], null))).toBe('Let it fire: nothing happens');
+  });
+});
+
+describe('S-05-2 ICE report: what the ICE did', () => {
+  const res = (cardId: string, sub: number, op: 'lose_clicks' | 'net_damage' | 'end_run', amount: number): GameEvent => ({ type: 'subroutine_resolved', iceUid: 'u1', cardId, outcome: { sub, op, amount } });
+  const fired = (sub: number): GameEvent => ({ type: 'subroutine_fired', iceUid: 'u1', sub }) as GameEvent;
+
+  it('Enigma: lost a click, then ended the run', () => {
+    const batch: GameEvent[] = [
+      fired(0),
+      { type: 'clicks_lost', player: 'runner', amount: 1 } as GameEvent,
+      res('c06', 0, 'lose_clicks', 1),
+      fired(1),
+      res('c06', 1, 'end_run', 0),
+      { type: 'run_ended', server: 'hq', outcome: 'ended_by_ice' },
+    ];
+    expect(iceReport(batch)).toBe('Enigma: you lost 1 click. Enigma ended your run.');
+  });
+
+  it('Enigma with no clicks: only the end of the run', () => {
+    expect(iceReport([res('c06', 0, 'lose_clicks', 0), res('c06', 1, 'end_run', 0), { type: 'run_ended', server: 'hq', outcome: 'ended_by_ice' }])).toBe('Enigma ended your run.');
+  });
+
+  it('Neural Katana: damage, the run goes on; or a flatline', () => {
+    expect(iceReport([res('c07', 0, 'net_damage', 3)])).toBe('Neural Katana: you took 3 damage.');
+    expect(iceReport([res('c07', 0, 'net_damage', 3), { type: 'run_ended', server: 'rd', outcome: 'flatline' }])).toBe('Neural Katana: you took 3 damage. You flatlined: the Corp wins.');
+  });
+
+  it('Ice Wall ends the run; no subroutine: no report', () => {
+    expect(iceReport([res('c05', 0, 'end_run', 0), { type: 'run_ended', server: 'rd', outcome: 'ended_by_ice' }])).toBe('Ice Wall ended your run.');
+    expect(iceReport([{ type: 'run_ended', server: 'rd', outcome: 'jacked_out' }])).toBeNull();
+    expect(iceReport([res('c06', 0, 'lose_clicks', 0)])).toBe('Enigma: nothing happened.');
   });
 });

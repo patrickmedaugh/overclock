@@ -126,8 +126,8 @@ test.describe('S-03-3 the Corp rezzes on the shared board', () => {
     expect(ice.faceUp).toBe(true);
     expect(getCard(ice.cardId!)!.name).toBe('Enigma');
     expect(after.run).toMatchObject({ step: 'encounter', deciding: 'runner', stepLabel: 'Encounter: Enigma' });
-    // No breaker for a code gate: only Let it through.
-    expect(after.run!.buttons.map((b) => b.label)).toEqual(['Let it through']);
+    // No breaker for a code gate: only let it fire (S-05-2: the button says what will happen).
+    expect(after.run!.buttons.map((b) => b.label)).toEqual([expect.stringMatching(/^Let it fire: /)]);
   });
 
   test("Don't rez: the ICE stays face down, the Runner moves on; Jack out ends the run with nothing accessed", async ({ page }) => {

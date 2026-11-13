@@ -279,6 +279,17 @@ export async function waitZoom(page: Page, cardId: string): Promise<void> {
   await page.waitForFunction((id) => window.__overclock!.layout().zoom?.cardId === id, cardId);
 }
 
+/**
+ * S-05-2: the "what the ICE did" message stays until a tap (owner answer A):
+ * taps it away (a real tap, which does nothing else) if it is showing.
+ */
+export async function dismissReport(page: Page): Promise<void> {
+  const r = (await layout(page)).report;
+  if (!r) return;
+  await tap(page, r.box);
+  await page.waitForFunction(() => window.__overclock!.layout().report === null);
+}
+
 export function inside(b: Box, r: Box): boolean {
   const eps = 0.5;
   return b.width > 0 && b.height > 0 && b.x >= r.x - eps && b.y >= r.y - eps && b.x + b.width <= r.x + r.width + eps && b.y + b.height <= r.y + r.height + eps;
@@ -326,6 +337,8 @@ export function boardElements(l: LayoutSnapshot): [string, Box][] {
   out.push(['memory', l.memory.box]);
   for (const s of ['corp', 'runner'] as const) if (l.score[s].box.width > 0) out.push([`${s} score`, l.score[s].box]);
   if (l.runButton) out.push(['Run button', l.runButton.box]);
+  // S-05-1: the Last run button (below / beside Run).
+  if (l.lastRun?.button) out.push(['Last run button', l.lastRun.button.box]);
   if (l.run) {
     l.run.buttons.forEach((b, i) => out.push([`run button ${i} "${b.label}"`, b.box]));
   }

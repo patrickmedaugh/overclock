@@ -24,7 +24,8 @@ import { attachPress, inputTime } from './input';
 import { BUILD_LINE, type BoardLayout, type BoardShape, CARD_RATIO, type SideRow, computeLayout } from './layout';
 import { LeaveDialog } from './leaveDialog';
 import { RunDisplay } from './runDisplay';
-import { RUN_END, nameOf, runEndText } from './runText';
+import { IceReport, LastRunStrip } from './panels';
+import { RUN_END, iceReport, nameOf, runEndText } from './runText';
 import { SIDE_NAME, TERMS, badPublicityText, plural, pointsText, priceText, serverLabel, tempCreditsText, zoneName } from './terms';
 import { sideColor, theme, timing } from './theme';
 import { ease, type Tweens } from './tween';
@@ -81,6 +82,12 @@ function visibleTexts(c: Container, out: string[] = []): string[] {
   return out;
 }
 
+
+/** True if `c` is `root` or inside it. */
+function isUnder(c: Container | null, root: Container | null): boolean {
+  for (let n: Container | null = c; n; n = n.parent) if (n === root) return true;
+  return false;
+}
 
 function shapeOf(view: PlayerView): BoardShape {
   return {
@@ -153,6 +160,8 @@ interface Generation {
   button: ActionButton;
   /** The Runner's Run button (rail / control strip, where Play goes). */
   runButton: PanelButton;
+  /** S-05-1: Last run (below / beside Run), while the view has one. */
+  lastRunButton: PanelButton;
   run: RunDisplay;
   scores: Record<Side, ScorePill>;
   /** Outline around a picked installed card. */
@@ -231,6 +240,12 @@ export class Board {
     /** List zooms (piles, score pills): the slide steps one card per `step` px from `startX`. */
     list: { ids: string[]; start: number; startX: number; step: number } | null;
   } | null = null;
+  /** S-05-2: what the ICE just did; stays until the next tap (which it consumes). */
+  private report: IceReport | null = null;
+  /** S-05-1: the Last run strip, while open. */
+  private lastRunStrip: LastRunStrip | null = null;
+  /** Panels over the table (the ICE report), under the zoom and the leave question. */
+  private readonly panelLayer = new Container();
   /** A closed zoom still fading out (freed before evicted zoom faces are). */
   private fadingZoom: Container | null = null;
   /** QA-S4-1: zoom faces still to pre-draw for a held hand (one per frame), nearest first. */
@@ -285,7 +300,17 @@ export class Board {
     this.buildText.eventMode = 'none';
     this.buildText.alpha = 0.85;
     this.table.addChild(this.catcher, this.bgLayer, this.boardLayer, this.installedLayer, this.runLayer, this.centerLayer, this.accessLayer, this.targetLayer, this.handLayer, this.buildText);
-    this.stage.addChild(this.table, this.fxLayer, this.hintLayer, this.zoomLayer, this.dialogLayer);
+    this.stage.addChild(this.table, this.fxLayer, this.hintLayer, this.panelLayer, this.zoomLayer, this.dialogLayer);
+    // S-05-1: a tap anywhere outside the Last run strip (and its button) closes it; the tap still acts.
+    this.stage.eventMode = 'static';
+    this.stage.on('pointerdown', (e) => {
+      const strip = this.lastRunStrip;
+      if (!strip) return;
+      const t = e.target as Container | null;
+      if (t && (isUnder(t, strip.root) || isUnder(t, this.gen?.lastRunButton.root ?? null))) return;
+      this.closeLastRun();
+      this.callbacks.changed();
+    });
   }
 
   /** New viewport size / safe-area insets (start, resize, rotate). */
@@ -296,6 +321,7 @@ export class Board {
     if (this.view) this.fullRender();
     if (this.hint) this.positionHint(this.hint);
     this.syncHelp();
+    if (this.report && this.layout) this.openReport(this.report.text, this.layout);
     // The question stays open across a rotation / inset change, laid out anew.
     if (this.leave) this.openLeave(this.leave.onLeave);
   }
@@ -306,9 +332,14 @@ export class Board {
    * "Leave the game?" (Leave calls `exit`). Returns what it did.
    */
   back(exit: () => void): BackAction {
-    const action = backAction({ dialogOpen: this.leave !== null, zoomOpen: this.zoom !== null, gameOver: !!this.view?.result });
+    const panelOpen = this.report !== null || this.lastRunStrip !== null;
+    const action = backAction({ dialogOpen: this.leave !== null, zoomOpen: this.zoom !== null, panelOpen, gameOver: !!this.view?.result && !this.report });
     if (action === 'close_dialog') this.closeLeave();
     else if (action === 'close_zoom') this.closeZoom();
+    else if (action === 'close_panel') {
+      if (this.report) this.dismissReport();
+      else this.closeLastRun();
+    }
     else if (action === 'exit') exit();
     else this.openLeave(exit);
     this.callbacks.changed();
@@ -379,6 +410,8 @@ export class Board {
     this.view = view;
     this.decision = decision;
     if (!this.viewport) return;
+    // A new action: an open ICE report has been read (taps on the board never get past it; only the hook could).
+    this.closeReport();
     if (!prev || prev.viewer !== view.viewer || !this.gen) {
       this.fullRender();
       return;
@@ -416,6 +449,9 @@ export class Board {
     hand.setMarked(this.marked);
     hand.setSelected(this.selected);
     this.showTargets();
+    // S-05-2: what the ICE did stays on screen until the next tap; a game over shows after it.
+    const reportText = rejected ? null : iceReport(events);
+    if (reportText) this.openReport(reportText, layout);
     const newStep = this.applyView(view, true);
     for (const l of leaving) this.flyFromHand(l.e, l.card, layout);
     const notices: string[] = [];
@@ -429,7 +465,7 @@ export class Board {
         this.showHint(hintFor(e.reason, view));
         if (e.reason === 'no_clicks') this.seatAt('bottom')?.clicks.shake();
       }
-      this.animateRunEvent(e, layout, before, prevRun, notices, events);
+      this.animateRunEvent(e, layout, before, prevRun, reportText ? [] : notices, events);
     }
     if (newStep && view.run) this.stepFlash();
     // A fired subroutine already says what happened: no extra "loses 1 click" / "Run ended" lines.
@@ -550,6 +586,11 @@ export class Board {
       selectedInstalled: this.pickedInstalled,
       hint: this.hint && this.hint.root.alpha > 0.05 ? { text: this.hint.text, box: this.hint.box } : null,
       dialog: this.leave ? this.leave.dialog.snapshot() : null,
+      report: this.report ? { text: this.report.text, box: { ...this.report.box } } : null,
+      lastRun: {
+        button: gen && gen.lastRunButton.root.visible ? { box: { ...gen.lastRunButton.box }, label: gen.lastRunButton.text } : null,
+        strip: this.lastRunStrip ? { title: this.lastRunStrip.title, box: { ...this.lastRunStrip.box }, cards: this.lastRunStrip.cards.map((c) => ({ ...c, box: { ...c.box } })) } : null,
+      },
       buildLabel:
         layout && this.buildText.visible && this.buildText.text
           ? { text: this.buildText.text, box: this.buildTextBox() }
@@ -570,6 +611,8 @@ export class Board {
   // ---- turn change --------------------------------------------------------
 
   private handoff(p: Extract<Presentation, { kind: 'handoff' }>): void {
+    this.closeReport();
+    this.closeLastRun();
     const layout = this.layout;
     // The double-tap guard counts from when this tap (End turn / Confirm) was made,
     // not from the flip (it waits for the discard flight; the button is hidden until
@@ -867,6 +910,9 @@ export class Board {
     const runButton = new PanelButton(s, 'button:run');
     press(runButton.root, () => this.onRunButtonTap());
     runButton.root.visible = false;
+    const lastRunButton = new PanelButton(s, 'button:last-run');
+    press(lastRunButton.root, () => this.toggleLastRun());
+    lastRunButton.root.visible = false;
     const run = new RunDisplay(layout, this.ui, {
       onButton: (i) => this.onRunOptionTap(i),
       press: (target, onTap) => this.pressFeedback(target, onTap),
@@ -892,7 +938,7 @@ export class Board {
     const pickMark = new Graphics();
     pickMark.eventMode = 'none';
     this.runLayer.addChild(run.marks, pickMark);
-    this.centerLayer.addChild(banner, subMain, subHelp, button.root, runButton.root, run.info, run.buttons);
+    this.centerLayer.addChild(banner, subMain, subHelp, button.root, runButton.root, lastRunButton.root, run.info, run.buttons);
     this.accessLayer.addChild(run.access);
     this.gameOver = null;
 
@@ -913,6 +959,7 @@ export class Board {
       subHelp,
       button,
       runButton,
+      lastRunButton,
       run,
       scores,
       pickMark,
@@ -924,6 +971,7 @@ export class Board {
   private destroyGeneration(): void {
     const gen = this.gen;
     if (!gen) return;
+    this.closeLastRun();
     for (const d of gen.detachers) d();
     for (const c of gen.installed.values()) c.detach();
     gen.run.detach();
@@ -1041,12 +1089,23 @@ export class Board {
     const { banner, sub, action, endTurn } = layout;
     gen.banner.position.set(banner.x + banner.width / 2, banner.y + banner.height / 2);
     gen.subMain.position.set(action.x + action.width / 2, action.y + action.height / 2);
-    const help = this.helpBox(layout);
-    gen.subHelp.style.wordWrapWidth = Math.max(40, help.width - 4);
-    gen.subHelp.position.set(help.x + help.width / 2, help.y);
+    this.placeHelp(layout);
     placeAt(gen.button.root, endTurn);
     gen.button.color = sideColor(viewer);
     void sub;
+  }
+
+  private placeHelp(layout: BoardLayout): void {
+    const gen = this.gen;
+    if (!gen) return;
+    const help = this.helpBox(layout);
+    gen.subHelp.style.wordWrapWidth = Math.max(40, help.width - 4);
+    gen.subHelp.position.set(help.x + help.width / 2, help.y);
+  }
+
+  /** S-05-1: the Last run button shows while the view has one and nothing else uses its slot. */
+  private lastRunShown(view: PlayerView | null): boolean {
+    return !!view?.lastRun && !view.run && !view.choice && !view.result && view.pendingDiscard === 0 && this.selected === null && this.pickedInstalled === null;
   }
 
   /** Where the help text goes: below the Play button (sideways) or left of it (column). */
@@ -1054,12 +1113,12 @@ export class Board {
     const { sub, action } = layout;
     if (layout.mode === 'landscape') {
       // Below Play (or below Score too, while a picked agenda shows two choices).
-      const above = this.pickedInstalled !== null ? layout.action2 : action;
+      const above = this.pickedInstalled !== null || this.lastRunShown(this.view) ? layout.action2 : action;
       const y = above.y + above.height + 4;
       return { x: sub.x, y, width: sub.width, height: Math.max(0, sub.y + sub.height - y) };
     }
     // Column: left of Play (and of the second choice, while a picked agenda shows two).
-    const right = this.pickedInstalled !== null ? layout.action2.x : action.x;
+    const right = this.pickedInstalled !== null || this.lastRunShown(this.view) ? layout.action2.x : action.x;
     return { x: sub.x, y: sub.y, width: Math.max(0, right - 6 - sub.x), height: sub.height };
   }
 
@@ -1163,7 +1222,7 @@ export class Board {
       button.set('end', canEnd, canEnd && view.players[viewer].clicks === 0, animate ? this.ui : null);
     }
 
-    if (view.result && !this.gameOver) this.showGameOver(layout, gameOverLines(view.result), view.result.winner, animate);
+    if (view.result && !this.gameOver && !this.report) this.showGameOver(layout, gameOverLines(view.result), view.result.winner, animate);
 
     // Both sides' points, for both seats.
     for (const s of SIDES) {
@@ -1190,6 +1249,15 @@ export class Board {
     const showRun = !view.run && !view.choice && !view.result && pending === 0 && view.runOptions.length > 0 && this.selected === null && this.pickedInstalled === null;
     rb.root.visible = showRun;
     if (showRun) rb.set(layout.action, TERMS.run, view.runOptions.some((o) => o.reject === null), theme.runner, this.runPicking);
+
+    // S-05-1: Last run, under Run (sideways) / beside it (column), while the view has one.
+    const lrb = gen.lastRunButton;
+    const showLast = this.lastRunShown(view);
+    lrb.root.visible = showLast;
+    if (showLast) lrb.set(layout.action2, 'Last run', true, theme.runner, this.lastRunStrip !== null);
+    if (!showLast) this.closeLastRun();
+    else if (this.lastRunStrip && JSON.stringify(this.lastRunStrip.last) !== JSON.stringify(view.lastRun)) this.openLastRun();
+    this.placeHelp(layout);
 
     // The picked installed card is outlined.
     const pm = gen.pickMark;
@@ -2218,6 +2286,66 @@ export class Board {
       this.ui.cancel(root);
       root.destroy({ children: true });
     }
+  }
+
+  // ---- S-05-2 ICE report, S-05-1 Last run strip -----------------------------
+
+  private openReport(text: string, layout: BoardLayout): void {
+    this.report?.destroy();
+    const r = new IceReport(text, layout, () => this.dismissReport());
+    this.panelLayer.addChild(r.root);
+    this.report = r;
+    this.callbacks.log({ kind: 'ice_report', text, box: { ...r.box }, scheduledMs: 0 });
+  }
+
+  /** Closes the report without anything else (a new action, a turn change). */
+  private closeReport(): void {
+    this.report?.destroy();
+    this.report = null;
+  }
+
+  /** The tap that closes the report: only that. A game over waiting behind it shows now. */
+  private dismissReport(): void {
+    if (!this.report) return;
+    this.closeReport();
+    const view = this.view;
+    const layout = this.layout;
+    if (view?.result && !this.gameOver && layout) this.showGameOver(layout, gameOverLines(view.result), view.result.winner, true);
+    this.callbacks.changed();
+  }
+
+  private toggleLastRun(): void {
+    if (this.lastRunStrip) this.closeLastRun();
+    else this.openLastRun();
+    const view = this.view;
+    const layout = this.layout;
+    if (view && layout && this.gen?.lastRunButton.root.visible) this.gen.lastRunButton.set(layout.action2, 'Last run', true, theme.runner, this.lastRunStrip !== null);
+    this.callbacks.changed();
+  }
+
+  private openLastRun(): void {
+    const last = this.view?.lastRun;
+    const layout = this.layout;
+    this.closeLastRun();
+    if (!last || !layout) return;
+    const ids = last.cards.map((c) => c.cardId);
+    const strip = new LastRunStrip(last, layout, (target, index, box) =>
+      attachPress(target, {
+        onLongPress: () => {
+          const id = ids[index];
+          if (id !== undefined) this.openZoom(id, 'corp', box, { list: { ids, index, startX: Number.NaN } });
+        },
+        onHoldMove: (x, _y, at) => this.slideList(x, at),
+        onLongPressEnd: () => this.closeZoom(),
+      }),
+    );
+    this.accessLayer.addChild(strip.root);
+    this.lastRunStrip = strip;
+  }
+
+  private closeLastRun(): void {
+    this.lastRunStrip?.destroy();
+    this.lastRunStrip = null;
   }
 
   // ---- QA-S4-1: pre-draw the zoom faces while a hand card is pressed ---------
