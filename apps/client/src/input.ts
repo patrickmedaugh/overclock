@@ -29,6 +29,9 @@ export function inputTime(): number {
   return current ?? performance.now();
 }
 
+/** A long-press timer running later than this past its due time means the page stalled. */
+const LATE_MS = 50;
+
 /** `eventAt` if it is usable on the performance.now() clock, else `handledAt`. */
 function madeAt(eventAt: number, handledAt: number): number {
   // Never trust a time in the future or far in the past (old engines used epoch stamps).
@@ -54,6 +57,33 @@ export interface PressOptions {
   moveTolerance?: number;
 }
 
+/** The DOM timestamp of a Pixi pointer event (performance.now() clock). */
+function stampOf(e: FederatedPointerEvent): number {
+  const native: unknown = e.nativeEvent;
+  return native instanceof Event ? native.timeStamp : e.timeStamp;
+}
+
+/** Runs `fn` after the next frame (after input the browser queued for it), or soon without rAF. */
+function afterNextFrame(fn: () => void): () => void {
+  const raf = globalThis.requestAnimationFrame as typeof requestAnimationFrame | undefined;
+  if (typeof raf === 'function') {
+    const id = raf(() => fn());
+    return () => globalThis.cancelAnimationFrame(id);
+  }
+  const id = setTimeout(fn, 16);
+  return () => clearTimeout(id);
+}
+
+/**
+ * Tap vs hold is judged by when the finger went down and came up (the events'
+ * timestamps), not by when our timer callback got to run (QA-S3-7). If the page
+ * stalls longer than `longPressMs` between a quick tap's down and up, the timer
+ * may run before the queued release is handled; the release's own timestamp
+ * then still says "tap". To avoid even a flash of zoom in that case, a timer
+ * that runs late waits for the next frame first, so a release queued during the
+ * stall is handled before the zoom opens. If the zoom did open anyway, a quick
+ * release closes it and counts as the tap it was.
+ */
 export function attachPress(target: Container, handlers: PressHandlers, opts: PressOptions = {}): () => void {
   const longPressMs = opts.longPressMs ?? timing.longPress;
   const tolerance = opts.moveTolerance ?? 12;
@@ -63,24 +93,47 @@ export function attachPress(target: Container, handlers: PressHandlers, opts: Pr
   let pointerId: number | null = null;
   let startX = 0;
   let startY = 0;
+  /** When the press was made (event time, performance.now() clock). */
+  let downAt = 0;
   let timer: ReturnType<typeof setTimeout> | null = null;
+  let cancelFrame: (() => void) | null = null;
+  /** The press can still become a hold (has onLongPress, not moved away). */
+  let holdable = false;
   let longFired = false;
 
   const clearTimer = () => {
     if (timer !== null) clearTimeout(timer);
     timer = null;
+    cancelFrame?.();
+    cancelFrame = null;
   };
 
-  const end = (fireTap: boolean) => {
+  const fireLong = () => {
+    cancelFrame = null;
+    if (pointerId === null || !holdable) return;
+    longFired = true;
+    handlers.onLongPress?.();
+  };
+
+  /** `upAt`: when the release was made, or null (cancel / released outside). */
+  const end = (fireTap: boolean, upAt: number | null) => {
     if (pointerId === null) return;
     pointerId = null;
     clearTimer();
+    const held = upAt === null ? null : upAt - downAt;
     if (longFired) {
       longFired = false;
       handlers.onLongPressEnd?.();
+      // The zoom opened late (page stalled), but the finger was down for less
+      // than the hold time: it was a tap.
+      if (fireTap && held !== null && held < longPressMs && !target.destroyed) handlers.onTap?.();
     } else if (fireTap) {
-      handlers.onTap?.();
+      // Held long enough to read the card, but the page was too busy to show
+      // it: a hold is never a tap (no accidental plays).
+      const wasHold = holdable && held !== null && held >= longPressMs;
+      if (!wasHold) handlers.onTap?.();
     }
+    holdable = false;
     // The tap may have rebuilt the board (turn change) and destroyed us.
     if (!target.destroyed) handlers.onRelease?.();
   };
@@ -90,37 +143,43 @@ export function attachPress(target: Container, handlers: PressHandlers, opts: Pr
     pointerId = e.pointerId;
     startX = e.global.x;
     startY = e.global.y;
+    downAt = madeAt(stampOf(e), performance.now());
     longFired = false;
+    holdable = !!handlers.onLongPress;
     handlers.onDown?.();
-    if (handlers.onLongPress) {
+    if (holdable) {
       timer = setTimeout(() => {
         timer = null;
         if (pointerId === null) return;
-        longFired = true;
-        handlers.onLongPress?.();
+        // On time: zoom now. Late (the page stalled): a release made during the
+        // stall may be queued; let the browser deliver it first.
+        if (performance.now() - downAt < longPressMs + LATE_MS) fireLong();
+        else cancelFrame = afterNextFrame(fireLong);
       }, longPressMs);
     }
   };
   const onMove = (e: FederatedPointerEvent) => {
-    if (pointerId !== e.pointerId || timer === null) return;
-    if (Math.hypot(e.global.x - startX, e.global.y - startY) > tolerance) clearTimer();
+    if (pointerId !== e.pointerId || !holdable || longFired) return;
+    if (Math.hypot(e.global.x - startX, e.global.y - startY) > tolerance) {
+      holdable = false;
+      clearTimer();
+    }
   };
   const onUp = (e: FederatedPointerEvent) => {
     const handledAt = performance.now();
-    const native: unknown = e.nativeEvent;
-    const eventAt = native instanceof Event ? native.timeStamp : e.timeStamp;
+    const eventAt = stampOf(e);
     last = { eventAt, handledAt, target: target.label };
     if (pointerId !== e.pointerId) return;
     const outer = current;
     current = madeAt(eventAt, handledAt);
     try {
-      end(true);
+      end(true, current);
     } finally {
       current = outer;
     }
   };
   const onUpOutside = (e: FederatedPointerEvent) => {
-    if (pointerId === e.pointerId) end(false);
+    if (pointerId === e.pointerId) end(false, null);
   };
 
   target.on('pointerdown', onDown);
