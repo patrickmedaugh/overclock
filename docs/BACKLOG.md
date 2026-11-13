@@ -41,7 +41,7 @@ P1 = must, P2 = should, P3 = nice. The PM agent keeps this ordered.
   3. Still holding, drag the card onto a lit place and let go there → the card is played there (the same as today's tap-to-pick then tap-the-place, which stays as the engine action).
   4. Let go anywhere that isn't a lit place → nothing is played; you're back in the hand view.
   5. Tap outside the hand view → it closes.
-  Takes in the older "Hand UI rework" and "Drag to play cards" items. Open points for the PM/architect: how the Sprint 5 carousel and hold-to-read fit in (e.g. long-press in the hand view also shows the big readable card while dragging); one-handed reach on 640×360; the snappiness budget for drag (card follows the finger every frame). Owner calls it a small change; it's a medium-to-large client story (no rules changes). Candidate for the sprint after two-phone play, or alongside it if the owner prefers.
+  Takes in the older "Hand UI rework" and "Drag to play cards" items. Open points for the PM/architect: how the Sprint 5 carousel and hold-to-read fit in (e.g. long-press in the hand view also shows the big readable card while dragging); one-handed reach on 640×360; the snappiness budget for drag (card follows the finger every frame). Owner calls it a small change; it's a medium-to-large client story (no rules changes). Owner (chat 2026-11-13): Sprint 7, after two-phone play.
   - Given the board, when you tap your hand, then the hand opens big and readable.
   - Given the open hand, when you long-press a card, then every place it can be played lights up.
   - Given a long-pressed card, when you drag it onto a lit place and let go, then it is played there.
