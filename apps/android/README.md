@@ -15,11 +15,18 @@ locked sideways), assets served from the app itself (works offline).
 GitHub builds it on every push to `main` or a `sprint-*` branch
 (`.github/workflows/android.yml`) and puts it on the repo's **Releases** page:
 one release per branch, named `OVERCLOCK app — <branch> — built <time>`, with
-the file `overclock-<branch>-<YYYYMMDD-HHMM>.apk`. `main` is the "Latest"
+the file `overclock-<branch>-<YYYYMMDD-HHMM>-b<run>.<attempt>.apk`. `main` is the "Latest"
 release; sprint branches are marked "Pre-release". On the phone: open the
 Releases page, tap the `.apk`, allow installs from the browser once, then
 **Install**. The build time on the release matches the small "Built …" note in
 the corner of the board.
+
+Publishing (S-05-4) is its own job, `publish`, after `build`. A newer push may
+cancel a `build`, never a `publish`. `scripts/publish-release.mjs` creates
+the release if GitHub says "release not found". Otherwise it uploads the new APK, moves the
+tag to the commit, updates the title and notes, and only then deletes the older
+`.apk` files, so the release always has an APK. Any other `gh` error fails the
+run (red in Actions). Tested with a fake `gh`: `npm test --workspace @overclock/android`.
 
 ## Build it yourself
 
