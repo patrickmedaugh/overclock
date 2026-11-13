@@ -426,26 +426,43 @@ test.describe('QA snappiness: run steps', () => {
   test('every run step answers within 100ms, animates within 600ms, and the next buttons are there at once', async ({ page }) => {
     await openBoard(page, 2);
     await toStep(page, 2, 'wall_of_static_encounter');
-    // Encounter: +1 strength, Break, then Continue -> access; no waiting for animations between taps.
-    // (This server holds only the ICE, so Continue ends the run: nothing to animate; see QA-S3-3.)
-    const steps: [RegExp, AnimRecord['kind'][]][] = [
-      [/^\+1 strength/, ['strength_pop']],
-      [/^Break/, ['sub_broken', 'run_step']],
-      [/^Continue$/, []],
+    // Encounter: +1 strength, Break, then Continue; no waiting for animations between taps.
+    // This server holds only the ICE, so Continue ends the run with nothing to access. Since
+    // the QA-S3-3 fix that shows the toast "Nothing to access in Server 1" (~1.4s). Toasts
+    // ('notice' / 'hint') never block input, so like the rez-prompt test below they are left
+    // out of the 600ms animation rule; instead the next tap is checked to be answered at once
+    // while the toast is still on screen.
+    const steps: [RegExp, AnimRecord['kind'][], string | null][] = [
+      [/^\+1 strength/, ['strength_pop'], null],
+      [/^Break/, ['sub_broken', 'run_step'], null],
+      [/^Continue$/, [], 'Nothing to access in Server 1'],
     ];
-    for (const [label, kinds] of steps) {
+    let toast: AnimRecord | undefined;
+    for (const [label, kinds, notice] of steps) {
       const l = await layout(page); // no waitIdle: tap as soon as the buttons are there
       const m = await measureTap(page, runButtonOf(l, label).box);
       expectSnappy(m, kinds);
-      for (const a of m.anims) expect(a.scheduledMs, `${a.kind} scheduled <= 600ms`).toBeLessThanOrEqual(600);
+      for (const a of m.anims.filter((x) => x.kind !== 'notice' && x.kind !== 'hint')) {
+        expect(a.scheduledMs, `${a.kind} scheduled <= 600ms`).toBeLessThanOrEqual(600);
+      }
+      const notices = m.anims.filter((a) => a.kind === 'notice');
+      if (notice) {
+        expect(notices.map((a) => a.text), `${label} shows the notice "${notice}"`).toEqual([notice]);
+        toast = notices[0];
+      }
     }
-    const l = await layout(page);
-    if (l.run) {
-      expect(l.run.step).toBe('access');
-      const m = await measureTap(page, runButtonOf(l, /^(Steal|Trash|Leave it|Done)/).box);
-      expect(Number.isFinite(m.handledAt)).toBe(true);
-      expect(m.stateAt - m.handledAt).toBeLessThan(100);
-    }
+    // The run is over; with the "Nothing to access" toast still showing, the very next tap
+    // (Run) is answered at once: the servers light up inside the same tap.
+    const after = await layout(page);
+    expect(after.run).toBeNull();
+    expect(after.runButton).not.toBeNull();
+    const m = await measureTap(page, after.runButton!.box);
+    expect(Number.isFinite(m.handledAt), 'the Run tap reached a game target').toBe(true);
+    expect(m.tapAt, 'the Run tap was made while the toast was still showing').toBeLessThan(toast!.startedAt + toast!.scheduledMs);
+    expect(m.stateAt - m.handledAt).toBeLessThan(100);
+    const lit = await layout(page);
+    expect(lit.runButton?.picking).toBe(true);
+    expect(lit.targets.filter((t) => t.kind === 'run').length).toBeGreaterThan(0);
   });
 
   test('the Corp rez prompt: Rez answers within 100ms and the Runner can act at once', async ({ page }) => {
@@ -474,6 +491,7 @@ test.describe('QA snappiness: run steps', () => {
 
 // ---- bugs found by QA (known failures until fixed) -------------------------------------------------
 
+// QA-S3-3 (fixed in ad9ef03, re-checked in QA round 2): these were known failures in round 1.
 test.describe('QA-S3-3 a successful run with nothing to access ends silently', () => {
   test('Continue into a server that holds only ICE: some notice says the run got in and found nothing', async ({ page }) => {
     await openBoard(page, 2);
@@ -485,6 +503,37 @@ test.describe('QA-S3-3 a successful run with nothing to access ends silently', (
     const m = await measureTap(page, runButtonOf(await layout(page), 'Continue').box);
     expect(m.events.map((e) => e.type)).toEqual(['run_successful', 'run_ended']);
     expect(m.anims.filter((a) => a.kind === 'notice').length, 'a notice explains the run result').toBeGreaterThan(0);
+    expect(m.anims.filter((a) => a.kind === 'notice').map((a) => a.text)).toEqual(['Nothing to access in Server 1']);
+    const l = await layout(page);
+    expect(l.run).toBeNull();
+    await page.waitForTimeout(100);
+    await shot(page, 'r2-01-nothing-to-access-server-1');
+  });
+
+  test('a run on an empty Archives says "Nothing to access in Archives"', async ({ page }) => {
+    await openBoard(page, 1);
+    // Corp: install one card in a new server (hand back to 5, so nothing is discarded), end the turn.
+    const rejected = await page.evaluate(() => {
+      const hook = window.__overclock!;
+      const v0 = hook.getView();
+      const o = v0.handOptions.flat().find((x) => x.action.type === 'install' && x.action.server === 'new')!;
+      const out = [...hook.dispatch(o.action), ...hook.dispatch({ type: 'end_turn', player: 'corp' })];
+      return out.filter((e) => e.type === 'action_rejected');
+    });
+    expect(rejected).toEqual([]);
+    await waitIdle(page);
+    const v = await getView(page);
+    expect(v.activePlayer).toBe('runner');
+    expect(v.players.corp.discardCount, 'Archives is empty at the start').toBe(0);
+    expect(v.corpServers.find((s) => s.id === 'archives')!.ice).toHaveLength(0);
+    await tap(page, (await layout(page)).runButton!.box);
+    const m = await measureTap(page, targetOf(await layout(page), 'run', 'archives').box);
+    expect(m.events.map((e) => e.type)).toEqual(expect.arrayContaining(['run_started', 'run_successful', 'run_ended']));
+    expect(m.events.some((e) => e.type === 'card_accessed')).toBe(false);
+    expect(m.anims.filter((a) => a.kind === 'notice').map((a) => a.text)).toEqual(['Nothing to access in Archives']);
+    expect((await layout(page)).run).toBeNull();
+    await page.waitForTimeout(100);
+    await shot(page, 'r2-02-nothing-to-access-archives');
   });
 });
 

@@ -2,7 +2,9 @@
 
 QA date: 2026-11-12 · Branch `sprint-03` · Verified at **73eec24** · QA did not write the code under test.
 
-**Summary: 30 of 31 acceptance criteria PASS, 1 FAIL (S-03-6 AC1, a test-only problem), 0 OWNER CHECK.** The game itself passed everything QA threw at it: runs, rez, breaking, access, stealing, trashing, advancing, scoring, both kinds of win, flatline, and the three "Needs runs" cards. **2 bugs found:**
+**Round 2 summary (2026-11-13, at 34ab59a + QA's test update): both bugs from this report are fixed (QA-S3-1, QA-S3-2), and S-03-6 AC1 now PASSES. Still 30 of 31 PASS, 1 FAIL: S-03-6 AC2 (the 6× slowed-down check) went red once in 150 runs for a new, different reason (QA-S3-7, see "Round 2" at the end). All other checks green: full screen tests 512 passed / 6 skipped / 0 failed with no retries.**
+
+**Round 1 summary: 30 of 31 acceptance criteria PASS, 1 FAIL (S-03-6 AC1, a test-only problem), 0 OWNER CHECK.** The game itself passed everything QA threw at it: runs, rez, breaking, access, stealing, trashing, advancing, scoring, both kinds of win, flatline, and the three "Needs runs" cards. **2 bugs found:**
 - **QA-S3-1 (minor, layout):** when Archives holds many cards (late game), the Runner sees them as one row of ever-smaller cards: 12 cards are 33 px wide on the small phone (names cut to "Private…", "Neural…") and 41 px on a computer, although there is plenty of empty room above and below.
 - **QA-S3-2 (low, test only):** one of the two "End turn double tap" test files (`guard-slow-frame.spec.ts`) still times its second tap with a Node timer. On a busy test machine it went red once (its own check "the second tap was made inside the 300 ms guard" saw 337 ms instead of 150 ms). The game was fine. This is exactly the kind of false alarm S-03-6 is meant to remove, so S-03-6 AC1 is marked FAIL until it is fixed (a one-line fix, see below).
 
@@ -161,3 +163,46 @@ A second scheduled run did its own QA round 1 at the same time: `docs/sprints/sp
 - **QA-S3-4 (minor, readability, desktop):** long break buttons shrink to ~7 px text at 1280×800 (Enigma's "Break "The Runner loses 1 click, if able" · 1 credit"); run panel lines ~8–10 px. Phones fine.
 - **QA-S3-5 = QA-S3-2 above** (seen at 6× slow-down: second tap made 494.6 ms after the first, 1 of 150). That pass counted it against S-03-6 AC2; together the two passes show it can fail both the loaded and the slowed check.
 - **QA-S3-6 (test-only, low):** `turn.spec.ts` "a double tap on End turn ends only one turn" stays green with the guard removed (the second End turn only opens the Corp's hand-limit step). Not in the mutation job. Fix: also assert `phase === 'action'` and `pendingDiscard === 0`, and add it to `scripts/guard-mutation.mjs`.
+
+## Round 2 (2026-11-13)
+
+Verified at **34ab59a** (fixes in 024c12f, 489211d, 7dc4848, ad9ef03, 49cb721) plus QA's own test update below. QA did not write the fixes. Same machine (2 CPUs). The second report (`sprint-03-qa-pass2.md`) has a matching Round 2 section for QA-S3-3..QA-S3-6.
+
+### Bugs
+
+| Bug | Result | Evidence |
+|---|---|---|
+| QA-S3-1 late-game Archives shown as tiny cards | **FIXED, PASS** | `qa-sprint03.spec.ts` › "twelve cards in Archives are all shown, each at least 44px wide, clear of the buttons": the `test.fail` marker is gone (removed in 024c12f; QA checked no `test.fail` remains anywhere in `e2e/`), passes on phone, phone-small and desktop, in the full run. **Mutation check:** with the fix taken out (QA put the old one-row `accessSlots()` back in a throw-away copy), the test goes red on phone-small and desktop ("each Archives card at least 44px wide"), as in round 1. 12 cards now wrap into 2 rows on 640×360 and 3 rows on desktop with names readable. Unit test `accessSlots.test.ts` (1–17 cards, 3 sizes). Screenshots `sprint-03-qa/phone-640x360-r2-02-archives-twelve-cards.png`, `desktop-1280x800-r2-02-archives-twelve-cards.png`. |
+| QA-S3-2 `guard-slow-frame.spec.ts` timed its second tap with a Node timer | **FIXED, PASS** | 489211d stamps both taps with the time they were made (`madeAt`) and adds a check that Chrome made the second tap within 2 ms of its stamp; every earlier assertion is kept (read). Loaded 10× run (below): `guard-slow-frame` 60/60 green; 6× slow-down: 60/60 green. The old failure ("second tap made 337 ms after the first") can no longer happen. **Mutation:** `npm run test:guard-mutation` exit 0; under all three broken guards its in-guard test is red on all 3 sizes and fails on the game's behaviour ("only one turn ends"), the control test stays green. |
+
+### Criteria that failed or were re-checked
+
+| Criterion | Round 1 | Round 2 | Evidence |
+|---|---|---|---|
+| S-03-6 AC1: guard tests pass every time on a busy machine, not loosened | FAIL | **PASS** | Guard tests (`qa-sprint01` ×2, `guard-slow-frame` ×2, `turn.spec` "a double tap on End turn ends only one turn") `--repeat-each=10 --retries=0` on phone, phone-small, desktop **while a second Playwright run of all `s03-*` and QA Sprint 3 specs loaded the machine** (separate port and output, as recommended in round 1): **150/150 passed, 0 skipped, 0 flaky** (11.4 min). Plus once in the full run. Not loosened (diffs read). |
+| S-03-6 AC2: CPU slowed 6×, 10 runs, each test really tests a tap | PASS | **FAIL** (QA-S3-7, new) | `E2E_CPU_THROTTLE=6`, same 5 tests × 3 sizes × 10, `--retries=0`: **149 passed, 1 failed, 0 skipped** (15.0 min). The red one is **not** the fixed QA-S3-2 test: `qa-sprint01.spec.ts` › "after a 4-card discard, extra taps on the Confirm / End turn spot in the next 300ms do nothing" timed out on `phone` (repeat 2) because one of the 4 setup taps that pick the discards was not counted as a pick, so Confirm stayed dim and the test waited forever (trace screenshot: "Discard 1", 3 cards picked). A re-run of just that test 20× at 6× on 3 sizes: 60/60 green. So about 1 in 90 at 6×. The game's guard was never wrong; the test went red with the game working, which is exactly what S-03-6 is meant to stop. |
+| S-03-6 AC3: breaking the guard makes the tests fail | PASS | **PASS** | `npm run test:guard-mutation`: exit 0, now 15 tests per run (turn.spec added, QA-S3-6). Baseline 15/15 green; each of the 3 breaks turns 12/15 red (every in-guard test on every size; the 3 "control" tests stay green by design). |
+
+### QA-S3-7 (new, low, test-only but with a small game side): a quick tap on a very slow phone can be read as a hold
+- **What happens:** "Hold a card to read it" is detected with a 350 ms page timer started when the finger goes down. If the page is stalled for longer than that between the finger going down and coming up (6× slowed CPU, a busy test machine, a slow phone), the timer fires first and the quick tap is treated as a hold, so the card is not picked.
+- **Proof (QA experiment, phone 844×390):** in the discard picker, a 30 ms tap on a hand card (down and up stamped 30 ms apart) picks the card normally; the same tap with a 600 ms page stall between down and up does **not** pick it (picker stays "Discard 4"). Throw-away spec, not committed.
+- **Steps to see the red test:** `cd apps/client && E2E_CPU_THROTTLE=6 npx playwright test e2e/qa-sprint01.spec.ts -g "after a 4-card discard" --project=phone --project=phone-small --project=desktop --repeat-each=30 --retries=0 --workers=2` (QA: 1 red in 90; the setup taps at line ~427 use `tap()`).
+- **Suggested direction (team's call):** in `apps/client/src/input.ts` `attachPress`, judge a hold the same way the End turn guard judges taps, by when things were *made*: on release, if the release's event time is less than `longPress` after the press's event time, treat it as a tap (and close any zoom the late timer opened). That fixes the test and slow phones together. A test-only alternative is to make the 4 picks with stamped `sendTap` and assert each pick landed before going on, but that leaves the slow-phone case.
+- **Owner impact:** small; only noticeable on a phone that freezes for over a third of a second mid-tap.
+
+### Other checks (Round 2)
+
+| Check | Result |
+|---|---|
+| `npm run lint` / `npm run typecheck` | PASS (exit 0), incl. QA's updated spec |
+| `npm test` | PASS: **729** (ai 4, cards 24, engine 323, match 61, client 317) |
+| `npm run build` | PASS (main bundle 457 kB, 141 kB gzipped) |
+| Full e2e `CI=1 npx playwright test --retries=0` | PASS: **512 passed, 6 skipped, 0 failed, 0 flaky** (25.9 min). Skips: QA Sprint 2 upright check (2 projects), the sideways-only help-text check on desktop, and QA pass-2's screenshot walk (3 projects, only with `QA_SCREENS=1`). Screenshots rewritten by the run in `sprint-02-screens/` and `sprint-03-qa/` were restored with `git checkout`. |
+| CI failure on 49cb721 (QA snappiness test) | FIXED by QA, see `sprint-03-qa-pass2.md` Round 2 |
+| IP | PASS: no image files added; new screenshots show our own glyph art |
+
+**Round 2 criterion count: 31 = 30 PASS, 1 FAIL (S-03-6 AC2, QA-S3-7).**
+
+### Round 2 screenshots (`docs/sprints/sprint-03-qa/`)
+- `phone-640x360-r2-02-archives-twelve-cards.png`, `desktop-1280x800-r2-02-archives-twelve-cards.png` (QA-S3-1 fixed: 2 / 3 rows, names readable)
+- `phone-640x360-r2-01-enigma-vs-gordian-4-buttons.png`, `desktop-1280x800-r2-01-enigma-vs-gordian-4-buttons.png` (the crowded encounter after the QA-S3-4 fix; desktop buttons now readable)
