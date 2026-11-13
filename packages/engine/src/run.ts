@@ -89,18 +89,24 @@ export function startRun(state: GameState, server: ServerId, opts: RunOptions, e
     bypassNext: opts.bypassFirst ?? false,
     extraAccess: opts.extraAccess ?? 0,
     access: null,
-    tempCredits: 0,
+    // Bad publicity: 1 run-only credit each.
+    tempCredits: state.badPublicity,
   };
   const s: GameState = { ...state, phase: 'run', lastRunTurn: state.turn, run };
   events.push(opts.cardId !== undefined ? { type: 'run_started', server, cardId: opts.cardId } : { type: 'run_started', server });
+  if (run.tempCredits > 0) events.push({ type: 'temp_credits_gained', amount: run.tempCredits });
   // No ICE: straight in (no Continue stop before the first ICE).
   return iceCount === 0 ? succeed(s, events) : approach(s, events);
 }
 
-/** Ends the run: boosts drop back, `run_ended`, back to the action phase (the Runner keeps its clicks). */
+/**
+ * Ends the run: boosts drop back, unspent run-only credits vanish, `run_ended`,
+ * back to the action phase (the Runner keeps its clicks).
+ */
 export function endRun(state: GameState, outcome: RunOutcome, events: Events): GameState {
   const run = theRun(state);
   const s = changeBoosts(state, { encounterBoost: {}, runBoost: {} }, events);
+  if (run.tempCredits > 0) events.push({ type: 'temp_credits_lost', amount: run.tempCredits });
   events.push({ type: 'run_ended', server: run.server, outcome });
   return { ...s, phase: 'action', run: null };
 }
@@ -348,6 +354,19 @@ export function resolveEffect(state: GameState, effect: Effect, owner: Side, eve
 
 // ---- actions (already validated by rules.ts) ----------------------------------------
 
+/**
+ * The Runner pays `amount` during the run: run-only credits first, then its own
+ * credits (`credits_spent.temp` = the run-only part). Caller checked affordability.
+ */
+function payRunner(state: GameState, amount: number, events: Events): GameState {
+  if (amount <= 0) return state;
+  const run = theRun(state);
+  const temp = Math.min(amount, run.tempCredits);
+  events.push(temp > 0 ? { type: 'credits_spent', player: 'runner', amount, temp } : { type: 'credits_spent', player: 'runner', amount });
+  const s = withPlayer(state, 'runner', { credits: state.players.runner.credits - (amount - temp) });
+  return setRun(s, { tempCredits: run.tempCredits - temp });
+}
+
 export function doRun(state: GameState, a: ActionOf<'run'>): { state: GameState; events: GameEvent[] } {
   const events: Events = [];
   const s = withPlayer(state, a.player, { clicks: state.players[a.player].clicks - 1 });
@@ -405,8 +424,7 @@ export function doUseAbility(state: GameState, a: ActionOf<'use_ability'>): { st
   const events: Events = [];
   const ability = abilityTarget(state, a);
   if (!ability) return { state, events }; // unreachable: validated
-  if (ability.cost > 0) events.push({ type: 'credits_spent', player: 'runner', amount: ability.cost });
-  let s = withPlayer(state, 'runner', { credits: state.players.runner.credits - ability.cost });
+  let s = payRunner(state, ability.cost, events);
   const run = theRun(s);
   if (ability.op === 'strength') {
     const key = ability.until === 'run' ? 'runBoost' : 'encounterBoost';
@@ -441,9 +459,7 @@ export function doSteal(state: GameState, a: ActionOf<'steal'>): { state: GameSt
 export function doTrash(state: GameState, a: ActionOf<'trash'>): { state: GameState; events: GameEvent[] } {
   const events: Events = [];
   const card = accessCard(state, a.card) as AccessCard;
-  const cost = trashCost(card);
-  if (cost > 0) events.push({ type: 'credits_spent', player: 'runner', amount: cost });
-  let s = withPlayer(state, 'runner', { credits: state.players.runner.credits - cost });
+  let s = payRunner(state, trashCost(card), events);
   s = removeFromZone(s, a.card);
   s = markTaken(s, a.card, { trashed: true });
   // Trashed cards go face up to Archives.

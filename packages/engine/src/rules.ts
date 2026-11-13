@@ -296,8 +296,13 @@ const strongEnough = (s: GameState, a: ActionOf<'use_ability'>): RejectReason | 
   return breakerStrength(s, a.uid) >= iceStrength(currentIce(s) as Installed) ? null : 'too_weak';
 };
 
+/** What the Runner can spend now: its credits plus, during a run, the run-only credits (bad publicity). */
+export function runnerSpendable(s: GameState): number {
+  return s.players.runner.credits + (s.run?.tempCredits ?? 0);
+}
+
 const canAffordAbility = (s: GameState, a: ActionOf<'use_ability'>): RejectReason | null =>
-  s.players.runner.credits >= (abilityTarget(s, a)?.cost ?? 0) ? null : 'no_credits';
+  runnerSpendable(s) >= (abilityTarget(s, a)?.cost ?? 0) ? null : 'no_credits';
 
 const cardShape = (_s: GameState, a: ActionOf<'steal' | 'trash'>): RejectReason | null =>
   isInt(a.card) ? null : 'invalid_action';
@@ -320,7 +325,7 @@ const trashTarget = (s: GameState, a: ActionOf<'trash'>): RejectReason | null =>
 };
 
 const canAffordTrash = (s: GameState, a: ActionOf<'trash'>): RejectReason | null =>
-  s.players.runner.credits >= trashCost(accessCard(s, a.card) as AccessCard) ? null : 'no_credits';
+  runnerSpendable(s) >= trashCost(accessCard(s, a.card) as AccessCard) ? null : 'no_credits';
 
 /**
  * Credits an install costs. Corp ICE: 1 per ICE already on the server ('new' = 0);
