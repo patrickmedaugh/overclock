@@ -215,6 +215,8 @@ export interface LayoutSnapshot {
   };
   /** S-04-2: the "Leave the game?" question, if showing. */
   dialog: { title: string; text: string; box: Box; buttons: { label: string; box: Box }[] } | null;
+  /** S-06-5: the opaque "Pass the phone" cover, if showing (`to`: who should take the phone). */
+  cover: { to: Side; title: string; line: string; box: Box; content: Box } | null;
   /** S-04-1: the build date as shown ("Built 2026-11-13 14:32 UTC"), or null while hidden. */
   buildLabel: { text: string; box: Box } | null;
   /** True while any event animation runs (never blocks input). */
@@ -222,6 +224,8 @@ export interface LayoutSnapshot {
 }
 
 export type AnimKind =
+  /** S-06-5: the "Pass the phone" cover was tapped away (the board shows on the next frame). */
+  | 'cover_lifted'
   | 'draw_flight'
   | 'credit_pop'
   | 'discard_flight'
@@ -344,5 +348,12 @@ export interface SmallFaceSnapshot {
 declare global {
   interface Window {
     __overclock?: OverclockTestHook;
+    /** S-06-1: which start-screen page shows (null once a game is on). Set at load, before a game starts. */
+    __overclockStart?: {
+      screen(): string | null;
+      /** The phone's Back button (same handler as the app's). */
+      back(): 'close_dialog' | 'close_zoom' | 'close_panel' | 'exit' | 'ask_leave';
+      exitRequests(): number;
+    };
   }
 }

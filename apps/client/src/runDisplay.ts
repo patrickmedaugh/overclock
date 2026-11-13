@@ -10,7 +10,7 @@ import type { CardOption, PlayerView, RunView, Side } from '@overclock/engine';
 import { Container, Graphics, Rectangle, Text } from 'pixi.js';
 import { createCardBack, createCardFace, glowRoundRect } from './cardFace';
 import type { Box, RunSnapshot } from './hook-types';
-import type { Decision } from './hotseat';
+import type { Decision } from './session';
 import { type BoardLayout, accessSlots, buttonGrid } from './layout';
 import { type RigIds, infoLines, optionLabel, runTitle, stepLabel } from './runText';
 import { serverLabel } from './terms';

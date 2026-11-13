@@ -29,6 +29,9 @@ for (const vp of [
     // No hook in any script the page loaded either.
     const srcs = await page.evaluate(() => performance.getEntriesByType('resource').map((e) => e.name).filter((n) => n.endsWith('.js')));
     for (const s of srcs) expect(await (await page.request.get(s)).text()).not.toContain('__overclock');
+    // Sprint 6: the app opens on the start screen; "Play on this phone" starts the game.
+    await page.getByRole('button', { name: /Play on this phone/ }).tap();
+    await expect(page.locator('#start')).toBeHidden();
     await page.waitForTimeout(400);
     await page.screenshot({ path: join(SHOTS, `android-app-${vp.width}x${vp.height}-01-board.png`) });
 

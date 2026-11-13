@@ -15,14 +15,16 @@ import { type BackAction, backAction } from './back';
 import { CAROUSEL_SLIDE_MS, Carousel, type CarouselFace, listIndex } from './carousel';
 import { createCardBack, createCardFace, createZoomFace, dropCardTextures, flushZoomFaces, glowRoundRect, hasZoomFace, retireCardTextures, textOverflows, textsOf } from './cardFace';
 import { framesAreSlow } from './frameClock';
+import { Cover } from './cover';
 import { centeredBox } from './geometry';
 import { Hand, type HandCard } from './hand';
 import type { AnimRecord, Box, EndTurnClock, InstalledSnapshot, Insets, LayoutSnapshot, SideLayout, TargetSnapshot } from './hook-types';
-import type { Decision, Presentation } from './hotseat';
+import type { Decision, Presentation } from './session';
 import { CHOICE_HINT, hintFor } from './hints';
 import { attachPress, inputTime } from './input';
 import { BUILD_LINE, type BoardLayout, type BoardShape, CARD_RATIO, type SideRow, computeLayout } from './layout';
 import { LeaveDialog } from './leaveDialog';
+import type { CoverText } from './passCover';
 import { RunDisplay } from './runDisplay';
 import { IceReport, LastRunStrip } from './panels';
 import { RUN_END, iceReport, nameOf, runEndText } from './runText';
@@ -209,6 +211,9 @@ export class Board {
   private lastChoiceCard: string | null = null;
   /** "Leave the game?" over everything (S-04-2). */
   private readonly dialogLayer = new Container();
+  /** S-06-5: the "Pass the phone" cover, over the board (under the leave question). */
+  private readonly coverLayer = new Container();
+  private cover: Cover | null = null;
   private leave: { dialog: LeaveDialog; onLeave: () => void } | null = null;
   /** One hand per seat, kept between turns. */
   private readonly hands: Record<Side, Hand>;
@@ -303,7 +308,7 @@ export class Board {
     this.buildText.eventMode = 'none';
     this.buildText.alpha = 0.85;
     this.table.addChild(this.catcher, this.bgLayer, this.boardLayer, this.installedLayer, this.runLayer, this.centerLayer, this.accessLayer, this.targetLayer, this.handLayer, this.buildText);
-    this.stage.addChild(this.table, this.fxLayer, this.hintLayer, this.panelLayer, this.zoomLayer, this.dialogLayer);
+    this.stage.addChild(this.table, this.fxLayer, this.hintLayer, this.panelLayer, this.zoomLayer, this.coverLayer, this.dialogLayer);
     // S-05-1: a tap anywhere outside the Last run strip (and its button) closes it; the tap still acts.
     this.stage.eventMode = 'static';
     this.stage.on('pointerdown', (e) => {
@@ -327,6 +332,33 @@ export class Board {
     if (this.report && this.layout) this.openReport(this.report.text, this.layout);
     // The question stays open across a rotation / inset change, laid out anew.
     if (this.leave) this.openLeave(this.leave.onLeave);
+    if (this.cover) this.setCover(this.cover.text);
+  }
+
+  /**
+   * S-06-5: puts the opaque "Pass the phone" cover up (`text`) or takes it
+   * away (null). Going up, every running animation is finished first, so the
+   * board behind it is already the next player's: lifting it shows that board
+   * on the next frame. A tap on the cover lifts it.
+   */
+  setCover(text: CoverText | null): void {
+    this.cover?.destroy();
+    this.cover = null;
+    if (text) {
+      this.closeZoom(true);
+      this.stopPredraw();
+      this.closeLastRun();
+      this.fx.finishAll();
+      const layout = this.layout;
+      if (layout) {
+        this.cover = new Cover(layout, text, () => {
+          this.setCover(null);
+          this.callbacks.log({ kind: 'cover_lifted', scheduledMs: 0 });
+        });
+        this.coverLayer.addChild(this.cover.root);
+      }
+    }
+    this.callbacks.changed();
   }
 
   /**
@@ -335,8 +367,10 @@ export class Board {
    * "Leave the game?" (Leave calls `exit`). Returns what it did.
    */
   back(exit: () => void): BackAction {
-    const panelOpen = this.report !== null || this.lastRunStrip !== null;
-    const action = backAction({ dialogOpen: this.leave !== null, zoomOpen: this.zoom !== null, panelOpen, gameOver: !!this.view?.result && !this.report });
+    // Under the "Pass the phone" cover nothing of the board is on screen: Back asks to leave.
+    const covered = this.cover !== null;
+    const panelOpen = !covered && (this.report !== null || this.lastRunStrip !== null);
+    const action = backAction({ dialogOpen: this.leave !== null, zoomOpen: !covered && this.zoom !== null, panelOpen, gameOver: !!this.view?.result && !this.report });
     if (action === 'close_dialog') this.closeLeave();
     else if (action === 'close_zoom') this.closeZoom();
     else if (action === 'close_panel') {
@@ -390,6 +424,7 @@ export class Board {
     dropCardTextures();
     if (this.view) this.fullRender();
     if (this.leave) this.openLeave(this.leave.onLeave);
+    if (this.cover) this.setCover(this.cover.text);
     this.callbacks.changed();
   }
 
@@ -589,6 +624,7 @@ export class Board {
       selectedInstalled: this.pickedInstalled,
       hint: this.hint && this.hint.root.alpha > 0.05 ? { text: this.hint.text, box: this.hint.box } : null,
       dialog: this.leave ? this.leave.dialog.snapshot() : null,
+      cover: this.cover ? this.cover.snapshot() : null,
       report: this.report ? { text: this.report.text, box: { ...this.report.box } } : null,
       lastRun: {
         button: gen && gen.lastRunButton.root.visible ? { box: { ...gen.lastRunButton.box }, label: gen.lastRunButton.text } : null,

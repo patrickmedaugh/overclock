@@ -7,3 +7,7 @@ declare const __TEST_HOOK__: boolean;
 declare const __NATIVE__: boolean;
 /** When this build was made, e.g. "2026-11-13 14:32 UTC". */
 declare const __BUILD_TIME__: string;
+/** The online service's WebSocket address (OVERCLOCK_SERVER_URL at build time), '' when not set up. */
+declare const __SERVER_URL__: string;
+/** The web game's address for share links from the app (OVERCLOCK_WEB_URL at build time), or ''. */
+declare const __WEB_URL__: string;

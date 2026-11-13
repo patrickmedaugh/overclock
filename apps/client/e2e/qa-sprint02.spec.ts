@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url';
 import { getCard } from '@overclock/cards';
 import { expect, test, type Page } from '@playwright/test';
 import {
+  BOARD_FLAGS,
   anims,
   expectCleanLayout,
   getView,
@@ -318,7 +319,7 @@ test.describe('QA Sprint 2 playthrough (screenshots)', () => {
     test.skip(test.info().project.name !== 'phone', 'one upright check is enough');
     const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
     const page = await ctx.newPage();
-    await page.goto('./?seed=2');
+    await page.goto(`./?seed=2&${BOARD_FLAGS}`);
     await page.waitForFunction(() => document.body.dataset.ready === 'true' && !!window.__overclock);
     await page.setViewportSize({ width: 844, height: 390 });
     await page.evaluate(() => window.__overclock!.dispatch({ type: 'gain_credit', player: 'corp' }));
