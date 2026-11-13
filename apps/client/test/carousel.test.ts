@@ -1,7 +1,7 @@
 // S-05-3: the carousel behind the hand zoom (poses, what slides where) and the
 // list zoom's slide-to-index (piles, score pills).
 import { describe, expect, it } from 'vitest';
-import { CAROUSEL_REACH, CAROUSEL_SLIDE_MS, carouselMoves, carouselPose, listIndex } from '../src/carousel';
+import { CAROUSEL_REACH, CAROUSEL_SLIDE_MS, carouselMoves, carouselPose, listIndex } from '../src/carouselMath';
 
 describe('carouselPose', () => {
   it('the zoomed card is full size in the middle; neighbours get smaller, dimmer and further out', () => {
