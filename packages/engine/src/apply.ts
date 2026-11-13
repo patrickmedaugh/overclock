@@ -313,6 +313,15 @@ export function runStepOptions(state: GameState, player: Side): CardOption[] {
 }
 
 /**
+ * The deciding player's options in an open choice (empty for the other player
+ * and outside phase 'choice'). `free_rez`: one `rez` (cost 0) per unrezzed
+ * installed ICE (servers in order, then ICE index order), then `pass` (Skip).
+ */
+export function choiceOptions(_state: GameState, _player: Side): CardOption[] {
+  return []; // Sprint 4 E3
+}
+
+/**
  * Corp only: per installed agenda uid (servers in order, then install order),
  * `advance` (cost 1) and, once it has enough counters, `score`. Listed off-turn
  * too, with the reason in `reject` (like `handOptions`). Runner: {}.

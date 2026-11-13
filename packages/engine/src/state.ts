@@ -42,8 +42,11 @@ export interface DiscardEntry {
   readonly faceUp: boolean;
 }
 
-/** 'action': spend clicks / end turn. 'discard': hand-limit step. 'run': a run is in progress. 'over': game finished. */
-export type Phase = 'action' | 'discard' | 'run' | 'over';
+/**
+ * 'action': spend clicks / end turn. 'discard': hand-limit step. 'run': a run is in progress.
+ * 'choice': a "when scored" choice waits on a player (`GameState.choice`). 'over': game finished.
+ */
+export type Phase = 'action' | 'discard' | 'run' | 'choice' | 'over';
 export type WinReason = 'corp_decked' | 'agenda_points' | 'flatline';
 
 /**
@@ -107,6 +110,22 @@ export interface RunState {
   readonly extraAccess: number;
   /** Set during the `access` step. */
   readonly access: AccessState | null;
+  /**
+   * Run-only credits from the Corp's bad publicity (set at run start). Runner
+   * costs during the run are paid from these first; left-overs vanish when the run ends.
+   */
+  readonly tempCredits: number;
+}
+
+/** What a choice is about. `free_rez`: Priority Requisition, rez one unrezzed installed ICE for free, or Skip. */
+export type ChoiceKind = 'free_rez';
+
+/** An open choice (`phase === 'choice'`): `player` must decide before anything else happens. */
+export interface ChoiceState {
+  readonly kind: ChoiceKind;
+  readonly player: Side;
+  /** The card whose effect opened it (the scored agenda). */
+  readonly cardId: string;
 }
 
 export interface GameResult {
@@ -150,6 +169,10 @@ export interface GameState {
   readonly run: RunState | null;
   /** Turn number in which the Runner last *started* a run (Neural EMP), or null. */
   readonly lastRunTurn: number | null;
+  /** The Corp's bad publicity (0 at start). */
+  readonly badPublicity: number;
+  /** The open choice (`phase === 'choice'`), or null. */
+  readonly choice: ChoiceState | null;
 }
 
 export function opponentOf(side: Side): Side {
@@ -172,7 +195,7 @@ export function pointsOf(scoreArea: readonly string[]): number {
 /** Ends the game: `winner` wins for `reason` (phase 'over', any run cleared). */
 export function endGame(state: GameState, winner: Side, reason: WinReason, events: GameEvent[]): GameState {
   events.push({ type: 'game_over', winner, reason });
-  return { ...state, phase: 'over', result: { winner, reason }, run: null };
+  return { ...state, phase: 'over', result: { winner, reason }, run: null, choice: null };
 }
 
 /** If `side` has reached WINNING_POINTS, ends the game in its favour. */
@@ -246,6 +269,8 @@ export function newGame(seed: number): GameState {
     nextRemote: 1,
     run: null,
     lastRunTurn: null,
+    badPublicity: 0,
+    choice: null,
   };
   return startTurn(base, 'corp', 1).state;
 }

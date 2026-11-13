@@ -87,6 +87,7 @@ export function startRun(state: GameState, server: ServerId, opts: RunOptions, e
     bypassNext: opts.bypassFirst ?? false,
     extraAccess: opts.extraAccess ?? 0,
     access: null,
+    tempCredits: 0,
   };
   const s: GameState = { ...state, phase: 'run', lastRunTurn: state.turn, run };
   events.push(opts.cardId !== undefined ? { type: 'run_started', server, cardId: opts.cardId } : { type: 'run_started', server });
@@ -327,6 +328,9 @@ export function resolveEffect(state: GameState, effect: Effect, owner: Side, eve
       };
       return startRun(state, server, opts, events);
     }
+    case 'bad_publicity':
+    case 'free_rez':
+      return state; // Sprint 4 E2/E3
   }
 }
 

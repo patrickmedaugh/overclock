@@ -17,7 +17,10 @@ const SAMPLES: Samples = {
     { type: 'game_over', winner: 'corp', reason: 'flatline' },
   ],
   action_rejected: [{ type: 'action_rejected', reason: 'too_weak' }],
-  credits_spent: [{ type: 'credits_spent', player: 'corp', amount: 3 }],
+  credits_spent: [
+    { type: 'credits_spent', player: 'corp', amount: 3 },
+    { type: 'credits_spent', player: 'runner', amount: 2, temp: 1 },
+  ],
   server_created: [{ type: 'server_created', server: 'remote1' }],
   card_installed: [{ type: 'card_installed', player: 'corp', uid: 'i1', zone: 'ice', server: 'hq', handIndex: 0, cardId: 'c04' }],
   card_played: [{ type: 'card_played', player: 'runner', cardId: 'r07', handIndex: 0 }],
@@ -47,12 +50,20 @@ const SAMPLES: Samples = {
   run_ended: [{ type: 'run_ended', server: 'hq', outcome: 'ended_by_ice' }],
   card_advanced: [{ type: 'card_advanced', uid: 'i5', advancements: 2 }],
   agenda_scored: [{ type: 'agenda_scored', uid: 'i5', cardId: 'c08', points: 1 }],
+  bad_publicity_gained: [{ type: 'bad_publicity_gained', amount: 1, total: 2 }],
+  choice_opened: [{ type: 'choice_opened', kind: 'free_rez', player: 'corp', cardId: 'c10' }],
+  choice_closed: [
+    { type: 'choice_closed', kind: 'free_rez', skipped: true },
+    { type: 'choice_closed', kind: 'free_rez', skipped: false },
+  ],
+  temp_credits_gained: [{ type: 'temp_credits_gained', amount: 1 }],
+  temp_credits_lost: [{ type: 'temp_credits_lost', amount: 1 }],
 };
 
 /** Sprint 1/2 events have their own projection tests (view.test.ts, install-play.test.ts). */
 const OLDER = new Set(['card_drawn', 'cards_discarded', 'card_installed', 'card_played']);
 
-describe('viewEvents for the Sprint 3 events', () => {
+describe('viewEvents for the Sprint 3 and 4 events', () => {
   const sides: Side[] = ['corp', 'runner'];
   const sprint3 = (Object.entries(SAMPLES) as [string, GameEvent[]][]).filter(([t]) => !OLDER.has(t));
 

@@ -25,6 +25,10 @@ export type ServerId = CentralServerId | `remote${number}`;
  *   fixes the server (absent = the player names it in the `play` action);
  *   `extraAccess` = additional R&D cards accessed if successful; `bypassFirst`
  *   = the first ICE encountered in the run is bypassed.
+ * - `bad_publicity` (Sprint 4): the Corp takes `amount` bad publicity.
+ * - `free_rez` (Sprint 4): the Corp may rez one installed, unrezzed ICE for
+ *   free. Opens a choice (phase `choice`) and must be the card's last effect;
+ *   no choice opens when the Corp has no unrezzed installed ICE.
  */
 export type Effect =
   | { readonly op: 'gain_credits'; readonly amount: number }
@@ -37,7 +41,9 @@ export type Effect =
       readonly server?: ServerId;
       readonly extraAccess?: number;
       readonly bypassFirst?: boolean;
-    };
+    }
+  | { readonly op: 'bad_publicity'; readonly amount: number }
+  | { readonly op: 'free_rez'; readonly what: 'ice' };
 
 /** One ICE subroutine: its printed text (without "Subroutine:") and what it does when it fires. */
 export interface Subroutine {
@@ -90,6 +96,11 @@ export interface CardDef {
   readonly trashCost?: number;
   /** Operations/events: what happens when played, in order. */
   readonly onPlay?: readonly Effect[];
+  /**
+   * Agendas: what happens when the Corp scores it, in order (never when stolen;
+   * skipped when the score wins the game). `free_rez` must be last.
+   */
+  readonly onScore?: readonly Effect[];
   /** Operations/events: may be played only when this holds. */
   readonly playIf?: PlayCondition;
   /** ICE: subroutines, in printed order. */

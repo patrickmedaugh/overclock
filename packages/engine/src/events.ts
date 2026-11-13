@@ -1,4 +1,4 @@
-import type { AccessFrom, ServerId, Side, WinReason } from './state';
+import type { AccessFrom, ChoiceKind, ServerId, Side, WinReason } from './state';
 
 /** Why an action was refused. Order of checks: see `rules.ts`. */
 export type RejectReason =
@@ -49,7 +49,11 @@ export type GameEvent =
   | { readonly type: 'turn_started'; readonly player: Side; readonly turn: number; readonly clicks: number }
   | { readonly type: 'game_over'; readonly winner: Side; readonly reason: WinReason }
   | { readonly type: 'action_rejected'; readonly reason: RejectReason }
-  | { readonly type: 'credits_spent'; readonly player: Side; readonly amount: number }
+  /**
+   * Only when amount > 0. `temp` (Sprint 4, only when > 0): the part of `amount` paid from
+   * the Runner's run-only credits; the rest came from `player`'s credits.
+   */
+  | { readonly type: 'credits_spent'; readonly player: Side; readonly amount: number; readonly temp?: number }
   | { readonly type: 'server_created'; readonly server: ServerId }
   | {
       readonly type: 'card_installed';
@@ -93,4 +97,15 @@ export type GameEvent =
   | { readonly type: 'card_trashed'; readonly cardId: string; readonly from: AccessFrom; readonly uid?: string }
   | { readonly type: 'run_ended'; readonly server: ServerId; readonly outcome: RunOutcome }
   | { readonly type: 'card_advanced'; readonly uid: string; readonly advancements: number }
-  | { readonly type: 'agenda_scored'; readonly uid: string; readonly cardId: string; readonly points: number };
+  | { readonly type: 'agenda_scored'; readonly uid: string; readonly cardId: string; readonly points: number }
+  // ---- Sprint 4: "when scored" bonuses, bad publicity (all public) ----
+  /** The Corp took `amount` bad publicity; `total` is its new bad publicity. */
+  | { readonly type: 'bad_publicity_gained'; readonly amount: number; readonly total: number }
+  /** A choice opened (phase 'choice'); `cardId` = the card whose effect opened it. */
+  | { readonly type: 'choice_opened'; readonly kind: ChoiceKind; readonly player: Side; readonly cardId: string }
+  /** The choice was answered: `skipped` = the player chose Skip. */
+  | { readonly type: 'choice_closed'; readonly kind: ChoiceKind; readonly skipped: boolean }
+  /** Right after `run_started` (only when > 0): run-only credits from bad publicity. */
+  | { readonly type: 'temp_credits_gained'; readonly amount: number }
+  /** Right before `run_ended` (only when > 0): the unspent run-only credits vanish. */
+  | { readonly type: 'temp_credits_lost'; readonly amount: number };

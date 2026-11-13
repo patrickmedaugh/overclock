@@ -256,6 +256,62 @@ Extra exports: `waitingOn(state): Side | null` (who the game waits on: the run's
 ### Card DSL v1 (`@overclock/cards`)
 `Effect += {op:'net_damage', amount} | {op:'lose_clicks', amount} | {op:'end_run'} | {op:'run', server?, extraAccess?, bypassFirst?}` (damage/click loss always hit the Runner; `run` is a card's last effect). ICE: `subroutines: {text, effect}[]`. Breakers: `abilities: ({op:'break', cost, iceType, count: 1} | {op:'strength', cost, amount, until: 'encounter' | 'run'})[]`. Operations: `playIf?: 'runner_ran_last_turn'` (`lastRunTurn === turn − 1`). `ServerId`/`CentralServerId` now live in `@overclock/cards` (re-exported by the engine). No card has `needs` any more.
 
+## Sprint 4 interface (pinned: implement exactly this; changes go through the architect)
+
+Everything in the Sprint 1–3 interfaces still holds. Rules: `docs/RULES_SPEC.md` § Advancing and scoring ("When scored" bonuses), Bad publicity. Tech plan: `docs/sprints/sprint-04-tech-plan.md`.
+
+```ts
+type Phase = 'action' | 'discard' | 'run' | 'choice' | 'over';   // 'choice': a "when scored" choice waits on a player
+type ChoiceKind = 'free_rez';
+
+// ---- card DSL (@overclock/cards) ----
+// CardDef.onScore?: Effect[]        agendas: resolved only by `score` (never on steal), in order
+// Effect += { op: 'bad_publicity'; amount }   the Corp takes `amount` bad publicity
+//         | { op: 'free_rez'; what: 'ice' }   opens the free-rez choice; must be the last effect
+// Hostile Takeover  onScore: [gain_credits 7, bad_publicity 1]
+// Priority Requisition onScore: [free_rez ice]
+
+// ---- state additions (plain JSON) ----
+// GameState.badPublicity: number                                   the Corp's, 0 at start
+// GameState.choice: { kind: 'free_rez'; player: 'corp'; cardId } | null   cardId = the scored agenda
+// RunState.tempCredits: number                                     run-only credits (bad publicity)
+
+// ---- events (all public) ----
+type GameEvent = /* Sprint 1–3 events */
+  | { type: 'credits_spent'; player; amount; temp?: number }   // temp (only when > 0) = part paid from run-only credits
+  | { type: 'bad_publicity_gained'; amount: number; total: number }
+  | { type: 'choice_opened'; kind: ChoiceKind; player: Side; cardId: string }
+  | { type: 'choice_closed'; kind: ChoiceKind; skipped: boolean }
+  | { type: 'temp_credits_gained'; amount: number }   // right after run_started, only if > 0
+  | { type: 'temp_credits_lost'; amount: number };    // right before run_ended, only if > 0
+
+// ---- view additions ----
+interface RunView { /* ... */ tempCredits: number }   // both players; 0 when none
+interface ChoiceView {
+  kind: ChoiceKind;
+  waitingOn: Side;            // 'corp'
+  cardId: string;             // the scored agenda (public)
+  options: CardOption[];      // deciding viewer: one `rez` (cost 0) per unrezzed installed ICE, then `pass` (= Skip); other viewer: []
+}
+interface PlayerView { /* ... */ badPublicity: number; choice: ChoiceView | null }
+```
+No new action types.
+
+### Scoring with a bonus
+`score` → `agenda_scored` → the card's `onScore` effects in order. If the score brings the Corp to 7 points: `agenda_scored`, `game_over{corp, agenda_points}` and **no** bonus. A stolen agenda never resolves `onScore`.
+- Hostile Takeover: `agenda_scored`, `credit_gained{corp, 7}`, `bad_publicity_gained{amount: 1, total}`.
+- Priority Requisition with ≥ 1 unrezzed installed ICE: `agenda_scored`, `choice_opened{free_rez, corp, cardId: PR}`; `phase = 'choice'`. With none: just `agenda_scored` (no window, no event).
+
+### The choice phase (`free_rez`)
+| action | who | effect |
+|---|---|---|
+| `rez {player:'corp', uid}` | Corp | rez any unrezzed installed Corp ICE (any server) for 0: `ice_rezzed{uid, cardId}`, `choice_closed{free_rez, skipped:false}` (no `credits_spent`) |
+| `pass {player:'corp'}` | Corp | Skip: `choice_closed{free_rez, skipped:true}` |
+Then `phase = 'action'`, `choice = null` (the Corp's turn continues). Rejections: the Runner → `not_your_turn` for any action; every Corp action other than `rez`/`pass` → `wrong_phase`; `rez` on a uid that is not an unrezzed installed ICE → `bad_target`. `waitingOn(state)` and `hasMeaningfulResponse` return / are true for the Corp only. `legalActions` (Corp) = the `choice.options` actions, in the same order (ICE: servers in `corpServers` order, then ICE index order, innermost first).
+
+### Bad publicity in runs
+At run start `run.tempCredits = badPublicity` (`temp_credits_gained` right after `run_started`, only if > 0). Runner payments during the run (break, pump, trash) use run-only credits first, then credits; `credits_spent.temp` says how much came from run-only credits. "Can afford" (`no_credits`, options' `reject`) counts credits + run-only credits. Left-overs vanish whenever the run ends (accessed, jacked out, ended by ICE, flatline, a steal that wins): `temp_credits_lost{amount}` right before `run_ended`. Run-only credits are never added to `players.runner.credits`. **The client never computes which ICE may be rezzed or how many credits a run has.**
+
 ## `@overclock/match` (host; `packages/match`)
 Owns one game's `GameState` and talks to seats only through projections. It is the same contract a network server will expose later.
 
