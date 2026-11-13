@@ -1,6 +1,6 @@
 # Project state
 
-phase: QA
+phase: DEMO
 running_since: 2026-11-13 17:21 UTC
 sprint: 5
 open_pr: (none — PR #13 Sprint 05 proposal merged 2026-11-13 17:21 UTC after owner approval)
@@ -126,5 +126,11 @@ Details: docs/sprints/sprint-00-tech-plan.md, sprint-00-qa.md, sprint-00-demo.md
 - Follow-ups: release target stays at first commit (pass --target on edit); stronger carousel pixel check; slide motion mid-way not checked in CI (owner phone check); frameClock slow flag flips on one slow frame.
 - Owner chat during BUILD → BACKLOG: empty remote lane bug (P1), pass-the-phone cover screen (P1), PAD Campaign answered (by design).
 
+## Sprint 5 QA — 2026-11-13
+- Report docs/sprints/sprint-05-qa.md (bee3b2b); QA specs qa-sprint05.spec.ts, engine qa-sprint05.test.ts; screenshots docs/sprints/sprint-05-qa/.
+- Result: 16 criteria — 15 PASS, 0 FAIL, 1 owner check (does the carousel slide feel smooth on his phone). No bugs. QA-S4-1 fixed (150/150 at 6×, max 86ms). Publish path: release never without an APK across two quick pushes.
+- CI on c3957ce (last code): e2e 688 pass / 6 skipped / 0 failed / 0 flaky; android build+publish green. Release app-sprint-05: overclock-sprint-05-20261113-2052-b16.1.apk.
+- QA took ~1h40 (6× repeats, release watch, 3 CI rounds); owner asked why — explained in chat.
+
 ## Next run
-Phase QA for Sprint 5 on branch sprint-05. Follow docs/TESTING.md when delegating anything that runs tests.
+Phase DEMO for Sprint 5. Follow docs/TESTING.md when delegating anything that runs tests.
