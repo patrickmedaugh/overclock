@@ -11,7 +11,8 @@
 import type { Action, CardOption, GameEvent, InstalledView, PlayerView, RejectReason, ServerId, Side, WinReason } from '@overclock/engine';
 import { getCard } from '@overclock/cards';
 import { Container, Graphics, Rectangle, Text } from 'pixi.js';
-import { createCardBack, createCardFace, glowRoundRect, retireCardTextures } from './cardFace';
+import { type BackAction, backAction } from './back';
+import { createCardBack, createCardFace, dropCardTextures, glowRoundRect, retireCardTextures } from './cardFace';
 import { centeredBox } from './geometry';
 import { Hand, type HandCard } from './hand';
 import type { AnimRecord, Box, EndTurnClock, InstalledSnapshot, Insets, LayoutSnapshot, SideLayout, TargetSnapshot } from './hook-types';
@@ -19,6 +20,7 @@ import type { Decision, Presentation } from './hotseat';
 import { hintFor } from './hints';
 import { attachPress, inputTime } from './input';
 import { BUILD_LINE, type BoardLayout, type BoardShape, CARD_RATIO, type SideRow, computeLayout } from './layout';
+import { LeaveDialog } from './leaveDialog';
 import { RunDisplay } from './runDisplay';
 import { RUN_END, nameOf, runEndText } from './runText';
 import { SIDE_NAME, TERMS, plural, pointsText, priceText, serverLabel, zoneName } from './terms';
@@ -205,6 +207,9 @@ export class Board {
   private readonly zoomLayer = new Container();
   /** The small build date (S-04-1). */
   private readonly buildText: Text;
+  /** "Leave the game?" over everything (S-04-2). */
+  private readonly dialogLayer = new Container();
+  private leave: { dialog: LeaveDialog; onLeave: () => void } | null = null;
   /** One hand per seat, kept between turns. */
   private readonly hands: Record<Side, Hand>;
   /** Catches taps on empty board (cancels a picked card). */
@@ -281,7 +286,7 @@ export class Board {
     this.buildText.eventMode = 'none';
     this.buildText.alpha = 0.85;
     this.table.addChild(this.catcher, this.bgLayer, this.boardLayer, this.installedLayer, this.runLayer, this.centerLayer, this.accessLayer, this.targetLayer, this.handLayer, this.buildText);
-    this.stage.addChild(this.table, this.fxLayer, this.hintLayer, this.zoomLayer);
+    this.stage.addChild(this.table, this.fxLayer, this.hintLayer, this.zoomLayer, this.dialogLayer);
   }
 
   /** New viewport size / safe-area insets (start, resize, rotate). */
@@ -292,6 +297,65 @@ export class Board {
     if (this.view) this.fullRender();
     if (this.hint) this.positionHint(this.hint);
     this.syncHelp();
+    // The question stays open across a rotation / inset change, laid out anew.
+    if (this.leave) this.openLeave(this.leave.onLeave);
+  }
+
+  /**
+   * The phone's Back button (S-04-2, owner answer A): closes the leave
+   * question or a zoom; on the game-over screen calls `exit`; otherwise asks
+   * "Leave the game?" (Leave calls `exit`). Returns what it did.
+   */
+  back(exit: () => void): BackAction {
+    const action = backAction({ dialogOpen: this.leave !== null, zoomOpen: this.zoom !== null, gameOver: !!this.view?.result });
+    if (action === 'close_dialog') this.closeLeave();
+    else if (action === 'close_zoom') this.closeZoom();
+    else if (action === 'exit') exit();
+    else this.openLeave(exit);
+    this.callbacks.changed();
+    return action;
+  }
+
+  private openLeave(onLeave: () => void): void {
+    this.closeLeave();
+    const layout = this.layout;
+    if (!layout) return;
+    const dialog = new LeaveDialog(
+      layout,
+      () => {
+        this.closeLeave();
+        this.callbacks.changed();
+      },
+      () => {
+        this.closeLeave();
+        this.callbacks.changed();
+        onLeave();
+      },
+    );
+    this.dialogLayer.addChild(dialog.root);
+    this.leave = { dialog, onLeave };
+  }
+
+  private closeLeave(): void {
+    this.leave?.dialog.destroy();
+    this.leave = null;
+  }
+
+  /**
+   * Draws every card again from scratch (S-04-2): after the GPU dropped the
+   * drawing surface (webglcontextrestored) or the app comes back from the
+   * background. Baked card pictures lived on the GPU, so they are all remade.
+   * Game state, the leave question and hints are kept.
+   */
+  redrawAll(): void {
+    this.fx.finishAll();
+    this.closeZoom(true);
+    this.destroyGeneration();
+    for (const s of SIDES) this.hands[s].reset();
+    dropCardTextures();
+    if (this.view) this.fullRender();
+    if (this.leave) this.openLeave(this.leave.onLeave);
+    this.callbacks.changed();
   }
 
   /** Shows the result of one action (see Presentation). */
@@ -476,6 +540,7 @@ export class Board {
       },
       selectedInstalled: this.pickedInstalled,
       hint: this.hint && this.hint.root.alpha > 0.05 ? { text: this.hint.text, box: this.hint.box } : null,
+      dialog: this.leave ? this.leave.dialog.snapshot() : null,
       buildLabel:
         layout && this.buildText.visible && this.buildText.text
           ? { text: this.buildText.text.replace('\n', ' '), box: this.buildTextBox() }
