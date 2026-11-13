@@ -92,7 +92,8 @@ export function startRun(state: GameState, server: ServerId, opts: RunOptions, e
     // Bad publicity: 1 run-only credit each.
     tempCredits: state.badPublicity,
   };
-  const s: GameState = { ...state, phase: 'run', lastRunTurn: state.turn, run };
+  // Sprint 5: the Last run record starts afresh (replacing the previous one).
+  const s: GameState = { ...state, phase: 'run', lastRunTurn: state.turn, run, lastRun: { server, cards: [] } };
   events.push(opts.cardId !== undefined ? { type: 'run_started', server, cardId: opts.cardId } : { type: 'run_started', server });
   if (run.tempCredits > 0) events.push({ type: 'temp_credits_gained', amount: run.tempCredits });
   // No ICE: straight in (no Continue stop before the first ICE).
@@ -247,6 +248,8 @@ function nextAccess(state: GameState, events: Events): GameState {
       if (c) cards = [{ cardId: c.cardId, from: fromOf(run.server), uid: c.uid, stolen: false, trashed: false }];
     }
     if (cards.length > 0) {
+      const last = s.lastRun ?? { server: run.server, cards: [] };
+      s = { ...s, lastRun: { ...last, cards: [...last.cards, ...cards.map((c) => ({ cardId: c.cardId, from: c.from }))] } };
       for (const c of cards) {
         events.push(c.uid !== undefined ? { type: 'card_accessed', cardId: c.cardId, from: c.from, uid: c.uid } : { type: 'card_accessed', cardId: c.cardId, from: c.from });
       }

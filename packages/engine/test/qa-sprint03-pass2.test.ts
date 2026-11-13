@@ -107,8 +107,12 @@ function checkRunnerView(s: GameState, where: string): void {
     ...s.players.corp.scoreArea,
     ...s.players.runner.scoreArea,
   ];
+  // Sprint 5 (engine-dev, spec change): Last run shows the Runner exactly the cards its most recent
+  // run accessed, only between runs (RULES_SPEC § Runs step 4).
+  const last = !s.run && s.lastRun && s.lastRun.cards.length > 0 ? s.lastRun : null;
+  expect(v.lastRun, `${where}: Last run is exactly the recorded accesses`).toEqual(last);
   // Rezzed current ICE / accessed cards appear twice (board + run view); compare as sets.
-  const allowed = new Set([...known, ...(s.run?.access?.cards ?? []).map((c) => c.cardId)]);
+  const allowed = new Set([...known, ...(s.run?.access?.cards ?? []).map((c) => c.cardId), ...(last?.cards ?? []).map((c) => c.cardId)]);
   for (const id of corpIds(v)) expect(allowed.has(id), `${where}: Runner view holds ${id} (${getCard(id)?.name})`).toBe(true);
 }
 

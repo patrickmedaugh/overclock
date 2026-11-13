@@ -276,6 +276,13 @@ function choiceView(state: GameState, viewer: Side): ChoiceView | null {
   return { kind: c.kind, waitingOn: c.player, cardId: c.cardId, options: choiceOptions(state, viewer) };
 }
 
+/** Runner only, only between runs, only when the most recent run accessed something. */
+function lastRunView(state: GameState, viewer: Side): LastRunView | null {
+  const last = state.lastRun;
+  if (viewer !== 'runner' || state.run || !last || last.cards.length === 0) return null;
+  return { server: last.server, cards: last.cards.map((c) => ({ cardId: c.cardId, from: c.from })) };
+}
+
 export function viewFor(player: Side, state: GameState): PlayerView {
   const pendingDiscard =
     state.phase === 'discard' && state.activePlayer === player
@@ -306,7 +313,7 @@ export function viewFor(player: Side, state: GameState): PlayerView {
     badPublicity: state.badPublicity,
     choice: choiceView(state, player),
     legalActions: legalActions(state, player),
-    lastRun: null,
+    lastRun: lastRunView(state, player),
   };
 }
 

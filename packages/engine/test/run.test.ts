@@ -112,7 +112,11 @@ describe('S-03-1 AC2: a server with no ICE: straight in, access', () => {
     expect(done.state.players.runner.clicks).toBe(3);
     expect(done.state.players.corp.hand).toEqual(['c01', 'c02', 'c04']); // AC5: untouched
     expect(viewFor('runner', done.state).run).toBeNull();
-    expect(JSON.stringify(viewFor('runner', done.state))).not.toMatch(/"c0[124]"/); // hidden again
+    // Hidden again on the board; Sprint 5: only the Runner's Last run still lists it.
+    const after = viewFor('runner', done.state);
+    expect(after.lastRun).toEqual({ server: 'hq', cards: [{ cardId: (accessed as { cardId: string }).cardId, from: 'hq' }] });
+    expect(JSON.stringify({ ...after, lastRun: null })).not.toMatch(/"c0[124]"/);
+    expect(JSON.stringify(viewFor('corp', done.state).lastRun)).toBe('null');
   });
 
   it('same seed and state: the same HQ card (deterministic)', () => {

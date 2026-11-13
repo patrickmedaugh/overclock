@@ -61,6 +61,9 @@ export function expectRunnerViewClean(s: GameState, where: string): void {
     if (v.run.letFire) expect(ice?.rezzed === true && v.run.letFire.iceCardId === ice.cardId, `${where}: letFire names rezzed ICE`).toBe(true);
     expect(v.run.access?.cards.map((c) => c.cardId) ?? null, where).toEqual(real.access?.cards.map((c) => c.cardId) ?? null);
   }
+  // Sprint 5 (spec change): Last run = exactly the cards the most recent run accessed, only between runs.
+  const last = !s.run && s.lastRun && s.lastRun.cards.length > 0 ? s.lastRun : null;
+  expect(v.lastRun, where).toEqual(last);
   // An open choice names the agenda that opened it, which is face up in the score area.
   if (v.choice) expect(s.players.corp.scoreArea, where).toContain(v.choice.cardId);
   // Nothing else names a Corp card.
@@ -77,6 +80,7 @@ export function expectRunnerViewClean(s: GameState, where: string): void {
     })),
     run: v.run ? { ...v.run, ice: null, access: null, letFire: v.run.letFire ? { ...v.run.letFire, iceCardId: '' } : null } : null,
     choice: v.choice ? { ...v.choice, cardId: '' } : null,
+    lastRun: null,
   };
   expect(JSON.stringify(rest), where).not.toMatch(CORP_ID);
 }

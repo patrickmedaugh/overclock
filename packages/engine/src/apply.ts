@@ -45,7 +45,9 @@ export interface ApplyResult {
 function passTurn(state: GameState, events: GameEvent[]): ApplyResult {
   const ending = state.activePlayer;
   events.push({ type: 'turn_ended', player: ending });
-  const started = startTurn(state, opponentOf(ending), state.turn + 1);
+  // Sprint 5: Last run goes away when the Runner's turn ends.
+  const ended = ending === 'runner' ? { ...state, lastRun: null } : state;
+  const started = startTurn(ended, opponentOf(ending), state.turn + 1);
   events.push(...started.events);
   return { state: started.state, events };
 }
