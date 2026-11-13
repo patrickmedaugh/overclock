@@ -67,6 +67,9 @@ test.describe('S-05-3 hand carousel', () => {
     await openBoard(page, 1);
     const l = await layout(page);
     const n = l.hand.length;
+    // CI draws on a software GPU, where frames are always slow and the carousel would jump: pin
+    // "fast" so the slide itself (tween, leaving card dropped at its end) is what is checked.
+    await page.evaluate(() => window.__overclock!.frameSpeed('fast'));
     const h = await holdAt(page, l.hand[1]!.box);
     await waitZoom(page, l.hand[1]!.cardId);
     await page.waitForTimeout(300);
@@ -90,8 +93,11 @@ test.describe('S-05-3 hand carousel', () => {
     expect(a3.box.height).toBeGreaterThan(b3.box.height);
     const slide = (await page.evaluate(() => window.__overclock!.anims())).filter((a) => a.kind === 'carousel_slide');
     expect(slide.map((a) => a.text)).toEqual([l.hand[2]!.cardId]);
-    // ≤ 120ms when it slides; 0 when drawing frames is slow here and it jumps.
+    // It slid (frames pinned fast), within the plan's 120ms.
+    expect(slide[0]!.scheduledMs).toBeGreaterThan(0);
     expect(slide[0]!.scheduledMs).toBeLessThanOrEqual(120);
+    // Once the slide finished only cards within two slots of the zoom remain (the one that slid out is dropped).
+    expect(after.carousel.every((x) => Math.abs(x.offset) <= 2)).toBe(true);
     await h.release();
   });
 

@@ -8,6 +8,8 @@ export const SLOW_FRAME_MS = 50;
 
 let drewLast = false;
 let slow = false;
+/** Tests only: pins the answer of framesAreSlow() (null: measured). */
+let forced: boolean | null = null;
 
 /** Call at the start of every tick with the real time since the previous tick (ms). */
 export function noteTick(elapsedMs: number): void {
@@ -22,11 +24,21 @@ export function noteDraw(): void {
 
 /** True if the last drawn frame took longer than SLOW_FRAME_MS. */
 export function framesAreSlow(): boolean {
-  return slow;
+  return forced ?? slow;
+}
+
+/**
+ * Tests only (the Playwright hook): 'fast' / 'slow' pins framesAreSlow(), so CI
+ * (a software GPU, where frames are always slow) still exercises the slide;
+ * 'measured' goes back to timing real frames.
+ */
+export function forceFrameSpeed(mode: 'fast' | 'slow' | 'measured'): void {
+  forced = mode === 'measured' ? null : mode === 'slow';
 }
 
 /** Tests only. */
 export function resetFrameClock(): void {
   drewLast = false;
   slow = false;
+  forced = null;
 }

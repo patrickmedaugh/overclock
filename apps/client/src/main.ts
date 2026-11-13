@@ -7,7 +7,7 @@ import type { Action } from '@overclock/engine';
 import { Application, updateRenderGroupTransforms } from 'pixi.js';
 import { Board } from './board';
 import { setCardRenderer, smallFaceLayout } from './cardFace';
-import { noteDraw, noteTick } from './frameClock';
+import { forceFrameSpeed, noteDraw, noteTick } from './frameClock';
 import type { AnimRecord, OverclockTestHook } from './hook-types';
 import { HotSeat, seedFromUrl } from './hotseat';
 import { lastInput } from './input';
@@ -161,6 +161,7 @@ async function start(): Promise<void> {
       },
       back,
       exitRequests: () => exitRequests,
+      frameSpeed: (mode) => forceFrameSpeed(mode),
     };
   }
   document.getElementById('boot')?.remove();

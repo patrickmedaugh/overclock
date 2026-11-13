@@ -199,7 +199,10 @@ function spriteOf(entry: { texture: Texture; x: number; y: number }): Container 
 // one per frame (Board), so a slide rarely has to draw one on the spot. They
 // are big textures: only the ZOOM_KEEP most recently used are kept.
 
-const ZOOM_KEEP = 24;
+// 12: a full hand (max hand size + a few drawn) plus the cards either side of a
+// pile slide. Each face is ~3.5MB of GPU memory on a 3x phone (architect,
+// DECISIONS 2026-11-13: 24 would be ~85MB, too much for a WebView).
+const ZOOM_KEEP = 12;
 
 /** A zoom face, centered at (0, 0), and what it says. */
 export interface ZoomFace {

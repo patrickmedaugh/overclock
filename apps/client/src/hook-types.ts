@@ -330,6 +330,8 @@ export interface OverclockTestHook {
   back(): 'close_dialog' | 'close_zoom' | 'close_panel' | 'exit' | 'ask_leave';
   /** How many times the game asked to close the app (Leave, or Back after the game ended). Web only counts. */
   exitRequests(): number;
+  /** S-05-3: pins whether drawn frames count as slow (slow: the carousel jumps instead of sliding). */
+  frameSpeed(mode: 'fast' | 'slow' | 'measured'): void;
 }
 
 export interface SmallFaceSnapshot {
