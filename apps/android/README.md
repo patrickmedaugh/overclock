@@ -23,7 +23,7 @@ the corner of the board.
 
 ## Build it yourself
 
-Needs Node 20, JDK 21 and the Android SDK (`ANDROID_HOME`, platform 36,
+Needs Node 22 (the Capacitor 8 CLI refuses older), JDK 21 and the Android SDK (`ANDROID_HOME`, platform 36,
 build-tools). From the repo root:
 
 ```sh
