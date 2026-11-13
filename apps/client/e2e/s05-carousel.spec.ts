@@ -51,10 +51,12 @@ test.describe('S-05-3 hand carousel', () => {
     expect(far.box.height).toBeLessThan(near.box.height);
     // Pre-drawn: the real zoom faces, not stand-ins, by now.
     await page.waitForFunction(() => window.__overclock!.layout().zoom!.carousel.every((c) => c.full));
-    // On screen: the visible strip of each neighbour is a drawn card, not the dimmed table.
+    // On screen: the visible strip of each neighbour is a drawn card, not the dimmed table. The strip
+    // takes in the card's outer edge (its border against the table), so the check does not depend on
+    // how busy one card's art happens to be at that spot (CI fonts / GPU differ from a dev machine).
     const strips = z.carousel.map((c) => {
       const w = c.box.width * 0.15;
-      const x = c.offset < 0 ? c.box.x + 2 : c.box.x + c.box.width - w - 2;
+      const x = c.offset < 0 ? c.box.x - 3 : c.box.x + c.box.width - w + 3;
       return { x, y: c.box.y + c.box.height * 0.3, width: w, height: c.box.height * 0.4 };
     });
     const stats = await pixelStats(page, strips);
