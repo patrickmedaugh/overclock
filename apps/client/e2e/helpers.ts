@@ -244,6 +244,41 @@ export async function pressAndHold(page: Page, b: Box): Promise<() => Promise<vo
   };
 }
 
+export interface Hold {
+  /** Moves the held finger / mouse to x, y (CSS px). */
+  move(x: number, y: number): Promise<void>;
+  release(): Promise<void>;
+}
+
+/** Presses `b` (touch on the phone projects, mouse on desktop), keeps it down, and can slide it. */
+export async function holdAt(page: Page, b: Box): Promise<Hold> {
+  const { x, y } = center(b);
+  if (isTouch()) {
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
+    return {
+      move: async (mx, my) => {
+        await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: mx, y: my }] });
+      },
+      release: async () => {
+        await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+        await cdp.detach();
+      },
+    };
+  }
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  return {
+    move: (mx, my) => page.mouse.move(mx, my),
+    release: () => page.mouse.up(),
+  };
+}
+
+/** Waits until the zoom shows `cardId`. */
+export async function waitZoom(page: Page, cardId: string): Promise<void> {
+  await page.waitForFunction((id) => window.__overclock!.layout().zoom?.cardId === id, cardId);
+}
+
 export function inside(b: Box, r: Box): boolean {
   const eps = 0.5;
   return b.width > 0 && b.height > 0 && b.x >= r.x - eps && b.y >= r.y - eps && b.x + b.width <= r.x + r.width + eps && b.y + b.height <= r.y + r.height + eps;

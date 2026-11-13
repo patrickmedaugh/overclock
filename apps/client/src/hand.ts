@@ -33,10 +33,14 @@ export interface HandCard {
 
 export interface HandCallbacks {
   onTap(index: number): void;
-  onLongPress(cardId: string, from: Box): void;
+  /** QA-S4-1: a finger went down on hand card `index` (may become a hold: pre-draw the zoom faces). */
+  onPress(index: number): void;
+  /** The press on a hand card ended (tap, hold or cancel). */
+  onPressEnd(): void;
+  onLongPress(cardId: string, from: Box, index: number): void;
   onLongPressEnd(): void;
-  /** S-04-3: the held finger slid onto another hand card: show it in the zoom. `at`: the move's event time. */
-  onZoomSlide(cardId: string, box: Box, at: number): void;
+  /** S-04-3: the held finger slid onto hand card `index`: show it in the zoom. `at`: the move's event time. */
+  onZoomSlide(cardId: string, box: Box, at: number, index: number): void;
   log(rec: Omit<AnimRecord, 'startedAt'>): void;
 }
 
@@ -61,6 +65,11 @@ export class Hand {
 
   get count(): number {
     return this.cards.length;
+  }
+
+  /** Card ids in hand order. */
+  get ids(): string[] {
+    return this.cards.map((c) => c.cardId);
   }
 
   /** The hand index outlined by a hold-and-slide, or null. */
@@ -92,7 +101,7 @@ export class Hand {
     const card = this.cards[i];
     if (!card || card === this.browsing) return;
     this.setBrowsing(card);
-    this.callbacks.onZoomSlide(card.cardId, this.cardBox(card), at);
+    this.callbacks.onZoomSlide(card.cardId, this.cardBox(card), at, i);
   }
 
   /** Drops every sprite (they are rebuilt the next time this hand is shown). */
@@ -354,12 +363,15 @@ export class Hand {
     const card: HandCard = { cardId, root, flip, back, face, mark: null, marked: false, glow: null, outline: null, selected: false, detach: () => {}, pressed: false };
     card.detach = attachPress(root, {
       onDown: () => {
+        const i = this.cards.indexOf(card);
+        if (i >= 0) this.callbacks.onPress(i);
         card.pressed = true;
         root.zIndex = 1000;
         this.ui.cancel(card.flip.scale);
         this.ui.add({ target: card.flip.scale, to: { x: 1.06, y: 1.06 }, duration: timing.pressFeedback, owner: card.flip });
       },
       onRelease: () => {
+        this.callbacks.onPressEnd();
         card.pressed = false;
         this.restack();
         this.ui.cancel(card.flip.scale);
@@ -371,7 +383,7 @@ export class Hand {
       },
       onLongPress: () => {
         this.setBrowsing(card);
-        this.callbacks.onLongPress(cardId, this.cardBox(card));
+        this.callbacks.onLongPress(cardId, this.cardBox(card), this.cards.indexOf(card));
       },
       onHoldMove: (x, y, at) => this.slide(x, y, at),
       onLongPressEnd: () => {

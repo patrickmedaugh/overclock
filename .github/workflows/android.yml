@@ -2,10 +2,15 @@ name: android
 
 # Builds the OVERCLOCK Android app (apps/android) and publishes it on the
 # repo's Releases page (owner answer A, Sprint 4): one rolling release per
-# branch, tag `app-<branch>`, replaced by every build. `main` is the "Latest"
+# branch, tag `app-<branch>`, updated by every build. `main` is the "Latest"
 # release; `sprint-*` branches are pre-releases. The checks below fail the job
 # if the APK is missing, signed with another key, or has the wrong id, name or
 # orientation, or if its web bundle has the test hook / rotate prompt / URLs.
+#
+# Two jobs (S-05-4): `build` may be cancelled by a newer push (it touches
+# nothing public); `publish` is never cancelled half-way, and
+# scripts/publish-release.mjs uploads the new APK before removing the old one,
+# so the release always has an APK. Any GitHub error fails the run.
 
 on:
   push:
@@ -19,10 +24,6 @@ on:
 permissions:
   contents: write
 
-concurrency:
-  group: android-${{ github.ref }}
-  cancel-in-progress: true
-
 env:
   # Certificate SHA-256 of apps/android/keystore/overclock.jks (never changes:
   # a new key would stop updates installing over the old app).
@@ -31,10 +32,20 @@ env:
   BUILD_TOOLS: 36.0.0
 
 jobs:
-  apk:
-    name: apk
+  build:
+    name: build
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # A newer push makes this build pointless: stop it.
+    concurrency:
+      group: android-build-${{ github.ref }}
+      cancel-in-progress: true
+    outputs:
+      build_time: ${{ steps.names.outputs.build_time }}
+      version_code: ${{ steps.names.outputs.version_code }}
+      branch: ${{ steps.names.outputs.branch }}
+      tag: ${{ steps.names.outputs.tag }}
+      apk_name: ${{ steps.names.outputs.apk_name }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -57,16 +68,27 @@ jobs:
           echo "$ANDROID_HOME/build-tools/${BUILD_TOOLS}" >> "$GITHUB_PATH"
 
       - name: Build time and names (set once, used everywhere)
+        id: names
         run: |
           NOW=$(date -u +%s)
           BRANCH="${GITHUB_REF_NAME//\//-}"
+          # Run number and attempt make every APK name unique, so a new upload never replaces the one people may be downloading.
+          APK_NAME="overclock-$BRANCH-$(date -u -d "@$NOW" '+%Y%m%d-%H%M')-b${{ github.run_number }}.${{ github.run_attempt }}.apk"
+          BUILD_TIME="$(date -u -d "@$NOW" '+%Y-%m-%d %H:%M UTC')"
           {
-            echo "OVERCLOCK_BUILD_TIME=$(date -u -d "@$NOW" '+%Y-%m-%d %H:%M UTC')"
+            echo "OVERCLOCK_BUILD_TIME=$BUILD_TIME"
             echo "OVERCLOCK_VERSION_CODE=${{ github.run_number }}"
             echo "BRANCH=$BRANCH"
             echo "TAG=app-$BRANCH"
-            echo "APK_NAME=overclock-$BRANCH-$(date -u -d "@$NOW" '+%Y%m%d-%H%M').apk"
+            echo "APK_NAME=$APK_NAME"
           } >> "$GITHUB_ENV"
+          {
+            echo "build_time=$BUILD_TIME"
+            echo "version_code=${{ github.run_number }}"
+            echo "branch=$BRANCH"
+            echo "tag=app-$BRANCH"
+            echo "apk_name=$APK_NAME"
+          } >> "$GITHUB_OUTPUT"
 
       # Android web build + bundle check + cap sync (apps/android/package.json).
       - run: npm run sync --workspace @overclock/android
@@ -105,14 +127,48 @@ jobs:
           cp "$APK" "$APK_NAME"
           ls -l "$APK_NAME"
 
+      - uses: actions/upload-artifact@v4
+        with:
+          name: apk
+          path: ${{ env.APK_NAME }}
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: publish
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # One publish per branch at a time, and never cancelled half-way (a newer
+    # one waits; an older one still waiting is replaced by the newer).
+    concurrency:
+      group: android-publish-${{ github.ref }}
+      cancel-in-progress: false
+    env:
+      BUILD_TIME: ${{ needs.build.outputs.build_time }}
+      VERSION_CODE: ${{ needs.build.outputs.version_code }}
+      BRANCH: ${{ needs.build.outputs.branch }}
+      TAG: ${{ needs.build.outputs.tag }}
+      APK_NAME: ${{ needs.build.outputs.apk_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: apps/android/scripts
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@v4
+        with:
+          name: apk
       - name: Publish on the Releases page
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          if [ "$GITHUB_REF_NAME" = "main" ]; then KIND="--latest"; LABEL="the main version"; else KIND="--prerelease --latest=false"; LABEL="sprint branch $GITHUB_REF_NAME"; fi
+          test -f "$APK_NAME" || { echo "::error::APK missing: $APK_NAME"; exit 1; }
+          if [ "$GITHUB_REF_NAME" = "main" ]; then LABEL="the main version"; else LABEL="sprint branch $GITHUB_REF_NAME"; fi
           cat > notes.md <<EOF
-          The OVERCLOCK app for Android, built from $LABEL on **$OVERCLOCK_BUILD_TIME**.
+          The OVERCLOCK app for Android, built from $LABEL on **$BUILD_TIME**.
           The same date shows small in a corner of the game board, so you can tell you have this one.
 
           **To install on your phone**
@@ -123,14 +179,7 @@ jobs:
 
           Already have the app? Installing this file updates it in place. If Android ever says "App not installed", uninstall the old app first (games are not saved yet, so you lose nothing).
 
-          Build $OVERCLOCK_VERSION_CODE · commit ${GITHUB_SHA::7}
+          Build $VERSION_CODE · commit ${GITHUB_SHA::7}
           EOF
-          gh release delete "$TAG" --cleanup-tag -y 2>/dev/null || true
-          # The tag delete can take a moment to settle.
-          for i in 1 2 3; do
-            if gh release create "$TAG" "$APK_NAME" --target "$GITHUB_SHA" \
-              --title "OVERCLOCK app — $BRANCH — built $OVERCLOCK_BUILD_TIME" \
-              --notes-file notes.md $KIND; then exit 0; fi
-            sleep 5
-          done
-          exit 1
+          APK="$APK_NAME" NOTES_FILE=notes.md TITLE="OVERCLOCK app — $BRANCH — built $BUILD_TIME" \
+            node apps/android/scripts/publish-release.mjs
