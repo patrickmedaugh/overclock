@@ -387,6 +387,12 @@ Dispatch `actions` in order, each as its own `action.player` (Corp actions happe
 - `runner_run_with_bad_publicity` — Runner's action step with a click, the Corp at ≥ 1 bad publicity (Hostile Takeover scored), cards in HQ. A run on HQ then stops at access with `run.tempCredits` > 0; Done ends the run (`temp_credits_lost`). `info: {server: 'hq', badPublicity}`.
 The planner answers a free-rez choice it did not aim for with Skip.
 
+**Test-only (Sprint 5):** four more `planToStep` goals (all seeds 1-100 and 12345 work, tested on 1-40 plus 42, 99, 12345):
+- `enigma_encounter` — the Runner encounters a rezzed Enigma (the only ICE on a new remote) with ≥ 1 click and `pass` offered; `run.letFire` = lose 1 click, end run. `info: {server, iceUid}`.
+- `neural_katana_encounter` — the same with Neural Katana and ≥ 3 cards in the Grip; `letFire` = 3 net damage, `ends: null`. `info: {server, iceUid}`.
+- `runner_at_access` — the access step of a run on Archives showing ≥ 2 cards at once (no ICE on Archives). `info: {server: 'archives', count}`.
+- `runner_after_access` — the same run finished (agendas stolen, Done): Runner's action step, `lastRun` lists ≥ 2 cards, ≥ 1 click left. `info: {server: 'archives', count}`.
+
 The client and AI may import only the public index of engine/cards/match. The client may not import `apply`, `newGame`, `legalActions`, `viewFor` or `replay` (it goes through the match).
 
 ## Rules for contributors

@@ -140,4 +140,75 @@ describe('planToStep (Sprint 3 e2e setup helper)', () => {
       expect(last.runner.view.players.runner.credits).toBe(credits);
     });
   });
+
+  describe('Sprint 5 goals: ICE outcome and Last run through the seats (S-05-1, S-05-2 setup)', () => {
+    const play = (seed: number, goal: StepGoal) => {
+      const plan = planToStep(seed, goal);
+      const m = new LocalMatch(seed);
+      for (const a of plan.actions) m.submit(a.player, a);
+      return { plan, m };
+    };
+    const pass: Action = { type: 'pass', player: 'runner' };
+
+    it.each(SEEDS)('seed %i enigma_encounter: preview "lose 1 click, run ends"; pass reports it to both seats', (seed) => {
+      const { plan, m } = play(seed, 'enigma_encounter');
+      expect(plan.waitingOn).toBe('runner');
+      const run = m.view('runner').run!;
+      expect(run.iceUid).toBe(plan.info.iceUid);
+      expect(run.letFire).toEqual({
+        iceCardId: 'c06',
+        outcomes: [
+          { sub: 0, op: 'lose_clicks', amount: 1 },
+          { sub: 1, op: 'end_run', amount: 0 },
+        ],
+        ends: 'run',
+      });
+      expect(m.view('corp').run!.letFire).toBeNull();
+      const u = m.submit('runner', pass);
+      const outcomes = u.runner.events.flatMap((e) => (e.type === 'subroutine_resolved' ? [e.outcome] : []));
+      expect(outcomes).toEqual(run.letFire!.outcomes);
+      expect(u.corp.events).toEqual(u.runner.events);
+      expect(u.runner.events.at(-1)).toEqual({ type: 'run_ended', server: plan.info.server, outcome: 'ended_by_ice' });
+    });
+
+    it.each(SEEDS)('seed %i neural_katana_encounter: preview "take 3 damage", the run goes on', (seed) => {
+      const { plan, m } = play(seed, 'neural_katana_encounter');
+      const v = m.view('runner');
+      expect(v.players.runner.handCount).toBeGreaterThanOrEqual(3);
+      expect(v.run!.letFire).toEqual({ iceCardId: 'c07', outcomes: [{ sub: 0, op: 'net_damage', amount: 3 }], ends: null });
+      const u = m.submit('runner', pass);
+      expect(u.runner.events.filter((e) => e.type === 'subroutine_resolved')).toEqual([
+        { type: 'subroutine_resolved', iceUid: plan.info.iceUid, cardId: 'c07', outcome: { sub: 0, op: 'net_damage', amount: 3 } },
+      ]);
+      expect(u.runner.view.run?.step).toBe('continue');
+    });
+
+    it.each(SEEDS)('seed %i runner_at_access: Archives shows 2+ cards at once; Last run hidden during the run', (seed) => {
+      const { plan, m } = play(seed, 'runner_at_access');
+      const v = m.view('runner');
+      expect(v.run!.step).toBe('access');
+      expect(v.run!.access!.cards.length).toBe(Number(plan.info.count));
+      expect(v.run!.access!.cards.length).toBeGreaterThanOrEqual(2);
+      expect(v.run!.access!.cards.every((c) => c.cardId !== null)).toBe(true);
+      expect(v.lastRun).toBeNull();
+    });
+
+    it.each(SEEDS)('seed %i runner_after_access: Last run lists the accessed cards for the Runner only, until the turn ends', (seed) => {
+      const { plan, m } = play(seed, 'runner_after_access');
+      const v = m.view('runner');
+      expect(v.lastRun!.server).toBe('archives');
+      expect(v.lastRun!.cards).toHaveLength(Number(plan.info.count));
+      expect(v.lastRun!.cards.every((c) => c.from === 'archives')).toBe(true);
+      expect(v.players.runner.clicks).toBeGreaterThanOrEqual(1);
+      expect(m.view('corp').lastRun).toBeNull();
+      const u = m.submit('runner', { type: 'end_turn', player: 'runner' });
+      let last = u;
+      if (last.runner.view.phase === 'discard') {
+        const n = last.runner.view.pendingDiscard;
+        last = m.submit('runner', { type: 'discard', player: 'runner', handIndices: Array.from({ length: n }, (_, i) => i) });
+      }
+      expect(last.runner.view.lastRun).toBeNull();
+      expect(last.corp.view.lastRun).toBeNull();
+    });
+  });
 });

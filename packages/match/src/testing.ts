@@ -153,6 +153,15 @@ export function planBusyBoard(seed: number, goal: BusyBoardGoal = BUSY_BOARD, ma
  * - `runner_run_with_bad_publicity`: Runner's action step with a click left, the Corp has bad
  *   publicity (Hostile Takeover scored) and cards in HQ, so a run on HQ stops at access with
  *   the run-only credits shown. `info: {server: 'hq', badPublicity}`.
+ * Sprint 5 (ICE outcome, Last run):
+ * - `enigma_encounter`: the Runner encounters a rezzed Enigma (the only ICE on its remote) with
+ *   at least 1 click and `pass` (let it fire) offered. `info: {server, iceUid}`.
+ * - `neural_katana_encounter`: the same with Neural Katana and at least 3 cards in the Grip
+ *   (3 net damage does not flatline). `info: {server, iceUid}`.
+ * - `runner_at_access`: the access step of a run on Archives showing at least 2 cards at once.
+ *   `info: {server: 'archives', count}`.
+ * - `runner_after_access`: Runner's action step after that run (Done tapped, agendas stolen),
+ *   `lastRun` lists at least 2 cards, at least 1 click left. `info: {server: 'archives', count}`.
  */
 export type StepGoal =
   | 'corp_rez_prompt'
@@ -162,7 +171,11 @@ export type StepGoal =
   | 'runner_one_steal_from_win'
   | 'corp_score_hostile_takeover'
   | 'corp_score_priority_requisition'
-  | 'runner_run_with_bad_publicity';
+  | 'runner_run_with_bad_publicity'
+  | 'enigma_encounter'
+  | 'neural_katana_encounter'
+  | 'runner_at_access'
+  | 'runner_after_access';
 
 export const STEP_GOALS: readonly StepGoal[] = [
   'corp_rez_prompt',
@@ -173,6 +186,10 @@ export const STEP_GOALS: readonly StepGoal[] = [
   'corp_score_hostile_takeover',
   'corp_score_priority_requisition',
   'runner_run_with_bad_publicity',
+  'enigma_encounter',
+  'neural_katana_encounter',
+  'runner_at_access',
+  'runner_after_access',
 ];
 
 export interface StepPlan {
@@ -274,6 +291,26 @@ function readyBonus(v: PlayerView, cardId: string) {
   return agendas(v).find((a) => a.cardId === cardId && a.advancements >= a.need && v.players.corp.points + a.points < WIN);
 }
 
+/** Encounter goals: the ICE each one wants the Runner to meet (rezzed). */
+const ENCOUNTER_TARGET: Partial<Record<StepGoal, string>> = {
+  wall_of_static_encounter: 'c04',
+  enigma_encounter: 'c06',
+  neural_katana_encounter: 'c07',
+};
+
+/** Sprint 5: the Runner meets rezzed `iceId` with a click left and `pass` (let it fire) offered. */
+function letFireEncounter(runner: PlayerView, iceId: string): boolean {
+  return (
+    runner.run?.step === 'encounter' &&
+    runner.run.ice?.cardId === iceId &&
+    runner.players.runner.clicks >= 1 &&
+    runner.run.options.some((o) => o.action.type === 'pass' && o.reject === null)
+  );
+}
+
+/** Sprint 5 Archives goals: how many cards Archives must show at once. */
+const ARCHIVES_MIN = 2;
+
 /** True when `goal` holds (both seat views). */
 export function stepReached(goal: StepGoal, views: Views): boolean {
   const { corp, runner } = views;
@@ -326,6 +363,20 @@ export function stepReached(goal: StepGoal, views: Views): boolean {
         runner.badPublicity >= 1 &&
         runner.players.corp.handCount > 0
       );
+    case 'enigma_encounter':
+      return letFireEncounter(runner, 'c06');
+    case 'neural_katana_encounter':
+      return letFireEncounter(runner, 'c07') && runner.players.runner.handCount >= 3;
+    case 'runner_at_access':
+      return runner.run?.step === 'access' && runner.run.server === 'archives' && (runner.run.access?.cards.length ?? 0) >= ARCHIVES_MIN;
+    case 'runner_after_access':
+      return (
+        runner.phase === 'action' &&
+        runner.activePlayer === 'runner' &&
+        runner.run === null &&
+        runner.players.runner.clicks >= 1 &&
+        (runner.lastRun?.cards.length ?? 0) >= ARCHIVES_MIN
+      );
   }
 }
 
@@ -362,6 +413,13 @@ function stepInfo(goal: StepGoal, views: Views): Record<string, string> {
     }
     case 'runner_run_with_bad_publicity':
       return { server: 'hq', badPublicity: String(runner.badPublicity) };
+    case 'enigma_encounter':
+    case 'neural_katana_encounter':
+      return { server: runner.run!.server, iceUid: runner.run!.iceUid ?? '' };
+    case 'runner_at_access':
+      return { server: 'archives', count: String(runner.run!.access!.cards.length) };
+    case 'runner_after_access':
+      return { server: runner.lastRun!.server, count: String(runner.lastRun!.cards.length) };
   }
 }
 
@@ -404,6 +462,36 @@ function corpBonusMove(goal: StepGoal, v: PlayerView, target: string): Action {
   return basicMove(v, 3);
 }
 
+/**
+ * Sprint 5 encounter goals: install `iceId` alone on a new remote, keep enough credits to rez it,
+ * then pass the turn. Draws down to 1 card (the next turn's draw), so even a single copy in the
+ * last R&D position is found (installed on the turn it is drawn).
+ */
+function corpEncounterMove(v: PlayerView, iceId: string): Action {
+  const me = v.players.corp;
+  if (v.phase === 'discard') return discardKeeping(v, (id) => (id === iceId ? 2 : 0));
+  if (me.clicks === 0) return { type: 'end_turn', player: 'corp' };
+  const ice = corpInstalled(v).find((c) => c.zone === 'ice' && c.cardId === iceId);
+  if (ice) {
+    if (!ice.faceUp && me.credits < (card(iceId)?.cost ?? 0)) return { type: 'gain_credit', player: 'corp' };
+    return { type: 'end_turn', player: 'corp' };
+  }
+  const i = handIdx(v, (id) => id === iceId);
+  const install = i >= 0 ? installNew(v, i) : undefined;
+  if (install) return install;
+  return basicMove(v, 1);
+}
+
+/** Sprint 5 Archives goals: fill Archives (operations played, non-agendas discarded first); never install. */
+function corpArchivesMove(v: PlayerView): Action {
+  const me = v.players.corp;
+  if (v.phase === 'discard') return discardKeeping(v, (id) => (isAgendaId(id) ? 2 : 0));
+  if (me.clicks === 0) return { type: 'end_turn', player: 'corp' };
+  const play = legal(v, (a) => a.type === 'play');
+  if (play) return play;
+  return basicMove(v, 3);
+}
+
 function corpMoveFor(goal: StepGoal, v: PlayerView): Action {
   const me = v.players.corp;
   // A free-rez choice the plan did not aim for: Skip (keeps ICE face down).
@@ -413,9 +501,12 @@ function corpMoveFor(goal: StepGoal, v: PlayerView): Action {
   if (v.run) {
     if (goal === 'corp_rez_prompt') return { type: 'pass', player: 'corp' }; // unreachable: the goal stops here
     const rezIt = v.run.options.find((o) => o.action.type === 'rez' && o.reject === null);
-    if (goal === 'wall_of_static_encounter' && rezIt && v.run.ice?.cardId === 'c04') return rezIt.action;
+    const wantedIce = ENCOUNTER_TARGET[goal];
+    if (wantedIce && rezIt && v.run.ice?.cardId === wantedIce) return rezIt.action;
     return defaultRunMove(v);
   }
+  if (goal === 'enigma_encounter' || goal === 'neural_katana_encounter') return corpEncounterMove(v, ENCOUNTER_TARGET[goal]!);
+  if (goal === 'runner_at_access' || goal === 'runner_after_access') return corpArchivesMove(v);
   if (v.phase === 'discard') {
     const keep = (id: string) =>
       goal === 'wall_of_static_encounter' ? (id === 'c04' ? 2 : 0) : goal === 'corp_rez_prompt' ? (typeOf(id) === 'ice' ? 2 : 0) : isAgendaId(id) ? 2 : id === 'c01' ? 1 : 0;
@@ -517,6 +608,21 @@ function runnerMoveFor(goal: StepGoal, v: PlayerView, views: Views): Action {
   if (goal === 'runner_one_steal_from_win') {
     const target = agendas(corpView).find((a) => a.iceless && me.points + a.points < WIN);
     if (target) return { type: 'run', player: 'runner', server: target.server };
+    return { type: 'end_turn', player: 'runner' };
+  }
+
+  if (goal === 'enigma_encounter' || goal === 'neural_katana_encounter') {
+    const iceId = ENCOUNTER_TARGET[goal]!;
+    if (goal === 'neural_katana_encounter' && me.handCount < 3 && me.deckCount > 0) return { type: 'draw', player: 'runner' };
+    const ice = corpInstalled(corpView).find((c) => c.zone === 'ice' && c.cardId === iceId);
+    const corpCanRez = ice && (ice.faceUp || corpView.players.corp.credits >= (card(iceId)?.cost ?? 99));
+    // Run with 2+ clicks so at least one is left at the encounter.
+    if (ice && corpCanRez && me.clicks >= 2) return { type: 'run', player: 'runner', server: ice.server };
+    return { type: 'end_turn', player: 'runner' };
+  }
+
+  if (goal === 'runner_at_access' || goal === 'runner_after_access') {
+    if (v.players.corp.discardCount >= ARCHIVES_MIN && me.clicks >= 2) return { type: 'run', player: 'runner', server: 'archives' };
     return { type: 'end_turn', player: 'runner' };
   }
 
