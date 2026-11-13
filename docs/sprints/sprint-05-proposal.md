@@ -35,7 +35,15 @@ Fixes for the three things you noticed while playing Sprint 4. You can read ever
 - Given you hold and slide on your hand on the board, when you do it, then it still works as in Sprint 4.
 - Given a slow phone, when cards zoom or the hand opens, then it answers in under 0.1 seconds. (automated check, including the 6× slowed-down test from Sprint 4 QA)
 
-*If you choose option A instead:* while you hold and slide, the cards either side show smaller behind the zoomed card and slide past as you move. Tapping a card still picks it as today.
+**Owner chose A (carousel) on PR #13, 2026-11-13.** The criteria below replace the option-B list above for this sprint:
+- Given you hold a card in your hand so it zooms, when it zooms, then the cards either side of it show smaller behind the zoomed card.
+- Given you slide your finger left or right, when the zoom moves to the next card, then the cards behind slide past with it, so it feels like flipping through your hand.
+- Given the first or last card, when you keep sliding, then the zoom stays on it (as in Sprint 4).
+- Given you lift your finger, when the zoom closes, then nothing is played or spent (as in Sprint 4).
+- Given a quick tap on a hand card, when you tap it, then it still picks the card as today. (automated check)
+- Given a slow phone, when the zoom moves to the next card, then it answers in under 0.1 seconds. (automated check, including the 6× slowed-down test from Sprint 4 QA)
+
+*Original note on option A:* while you hold and slide, the cards either side show smaller behind the zoomed card and slide past as you move. Tapping a card still picks it as today.
 *Size:* L for B, M for A
 
 ### S-05-4: Housekeeping: app downloads that never go missing
