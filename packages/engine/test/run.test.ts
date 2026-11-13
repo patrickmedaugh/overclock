@@ -347,8 +347,9 @@ describe('S-03-3 AC1-3: approach and rez', () => {
 
   it("S-03-3 AC4 (End the run): Let it through on Ice Wall ends the run, nothing accessed", () => {
     const r = play(board({ servers: { hq: { ice: ['+c05'] } } }), [runOn('hq'), pass('runner')]);
-    expect(r.events.slice(-2)).toEqual([
+    expect(r.events.slice(-3)).toEqual([
       { type: 'subroutine_fired', iceUid: 'i1', sub: 0 },
+      { type: 'subroutine_resolved', iceUid: 'i1', cardId: 'c05', outcome: { sub: 0, op: 'end_run', amount: 0 } },
       { type: 'run_ended', server: 'hq', outcome: 'ended_by_ice' },
     ]);
     expect(r.events.some((e) => e.type === 'card_accessed')).toBe(false);

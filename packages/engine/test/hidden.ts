@@ -20,10 +20,20 @@ const REVEALING: ReadonlySet<GameEvent['type']> = new Set([
   'choice_opened',
 ]);
 
-/** The Runner's projection of `events` names Corp cards only in revealing events, and those match the state. */
-export function expectRunnerEventsClean(events: readonly GameEvent[], where: string): void {
+/**
+ * The Runner's projection of `events` names Corp cards only in revealing events, and those match the state.
+ * `after` = the state the events led to.
+ */
+export function expectRunnerEventsClean(events: readonly GameEvent[], where: string, after: GameState): void {
   for (const e of viewEvents('runner', events)) {
     if (REVEALING.has(e.type)) continue;
+    if (e.type === 'subroutine_resolved') {
+      // Sprint 5 (spec change): names the ICE whose subroutine fired; it must be installed and rezzed (face up).
+      const ice = after.servers.flatMap((sv) => sv.ice).find((c) => c.uid === e.iceUid);
+      expect(ice?.rezzed && ice.cardId === e.cardId, `${where}: subroutine_resolved names rezzed ICE ${e.iceUid}`).toBe(true);
+      expect(JSON.stringify(e.outcome), where).not.toMatch(CORP_ID);
+      continue;
+    }
     expect(JSON.stringify(e), where).not.toMatch(CORP_ID);
   }
 }

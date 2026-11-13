@@ -56,7 +56,9 @@ describe('S-03-3 AC4/AC5: unbroken subroutines fire in order on Let it through',
     expect(r.events).toEqual([
       { type: 'subroutine_fired', iceUid: 'i1', sub: 0 },
       { type: 'clicks_lost', player: 'runner', amount: 1 },
+      { type: 'subroutine_resolved', iceUid: 'i1', cardId: 'c06', outcome: { sub: 0, op: 'lose_clicks', amount: 1 } },
       { type: 'subroutine_fired', iceUid: 'i1', sub: 1 },
+      { type: 'subroutine_resolved', iceUid: 'i1', cardId: 'c06', outcome: { sub: 1, op: 'end_run', amount: 0 } },
       { type: 'run_ended', server: 'hq', outcome: 'ended_by_ice' },
     ]);
     expect(r.state.players.runner.clicks).toBe(2);
@@ -67,7 +69,8 @@ describe('S-03-3 AC4/AC5: unbroken subroutines fire in order on Let it through',
     const s = encounterOn({ servers: { hq: { ice: ['+c06'] } }, runnerClicks: 1 });
     expect(s.players.runner.clicks).toBe(0);
     const r = act(s, letThrough);
-    expect(r.events.map((e) => e.type)).toEqual(['subroutine_fired', 'subroutine_fired', 'run_ended']);
+    expect(r.events.map((e) => e.type)).toEqual(['subroutine_fired', 'subroutine_resolved', 'subroutine_fired', 'subroutine_resolved', 'run_ended']);
+    expect(r.events[1]).toEqual({ type: 'subroutine_resolved', iceUid: 'i1', cardId: 'c06', outcome: { sub: 0, op: 'lose_clicks', amount: 0 } });
     expect(r.state.players.runner.clicks).toBe(0);
   });
 
@@ -101,6 +104,7 @@ describe('S-03-3 AC4/AC5: unbroken subroutines fire in order on Let it through',
     const r = act(encounterOn({ servers: { hq: { ice: ['+c07'] } }, runnerHand: ['r01', 'r02'] }), letThrough);
     expect(r.events.slice(1)).toEqual([
       { type: 'net_damage', amount: 3, cardIds: ['r01', 'r02'] },
+      { type: 'subroutine_resolved', iceUid: 'i1', cardId: 'c07', outcome: { sub: 0, op: 'net_damage', amount: 3 } },
       { type: 'run_ended', server: 'hq', outcome: 'flatline' },
       { type: 'game_over', winner: 'corp', reason: 'flatline' },
     ]);
@@ -170,6 +174,7 @@ describe('S-03-4: icebreakers', () => {
     expect(r.events).toEqual([
       { type: 'subroutine_fired', iceUid: 'i4', sub: 0 },
       { type: 'clicks_lost', player: 'runner', amount: 1 },
+      { type: 'subroutine_resolved', iceUid: 'i4', cardId: 'c06', outcome: { sub: 0, op: 'lose_clicks', amount: 1 } },
       { type: 'ice_passed', uid: 'i4' },
     ]);
     expect(r.state.run!.step).toBe('continue');

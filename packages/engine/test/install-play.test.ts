@@ -434,7 +434,7 @@ describe('replay and hidden information (property tests)', () => {
         const r = apply(s, a);
         s = r.state;
         for (const e of r.events) if (e.type === 'card_installed' && e.player === 'corp') corpInstalls++;
-        expectRunnerEventsClean(r.events, `seed ${seed} step ${i}`);
+        expectRunnerEventsClean(r.events, `seed ${seed} step ${i}`, s);
         expectRunnerViewClean(s, `seed ${seed} step ${i}`);
       }
     }
