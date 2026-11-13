@@ -7,7 +7,7 @@
  */
 import { getCard, type Effect } from '@overclock/cards';
 import type { ActionOf } from './actions';
-import type { GameEvent, RunOutcome } from './events';
+import type { GameEvent, RunOutcome, SubOutcome } from './events';
 import { nextInt } from './rng';
 import {
   abilityTarget,
@@ -92,7 +92,8 @@ export function startRun(state: GameState, server: ServerId, opts: RunOptions, e
     // Bad publicity: 1 run-only credit each.
     tempCredits: state.badPublicity,
   };
-  const s: GameState = { ...state, phase: 'run', lastRunTurn: state.turn, run };
+  // Sprint 5: the Last run record starts afresh (replacing the previous one).
+  const s: GameState = { ...state, phase: 'run', lastRunTurn: state.turn, run, lastRun: { server, cards: [] } };
   events.push(opts.cardId !== undefined ? { type: 'run_started', server, cardId: opts.cardId } : { type: 'run_started', server });
   if (run.tempCredits > 0) events.push({ type: 'temp_credits_gained', amount: run.tempCredits });
   // No ICE: straight in (no Continue stop before the first ICE).
@@ -153,15 +154,47 @@ function continueRun(state: GameState, events: Events): GameState {
   return succeed(state, events);
 }
 
-/** Let it through: every unbroken subroutine fires in order until one ends the run (or the game). */
+/**
+ * The actual size of what `effect` will do from `state` (a fired subroutine's `SubOutcome.amount`):
+ * clicks really lost ("if able"), net damage (printed), credits gained, cards drawn; 0 for `end_run`.
+ */
+function outcomeAmount(state: GameState, effect: Effect, owner: Side): number {
+  switch (effect.op) {
+    case 'lose_clicks':
+      return Math.min(effect.amount, state.players.runner.clicks);
+    case 'draw':
+      return Math.min(effect.count, state.players[owner].deck.length);
+    case 'net_damage':
+    case 'gain_credits':
+    case 'bad_publicity':
+      return effect.amount;
+    default:
+      return 0;
+  }
+}
+
+/**
+ * Let it through: every unbroken subroutine fires in order until one ends the run (or the game).
+ * Each fired subroutine: `subroutine_fired`, its effect's own events, `subroutine_resolved`, then
+ * whatever ends the run / game (Sprint 5).
+ */
 function letThrough(state: GameState, events: Events): GameState {
   const ice = currentIce(state) as Installed;
   const subs = getCard(ice.cardId)?.subroutines ?? [];
   let s = state;
   for (let i = 0; i < subs.length; i++) {
     if (theRun(s).broken.includes(i)) continue;
+    const effect = (subs[i] as { effect: Effect }).effect;
+    const outcome: SubOutcome = { sub: i, op: effect.op, amount: outcomeAmount(s, effect, 'corp') };
+    let reported = false;
+    const report = () => {
+      if (reported) return;
+      reported = true;
+      events.push({ type: 'subroutine_resolved', iceUid: ice.uid, cardId: ice.cardId, outcome });
+    };
     events.push({ type: 'subroutine_fired', iceUid: ice.uid, sub: i });
-    s = resolveEffect(s, (subs[i] as { effect: Effect }).effect, 'corp', events, {});
+    s = resolveEffect(s, effect, 'corp', events, { beforeEnd: report });
+    report();
     if (s.phase !== 'run') return s; // the run (or the game) ended
   }
   return passIce(s, events);
@@ -215,6 +248,8 @@ function nextAccess(state: GameState, events: Events): GameState {
       if (c) cards = [{ cardId: c.cardId, from: fromOf(run.server), uid: c.uid, stolen: false, trashed: false }];
     }
     if (cards.length > 0) {
+      const last = s.lastRun ?? { server: run.server, cards: [] };
+      s = { ...s, lastRun: { ...last, cards: [...last.cards, ...cards.map((c) => ({ cardId: c.cardId, from: c.from }))] } };
       for (const c of cards) {
         events.push(c.uid !== undefined ? { type: 'card_accessed', cardId: c.cardId, from: c.from, uid: c.uid } : { type: 'card_accessed', cardId: c.cardId, from: c.from });
       }
@@ -267,7 +302,7 @@ const groupDone = (s: GameState) => (theRun(s).access as AccessState).cards.ever
 // ---- effects ----------------------------------------------------------------------
 
 /** Net damage to the Runner: random cards from the Grip to the Heap; more than the Grip holds flatlines it. */
-function netDamage(state: GameState, amount: number, events: Events): GameState {
+function netDamage(state: GameState, amount: number, events: Events, ctx: EffectContext): GameState {
   const runner = state.players.runner;
   if (amount > runner.hand.length) {
     let s = withPlayer(state, 'runner', {
@@ -275,6 +310,7 @@ function netDamage(state: GameState, amount: number, events: Events): GameState 
       discard: [...runner.discard, ...runner.hand.map((cardId) => ({ cardId, faceUp: true }))],
     });
     events.push({ type: 'net_damage', amount, cardIds: runner.hand.slice() });
+    ctx.beforeEnd?.();
     if (s.phase === 'run') s = endRun(s, 'flatline', events);
     return endGame(s, 'corp', 'flatline', events);
   }
@@ -299,6 +335,11 @@ export interface EffectContext {
   readonly cardId?: string;
   /** The server named in the `play` action (run events with no fixed server). */
   readonly server?: ServerId;
+  /**
+   * Called once the effect's own events are out, right before it ends the run or the game
+   * (ICE: `subroutine_resolved` goes before `run_ended` / `game_over`).
+   */
+  readonly beforeEnd?: () => void;
 }
 
 /** Resolves one DSL effect for `owner` (damage and click loss always hit the Runner). */
@@ -318,7 +359,7 @@ export function resolveEffect(state: GameState, effect: Effect, owner: Side, eve
       return s;
     }
     case 'net_damage':
-      return netDamage(state, effect.amount, events);
+      return netDamage(state, effect.amount, events, ctx);
     case 'lose_clicks': {
       const lost = Math.min(effect.amount, state.players.runner.clicks);
       if (lost === 0) return state;
@@ -326,7 +367,9 @@ export function resolveEffect(state: GameState, effect: Effect, owner: Side, eve
       return withPlayer(state, 'runner', { clicks: state.players.runner.clicks - lost });
     }
     case 'end_run':
-      return state.phase === 'run' ? endRun(state, 'ended_by_ice', events) : state;
+      if (state.phase !== 'run') return state;
+      ctx.beforeEnd?.();
+      return endRun(state, 'ended_by_ice', events);
     case 'run': {
       const server = effect.server ?? (ctx.server as ServerId);
       const opts: RunOptions = {

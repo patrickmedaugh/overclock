@@ -133,6 +133,19 @@ export interface GameResult {
   readonly reason: WinReason;
 }
 
+/** Sprint 5: one card accessed in the Runner's most recent run, in access order. */
+export interface LastRunCard {
+  readonly cardId: string;
+  readonly from: AccessFrom;
+}
+
+/** Sprint 5: the Runner's most recent run (since its start), until the Runner's turn ends. */
+export interface LastRun {
+  readonly server: ServerId;
+  /** Every card accessed, in access order (stolen, trashed or left alike). */
+  readonly cards: readonly LastRunCard[];
+}
+
 /** One player's zones and counters. Card entries are card definition ids. */
 export interface PlayerState {
   /** Top of deck is index 0. */
@@ -173,6 +186,11 @@ export interface GameState {
   readonly badPublicity: number;
   /** The open choice (`phase === 'choice'`), or null. */
   readonly choice: ChoiceState | null;
+  /**
+   * Sprint 5: set to `{server, cards: []}` at `run_started` (replacing the previous one),
+   * a card appended at each `card_accessed`, null when the Runner's turn ends.
+   */
+  readonly lastRun: LastRun | null;
 }
 
 export function opponentOf(side: Side): Side {
@@ -271,6 +289,7 @@ export function newGame(seed: number): GameState {
     lastRunTurn: null,
     badPublicity: 0,
     choice: null,
+    lastRun: null,
   };
   return startTurn(base, 'corp', 1).state;
 }

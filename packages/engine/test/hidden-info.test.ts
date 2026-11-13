@@ -76,7 +76,7 @@ describe('E6 property tests over random games with runs', () => {
     for (let seed = 1; seed <= 60; seed++) {
       const { state } = randomGame(seed, 400, (s, _a, events, i) => {
         const where = `seed ${seed} step ${i}`;
-        expectRunnerEventsClean(events, where);
+        expectRunnerEventsClean(events, where, s);
         expectRunnerViewClean(s, where);
         // The Corp never sees which R&D card was accessed (events or view).
         for (const e of viewEvents('corp', events)) {

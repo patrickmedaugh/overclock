@@ -188,7 +188,31 @@ export interface LayoutSnapshot {
    * cardId is null for a face-down card the viewer may not see. `textOverflow`
    * is true if any text runs outside the card.
    */
-  zoom: { cardId: string | null; box: Box; texts: string[]; textOverflow: boolean } | null;
+  zoom: {
+    cardId: string | null;
+    box: Box;
+    texts: string[];
+    textOverflow: boolean;
+    /**
+     * S-05-3: the cards shown smaller behind it (hand and list zooms), left to
+     * right. `offset`: slots from the zoomed card (-2..2, final, even mid-slide);
+     * `box`: where it is drawn now; `full`: false while a stand-in shows.
+     */
+    carousel: { cardId: string; index: number; offset: number; box: Box; full: boolean }[];
+  } | null;
+  /**
+   * S-05-2: what the ICE just did ("Enigma: you lost 1 click. Enigma ended your run."),
+   * shown until the next tap anywhere (that tap only closes it). `box`: the message.
+   */
+  report: { text: string; box: Box } | null;
+  /**
+   * S-05-1: the Last run button (while the view has a last run) and its strip
+   * of found cards (while open; hold a card to zoom it).
+   */
+  lastRun: {
+    button: { box: Box; label: string } | null;
+    strip: { title: string; box: Box; cards: { cardId: string; from: string; box: Box }[] } | null;
+  };
   /** S-04-2: the "Leave the game?" question, if showing. */
   dialog: { title: string; text: string; box: Box; buttons: { label: string; box: Box }[] } | null;
   /** S-04-1: the build date as shown ("Built 2026-11-13 14:32 UTC"), or null while hidden. */
@@ -233,6 +257,10 @@ export type AnimKind =
   | 'notice'
   /** S-04-3: a hold-and-slide put another hand card in the zoom (`text`: its card id). */
   | 'zoom_swap'
+  /** S-05-3: the carousel behind the zoom slides (`text`: the newly zoomed card id). */
+  | 'carousel_slide'
+  /** S-05-2: the ICE report opened (`text`: its words). */
+  | 'ice_report'
   /** S-04-4: a status note pops (bad publicity taken, run-only credits gained or spent). */
   | 'tag_pop'
   /** S-04-4: the free-rez choice lights the offered ICE. */
@@ -253,6 +281,8 @@ export interface AnimRecord {
   fontPx?: number;
   /** zoom_swap: the input event's time (performance.now() clock) that caused it. */
   inputAt?: number;
+  /** zoom_swap: true if the face was drawn ahead (QA-S4-1), false if it was drawn on the spot. */
+  predrawn?: boolean;
 }
 
 /** Timestamps (performance.now() clock) of the last pointer release handled by a target. */
@@ -297,9 +327,11 @@ export interface OverclockTestHook {
    */
   smallFace(cardId: string, width: number, height: number): SmallFaceSnapshot | null;
   /** S-04-2: presses the phone's Back button (same handler as the app's); returns what it did. */
-  back(): 'close_dialog' | 'close_zoom' | 'exit' | 'ask_leave';
+  back(): 'close_dialog' | 'close_zoom' | 'close_panel' | 'exit' | 'ask_leave';
   /** How many times the game asked to close the app (Leave, or Back after the game ended). Web only counts. */
   exitRequests(): number;
+  /** S-05-3: pins whether drawn frames count as slow (slow: the carousel jumps instead of sliding). */
+  frameSpeed(mode: 'fast' | 'slow' | 'measured'): void;
 }
 
 export interface SmallFaceSnapshot {

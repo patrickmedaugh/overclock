@@ -37,6 +37,7 @@ import {
   waitIdle,
   type AnimRecord,
   type LayoutSnapshot,
+  dismissReport,
 } from './helpers';
 import { type Scenario, type Views, findScenario } from './qa-s03-scenarios';
 
@@ -198,7 +199,9 @@ test.describe('QA S-03-1 a remote server: Trash · 4 credits / Leave it', () => 
     expect(v.players.runner.credits).toBe(before.players.runner.credits);
     const card = v.corpServers.flatMap((x) => x.content).find((c) => c.uid === uid)!;
     expect(card).toMatchObject({ cardId: null, faceUp: false });
-    expect(JSON.stringify(v)).not.toContain('"c03"');
+    // S-05-1: the Runner may look back at what this run found (Last run) until his turn ends; nothing else names it.
+    expect(v.lastRun?.cards.map((c) => c.cardId)).toContain('c03');
+    expect(JSON.stringify({ ...v, lastRun: null })).not.toContain('"c03"');
   });
 
   test('too few credits: Trash · 4 credits is dim and only says "Not enough credits"; Leave it still works', async ({ page }) => {
@@ -247,7 +250,7 @@ test.describe('QA S-03-3 ICE fights back', () => {
     const plan = await toStep(page, 1, 'corp_rez_prompt');
     await tap(page, runButtonOf(await layout(page), /^Rez /).box);
     let l = await waitIdle(page);
-    await tap(page, runButtonOf(l, 'Let it through').box); // Enigma: lose a click, end the run
+    await tap(page, runButtonOf(l, /^Let it fire/).box); // Enigma: lose a click, end the run
     await waitIdle(page);
     await passTurn(page); // Corp's turn
     l = await waitIdle(page);
@@ -271,7 +274,7 @@ test.describe('QA S-03-3 ICE fights back', () => {
     expect(l.run!.stepLabel).toBe('Encounter: Neural Katana');
     expect(l.run!.subroutines).toEqual([{ text: 'Do 3 net damage', broken: false }]);
     await shot(page, 'qa-05-neural-katana-encounter');
-    const m = await measureTap(page, runButtonOf(l, 'Let it through').box);
+    const m = await measureTap(page, runButtonOf(l, /^Let it fire/).box);
     const dmg = m.events.find((e) => e.type === 'net_damage') as { amount: number; cardIds: string[] } | undefined;
     expect(dmg?.amount).toBe(3);
     expect(dmg?.cardIds).toHaveLength(3);
@@ -288,9 +291,12 @@ test.describe('QA S-03-3 ICE fights back', () => {
   test('Neural Katana against a Grip of fewer than 3 cards: the Corp wins at once, "Runner flatlined"', async ({ page }) => {
     await toSituation(page, 'katanaSmallGrip');
     const l = await layout(page);
-    const m = await measureTap(page, runButtonOf(l, 'Let it through').box);
+    const m = await measureTap(page, runButtonOf(l, /^Let it fire/).box);
     expect(m.events.map((e) => e.type)).toEqual(expect.arrayContaining(['net_damage', 'game_over']));
     expect(m.view.result).toEqual({ winner: 'corp', reason: 'flatline' });
+    // S-05-2: the game-over screen shows once the ICE's message is tapped away.
+    await waitIdle(page);
+    await dismissReport(page);
     const after = await waitIdle(page);
     expect(after.gameOver).toMatchObject({ title: 'Corp wins', reason: 'Runner flatlined' });
     expect(after.run).toBeNull();
@@ -473,21 +479,22 @@ test.describe('QA snappiness: run steps', () => {
     const m = await measureTap(page, runButtonOf(await layout(page), /^Rez /).box);
     expectSnappy(m, ['ice_rez']);
     const l = await layout(page);
-    expect(l.run!.buttons.map((b) => b.label)).toEqual(['Let it through']);
-    const m2 = await measureTap(page, runButtonOf(l, 'Let it through').box);
+    expect(l.run!.buttons.map((b) => b.label)).toEqual([expect.stringMatching(/^Let it fire: /)]);
+    const m2 = await measureTap(page, runButtonOf(l, /^Let it fire/).box);
     expectSnappy(m2, ['sub_fired']);
-    // Step animations <= 600ms; the notice ("Enigma: End the run", ~1.4s) is a toast that never blocks input:
-    // the very next tap (Run, while the notice still shows) is answered at once.
+    // Step animations <= 600ms. S-05-2 (owner answer A): what Enigma did stays until a tap, which
+    // only closes it; the tap after that (Run) is answered at once.
     const all = await anims(page);
-    expect(all.some((a) => a.kind === 'notice')).toBe(true);
+    expect(all.some((a) => a.kind === 'ice_report')).toBe(true);
     for (const a of all.filter((x) => x.kind !== 'notice' && x.kind !== 'hint')) expect(a.scheduledMs, a.kind).toBeLessThanOrEqual(600);
+    await dismissReport(page);
     const run = await layout(page);
     expect(run.runButton).not.toBeNull();
     await tap(page, run.runButton!.box);
     const lit = await layout(page);
     expect(lit.runButton?.picking).toBe(true);
     expect(lit.targets.length).toBeGreaterThan(0);
-    expect((await anims(page)).some((a) => a.kind === 'notice')).toBe(true);
+    expect((await anims(page)).some((a) => a.kind === 'ice_report')).toBe(true);
   });
 });
 
@@ -581,7 +588,7 @@ test.describe('QA Sprint 3 playthrough (screenshots)', () => {
 
     await openBoard(page, 2);
     await toStep(page, 2, 'wall_of_static_encounter');
-    await tap(page, runButtonOf(await layout(page), 'Let it through').box);
+    await tap(page, runButtonOf(await layout(page), /^Let it fire/).box);
     await page.waitForTimeout(150);
     await shot(page, '11-let-it-through-end-the-run-notice');
 

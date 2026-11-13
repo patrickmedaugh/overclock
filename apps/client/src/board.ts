@@ -12,7 +12,9 @@ import type { Action, CardOption, GameEvent, InstalledView, PlayerView, RejectRe
 import { getCard } from '@overclock/cards';
 import { Container, Graphics, Rectangle, Text } from 'pixi.js';
 import { type BackAction, backAction } from './back';
-import { createCardBack, createCardFace, dropCardTextures, glowRoundRect, retireCardTextures } from './cardFace';
+import { CAROUSEL_SLIDE_MS, Carousel, type CarouselFace, listIndex } from './carousel';
+import { createCardBack, createCardFace, createZoomFace, dropCardTextures, flushZoomFaces, glowRoundRect, hasZoomFace, retireCardTextures, textOverflows, textsOf } from './cardFace';
+import { framesAreSlow } from './frameClock';
 import { centeredBox } from './geometry';
 import { Hand, type HandCard } from './hand';
 import type { AnimRecord, Box, EndTurnClock, InstalledSnapshot, Insets, LayoutSnapshot, SideLayout, TargetSnapshot } from './hook-types';
@@ -22,7 +24,8 @@ import { attachPress, inputTime } from './input';
 import { BUILD_LINE, type BoardLayout, type BoardShape, CARD_RATIO, type SideRow, computeLayout } from './layout';
 import { LeaveDialog } from './leaveDialog';
 import { RunDisplay } from './runDisplay';
-import { RUN_END, nameOf, runEndText } from './runText';
+import { IceReport, LastRunStrip } from './panels';
+import { RUN_END, iceReport, nameOf, runEndText } from './runText';
 import { SIDE_NAME, TERMS, badPublicityText, plural, pointsText, priceText, serverLabel, tempCreditsText, zoneName } from './terms';
 import { sideColor, theme, timing } from './theme';
 import { ease, type Tweens } from './tween';
@@ -79,29 +82,15 @@ function visibleTexts(c: Container, out: string[] = []): string[] {
   return out;
 }
 
-function textsOf(c: Container): string[] {
-  const out: string[] = [];
-  for (const child of c.children) {
-    if (child instanceof Text) out.push(child.text);
-    else out.push(...textsOf(child));
-  }
-  return out;
+
+/** True if `c` is `root` or inside it. */
+function isUnder(c: Container | null, root: Container | null): boolean {
+  for (let n: Container | null = c; n; n = n.parent) if (n === root) return true;
+  return false;
 }
 
-/** True if any text of a centered w x h card runs outside it. */
-function textOverflows(c: Container, w: number, h: number): boolean {
-  const e = 0.5;
-  const walk = (n: Container): boolean =>
-    n.children.some((child) => {
-      if (child instanceof Text) {
-        const left = child.x - child.anchor.x * child.width;
-        const top = child.y - child.anchor.y * child.height;
-        return left < -w / 2 - e || top < -h / 2 - e || left + child.width > w / 2 + e || top + child.height > h / 2 + e;
-      }
-      return walk(child);
-    });
-  return walk(c);
-}
+/** QA-S4-1 pre-draw: no bake from this long before the hold opens the zoom until it has opened (ms). */
+const PREDRAW_QUIET_MS = 60;
 
 function shapeOf(view: PlayerView): BoardShape {
   return {
@@ -174,6 +163,8 @@ interface Generation {
   button: ActionButton;
   /** The Runner's Run button (rail / control strip, where Play goes). */
   runButton: PanelButton;
+  /** S-05-1: Last run (below / beside Run), while the view has one. */
+  lastRunButton: PanelButton;
   run: RunDisplay;
   scores: Record<Side, ScorePill>;
   /** Outline around a picked installed card. */
@@ -241,12 +232,27 @@ export class Board {
     card: Container;
     width: number;
     height: number;
+    texts: string[];
     overflow: boolean;
-    /** Faces already made during this zoom (a slide back and forth reuses them). */
-    faces: Map<string, { card: Container; overflow: boolean }>;
     /** Hand zooms: an undimmed outline over the hand card the zoom shows (S-04-3). */
     frame: Graphics | null;
+    /** S-05-3: the neighbours behind the zoomed card (hand and list zooms). */
+    carousel: Carousel | null;
+    /** The index the zoom shows in the carousel's list. */
+    index: number;
+    /** List zooms (piles, score pills): the slide steps one card per `step` px from `startX`. */
+    list: { ids: string[]; start: number; startX: number; step: number } | null;
   } | null = null;
+  /** S-05-2: what the ICE just did; stays until the next tap (which it consumes). */
+  private report: IceReport | null = null;
+  /** S-05-1: the Last run strip, while open. */
+  private lastRunStrip: LastRunStrip | null = null;
+  /** Panels over the table (the ICE report), under the zoom and the leave question. */
+  private readonly panelLayer = new Container();
+  /** A closed zoom still fading out (freed before evicted zoom faces are). */
+  private fadingZoom: Container | null = null;
+  /** QA-S4-1: zoom faces still to pre-draw for a held hand (one per frame), nearest first. */
+  private predraw: { ids: string[]; total: number; frame: number; at: number } | null = null;
   /** Hand indices picked in the discard picker (UI state only). */
   private readonly marked = new Set<number>();
   /** Hand index picked to play (UI state only). */
@@ -273,9 +279,11 @@ export class Board {
   ) {
     const handCallbacks = (side: Side) => ({
       onTap: (i: number) => this.onCardTap(i),
-      onLongPress: (id: string, from: Box) => this.openZoom(id, side, from, true),
+      onPress: (i: number) => this.startPredraw(this.hands[side].ids, i),
+      onPressEnd: () => this.stopPredraw(),
+      onLongPress: (id: string, from: Box, i: number) => this.openZoom(id, side, from, { hand: { ids: this.hands[side].ids, index: i } }),
       onLongPressEnd: () => this.closeZoom(),
-      onZoomSlide: (id: string, box: Box, at: number) => this.swapZoom(id, box, at),
+      onZoomSlide: (id: string, box: Box, at: number, i: number) => this.swapZoom(id, box, at, i),
       log: (r: Omit<AnimRecord, 'startedAt'>) => callbacks.log(r),
     });
     this.hands = { corp: new Hand('corp', fx, ui, handCallbacks('corp')), runner: new Hand('runner', fx, ui, handCallbacks('runner')) };
@@ -295,7 +303,17 @@ export class Board {
     this.buildText.eventMode = 'none';
     this.buildText.alpha = 0.85;
     this.table.addChild(this.catcher, this.bgLayer, this.boardLayer, this.installedLayer, this.runLayer, this.centerLayer, this.accessLayer, this.targetLayer, this.handLayer, this.buildText);
-    this.stage.addChild(this.table, this.fxLayer, this.hintLayer, this.zoomLayer, this.dialogLayer);
+    this.stage.addChild(this.table, this.fxLayer, this.hintLayer, this.panelLayer, this.zoomLayer, this.dialogLayer);
+    // S-05-1: a tap anywhere outside the Last run strip (and its button) closes it; the tap still acts.
+    this.stage.eventMode = 'static';
+    this.stage.on('pointerdown', (e) => {
+      const strip = this.lastRunStrip;
+      if (!strip) return;
+      const t = e.target as Container | null;
+      if (t && (isUnder(t, strip.root) || isUnder(t, this.gen?.lastRunButton.root ?? null))) return;
+      this.closeLastRun();
+      this.callbacks.changed();
+    });
   }
 
   /** New viewport size / safe-area insets (start, resize, rotate). */
@@ -306,6 +324,7 @@ export class Board {
     if (this.view) this.fullRender();
     if (this.hint) this.positionHint(this.hint);
     this.syncHelp();
+    if (this.report && this.layout) this.openReport(this.report.text, this.layout);
     // The question stays open across a rotation / inset change, laid out anew.
     if (this.leave) this.openLeave(this.leave.onLeave);
   }
@@ -316,9 +335,14 @@ export class Board {
    * "Leave the game?" (Leave calls `exit`). Returns what it did.
    */
   back(exit: () => void): BackAction {
-    const action = backAction({ dialogOpen: this.leave !== null, zoomOpen: this.zoom !== null, gameOver: !!this.view?.result });
+    const panelOpen = this.report !== null || this.lastRunStrip !== null;
+    const action = backAction({ dialogOpen: this.leave !== null, zoomOpen: this.zoom !== null, panelOpen, gameOver: !!this.view?.result && !this.report });
     if (action === 'close_dialog') this.closeLeave();
     else if (action === 'close_zoom') this.closeZoom();
+    else if (action === 'close_panel') {
+      if (this.report) this.dismissReport();
+      else this.closeLastRun();
+    }
     else if (action === 'exit') exit();
     else this.openLeave(exit);
     this.callbacks.changed();
@@ -359,6 +383,8 @@ export class Board {
   redrawAll(): void {
     this.fx.finishAll();
     this.closeZoom(true);
+    this.stopPredraw();
+    this.finishFade();
     this.destroyGeneration();
     for (const s of SIDES) this.hands[s].reset();
     dropCardTextures();
@@ -387,6 +413,8 @@ export class Board {
     this.view = view;
     this.decision = decision;
     if (!this.viewport) return;
+    // A new action: an open ICE report has been read (taps on the board never get past it; only the hook could).
+    this.closeReport();
     if (!prev || prev.viewer !== view.viewer || !this.gen) {
       this.fullRender();
       return;
@@ -424,6 +452,9 @@ export class Board {
     hand.setMarked(this.marked);
     hand.setSelected(this.selected);
     this.showTargets();
+    // S-05-2: what the ICE did stays on screen until the next tap; a game over shows after it.
+    const reportText = rejected ? null : iceReport(events);
+    if (reportText) this.openReport(reportText, layout);
     const newStep = this.applyView(view, true);
     for (const l of leaving) this.flyFromHand(l.e, l.card, layout);
     const notices: string[] = [];
@@ -437,7 +468,7 @@ export class Board {
         this.showHint(hintFor(e.reason, view));
         if (e.reason === 'no_clicks') this.seatAt('bottom')?.clicks.shake();
       }
-      this.animateRunEvent(e, layout, before, prevRun, notices, events);
+      this.animateRunEvent(e, layout, before, prevRun, reportText ? [] : notices, events);
     }
     if (newStep && view.run) this.stepFlash();
     // A fired subroutine already says what happened: no extra "loses 1 click" / "Run ended" lines.
@@ -558,12 +589,23 @@ export class Board {
       selectedInstalled: this.pickedInstalled,
       hint: this.hint && this.hint.root.alpha > 0.05 ? { text: this.hint.text, box: this.hint.box } : null,
       dialog: this.leave ? this.leave.dialog.snapshot() : null,
+      report: this.report ? { text: this.report.text, box: { ...this.report.box } } : null,
+      lastRun: {
+        button: gen && gen.lastRunButton.root.visible ? { box: { ...gen.lastRunButton.box }, label: gen.lastRunButton.text } : null,
+        strip: this.lastRunStrip ? { title: this.lastRunStrip.title, box: { ...this.lastRunStrip.box }, cards: this.lastRunStrip.cards.map((c) => ({ ...c, box: { ...c.box } })) } : null,
+      },
       buildLabel:
         layout && this.buildText.visible && this.buildText.text
           ? { text: this.buildText.text, box: this.buildTextBox() }
           : null,
       zoom: this.zoom
-        ? { cardId: this.zoom.cardId, box: centeredBox(this.zoom.card, this.zoom.width, this.zoom.height), texts: textsOf(this.zoom.card), textOverflow: this.zoom.overflow }
+        ? {
+            cardId: this.zoom.cardId,
+            box: centeredBox(this.zoom.card, this.zoom.width, this.zoom.height),
+            texts: this.zoom.texts,
+            textOverflow: this.zoom.overflow,
+            carousel: this.zoom.carousel?.snapshot() ?? [],
+          }
         : null,
       animating: this.fx.active,
     };
@@ -572,6 +614,8 @@ export class Board {
   // ---- turn change --------------------------------------------------------
 
   private handoff(p: Extract<Presentation, { kind: 'handoff' }>): void {
+    this.closeReport();
+    this.closeLastRun();
     const layout = this.layout;
     // The double-tap guard counts from when this tap (End turn / Confirm) was made,
     // not from the flip (it waits for the discard flight; the button is hidden until
@@ -796,6 +840,8 @@ export class Board {
   /** Builds the widgets for a new board size (start, resize, or the table outgrew its room). */
   private newGeneration(layout: BoardLayout): void {
     this.closeZoom(true);
+    this.stopPredraw();
+    this.finishFade();
     this.destroyGeneration();
     retireCardTextures();
     const s = layout.scale;
@@ -815,7 +861,17 @@ export class Board {
     const discards = { corp: new DiscardPile(unit, 'corp', s, TERMS.archives), runner: new DiscardPile(unit, 'runner', s, TERMS.heap) };
     const hq = new DeckPile(unit, 'corp', s, null, 'hq');
     hq.root.eventMode = 'none';
-    for (const p of [discards.corp, discards.runner]) p.root.eventMode = 'none';
+    // S-05-1: hold a pile or a score to read its face-up cards (a tap is an empty-board tap).
+    for (const side of SIDES) {
+      const pile = discards[side];
+      pile.root.eventMode = 'none';
+      detachers.push(
+        this.attachHoldZoom(pile.root, () => {
+          const ids = (this.view?.players[side].discard ?? []).filter((id): id is string => id !== null);
+          return ids.length > 0 ? { ids, side, from: pile.box() } : null;
+        }),
+      );
+    }
     const memory = new MemoryCounter(layout.rig.memory, s);
     this.boardLayer.addChild(hq.root, decks.corp.root, decks.runner.root, discards.corp.root, discards.runner.root, memory.root);
 
@@ -857,16 +913,35 @@ export class Board {
     const runButton = new PanelButton(s, 'button:run');
     press(runButton.root, () => this.onRunButtonTap());
     runButton.root.visible = false;
+    const lastRunButton = new PanelButton(s, 'button:last-run');
+    press(lastRunButton.root, () => this.toggleLastRun());
+    lastRunButton.root.visible = false;
     const run = new RunDisplay(layout, this.ui, {
       onButton: (i) => this.onRunOptionTap(i),
       press: (target, onTap) => this.pressFeedback(target, onTap),
+      hold: (target, cardId, box) =>
+        attachPress(target, {
+          // S-05-1: a hold on an accessed card zooms it; a tap does nothing (Steal / Trash / Done are the buttons).
+          onLongPress: () => this.openZoom(cardId, 'corp', box),
+          onLongPressEnd: () => this.closeZoom(),
+        }),
     });
     const scores = { corp: new ScorePill('corp'), runner: new ScorePill('runner') };
+    for (const side of SIDES) {
+      const pill = scores[side];
+      detachers.push(
+        this.attachHoldZoom(pill.root, () => {
+          const ids = [...(this.view?.players[side].scored ?? [])];
+          return ids.length > 0 ? { ids, side: 'corp', from: pill.box } : null;
+        }),
+      );
+      pill.root.eventMode = 'none';
+    }
     this.boardLayer.addChild(scores.corp.root, scores.runner.root);
     const pickMark = new Graphics();
     pickMark.eventMode = 'none';
     this.runLayer.addChild(run.marks, pickMark);
-    this.centerLayer.addChild(banner, subMain, subHelp, button.root, runButton.root, run.info, run.buttons);
+    this.centerLayer.addChild(banner, subMain, subHelp, button.root, runButton.root, lastRunButton.root, run.info, run.buttons);
     this.accessLayer.addChild(run.access);
     this.gameOver = null;
 
@@ -887,6 +962,7 @@ export class Board {
       subHelp,
       button,
       runButton,
+      lastRunButton,
       run,
       scores,
       pickMark,
@@ -898,6 +974,7 @@ export class Board {
   private destroyGeneration(): void {
     const gen = this.gen;
     if (!gen) return;
+    this.closeLastRun();
     for (const d of gen.detachers) d();
     for (const c of gen.installed.values()) c.detach();
     gen.run.detach();
@@ -1015,12 +1092,23 @@ export class Board {
     const { banner, sub, action, endTurn } = layout;
     gen.banner.position.set(banner.x + banner.width / 2, banner.y + banner.height / 2);
     gen.subMain.position.set(action.x + action.width / 2, action.y + action.height / 2);
-    const help = this.helpBox(layout);
-    gen.subHelp.style.wordWrapWidth = Math.max(40, help.width - 4);
-    gen.subHelp.position.set(help.x + help.width / 2, help.y);
+    this.placeHelp(layout);
     placeAt(gen.button.root, endTurn);
     gen.button.color = sideColor(viewer);
     void sub;
+  }
+
+  private placeHelp(layout: BoardLayout): void {
+    const gen = this.gen;
+    if (!gen) return;
+    const help = this.helpBox(layout);
+    gen.subHelp.style.wordWrapWidth = Math.max(40, help.width - 4);
+    gen.subHelp.position.set(help.x + help.width / 2, help.y);
+  }
+
+  /** S-05-1: the Last run button shows while the view has one and nothing else uses its slot. */
+  private lastRunShown(view: PlayerView | null): boolean {
+    return !!view?.lastRun && !view.run && !view.choice && !view.result && view.pendingDiscard === 0 && this.selected === null && this.pickedInstalled === null;
   }
 
   /** Where the help text goes: below the Play button (sideways) or left of it (column). */
@@ -1028,12 +1116,12 @@ export class Board {
     const { sub, action } = layout;
     if (layout.mode === 'landscape') {
       // Below Play (or below Score too, while a picked agenda shows two choices).
-      const above = this.pickedInstalled !== null ? layout.action2 : action;
+      const above = this.pickedInstalled !== null || this.lastRunShown(this.view) ? layout.action2 : action;
       const y = above.y + above.height + 4;
       return { x: sub.x, y, width: sub.width, height: Math.max(0, sub.y + sub.height - y) };
     }
     // Column: left of Play (and of the second choice, while a picked agenda shows two).
-    const right = this.pickedInstalled !== null ? layout.action2.x : action.x;
+    const right = this.pickedInstalled !== null || this.lastRunShown(this.view) ? layout.action2.x : action.x;
     return { x: sub.x, y: sub.y, width: Math.max(0, right - 6 - sub.x), height: sub.height };
   }
 
@@ -1050,6 +1138,8 @@ export class Board {
       const p = view.players[s];
       gen.decks[s].setCount(p.deckCount);
       gen.discards[s].set(p.discardCount, p.discard);
+      // Only a pile with a face-up card to read takes presses (else taps fall through to the board).
+      gen.discards[s].root.eventMode = p.discard.some((id) => id !== null) ? 'static' : 'none';
       if (!w) continue;
       w.credits.set(p.credits, animate);
       w.clicks.set(p.clicks, animate);
@@ -1135,10 +1225,14 @@ export class Board {
       button.set('end', canEnd, canEnd && view.players[viewer].clicks === 0, animate ? this.ui : null);
     }
 
-    if (view.result && !this.gameOver) this.showGameOver(layout, gameOverLines(view.result), view.result.winner, animate);
+    if (view.result && !this.gameOver && !this.report) this.showGameOver(layout, gameOverLines(view.result), view.result.winner, animate);
 
     // Both sides' points, for both seats.
-    for (const s of SIDES) gen.scores[s].set(layout.scores[s], pointsText(s, view.players[s].points), view.players[s].points);
+    for (const s of SIDES) {
+      const pill = gen.scores[s];
+      pill.set(layout.scores[s], pointsText(s, view.players[s].points), view.players[s].points);
+      pill.root.eventMode = view.players[s].scored.length > 0 ? 'static' : 'none';
+    }
 
     // The run: tracker, info, buttons, access view. The hand is put away meanwhile.
     gen.run.setLayout(layout);
@@ -1158,6 +1252,15 @@ export class Board {
     const showRun = !view.run && !view.choice && !view.result && pending === 0 && view.runOptions.length > 0 && this.selected === null && this.pickedInstalled === null;
     rb.root.visible = showRun;
     if (showRun) rb.set(layout.action, TERMS.run, view.runOptions.some((o) => o.reject === null), theme.runner, this.runPicking);
+
+    // S-05-1: Last run, under Run (sideways) / beside it (column), while the view has one.
+    const lrb = gen.lastRunButton;
+    const showLast = this.lastRunShown(view);
+    lrb.root.visible = showLast;
+    if (showLast) lrb.set(layout.action2, 'Last run', true, theme.runner, this.lastRunStrip !== null);
+    if (!showLast) this.closeLastRun();
+    else if (this.lastRunStrip && JSON.stringify(this.lastRunStrip.last) !== JSON.stringify(view.lastRun)) this.openLastRun();
+    this.placeHelp(layout);
 
     // The picked installed card is outlined.
     const pm = gen.pickMark;
@@ -1783,6 +1886,28 @@ export class Board {
     this.callbacks.onEndTurn();
   }
 
+  /**
+   * S-05-1: holding `target` zooms the last card of `list()` (a pile's top
+   * face-up card, the latest scored agenda); sliding sideways reads the others.
+   * A tap does what a tap on the empty board does (drops a pick); a hold never
+   * taps. Lifting closes the zoom with nothing chosen.
+   */
+  private attachHoldZoom(target: Container, list: () => { ids: string[]; side: Side; from: Box } | null): () => void {
+    const detach = attachPress(target, {
+      onTap: () => this.cancelSelection(),
+      onLongPress: () => {
+        const l = list();
+        const id = l?.ids.at(-1);
+        if (!l || id === undefined) return;
+        this.openZoom(id, l.side, l.from, { list: { ids: l.ids, index: l.ids.length - 1, startX: Number.NaN } });
+      },
+      onHoldMove: (x, _y, at) => this.slideList(x, at),
+      onLongPressEnd: () => this.closeZoom(),
+    });
+    target.cursor = 'default';
+    return detach;
+  }
+
   private pressFeedback(target: Container, onTap: () => void): () => void {
     return attachPress(target, {
       onDown: () => {
@@ -1996,7 +2121,12 @@ export class Board {
   }
 
   /** Zooms a card: a face for a known card id, a back for a face-down card the viewer may not see. */
-  private openZoom(cardId: string | null, side: Side, from: Box, fromHand = false): void {
+  private openZoom(
+    cardId: string | null,
+    side: Side,
+    from: Box,
+    opts: { hand?: { ids: string[]; index: number }; list?: { ids: string[]; index: number; startX: number } } = {},
+  ): void {
     const layout = this.layout;
     if (!layout) return;
     const def = cardId ? getCard(cardId) : undefined;
@@ -2007,8 +2137,14 @@ export class Board {
     const dim = new Graphics();
     dim.rect(0, 0, vw, vh).fill({ color: 0x000000, alpha: 0.65 });
     let card: Container;
-    if (def) card = createCardFace(def, z.width, z.height, 'full');
-    else {
+    let texts: string[];
+    let overflow: boolean;
+    if (def) {
+      const f = createZoomFace(def, z.width, z.height);
+      card = f.root;
+      texts = f.texts;
+      overflow = f.overflow;
+    } else {
       card = new Container();
       card.addChild(createCardBack(side, z.width, z.height));
       const t = new Text({
@@ -2018,15 +2154,23 @@ export class Board {
       t.anchor.set(0.5);
       t.position.set(0, z.height * 0.3);
       card.addChild(t);
+      texts = textsOf(card);
+      overflow = textOverflows(card, z.width, z.height);
     }
-    const overflow = textOverflows(card, z.width, z.height);
     const cx = z.x + z.width / 2;
     const cy = z.y + z.height / 2;
     card.position.set(from.x + from.width / 2, from.y + from.height / 2);
     card.scale.set(Math.min(from.width, from.height) / z.width);
     root.addChild(dim);
+    const browse = opts.hand ?? opts.list ?? null;
+    let carousel: Carousel | null = null;
+    if (browse && browse.ids.length > 1) {
+      carousel = new Carousel(cx, cy, z.width, z.height, this.ui, (id) => this.carouselFace(id));
+      carousel.show(browse.ids, browse.index, null);
+      root.addChild(carousel.root);
+    }
     let frame: Graphics | null = null;
-    if (fromHand) {
+    if (opts.hand) {
       frame = new Graphics();
       const { width: w, height: h } = layout.card;
       glowRoundRect(frame, -w / 2, -h / 2, w, h, Math.max(4, w * 0.08), theme.text, Math.max(2, w * 0.035), 1.4);
@@ -2036,51 +2180,76 @@ export class Board {
     root.addChild(card);
     root.alpha = 0;
     this.zoomLayer.addChild(root);
-    const faces = new Map<string, { card: Container; overflow: boolean }>();
-    if (def && cardId) faces.set(cardId, { card, overflow });
-    this.zoom = { cardId: def ? cardId : null, root, card, width: z.width, height: z.height, overflow, faces, frame };
+    const list = opts.list ? { ids: opts.list.ids, start: opts.list.index, startX: opts.list.startX, step: Math.max(28, Math.round(z.width * 0.18)) } : null;
+    this.zoom = { cardId: def ? cardId : null, root, card, width: z.width, height: z.height, texts, overflow, frame, carousel, index: browse?.index ?? 0, list };
     this.ui.add({ target: root, to: { alpha: 1 }, duration: timing.zoomIn, owner: root });
     this.ui.add({ target: card, to: { x: cx, y: cy }, duration: timing.zoomIn, ease: ease.outCubic, owner: card });
     this.ui.add({ target: card.scale, to: { x: 1, y: 1 }, duration: timing.zoomIn, ease: ease.outBack, owner: card });
   }
 
+  /** A carousel face: the baked zoom face if it is drawn, else the small face as a stand-in (no drawing on a slide). */
+  private carouselFace(cardId: string): CarouselFace {
+    const layout = this.layout;
+    const def = getCard(cardId);
+    const z = layout?.zoom;
+    if (!def || !layout || !z) return { root: new Container(), full: false };
+    if (hasZoomFace(def, z.width, z.height)) return { root: createZoomFace(def, z.width, z.height).root, full: true };
+    const small = createCardFace(def, layout.card.width, layout.card.height, 'small');
+    small.scale.set(z.width / layout.card.width);
+    return { root: small, full: false };
+  }
+
   /**
-   * S-04-3: the held finger slid onto another hand card. The zoom shows it at
-   * once, in place (no zoom-in tween), so reading a hand is instant. `inputAt`:
-   * the move's event time, logged for the <100ms check.
+   * S-04-3: the held finger slid onto another card. The zoom shows it at once,
+   * in place (no zoom-in tween), so reading a hand is instant; the carousel
+   * behind slides along (S-05-3). `inputAt`: the move's event time, logged for
+   * the <100ms check. `index`: its place in the hand / list.
    */
-  private swapZoom(cardId: string, from: Box, inputAt: number): void {
+  private swapZoom(cardId: string, from: Box | null, inputAt: number, index: number): void {
     const zoom = this.zoom;
     const layout = this.layout;
     const def = getCard(cardId);
-    if (!zoom || !layout || !def || zoom.cardId === cardId) return;
+    if (!zoom || !layout || !def || zoom.index === index) return;
     const z = layout.zoom;
     // Finish the zoom-in now: the slide is the reader moving on.
     this.ui.cancel(zoom.root);
     this.ui.cancel(zoom.card);
     this.ui.cancel(zoom.card.scale);
     zoom.root.alpha = 1;
-    zoom.frame?.position.set(from.x + from.width / 2, from.y + from.height / 2);
-    let next = zoom.faces.get(cardId);
-    if (!next) {
-      const card = createCardFace(def, z.width, z.height, 'full');
-      next = { card, overflow: textOverflows(card, z.width, z.height) };
-      zoom.faces.set(cardId, next);
-    }
-    zoom.card.visible = false;
-    zoom.root.removeChild(zoom.card);
-    // A face made during this zoom is kept (destroyed with the zoom); one not in the cache is dropped.
-    if (![...zoom.faces.values()].some((f) => f.card === zoom.card)) zoom.card.destroy({ children: true });
-    const card = next.card;
-    card.visible = true;
+    if (from) zoom.frame?.position.set(from.x + from.width / 2, from.y + from.height / 2);
+    const predrawn = hasZoomFace(def, z.width, z.height);
+    const next = createZoomFace(def, z.width, z.height);
+    const at = zoom.root.getChildIndex(zoom.card);
+    zoom.card.destroy({ children: true });
+    const card = next.root;
     card.position.set(z.x + z.width / 2, z.y + z.height / 2);
-    card.scale.set(1);
-    zoom.root.addChild(card);
+    zoom.root.addChildAt(card, at);
+    const prev = zoom.index;
     zoom.card = card;
     zoom.cardId = cardId;
+    zoom.texts = next.texts;
     zoom.overflow = next.overflow;
+    zoom.index = index;
+    if (zoom.carousel) {
+      // On a device where drawing a frame is slow, the slide would only delay the next touch: jump instead.
+      const slide = !framesAreSlow();
+      zoom.carousel.show(zoom.carousel.cardIds, index, prev, slide);
+      this.callbacks.log({ kind: 'carousel_slide', text: cardId, scheduledMs: slide ? CAROUSEL_SLIDE_MS : 0 });
+    }
     this.callbacks.changed();
-    this.callbacks.log({ kind: 'zoom_swap', text: cardId, scheduledMs: 0, inputAt });
+    this.callbacks.log({ kind: 'zoom_swap', text: cardId, scheduledMs: 0, inputAt, predrawn });
+  }
+
+  /** List zooms (piles, score pills): the held finger moved to x. */
+  private slideList(x: number, at: number): void {
+    const zoom = this.zoom;
+    const list = zoom?.list;
+    if (!zoom || !list) return;
+    // The first move after the zoom opened is where the finger rests (within the hold's move tolerance).
+    if (Number.isNaN(list.startX)) list.startX = x;
+    const i = listIndex(list.start, x - list.startX, list.step, list.ids.length);
+    const id = list.ids[i];
+    if (id !== undefined && i !== zoom.index) this.swapZoom(id, null, at, i);
   }
 
   private closeZoom(immediate = false): void {
@@ -2090,19 +2259,154 @@ export class Board {
     this.ui.cancel(zoom.root);
     this.ui.cancel(zoom.card);
     this.ui.cancel(zoom.card.scale);
-    // Faces made during a slide but not on screen now are not under zoom.root.
-    for (const f of zoom.faces.values()) if (f.card !== zoom.card && !f.card.destroyed) f.card.destroy({ children: true });
     if (immediate) {
-      zoom.root.destroy({ children: true });
+      this.destroyZoomRoot(zoom.root, zoom.carousel);
       return;
     }
+    this.finishFade();
+    this.fadingZoom = zoom.root;
     this.ui.add({
       target: zoom.root,
       to: { alpha: 0 },
       duration: timing.zoomOut,
       ease: ease.linear,
       owner: zoom.root,
-      onComplete: () => zoom.root.destroy({ children: true }),
+      onComplete: () => this.destroyZoomRoot(zoom.root, zoom.carousel),
     });
+  }
+
+  private destroyZoomRoot(root: Container, carousel: Carousel | null): void {
+    carousel?.destroy();
+    if (this.fadingZoom === root) this.fadingZoom = null;
+    if (!root.destroyed) root.destroy({ children: true });
+  }
+
+  /** Drops a zoom still fading out (before its textures may be freed). */
+  private finishFade(): void {
+    const root = this.fadingZoom;
+    this.fadingZoom = null;
+    if (root && !root.destroyed) {
+      this.ui.cancel(root);
+      root.destroy({ children: true });
+    }
+  }
+
+  // ---- S-05-2 ICE report, S-05-1 Last run strip -----------------------------
+
+  private openReport(text: string, layout: BoardLayout): void {
+    this.report?.destroy();
+    const r = new IceReport(text, layout, () => this.dismissReport());
+    this.panelLayer.addChild(r.root);
+    this.report = r;
+    this.callbacks.log({ kind: 'ice_report', text, box: { ...r.box }, scheduledMs: 0 });
+  }
+
+  /** Closes the report without anything else (a new action, a turn change). */
+  private closeReport(): void {
+    this.report?.destroy();
+    this.report = null;
+  }
+
+  /** The tap that closes the report: only that. A game over waiting behind it shows now. */
+  private dismissReport(): void {
+    if (!this.report) return;
+    this.closeReport();
+    const view = this.view;
+    const layout = this.layout;
+    if (view?.result && !this.gameOver && layout) this.showGameOver(layout, gameOverLines(view.result), view.result.winner, true);
+    this.callbacks.changed();
+  }
+
+  private toggleLastRun(): void {
+    if (this.lastRunStrip) this.closeLastRun();
+    else this.openLastRun();
+    const view = this.view;
+    const layout = this.layout;
+    if (view && layout && this.gen?.lastRunButton.root.visible) this.gen.lastRunButton.set(layout.action2, 'Last run', true, theme.runner, this.lastRunStrip !== null);
+    this.callbacks.changed();
+  }
+
+  private openLastRun(): void {
+    const last = this.view?.lastRun;
+    const layout = this.layout;
+    this.closeLastRun();
+    if (!last || !layout) return;
+    const ids = last.cards.map((c) => c.cardId);
+    const strip = new LastRunStrip(last, layout, (target, index, box) =>
+      attachPress(target, {
+        onLongPress: () => {
+          const id = ids[index];
+          if (id !== undefined) this.openZoom(id, 'corp', box, { list: { ids, index, startX: Number.NaN } });
+        },
+        onHoldMove: (x, _y, at) => this.slideList(x, at),
+        onLongPressEnd: () => this.closeZoom(),
+      }),
+    );
+    this.accessLayer.addChild(strip.root);
+    this.lastRunStrip = strip;
+  }
+
+  private closeLastRun(): void {
+    this.lastRunStrip?.destroy();
+    this.lastRunStrip = null;
+  }
+
+  // ---- QA-S4-1: pre-draw the zoom faces while a hand card is pressed ---------
+
+  /**
+   * A finger went down on hand card `index`: draw the hand's zoom faces ahead,
+   * nearest first, one per frame, during the hold delay (and while the zoom is
+   * open). Drawn faces are kept (cardFace cache) until the board is resized.
+   */
+  private startPredraw(ids: string[], index: number): void {
+    const layout = this.layout;
+    if (!layout) return;
+    this.stopPredraw();
+    // Nothing on screen may still show a face evicted earlier: free them now.
+    if (!this.zoom) {
+      this.finishFade();
+      flushZoomFaces();
+    }
+    const z = layout.zoom;
+    const order: string[] = [];
+    for (let d = 0; d < ids.length; d++) {
+      for (const i of d === 0 ? [index] : [index + d, index - d]) {
+        const id = ids[i];
+        if (id === undefined || order.includes(id)) continue;
+        const def = getCard(id);
+        if (def && !hasZoomFace(def, z.width, z.height)) order.push(id);
+      }
+    }
+    if (order.length === 0) return;
+    this.predraw = { ids: order, total: order.length, frame: requestAnimationFrame(() => this.predrawStep()), at: performance.now() };
+  }
+
+  private predrawStep(): void {
+    const p = this.predraw;
+    const layout = this.layout;
+    if (!p || !layout) return;
+    // Around the moment the hold turns into a zoom, draw nothing more: on a slow
+    // device a bake in that frame would make the zoom itself late (the held card's
+    // own face, first in the list, is already drawn by then). Resumes once it opens.
+    const drawnOne = p.ids.length < p.total;
+    if (!this.zoom && drawnOne && performance.now() - p.at > timing.longPress - PREDRAW_QUIET_MS) {
+      p.frame = requestAnimationFrame(() => this.predrawStep());
+      return;
+    }
+    const z = layout.zoom;
+    const id = p.ids.shift();
+    const def = id ? getCard(id) : undefined;
+    if (id && def && !hasZoomFace(def, z.width, z.height)) {
+      // Drawn into the cache; the sprite made here is not needed.
+      createZoomFace(def, z.width, z.height).root.destroy({ children: true });
+      if (this.zoom?.carousel?.upgrade(id)) this.callbacks.changed();
+    }
+    if (p.ids.length > 0) p.frame = requestAnimationFrame(() => this.predrawStep());
+    else this.predraw = null;
+  }
+
+  private stopPredraw(): void {
+    if (this.predraw) cancelAnimationFrame(this.predraw.frame);
+    this.predraw = null;
   }
 }

@@ -5,7 +5,8 @@
   "//": "No build script on purpose: root `npm run build` never needs the Android SDK. See README.md.",
   "scripts": {
     "sync": "npm run build:android --workspace @overclock/client && npm run check:android --workspace @overclock/client && cap sync android",
-    "apk": "cd android && ./gradlew assembleRelease"
+    "apk": "cd android && ./gradlew assembleRelease",
+    "test": "vitest run --dir test"
   },
   "dependencies": {
     "@capacitor/android": "8.6.2",

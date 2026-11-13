@@ -7,6 +7,7 @@ import type { Action } from '@overclock/engine';
 import { Application, updateRenderGroupTransforms } from 'pixi.js';
 import { Board } from './board';
 import { setCardRenderer, smallFaceLayout } from './cardFace';
+import { forceFrameSpeed, noteDraw, noteTick } from './frameClock';
 import type { AnimRecord, OverclockTestHook } from './hook-types';
 import { HotSeat, seedFromUrl } from './hotseat';
 import { lastInput } from './input';
@@ -84,6 +85,7 @@ async function start(): Promise<void> {
   // time, up to 250ms, so animations finish on wall-clock budget.
   app.ticker.minFPS = 4;
   app.ticker.add((t) => {
+    noteTick(t.elapsedMS);
     // Only frames where a tween actually moved something are drawn: a hint
     // sitting on screen (waiting for its fade-out) costs no GPU time.
     const fxMoved = fx.tick(t.deltaMS);
@@ -91,6 +93,7 @@ async function start(): Promise<void> {
     if (dirty || fxMoved || uiMoved) {
       dirty = false;
       app.render();
+      noteDraw();
     }
   });
 
@@ -158,6 +161,7 @@ async function start(): Promise<void> {
       },
       back,
       exitRequests: () => exitRequests,
+      frameSpeed: (mode) => forceFrameSpeed(mode),
     };
   }
   document.getElementById('boot')?.remove();

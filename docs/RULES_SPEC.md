@@ -56,7 +56,7 @@ The engine implements this document. It is a simplified, genre-standard ruleset;
    - An **agenda** must be stolen: it goes face up to the Runner's score area and the Runner gains its points.
    - A card with a **trash cost** (assets, upgrades) may be trashed by paying that cost: it goes face up to Archives. Otherwise the Runner leaves it where it was. Cards in Archives cannot be trashed again.
    - Other cards (operations, ICE) are looked at and stay where they were.
-4. **End.** The run ends; the Runner continues its turn with the clicks it had left. Cards the Runner accessed but did not take become hidden again.
+4. **End.** The run ends; the Runner continues its turn with the clicks it had left. Cards the Runner accessed but did not take become hidden again. *(Sprint 5)* The Runner may look back at them (**Last run**) until his turn ends; the Corp is shown nothing new.
 - **Inside Job:** the first piece of ICE the Runner *encounters* in the run (so the first rezzed one) is bypassed: passed without breaking, its subroutines do not happen.
 - **Neural EMP** can be played only if the Runner started a run during its previous turn.
 

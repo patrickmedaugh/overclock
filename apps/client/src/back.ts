@@ -6,6 +6,8 @@ export type BackAction =
   | 'close_dialog'
   /** A zoomed card is showing: close it. */
   | 'close_zoom'
+  /** S-05: the ICE report or the Last run strip is showing: close it. */
+  | 'close_panel'
   /** The game is over: close the app. */
   | 'exit'
   /** A game in progress: ask "Leave the game?" (Leave / Stay). */
@@ -14,12 +16,15 @@ export type BackAction =
 export interface BackState {
   dialogOpen: boolean;
   zoomOpen: boolean;
+  /** The ICE report or the Last run strip is open. */
+  panelOpen?: boolean;
   gameOver: boolean;
 }
 
 export function backAction(s: BackState): BackAction {
   if (s.dialogOpen) return 'close_dialog';
   if (s.zoomOpen) return 'close_zoom';
+  if (s.panelOpen) return 'close_panel';
   if (s.gameOver) return 'exit';
   return 'ask_leave';
 }

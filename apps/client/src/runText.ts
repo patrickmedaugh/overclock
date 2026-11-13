@@ -4,7 +4,7 @@
 // strengths come from `run.ice` / `run.breakerStrength`. Card data is read only
 // for names and for an ability's printed "+N strength".
 import { getCard } from '@overclock/cards';
-import type { Action, CardOption, GameEvent, RunView, Side } from '@overclock/engine';
+import type { Action, CardOption, GameEvent, LetFireView, RunView, Side, SubOutcome } from '@overclock/engine';
 import { SIDE_NAME, TERMS, plural, priceText, serverLabel } from './terms';
 
 /** A card's name, or `fallback` for a card the viewer can't see. */
@@ -64,7 +64,7 @@ export function optionLabel(o: CardOption, run: RunView, options: readonly CardO
         case 'approach':
           return "Don't rez";
         case 'encounter':
-          return 'Let it through';
+          return letFireLabel(run.letFire) ?? 'Let it through';
         case 'continue':
           return 'Continue';
         case 'access':
@@ -135,4 +135,73 @@ export function runEndText(e: Extract<GameEvent, { type: 'run_ended' }>, batch: 
     return gotIn && !accessed ? `Nothing to access in ${serverLabel(e.server)}` : null;
   }
   return RUN_END[e.outcome] ?? null;
+}
+
+// ---- S-05-2: what the ICE does, before ("Let it fire: ...") and after (the report) ----
+
+/** One subroutine outcome, in words: `will` (the button) or `did` (the report). Null: nothing to say (0-size, end the run). */
+export function outcomeText(o: SubOutcome, tense: 'will' | 'did'): string | null {
+  const n = o.amount;
+  if (n <= 0) return null;
+  const will = tense === 'will';
+  switch (o.op) {
+    case 'lose_clicks':
+      return `${will ? 'lose' : 'you lost'} ${plural(n, 'click', 'clicks')}`;
+    case 'net_damage':
+      return `${will ? 'take' : 'you took'} ${n} damage`;
+    case 'gain_credits':
+      return `${SIDE_NAME.corp} ${will ? 'gains' : 'gained'} ${plural(n, 'credit', 'credits')}`;
+    case 'draw':
+      return `${SIDE_NAME.corp} ${will ? 'draws' : 'drew'} ${plural(n, 'card', 'cards')}`;
+    default:
+      return null;
+  }
+}
+
+/**
+ * The encounter's `pass` button from the engine's preview (the client never
+ * works out what ICE will do): "Let it fire: lose 1 click, run ends",
+ * "Let it fire: take 3 damage", "Let it fire: take 3 damage, you flatline
+ * (Corp wins)"; "Continue" when every subroutine is broken. Null: no preview.
+ */
+export function letFireLabel(p: LetFireView | null | undefined): string | null {
+  if (!p) return null;
+  if (p.outcomes.length === 0 && p.ends === null) return 'Continue';
+  const parts = p.outcomes.map((o) => outcomeText(o, 'will')).filter((t): t is string => t !== null);
+  if (p.ends === 'run') parts.push('run ends');
+  if (p.ends === 'game') parts.push(`you flatline (${SIDE_NAME.corp} wins)`);
+  return `Let it fire: ${parts.length > 0 ? parts.join(', ') : 'nothing happens'}`;
+}
+
+/**
+ * What the ICE did, from one action's events (`subroutine_resolved`, then the
+ * run's end): "Enigma: you lost 1 click. Enigma ended your run.",
+ * "Neural Katana: you took 3 damage.", "... You flatlined: the Corp wins."
+ * Null when no subroutine fired.
+ */
+export function iceReport(batch: readonly GameEvent[]): string | null {
+  const order: string[] = [];
+  const said = new Map<string, string[]>();
+  let last: string | null = null;
+  for (const e of batch) {
+    if (e.type !== 'subroutine_resolved') continue;
+    last = e.cardId;
+    if (!said.has(e.cardId)) {
+      said.set(e.cardId, []);
+      order.push(e.cardId);
+    }
+    const t = outcomeText(e.outcome, 'did');
+    if (t) said.get(e.cardId)!.push(t);
+  }
+  if (last === null) return null;
+  const end = batch.find((e): e is Extract<GameEvent, { type: 'run_ended' }> => e.type === 'run_ended');
+  const out: string[] = [];
+  for (const id of order) {
+    const parts = said.get(id)!;
+    if (parts.length > 0) out.push(`${nameOf(id)}: ${parts.join(', ')}.`);
+  }
+  if (end?.outcome === 'ended_by_ice') out.push(`${nameOf(last)} ended your ${TERMS.run.toLowerCase()}.`);
+  else if (end?.outcome === 'flatline') out.push(`You flatlined: the ${SIDE_NAME.corp} wins.`);
+  if (out.length === 0) out.push(`${nameOf(last)}: nothing happened.`);
+  return out.join(' ');
 }

@@ -23,6 +23,8 @@ export interface RunDisplayHooks {
   onButton(index: number): void;
   /** Attaches press feedback + tap to a button; returns its detacher. */
   press(target: Container, onTap: () => void): () => void;
+  /** S-05-1: holding an accessed card zooms it (no tap action); returns its detacher. */
+  hold(target: Container, cardId: string, box: Box): () => void;
 }
 
 /** Where things are on the table (from the board's widgets). */
@@ -51,6 +53,7 @@ export class RunDisplay {
   /** Strike lines of the listed subroutines (for the break animation). */
   private strikes: Graphics[] = [];
   private accessBoxes: { cardId: string | null; box: Box }[] = [];
+  private accessDetachers: (() => void)[] = [];
   private snap: RunSnapshot | null = null;
   /** The smallest text size in the info panel as drawn (after any shrink to fit). */
   private infoFontPx = 0;
@@ -99,6 +102,12 @@ export class RunDisplay {
   detach(): void {
     for (const d of this.detachers) d();
     this.detachers.length = 0;
+    this.detachAccess();
+  }
+
+  private detachAccess(): void {
+    for (const d of this.accessDetachers) d();
+    this.accessDetachers = [];
   }
 
   private hide(): void {
@@ -283,6 +292,7 @@ export class RunDisplay {
   }
 
   private drawAccess(cards: readonly { cardId: string | null; stolen: boolean; from: string }[], run: RunView): void {
+    this.detachAccess();
     for (const c of this.access.removeChildren()) c.destroy({ children: true });
     this.accessBoxes = [];
     if (cards.length === 0) return;
@@ -301,6 +311,12 @@ export class RunDisplay {
       const card = def ? createCardFace(def, b.width, b.height, b.width >= 120 ? 'full' : 'small') : createCardBack('corp', b.width, b.height);
       card.position.set(b.x + b.width / 2, b.y + b.height / 2);
       if (c.stolen) card.alpha = 0.35;
+      if (def && c.cardId) {
+        card.hitArea = new Rectangle(-b.width / 2, -b.height / 2, b.width, b.height);
+        card.label = `access:${c.cardId}`;
+        this.accessDetachers.push(this.hooks.hold(card, c.cardId, b));
+        card.cursor = 'default';
+      }
       this.access.addChild(card);
       const where = c.from === 'remote' ? `From ${serverLabel(run.server)}` : (FROM[c.from] ?? '');
       const tag = new Text({
