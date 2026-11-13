@@ -134,7 +134,8 @@ export interface LayoutSnapshot {
   /** The area reserved for the viewer's hand. */
   handArea: Box;
   /** Rendered hand cards (the viewer's), in hand order. `marked` = picked for discard, `selected` = picked to play. */
-  hand: { cardId: string; box: Box; marked: boolean; selected: boolean }[];
+  /** `outlined`: the card a hold-and-slide shows in the zoom (S-04-3). */
+  hand: { cardId: string; box: Box; marked: boolean; selected: boolean; outlined: boolean }[];
   /** Corp servers in view order (hq, rd, archives, remotes). */
   servers: ServerSnapshot[];
   /** The Runner's installed cards, install order. */
@@ -182,6 +183,10 @@ export interface LayoutSnapshot {
    * is true if any text runs outside the card.
    */
   zoom: { cardId: string | null; box: Box; texts: string[]; textOverflow: boolean } | null;
+  /** S-04-2: the "Leave the game?" question, if showing. */
+  dialog: { title: string; text: string; box: Box; buttons: { label: string; box: Box }[] } | null;
+  /** S-04-1: the build date as shown ("Built 2026-11-13 14:32 UTC"), or null while hidden. */
+  buildLabel: { text: string; box: Box } | null;
   /** True while any event animation runs (never blocks input). */
   animating: boolean;
 }
@@ -219,7 +224,9 @@ export type AnimKind =
   /** An advancement counter is added. */
   | 'advance_pop'
   /** A short non-blocking notice (run result, damage, bypass). */
-  | 'notice';
+  | 'notice'
+  /** S-04-3: a hold-and-slide put another hand card in the zoom (`text`: its card id). */
+  | 'zoom_swap';
 
 /** Logged when an animation or hint starts. */
 export interface AnimRecord {
@@ -234,6 +241,8 @@ export interface AnimRecord {
   box?: Box;
   /** Hints: the text size as drawn on screen (CSS px, after any fit-to-slot scaling). */
   fontPx?: number;
+  /** zoom_swap: the input event's time (performance.now() clock) that caused it. */
+  inputAt?: number;
 }
 
 /** Timestamps (performance.now() clock) of the last pointer release handled by a target. */
@@ -277,6 +286,10 @@ export interface OverclockTestHook {
    * name and type label, card-local with (0, 0) at the card's center. Null for an unknown id.
    */
   smallFace(cardId: string, width: number, height: number): SmallFaceSnapshot | null;
+  /** S-04-2: presses the phone's Back button (same handler as the app's); returns what it did. */
+  back(): 'close_dialog' | 'close_zoom' | 'exit' | 'ask_leave';
+  /** How many times the game asked to close the app (Leave, or Back after the game ended). Web only counts. */
+  exitRequests(): number;
 }
 
 export interface SmallFaceSnapshot {

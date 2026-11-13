@@ -198,3 +198,49 @@ describe('attachPress: tap vs hold', () => {
     expect(log).toEqual(['down']);
   });
 });
+
+describe('attachPress: hold and slide (S-04-3)', () => {
+  it('after the zoom opens, moves of the same pointer are reported with their event time', () => {
+    const moves: string[] = [];
+    const { target, log } = setup({ onHoldMove: (x, y, at) => moves.push(`${x},${y}@${at}`) });
+    target.emit('pointerdown', { timeStamp: now, x: 10, y: 10 });
+    target.emit('globalpointermove', { timeStamp: now, x: 12, y: 10 });
+    expect(moves, 'no slide before the hold opens').toEqual([]);
+    pass(HOLD);
+    expect(log).toEqual(['down', 'zoom']);
+    pass(20);
+    target.emit('globalpointermove', { timeStamp: now, x: 80, y: 30 });
+    expect(moves).toEqual([`80,30@${now}`]);
+  });
+
+  it('lifting after a slide closes the zoom and picks nothing', () => {
+    const { target, log } = setup({ onHoldMove: () => {} });
+    target.emit('pointerdown', { timeStamp: now, x: 10, y: 10 });
+    pass(HOLD + 10);
+    target.emit('globalpointermove', { timeStamp: now, x: 90, y: 10 });
+    pass(100);
+    target.emit('pointerup', { timeStamp: now, x: 90, y: 10 });
+    expect(log).toEqual(['down', 'zoom', 'unzoom', 'release']);
+  });
+
+  it('a late-opened zoom followed by a slide is not a tap, even if released quickly', () => {
+    const { target, log } = setup({ onHoldMove: () => {} });
+    const down = now;
+    target.emit('pointerdown', { timeStamp: down, x: 10, y: 10 });
+    stall(600);
+    wakeTimers();
+    runFrame();
+    target.emit('globalpointermove', { timeStamp: down + 20, x: 90, y: 10 });
+    target.emit('pointerup', { timeStamp: down + 30, x: 90, y: 10 });
+    expect(log).toEqual(['down', 'zoom', 'unzoom', 'release']);
+  });
+
+  it('a released-outside slide closes the zoom without a tap', () => {
+    const { target, log } = setup({ onHoldMove: () => {} });
+    target.emit('pointerdown', { timeStamp: now, x: 10, y: 10 });
+    pass(HOLD + 10);
+    target.emit('globalpointermove', { timeStamp: now, x: 200, y: 10 });
+    target.emit('pointerupoutside', { timeStamp: now });
+    expect(log).toEqual(['down', 'zoom', 'unzoom', 'release']);
+  });
+});

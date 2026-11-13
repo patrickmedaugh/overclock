@@ -1,0 +1,133 @@
+name: android
+
+# Builds the OVERCLOCK Android app (apps/android) and publishes it on the
+# repo's Releases page (owner answer A, Sprint 4): one rolling release per
+# branch, tag `app-<branch>`, replaced by every build. `main` is the "Latest"
+# release; `sprint-*` branches are pre-releases. The checks below fail the job
+# if the APK is missing, signed with another key, or has the wrong id, name or
+# orientation, or if its web bundle has the test hook / rotate prompt / URLs.
+
+on:
+  push:
+    branches: [main, 'sprint-*']
+    paths-ignore: ['docs/**']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Certificate SHA-256 of apps/android/keystore/overclock.jks (never changes:
+  # a new key would stop updates installing over the old app).
+  CERT_SHA256: 510531217c7bbbc01172c811bc7c5a24d6a5922e2c495c4fe871fc26d4deaa99
+  APP_ID: app.overclock.game
+  BUILD_TOOLS: 36.0.0
+
+jobs:
+  apk:
+    name: apk
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          # The Capacitor 8 CLI needs Node 22 or newer (the web build is fine on 20).
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+
+      - name: Android SDK (platform 36, build-tools)
+        run: |
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMANAGER" --licenses > /dev/null || true
+          "$SDKMANAGER" --install "platforms;android-36" "build-tools;${BUILD_TOOLS}" > /dev/null
+          echo "$ANDROID_HOME/build-tools/${BUILD_TOOLS}" >> "$GITHUB_PATH"
+
+      - name: Build time and names (set once, used everywhere)
+        run: |
+          NOW=$(date -u +%s)
+          BRANCH="${GITHUB_REF_NAME//\//-}"
+          {
+            echo "OVERCLOCK_BUILD_TIME=$(date -u -d "@$NOW" '+%Y-%m-%d %H:%M UTC')"
+            echo "OVERCLOCK_VERSION_CODE=${{ github.run_number }}"
+            echo "BRANCH=$BRANCH"
+            echo "TAG=app-$BRANCH"
+            echo "APK_NAME=overclock-$BRANCH-$(date -u -d "@$NOW" '+%Y%m%d-%H%M').apk"
+          } >> "$GITHUB_ENV"
+
+      # Android web build + bundle check + cap sync (apps/android/package.json).
+      - run: npm run sync --workspace @overclock/android
+
+      - name: Build the APK
+        working-directory: apps/android/android
+        run: ./gradlew assembleRelease --no-daemon --stacktrace
+
+      - name: Check the APK
+        run: |
+          set -euo pipefail
+          APK=apps/android/android/app/build/outputs/apk/release/app-release.apk
+          test -f "$APK" || { echo "::error::APK missing: $APK"; exit 1; }
+
+          echo "--- signature"
+          apksigner verify --print-certs "$APK" | tee certs.txt
+          SHA=$(grep -m1 'certificate SHA-256 digest' certs.txt | awk '{print $NF}')
+          if [ "$SHA" != "$CERT_SHA256" ]; then echo "::error::signed with $SHA, expected $CERT_SHA256"; exit 1; fi
+
+          echo "--- badging"
+          aapt2 dump badging "$APK" | tee badging.txt | head -5
+          grep -q "package: name='$APP_ID'" badging.txt || { echo "::error::package id is not $APP_ID"; exit 1; }
+          grep -q "versionCode='$OVERCLOCK_VERSION_CODE'" badging.txt || { echo "::error::versionCode is not $OVERCLOCK_VERSION_CODE"; exit 1; }
+          grep -q "application-label:'OVERCLOCK'" badging.txt || { echo "::error::app label is not OVERCLOCK"; exit 1; }
+
+          echo "--- orientation"
+          aapt2 dump xmltree --file AndroidManifest.xml "$APK" > manifest.txt
+          # sensorLandscape = 6
+          grep -q 'screenOrientation(0x0101001e)=6' manifest.txt || { grep screenOrientation manifest.txt || true; echo "::error::activity is not sensorLandscape"; exit 1; }
+
+          echo "--- web bundle inside the APK"
+          rm -rf apk-contents && mkdir apk-contents
+          unzip -q "$APK" 'assets/public/*' -d apk-contents
+          node apps/client/scripts/check-android-bundle.mjs apk-contents/assets/public
+
+          cp "$APK" "$APK_NAME"
+          ls -l "$APK_NAME"
+
+      - name: Publish on the Releases page
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_REF_NAME" = "main" ]; then KIND="--latest"; LABEL="the main version"; else KIND="--prerelease --latest=false"; LABEL="sprint branch $GITHUB_REF_NAME"; fi
+          cat > notes.md <<EOF
+          The OVERCLOCK app for Android, built from $LABEL on **$OVERCLOCK_BUILD_TIME**.
+          The same date shows small in a corner of the game board, so you can tell you have this one.
+
+          **To install on your phone**
+          1. Open this page on the phone and tap **$APK_NAME** below (under "Assets").
+          2. The first time, Android asks to allow installs from your browser: tap **Settings**, turn on **Allow from this source**, then go back.
+          3. Tap **Install**. If Android warns the app is from an unknown developer, tap **Install anyway** (it is ours, not from the Play Store).
+          4. Open **OVERCLOCK** from your apps.
+
+          Already have the app? Installing this file updates it in place. If Android ever says "App not installed", uninstall the old app first (games are not saved yet, so you lose nothing).
+
+          Build $OVERCLOCK_VERSION_CODE · commit ${GITHUB_SHA::7}
+          EOF
+          gh release delete "$TAG" --cleanup-tag -y 2>/dev/null || true
+          # The tag delete can take a moment to settle.
+          for i in 1 2 3; do
+            if gh release create "$TAG" "$APK_NAME" --target "$GITHUB_SHA" \
+              --title "OVERCLOCK app — $BRANCH — built $OVERCLOCK_BUILD_TIME" \
+              --notes-file notes.md $KIND; then exit 0; fi
+            sleep 5
+          done
+          exit 1

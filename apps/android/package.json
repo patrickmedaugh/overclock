@@ -1,0 +1,18 @@
+{
+  "name": "@overclock/android",
+  "version": "0.0.0",
+  "private": true,
+  "//": "No build script on purpose: root `npm run build` never needs the Android SDK. See README.md.",
+  "scripts": {
+    "sync": "npm run build:android --workspace @overclock/client && npm run check:android --workspace @overclock/client && cap sync android",
+    "apk": "cd android && ./gradlew assembleRelease"
+  },
+  "dependencies": {
+    "@capacitor/android": "8.6.2",
+    "@capacitor/app": "8.1.2",
+    "@capacitor/core": "8.6.2"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "8.6.2"
+  }
+}

@@ -11,14 +11,16 @@
 import type { Action, CardOption, GameEvent, InstalledView, PlayerView, RejectReason, ServerId, Side, WinReason } from '@overclock/engine';
 import { getCard } from '@overclock/cards';
 import { Container, Graphics, Rectangle, Text } from 'pixi.js';
-import { createCardBack, createCardFace, glowRoundRect, retireCardTextures } from './cardFace';
+import { type BackAction, backAction } from './back';
+import { createCardBack, createCardFace, dropCardTextures, glowRoundRect, retireCardTextures } from './cardFace';
 import { centeredBox } from './geometry';
 import { Hand, type HandCard } from './hand';
 import type { AnimRecord, Box, EndTurnClock, InstalledSnapshot, Insets, LayoutSnapshot, SideLayout, TargetSnapshot } from './hook-types';
 import type { Decision, Presentation } from './hotseat';
 import { hintFor } from './hints';
 import { attachPress, inputTime } from './input';
-import { type BoardLayout, type BoardShape, CARD_RATIO, type SideRow, computeLayout } from './layout';
+import { BUILD_LINE, type BoardLayout, type BoardShape, CARD_RATIO, type SideRow, computeLayout } from './layout';
+import { LeaveDialog } from './leaveDialog';
 import { RunDisplay } from './runDisplay';
 import { RUN_END, nameOf, runEndText } from './runText';
 import { SIDE_NAME, TERMS, plural, pointsText, priceText, serverLabel, zoneName } from './terms';
@@ -182,6 +184,8 @@ export interface BoardCallbacks {
   /** The board changed outside a dispatch (a card picked or let go): redraw, and hit-test the new places at once. */
   changed(): void;
   log(rec: Omit<AnimRecord, 'startedAt'>): void;
+  /** When this copy of the game was built, e.g. "2026-11-13 14:32 UTC" (S-04-1: shown small in a corner). */
+  buildTime: string;
 }
 
 export class Board {
@@ -201,6 +205,11 @@ export class Board {
   private readonly fxLayer = new Container();
   private readonly hintLayer = new Container();
   private readonly zoomLayer = new Container();
+  /** The small build date (S-04-1). */
+  private readonly buildText: Text;
+  /** "Leave the game?" over everything (S-04-2). */
+  private readonly dialogLayer = new Container();
+  private leave: { dialog: LeaveDialog; onLeave: () => void } | null = null;
   /** One hand per seat, kept between turns. */
   private readonly hands: Record<Side, Hand>;
   /** Catches taps on empty board (cancels a picked card). */
@@ -217,7 +226,18 @@ export class Board {
   /** Installed card picked for its choices (Corp agenda: Advance / Score). */
   private pickedInstalled: string | null = null;
   private hint: { text: string; root: Container; box: Box } | null = null;
-  private zoom: { cardId: string | null; root: Container; card: Container; width: number; height: number; overflow: boolean } | null = null;
+  private zoom: {
+    cardId: string | null;
+    root: Container;
+    card: Container;
+    width: number;
+    height: number;
+    overflow: boolean;
+    /** Faces already made during this zoom (a slide back and forth reuses them). */
+    faces: Map<string, { card: Container; overflow: boolean }>;
+    /** Hand zooms: an undimmed outline over the hand card the zoom shows (S-04-3). */
+    frame: Graphics | null;
+  } | null = null;
   /** Hand indices picked in the discard picker (UI state only). */
   private readonly marked = new Set<number>();
   /** Hand index picked to play (UI state only). */
@@ -244,8 +264,9 @@ export class Board {
   ) {
     const handCallbacks = (side: Side) => ({
       onTap: (i: number) => this.onCardTap(i),
-      onLongPress: (id: string, from: Box) => this.openZoom(id, side, from),
+      onLongPress: (id: string, from: Box) => this.openZoom(id, side, from, true),
       onLongPressEnd: () => this.closeZoom(),
+      onZoomSlide: (id: string, box: Box, at: number) => this.swapZoom(id, box, at),
       log: (r: Omit<AnimRecord, 'startedAt'>) => callbacks.log(r),
     });
     this.hands = { corp: new Hand('corp', fx, ui, handCallbacks('corp')), runner: new Hand('runner', fx, ui, handCallbacks('runner')) };
@@ -257,8 +278,15 @@ export class Board {
     attachPress(this.catcher, { onTap: () => this.cancelSelection() });
     this.catcher.cursor = 'default';
     this.runLayer.eventMode = 'none';
-    this.table.addChild(this.catcher, this.bgLayer, this.boardLayer, this.installedLayer, this.runLayer, this.centerLayer, this.accessLayer, this.targetLayer, this.handLayer);
-    this.stage.addChild(this.table, this.fxLayer, this.hintLayer, this.zoomLayer);
+    this.buildText = new Text({
+      text: '',
+      style: { fontFamily: theme.fontFamily, fontSize: 9, fill: theme.textDim, align: 'center', lineHeight: BUILD_LINE },
+    });
+    this.buildText.label = 'build-time';
+    this.buildText.eventMode = 'none';
+    this.buildText.alpha = 0.85;
+    this.table.addChild(this.catcher, this.bgLayer, this.boardLayer, this.installedLayer, this.runLayer, this.centerLayer, this.accessLayer, this.targetLayer, this.handLayer, this.buildText);
+    this.stage.addChild(this.table, this.fxLayer, this.hintLayer, this.zoomLayer, this.dialogLayer);
   }
 
   /** New viewport size / safe-area insets (start, resize, rotate). */
@@ -269,6 +297,65 @@ export class Board {
     if (this.view) this.fullRender();
     if (this.hint) this.positionHint(this.hint);
     this.syncHelp();
+    // The question stays open across a rotation / inset change, laid out anew.
+    if (this.leave) this.openLeave(this.leave.onLeave);
+  }
+
+  /**
+   * The phone's Back button (S-04-2, owner answer A): closes the leave
+   * question or a zoom; on the game-over screen calls `exit`; otherwise asks
+   * "Leave the game?" (Leave calls `exit`). Returns what it did.
+   */
+  back(exit: () => void): BackAction {
+    const action = backAction({ dialogOpen: this.leave !== null, zoomOpen: this.zoom !== null, gameOver: !!this.view?.result });
+    if (action === 'close_dialog') this.closeLeave();
+    else if (action === 'close_zoom') this.closeZoom();
+    else if (action === 'exit') exit();
+    else this.openLeave(exit);
+    this.callbacks.changed();
+    return action;
+  }
+
+  private openLeave(onLeave: () => void): void {
+    this.closeLeave();
+    const layout = this.layout;
+    if (!layout) return;
+    const dialog = new LeaveDialog(
+      layout,
+      () => {
+        this.closeLeave();
+        this.callbacks.changed();
+      },
+      () => {
+        this.closeLeave();
+        this.callbacks.changed();
+        onLeave();
+      },
+    );
+    this.dialogLayer.addChild(dialog.root);
+    this.leave = { dialog, onLeave };
+  }
+
+  private closeLeave(): void {
+    this.leave?.dialog.destroy();
+    this.leave = null;
+  }
+
+  /**
+   * Draws every card again from scratch (S-04-2): after the GPU dropped the
+   * drawing surface (webglcontextrestored) or the app comes back from the
+   * background. Baked card pictures lived on the GPU, so they are all remade.
+   * Game state, the leave question and hints are kept.
+   */
+  redrawAll(): void {
+    this.fx.finishAll();
+    this.closeZoom(true);
+    this.destroyGeneration();
+    for (const s of SIDES) this.hands[s].reset();
+    dropCardTextures();
+    if (this.view) this.fullRender();
+    if (this.leave) this.openLeave(this.leave.onLeave);
+    this.callbacks.changed();
   }
 
   /** Shows the result of one action (see Presentation). */
@@ -453,6 +540,11 @@ export class Board {
       },
       selectedInstalled: this.pickedInstalled,
       hint: this.hint && this.hint.root.alpha > 0.05 ? { text: this.hint.text, box: this.hint.box } : null,
+      dialog: this.leave ? this.leave.dialog.snapshot() : null,
+      buildLabel:
+        layout && this.buildText.visible && this.buildText.text
+          ? { text: this.buildText.text.replace('\n', ' '), box: this.buildTextBox() }
+          : null,
       zoom: this.zoom
         ? { cardId: this.zoom.cardId, box: centeredBox(this.zoom.card, this.zoom.width, this.zoom.height), texts: textsOf(this.zoom.card), textOverflow: this.zoom.overflow }
         : null,
@@ -601,6 +693,7 @@ export class Board {
     const layout = computeLayout(vp.width, vp.height, vp.insets, { viewer: view.viewer, shape: shapeOf(view) });
     if (!this.gen || this.gen.sizeKey !== layout.sizeKey) this.newGeneration(layout);
     this.layout = layout;
+    this.placeBuildLabel(layout);
     const gen = this.gen!;
     const viewer = view.viewer;
     const opponent = other(viewer);
@@ -1770,6 +1863,29 @@ export class Board {
   private syncHelp(): void {
     const help = this.gen?.subHelp;
     if (help) help.renderable = !(this.hint && this.layout?.mode === 'landscape');
+    // In the column the build date shares the hint's slot: hide it while a hint shows.
+    this.buildText.visible = !(this.hint && this.layout?.mode === 'portrait');
+  }
+
+  /** Where the build date's text is drawn (CSS px). */
+  private buildTextBox(): Box {
+    const b = this.buildText.getBounds();
+    return { x: b.x, y: b.y, width: b.width, height: b.height };
+  }
+
+  /** The build date: two short lines in the rail (sideways), one line in the column's hint slot. */
+  private placeBuildLabel(layout: BoardLayout): void {
+    const t = this.buildText;
+    const when = this.callbacks.buildTime;
+    const cut = when.indexOf(' ');
+    const twoLines = layout.mode === 'landscape' && cut > 0;
+    const text = twoLines ? `Built ${when.slice(0, cut)}\n${when.slice(cut + 1)}` : `Built ${when}`;
+    if (t.text !== text) t.text = text;
+    const b = layout.buildLabel;
+    t.style.align = twoLines ? 'center' : 'left';
+    t.anchor.set(twoLines ? 0.5 : 0, 0.5);
+    fitText(t, b.width, b.height);
+    t.position.set(twoLines ? b.x + b.width / 2 : b.x, b.y + b.height / 2);
   }
 
   private positionHint(hint: { root: Container; box: Box }): void {
@@ -1784,7 +1900,7 @@ export class Board {
   }
 
   /** Zooms a card: a face for a known card id, a back for a face-down card the viewer may not see. */
-  private openZoom(cardId: string | null, side: Side, from: Box): void {
+  private openZoom(cardId: string | null, side: Side, from: Box, fromHand = false): void {
     const layout = this.layout;
     if (!layout) return;
     const def = cardId ? getCard(cardId) : undefined;
@@ -1812,13 +1928,63 @@ export class Board {
     const cy = z.y + z.height / 2;
     card.position.set(from.x + from.width / 2, from.y + from.height / 2);
     card.scale.set(Math.min(from.width, from.height) / z.width);
-    root.addChild(dim, card);
+    root.addChild(dim);
+    let frame: Graphics | null = null;
+    if (fromHand) {
+      frame = new Graphics();
+      const { width: w, height: h } = layout.card;
+      glowRoundRect(frame, -w / 2, -h / 2, w, h, Math.max(4, w * 0.08), theme.text, Math.max(2, w * 0.035), 1.4);
+      frame.position.set(from.x + from.width / 2, from.y + from.height / 2);
+      root.addChild(frame);
+    }
+    root.addChild(card);
     root.alpha = 0;
     this.zoomLayer.addChild(root);
-    this.zoom = { cardId: def ? cardId : null, root, card, width: z.width, height: z.height, overflow };
+    const faces = new Map<string, { card: Container; overflow: boolean }>();
+    if (def && cardId) faces.set(cardId, { card, overflow });
+    this.zoom = { cardId: def ? cardId : null, root, card, width: z.width, height: z.height, overflow, faces, frame };
     this.ui.add({ target: root, to: { alpha: 1 }, duration: timing.zoomIn, owner: root });
     this.ui.add({ target: card, to: { x: cx, y: cy }, duration: timing.zoomIn, ease: ease.outCubic, owner: card });
     this.ui.add({ target: card.scale, to: { x: 1, y: 1 }, duration: timing.zoomIn, ease: ease.outBack, owner: card });
+  }
+
+  /**
+   * S-04-3: the held finger slid onto another hand card. The zoom shows it at
+   * once, in place (no zoom-in tween), so reading a hand is instant. `inputAt`:
+   * the move's event time, logged for the <100ms check.
+   */
+  private swapZoom(cardId: string, from: Box, inputAt: number): void {
+    const zoom = this.zoom;
+    const layout = this.layout;
+    const def = getCard(cardId);
+    if (!zoom || !layout || !def || zoom.cardId === cardId) return;
+    const z = layout.zoom;
+    // Finish the zoom-in now: the slide is the reader moving on.
+    this.ui.cancel(zoom.root);
+    this.ui.cancel(zoom.card);
+    this.ui.cancel(zoom.card.scale);
+    zoom.root.alpha = 1;
+    zoom.frame?.position.set(from.x + from.width / 2, from.y + from.height / 2);
+    let next = zoom.faces.get(cardId);
+    if (!next) {
+      const card = createCardFace(def, z.width, z.height, 'full');
+      next = { card, overflow: textOverflows(card, z.width, z.height) };
+      zoom.faces.set(cardId, next);
+    }
+    zoom.card.visible = false;
+    zoom.root.removeChild(zoom.card);
+    // A face made during this zoom is kept (destroyed with the zoom); one not in the cache is dropped.
+    if (![...zoom.faces.values()].some((f) => f.card === zoom.card)) zoom.card.destroy({ children: true });
+    const card = next.card;
+    card.visible = true;
+    card.position.set(z.x + z.width / 2, z.y + z.height / 2);
+    card.scale.set(1);
+    zoom.root.addChild(card);
+    zoom.card = card;
+    zoom.cardId = cardId;
+    zoom.overflow = next.overflow;
+    this.callbacks.changed();
+    this.callbacks.log({ kind: 'zoom_swap', text: cardId, scheduledMs: 0, inputAt });
   }
 
   private closeZoom(immediate = false): void {
@@ -1828,6 +1994,8 @@ export class Board {
     this.ui.cancel(zoom.root);
     this.ui.cancel(zoom.card);
     this.ui.cancel(zoom.card.scale);
+    // Faces made during a slide but not on screen now are not under zoom.root.
+    for (const f of zoom.faces.values()) if (f.card !== zoom.card && !f.card.destroyed) f.card.destroy({ children: true });
     if (immediate) {
       zoom.root.destroy({ children: true });
       return;

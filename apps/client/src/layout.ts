@@ -134,6 +134,12 @@ export interface BoardLayout {
   /** Hand card size. */
   card: { width: number; height: number };
   zoom: Box;
+  /**
+   * The small build date (S-04-1: which app version is this?). Sideways: the
+   * bottom of the rail's help room, above the viewer's name (outside `sub`).
+   * Column: the bottom-left corner of the hint slot (hidden while a hint shows).
+   */
+  buildLabel: Box;
   /** Widgets are rebuilt only when this changes (sizes, viewport). */
   sizeKey: string;
 }
@@ -158,6 +164,8 @@ export interface LayoutOptions {
 
 /** Minimum touch target (CSS px), per the client charter. */
 export const MIN_TOUCH = 44;
+/** One line of the build-date label (CSS px). */
+export const BUILD_LINE = 11;
 /** Card aspect ratio (height / width). */
 export const CARD_RATIO = 1.4;
 /** Room kept for the busy board (S-02-5). */
@@ -462,7 +470,10 @@ function landscapeLayout(vw: number, vh: number, insets: Insets, safe: Box, view
   // hides the help text while it shows, so long hints wrap at a readable size
   // instead of shrinking into a short slot (QA-S2-1).
   const subY = banner.y + banner.height + rg;
-  const sub = box(railX, subY, railW, Math.max(0, railLabel.y - rg - subY));
+  // Two tiny lines for the build date ("Built 2026-11-13" / "14:32 UTC").
+  const buildH = 2 * BUILD_LINE;
+  const buildLabel = box(railX, railLabel.y - rg - buildH, railW, buildH);
+  const sub = box(railX, subY, railW, Math.max(0, buildLabel.y - rg - subY));
   const action = box(railX, subY, railW, Math.min(sub.height, pillH));
   const hintY = action.y + action.height + rg;
   const hintArea = box(railX, hintY, railW, Math.max(0, sub.y + sub.height - hintY));
@@ -509,6 +520,7 @@ function landscapeLayout(vw: number, vh: number, insets: Insets, safe: Box, view
     handArea,
     card: { width: cardW, height: cardHt },
     zoom: zoomBox(safe, safe.width * 0.8),
+    buildLabel,
     sizeKey: sizeKey(vw, vh, insets, u, handArea, cardW),
   };
 }
@@ -649,8 +661,30 @@ function portraitLayout(vw: number, vh: number, insets: Insets, safe: Box, viewe
     handArea,
     card: { width: cardW, height: cardHt },
     zoom: zoomBox(safe, boardW * 0.8),
+    buildLabel: box(hintArea.x, hintArea.y + hintArea.height - BUILD_LINE, Math.min(hintArea.width, 160), BUILD_LINE),
     sizeKey: sizeKey(vw, vh, insets, u, handArea, cardW),
   };
+}
+
+/**
+ * S-04-3: the hand slot under a finger sliding through the hand: the slot whose
+ * center is nearest `x` (y only breaks ties between rows), so sliding past the
+ * first or last card stays on it. -1 for an empty hand.
+ */
+export function nearestSlot(slots: readonly Box[], x: number, y: number): number {
+  let best = -1;
+  let bestDx = Infinity;
+  let bestDy = Infinity;
+  slots.forEach((s, i) => {
+    const dx = Math.abs(s.x + s.width / 2 - x);
+    const dy = Math.abs(s.y + s.height / 2 - y);
+    if (dx < bestDx - 0.5 || (Math.abs(dx - bestDx) <= 0.5 && dy < bestDy)) {
+      best = i;
+      bestDx = dx;
+      bestDy = dy;
+    }
+  });
+  return best;
 }
 
 /**

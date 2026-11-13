@@ -1,7 +1,7 @@
 import type { Side } from '@overclock/engine';
 import { describe, expect, it } from 'vitest';
 import type { Box, Insets } from '../src/hook-types';
-import { type BoardLayout, type BoardShape, EMPTY_SHAPE, MIN_TOUCH, computeLayout, handSlots } from '../src/layout';
+import { type BoardLayout, type BoardShape, EMPTY_SHAPE, MIN_TOUCH, computeLayout, handSlots, nearestSlot } from '../src/layout';
 
 /** S-02-5: 3 remotes with 2 ICE each (plus an asset/agenda), ICE on the centrals too, 4 Runner installs. */
 const BUSY: BoardShape = {
@@ -93,6 +93,8 @@ function elements(l: BoardLayout, opts: { fanned?: boolean } = {}): [string, Box
   out.push(['banner', l.banner], ['sub', l.sub], ['endTurn', l.endTurn], ['hand', l.handArea]);
   // Sideways the hint shares the help text's room inside `sub` (checked apart); in the column it has its own slot.
   if (l.mode === 'portrait') out.push(['hintArea', l.hintArea]);
+  // The build date: its own spot sideways; in the column it sits in the hint slot (hidden while a hint shows).
+  else out.push(['buildLabel', l.buildLabel]);
   return out;
 }
 
@@ -119,6 +121,9 @@ function expectClean(l: BoardLayout, w: number, h: number, insets: Insets, opts:
   for (const [n, b] of [['hand', l.handArea], ['endTurn', l.endTurn], ['banner', l.banner], ['hint', l.hintArea]] as const) {
     expect(overlaps(l.corp.band, b), `corp band vs ${n}`).toBe(false);
   }
+  // S-04-1: the build date is inside the safe area, and in the column inside the hint slot.
+  expect(inside(l.buildLabel, safe), 'buildLabel inside safe').toBe(true);
+  if (l.mode === 'portrait') expect(inside(l.buildLabel, l.hintArea), 'buildLabel in the hint slot').toBe(true);
   // The Play button sits inside the help area (it replaces the help text while shown).
   expect(inside(l.action, l.sub)).toBe(true);
   if (l.mode === 'landscape') {
@@ -408,5 +413,26 @@ describe('run panel room (QA-S3-4)', () => {
     const l = computeLayout(390, 844, {}, { shape: BUSY });
     expect(l.runInfo.x).toBe(l.handArea.x);
     expect(l.runButtons.x + l.runButtons.width).toBe(l.handArea.x + l.handArea.width);
+  });
+});
+
+describe('nearestSlot (S-04-3 hold and slide)', () => {
+  const row: Box[] = [0, 50, 100, 150].map((x) => ({ x, y: 300, width: 60, height: 84 }));
+  it('picks the slot whose center is nearest the finger x; y does not matter in one row', () => {
+    expect(nearestSlot(row, 30, 342)).toBe(0);
+    expect(nearestSlot(row, 81, 0)).toBe(1);
+    expect(nearestSlot(row, 129, 999)).toBe(2);
+  });
+  it('clamps at the ends', () => {
+    expect(nearestSlot(row, -500, 342)).toBe(0);
+    expect(nearestSlot(row, 5000, 342)).toBe(3);
+  });
+  it('empty hand: -1', () => {
+    expect(nearestSlot([], 10, 10)).toBe(-1);
+  });
+  it('two rows: x first, then the nearer row', () => {
+    const two: Box[] = [...row, ...[0, 50].map((x) => ({ x, y: 400, width: 60, height: 84 }))];
+    expect(nearestSlot(two, 30, 440)).toBe(4);
+    expect(nearestSlot(two, 30, 330)).toBe(0);
   });
 });

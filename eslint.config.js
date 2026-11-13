@@ -8,6 +8,9 @@ export default tseslint.config(
     ignores: [
       '**/node_modules/**',
       '**/dist/**',
+      '**/dist-android/**',
+      // The Android project: generated files and the web bundle copied in by `cap sync`.
+      'apps/android/android/**',
       '**/dist-types/**',
       '**/coverage/**',
       '**/playwright-report/**',
@@ -29,7 +32,7 @@ export default tseslint.config(
   },
   {
     // Node-run config files at the repo root and in each workspace.
-    files: ['*.{js,ts}', '**/*.config.{js,ts}'],
+    files: ['*.{js,ts}', '**/*.config.{js,ts}', '**/scripts/**/*.mjs'],
     languageOptions: { globals: globals.node },
   },
   {
