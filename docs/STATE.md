@@ -1,6 +1,6 @@
 # Project state
 
-phase: BUILD
+phase: QA
 running_since: 2026-11-13 13:43 UTC
 sprint: 4
 open_pr: (none — PR #11 Sprint 04 proposal merged 2026-11-13 13:44 UTC after owner approval)
@@ -93,5 +93,12 @@ Details: docs/sprints/sprint-00-tech-plan.md, sprint-00-qa.md, sprint-00-demo.md
 ## Sprint 4 approved — 2026-11-13 13:42 UTC
 - Owner commented "1 a 2a 3a / Approved" on PR #11 (answers A, A, A; logged in DECISIONS). PR #11 merged. BUILD starts on branch sprint-04.
 
+## Sprint 4 BUILD summary (branch `sprint-04`) — code-complete 2026-11-13
+- Tech plan: docs/sprints/sprint-04-tech-plan.md (4be98d7). Engine E1–E5 on helper branch sprint-04-engine (72048d7..cae5a72): when-scored DSL, Hostile Takeover +7/1 bad publicity, Priority Requisition free-rez choice phase, run-only credits, property tests, planToStep goals. UI U1–U6 on sprint-04-ui (0cdf26d..c28fade): hold-and-slide hand, Android build mode + build date label + bundle check, apps/android Capacitor 8 project (sensorLandscape, full screen, committed keystore, pinned cert), android.yml (rolling prerelease per branch on Releases), Back "Leave the game?", WebGL restore, bonus screens.
+- Merged into sprint-04 (64847f2, c28fade). Architect approved (b8bc7a9: android.yml now triggers only on main and sprint-NN). CI green on c28fade (checks, 4 e2e shards, guard-mutation); Android release `app-sprint-04` has overclock-sprint-04-20261113-1536.apk.
+- Stray prerelease `app-sprint-04-ui` (from the helper branch) could not be deleted: this session type is refused release/tag deletes (403). Owner to delete it on GitHub (Releases → app-sprint-04-ui → delete), along with old branches.
+- Follow-ups (backlog): android.yml publish can be cut by cancel between delete/create; don't swallow real gh release delete errors; main.ts relayout on <html> style changes; owner real-phone checks (notch/insets, Back).
+- Risks for demo: bad-publicity / run-credit tags are small text (9–12px); Skip label is small; slide outline mostly hidden under the zoomed card.
+
 ## Next run
-Phase BUILD for Sprint 4 on branch sprint-04 (see the BUILD summary below once it exists). Follow docs/TESTING.md when delegating anything that runs tests.
+Phase QA for Sprint 4 on branch sprint-04. Follow docs/TESTING.md when delegating anything that runs tests.
