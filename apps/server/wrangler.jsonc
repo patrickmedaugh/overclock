@@ -1,0 +1,22 @@
+// Sprint 6: the online game service (Cloudflare Worker + one Durable Object per game).
+// Deployed by .github/workflows/server.yml; owner setup in README.md.
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "overclock",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-11-01",
+  "workers_dev": true,
+  "durable_objects": {
+    "bindings": [{ "name": "GAME_ROOM", "class_name": "GameRoom" }]
+  },
+  // The free plan supports only SQLite-backed Durable Objects.
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["GameRoom"] }],
+  "vars": {
+    // Overridden at deploy with the git commit (`--var BUILD:<sha>`); /health reports it.
+    "BUILD": "dev",
+    // Web pages allowed to open game sockets: GitHub Pages, Netlify (+ its PR previews), the Android app.
+    "ALLOWED_ORIGINS": "https://patrickmedaugh.github.io,https://overcloc.netlify.app,https://*--overcloc.netlify.app,https://localhost",
+    // Test mode stays off in production; local test runs pass --var OVERCLOCK_TEST_MODE:1.
+    "OVERCLOCK_TEST_MODE": "0"
+  }
+}

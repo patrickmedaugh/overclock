@@ -6,6 +6,7 @@ export type {
   ChoiceKind,
   ChoiceState,
   DiscardEntry,
+  GameOptions,
   GameResult,
   GameState,
   Installed,
@@ -20,7 +21,7 @@ export type {
   Side,
   WinReason,
 } from './state';
-export { MEMORY_LIMIT, WINNING_POINTS } from './state';
+export { DEFAULT_OPTIONS, MEMORY_LIMIT, WINNING_POINTS } from './state';
 export type { ApplyResult } from './apply';
 export type {
   AccessCardView,

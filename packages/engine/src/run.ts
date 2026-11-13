@@ -114,14 +114,17 @@ export function endRun(state: GameState, outcome: RunOutcome, events: Events): G
 
 // ---- the walk ---------------------------------------------------------------------
 
-/** Approach the ICE at the current position: rezzed → encounter; Corp can pay → ask; else passed face down. */
+/**
+ * Approach the ICE at the current position: rezzed → encounter; Corp can pay (or, Sprint 6,
+ * `options.rezWindow === 'always'`) → ask; else passed face down.
+ */
 function approach(state: GameState, events: Events): GameState {
   const run = theRun(state);
   const ice = currentIce(state) as Installed;
   events.push({ type: 'ice_approached', uid: ice.uid, position: run.position });
   const s = setRun(state, { step: 'approach', broken: [] });
   if (ice.rezzed) return encounter(s, events);
-  if (s.players.corp.credits >= rezCost(ice)) return s;
+  if (s.options.rezWindow === 'always' || s.players.corp.credits >= rezCost(ice)) return s;
   return passIce(s, events);
 }
 

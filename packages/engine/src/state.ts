@@ -159,6 +159,24 @@ export interface PlayerState {
   readonly scoreArea: readonly string[];
 }
 
+/**
+ * Sprint 6: per-game rule options, fixed at `newGame` and stored in the state.
+ * `rezWindow`: when the approach of an unrezzed ICE waits on the Corp.
+ * - `'affordable'` (default, hot-seat): only when the Corp can pay the rez cost; otherwise the ICE is passed face down at once.
+ * - `'always'` (online): always, so the Runner cannot tell an unaffordable ICE from a cheap one;
+ *   `rez` is then rejected `no_credits` when unaffordable and the Corp's only legal move is `pass`.
+ */
+export interface GameOptions {
+  readonly rezWindow: 'affordable' | 'always';
+}
+
+export const DEFAULT_OPTIONS: GameOptions = { rezWindow: 'affordable' };
+
+/** `options` with every missing field set to its default (a detached copy). */
+export function resolveOptions(options?: Partial<GameOptions>): GameOptions {
+  return { rezWindow: options?.rezWindow === 'always' ? 'always' : 'affordable' };
+}
+
 /** Full game state. Plain JSON: serializable and structurally clonable. */
 export interface GameState {
   readonly seed: number;
@@ -191,6 +209,8 @@ export interface GameState {
    * a card appended at each `card_accessed`, null when the Runner's turn ends.
    */
   readonly lastRun: LastRun | null;
+  /** Sprint 6: rule options given to `newGame` (defaults filled in). */
+  readonly options: GameOptions;
 }
 
 export function opponentOf(side: Side): Side {
@@ -268,8 +288,9 @@ function setupPlayer(deckList: readonly string[], rng: number): { player: Player
  * Creates a new game. Same seed => identical decks and opening hands.
  * Starts on turn 1, the Corp's turn, with its start-of-turn draw already
  * taken (3 clicks, 6 cards in hand); the Runner has 0 clicks.
+ * `options` (Sprint 6) default to DEFAULT_OPTIONS; they never change the shuffle.
  */
-export function newGame(seed: number): GameState {
+export function newGame(seed: number, options?: Partial<GameOptions>): GameState {
   const rng0 = seedToRng(seed);
   const corp = setupPlayer(CORP_STARTER_DECK, rng0);
   const runner = setupPlayer(RUNNER_STARTER_DECK, corp.rng);
@@ -290,6 +311,7 @@ export function newGame(seed: number): GameState {
     badPublicity: 0,
     choice: null,
     lastRun: null,
+    options: resolveOptions(options),
   };
   return startTurn(base, 'corp', 1).state;
 }

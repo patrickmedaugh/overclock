@@ -6,7 +6,7 @@ Keep this public API small. Anything not exported from `src/index.ts` is interna
 
 ## Public API
 
-### `newGame(seed: number): GameState`
+### `newGame(seed: number, options?): GameState`
 Creates a new game. Same seed always gives the same shuffled decks and opening hands. The game starts on turn 1, the Corp's turn: Corp has 3 clicks and has already taken its mandatory start-of-turn draw (6 cards in hand). The Runner has 0 clicks.
 
 ### `apply(state: GameState, action: Action): { state: GameState; events: GameEvent[] }`
@@ -21,7 +21,7 @@ What `player` is allowed to see. Opponent hand contents, all deck orders, the Co
 ### `viewEvents(player: Side, events: GameEvent[]): GameEvent[]`
 Projects events for `player`. For the opponent: `card_drawn` loses `cardId`, `cards_discarded` loses `handIndices`, and it also loses `cardIds` when the Corp discarded (face down); `card_installed`/`card_played` lose `handIndex`, and Corp `card_installed` also loses `cardId`. Run engine events through this before showing them to a player.
 
-### `replay(seed: number, actions: Action[]): { state; events }`
+### `replay(seed: number, actions: Action[], options?): { state; events }`
 Rebuilds a game from its seed and action log (rejected actions are no-ops). Used for replay-based regression tests.
 
 ## Sprint 1 interface (pinned: implement exactly this; changes go through the architect)
@@ -350,6 +350,47 @@ Non-null only in the **Runner's** view at step `encounter` with rezzed ICE while
 
 ### `PlayerView.lastRun`
 Runner's view only, only when no run is in progress and `cards.length > 0`; otherwise null. Always null for the Corp. Stolen agendas (`players.runner.scored`) and face-up Archives (`discard` non-null entries) are already in the view.
+
+## Sprint 6 interface (pinned: implement exactly this; changes go through the architect)
+
+Everything in the Sprint 1–5 interfaces still holds. Tech plan: `docs/sprints/sprint-06-tech-plan.md`.
+
+### Engine: game options
+```ts
+interface GameOptions { rezWindow: 'affordable' | 'always' }   // DEFAULT_OPTIONS = { rezWindow: 'affordable' }
+newGame(seed: number, options?: Partial<GameOptions>): GameState  // GameState.options = the options, defaults filled in
+replay(seed: number, actions: Action[], options?: Partial<GameOptions>)  // pass the game's own options
+```
+- `'affordable'` (default; hot-seat): unchanged. Approaching face-down ICE the Corp can't pay for passes it face down at once.
+- `'always'` (online): approaching **any** face-down ICE waits on the Corp (`run.waitingOn = 'corp'`, step `approach`). The Corp's `run.options` = `rez` (with `reject: 'no_credits'` when unaffordable) then `pass`; `apply(rez)` is rejected `no_credits` then. So the Runner's view and events are the same whether or not the Corp can pay. Options never change the shuffle.
+
+### Match host additions (`@overclock/match`)
+```ts
+class LocalMatch {
+  constructor(seed: number, options?: Partial<GameOptions>);
+  readonly options: GameOptions;
+  static restore(seed: number, actions: readonly Action[], options?: Partial<GameOptions>): LocalMatch; // by replay
+  static fromSnapshot(seed: number, state: GameState, actions: readonly Action[]): LocalMatch;        // server: same build only
+  snapshot(): GameState;   // server persistence only; never sent to a seat
+}
+```
+
+### Protocol v1 (`@overclock/protocol`, `packages/protocol/src/index.ts`)
+Pure TS, engine types only. Every frame is JSON `{v: 1, t, …}`. Constants: `PROTOCOL_VERSION = 1`, `CREATE_PATH = '/v1/create'`, `gamePath(code) = '/v1/games/<CODE>'`, `HEALTH_PATH = '/health'` (→ `Health {ok: true, build, protocol: 1}`), `PING = '{"v":1,"t":"ping"}'` / `PONG = '{"v":1,"t":"pong"}'` (exact strings, auto-answered by the server runtime), `STORAGE_KEY = 'overclock.online.v1'` (`StoredSeat {server, code, seat, token}`).
+
+Client → server (`ClientMsg`): `create {side, test?: {seed, actions}}` (on `/v1/create`; `test` only honoured when the server runs with `OVERCLOCK_TEST_MODE=1`) · `join` · `resume {token, since}` · `act {id, action}` · `ping`.
+
+Server → client (`ServerMsg`): `seated {code, seat, token}` · `lobby {code, seat}` · `sync {seq, view, opponent}` · `update {seq, view, events, ack?}` · `rejected {ack, view, events}` · `presence {opponent}` · `error {code}` · `pong`. `Presence = 'none' | 'here' | 'away'`; `ErrorCode = 'no_game' | 'full' | 'bad_token' | 'version' | 'bad_message' | 'expired' | 'replaced'`.
+
+`parseClientMsg(raw)` / `parseServerMsg(raw)` → `{ok: true, msg} | {ok: false, error: 'version' | 'bad_message'}`; never throw; shape checks only (an `action` is any object with a string `type` and a side `player`; the server's engine checks the rest). Size limits (UTF-8 bytes): client frames 8 KB (`MAX_CLIENT_MESSAGE_BYTES`), server frames 512 KB (`MAX_SERVER_MESSAGE_BYTES`; a busy-board view is ~3 KB but grows with the board). `encodeMsg(msg)` = `JSON.stringify`.
+
+Game codes: `CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'`, `CODE_LENGTH = 4`, `normalizeCode(input)` (upper-case, drops spaces/dashes), `isGameCode(code)`, `makeCode(randomInt)` (the caller supplies a real random source).
+
+Server behaviour (room): `seq` = accepted actions so far; each accepted action → `update` to both seats (`ack` = the submitter's `id`, submitter only); a rejection → `rejected` to the submitter only; a client seeing `seq ≠ last + 1` sends `resume {since}` and gets `sync`. `create` → `seated`, `lobby`. `join` → `seated` to the joiner, then `sync` to both seats. `resume` → `sync` (or `lobby` while nobody has joined); a second socket for a seat gets it and the first gets `error replaced` and is closed. `join` on a full game → `error full`; an unknown/expired code → `error no_game`; a wrong token → `error bad_token`. Online games use `rezWindow: 'always'`; when the Corp's only legal move at an approach is `pass`, the room sends that `pass` itself after a random 1.2–2.4 s (an ordinary `update`, no `ack`).
+
+Sockets and errors (`apps/server`): every `error` except `bad_message` closes the socket (close code 4000, reason = the error code); `bad_message` (unparseable frame, a message the socket's role can't send, `act` before both seats are taken) keeps it open. A socket's first message on `/v1/games/<CODE>` must be `join` or `resume`; on `/v1/create`, `create`. `resume` also works on an already-seated socket (gap catch-up). A malformed code gets `error no_game` from the Worker. Sockets need an `Origin` from `ALLOWED_ORIGINS` (else HTTP 403, no socket). Idle cleanup counts from the last accepted move (or the join). Local server and test mode: `apps/server/README.md`.
+
+**Test-only (Sprint 6):** `@overclock/match/testing` also exports `runnerViewLeaks(state, view?) -> string[]` and `runnerEventLeaks(runnerEvents, after) -> string[]` (empty = clean): the engine's hidden-information checks as pure functions (no Vitest), for the server leak test and Node-side e2e checks of what the Runner phone received.
 
 ## `@overclock/match` (host; `packages/match`)
 Owns one game's `GameState` and talks to seats only through projections. It is the same contract a network server will expose later.
