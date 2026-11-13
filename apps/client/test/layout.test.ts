@@ -1,7 +1,7 @@
 import type { Side } from '@overclock/engine';
 import { describe, expect, it } from 'vitest';
 import type { Box, Insets } from '../src/hook-types';
-import { type BoardLayout, type BoardShape, EMPTY_SHAPE, MIN_TOUCH, computeLayout, handSlots } from '../src/layout';
+import { type BoardLayout, type BoardShape, EMPTY_SHAPE, MIN_TOUCH, computeLayout, handSlots, nearestSlot } from '../src/layout';
 
 /** S-02-5: 3 remotes with 2 ICE each (plus an asset/agenda), ICE on the centrals too, 4 Runner installs. */
 const BUSY: BoardShape = {
@@ -408,5 +408,26 @@ describe('run panel room (QA-S3-4)', () => {
     const l = computeLayout(390, 844, {}, { shape: BUSY });
     expect(l.runInfo.x).toBe(l.handArea.x);
     expect(l.runButtons.x + l.runButtons.width).toBe(l.handArea.x + l.handArea.width);
+  });
+});
+
+describe('nearestSlot (S-04-3 hold and slide)', () => {
+  const row: Box[] = [0, 50, 100, 150].map((x) => ({ x, y: 300, width: 60, height: 84 }));
+  it('picks the slot whose center is nearest the finger x; y does not matter in one row', () => {
+    expect(nearestSlot(row, 30, 342)).toBe(0);
+    expect(nearestSlot(row, 81, 0)).toBe(1);
+    expect(nearestSlot(row, 129, 999)).toBe(2);
+  });
+  it('clamps at the ends', () => {
+    expect(nearestSlot(row, -500, 342)).toBe(0);
+    expect(nearestSlot(row, 5000, 342)).toBe(3);
+  });
+  it('empty hand: -1', () => {
+    expect(nearestSlot([], 10, 10)).toBe(-1);
+  });
+  it('two rows: x first, then the nearer row', () => {
+    const two: Box[] = [...row, ...[0, 50].map((x) => ({ x, y: 400, width: 60, height: 84 }))];
+    expect(nearestSlot(two, 30, 440)).toBe(4);
+    expect(nearestSlot(two, 30, 330)).toBe(0);
   });
 });

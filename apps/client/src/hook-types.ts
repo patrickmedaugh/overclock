@@ -134,7 +134,8 @@ export interface LayoutSnapshot {
   /** The area reserved for the viewer's hand. */
   handArea: Box;
   /** Rendered hand cards (the viewer's), in hand order. `marked` = picked for discard, `selected` = picked to play. */
-  hand: { cardId: string; box: Box; marked: boolean; selected: boolean }[];
+  /** `outlined`: the card a hold-and-slide shows in the zoom (S-04-3). */
+  hand: { cardId: string; box: Box; marked: boolean; selected: boolean; outlined: boolean }[];
   /** Corp servers in view order (hq, rd, archives, remotes). */
   servers: ServerSnapshot[];
   /** The Runner's installed cards, install order. */
@@ -219,7 +220,9 @@ export type AnimKind =
   /** An advancement counter is added. */
   | 'advance_pop'
   /** A short non-blocking notice (run result, damage, bypass). */
-  | 'notice';
+  | 'notice'
+  /** S-04-3: a hold-and-slide put another hand card in the zoom (`text`: its card id). */
+  | 'zoom_swap';
 
 /** Logged when an animation or hint starts. */
 export interface AnimRecord {
@@ -234,6 +237,8 @@ export interface AnimRecord {
   box?: Box;
   /** Hints: the text size as drawn on screen (CSS px, after any fit-to-slot scaling). */
   fontPx?: number;
+  /** zoom_swap: the input event's time (performance.now() clock) that caused it. */
+  inputAt?: number;
 }
 
 /** Timestamps (performance.now() clock) of the last pointer release handled by a target. */

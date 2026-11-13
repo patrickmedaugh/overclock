@@ -49,6 +49,12 @@ export interface PressHandlers {
   onLongPress?: () => void;
   /** Released after a long-press fired. */
   onLongPressEnd?: () => void;
+  /**
+   * The same pointer moved while the long-press is held (S-04-3: slide through
+   * the hand). `x`/`y`: global position (CSS px); `at`: the move's event time
+   * (performance.now() clock).
+   */
+  onHoldMove?: (x: number, y: number, at: number) => void;
 }
 
 export interface PressOptions {
@@ -100,6 +106,8 @@ export function attachPress(target: Container, handlers: PressHandlers, opts: Pr
   /** The press can still become a hold (has onLongPress, not moved away). */
   let holdable = false;
   let longFired = false;
+  /** The finger slid away after the hold opened (a slide is never a tap). */
+  let slid = false;
 
   const clearTimer = () => {
     if (timer !== null) clearTimeout(timer);
@@ -125,8 +133,8 @@ export function attachPress(target: Container, handlers: PressHandlers, opts: Pr
       longFired = false;
       handlers.onLongPressEnd?.();
       // The zoom opened late (page stalled), but the finger was down for less
-      // than the hold time: it was a tap.
-      if (fireTap && held !== null && held < longPressMs && !target.destroyed) handlers.onTap?.();
+      // than the hold time: it was a tap. A slide through the hand never is.
+      if (fireTap && !slid && held !== null && held < longPressMs && !target.destroyed) handlers.onTap?.();
     } else if (fireTap) {
       // Held long enough to read the card, but the page was too busy to show
       // it: a hold is never a tap (no accidental plays).
@@ -145,6 +153,7 @@ export function attachPress(target: Container, handlers: PressHandlers, opts: Pr
     startY = e.global.y;
     downAt = madeAt(stampOf(e), performance.now());
     longFired = false;
+    slid = false;
     holdable = !!handlers.onLongPress;
     handlers.onDown?.();
     if (holdable) {
@@ -159,7 +168,12 @@ export function attachPress(target: Container, handlers: PressHandlers, opts: Pr
     }
   };
   const onMove = (e: FederatedPointerEvent) => {
-    if (pointerId !== e.pointerId || !holdable || longFired) return;
+    if (pointerId !== e.pointerId || !holdable) return;
+    if (longFired) {
+      if (Math.hypot(e.global.x - startX, e.global.y - startY) > tolerance) slid = true;
+      handlers.onHoldMove?.(e.global.x, e.global.y, madeAt(stampOf(e), performance.now()));
+      return;
+    }
     if (Math.hypot(e.global.x - startX, e.global.y - startY) > tolerance) {
       holdable = false;
       clearTimer();

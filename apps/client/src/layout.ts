@@ -654,6 +654,27 @@ function portraitLayout(vw: number, vh: number, insets: Insets, safe: Box, viewe
 }
 
 /**
+ * S-04-3: the hand slot under a finger sliding through the hand: the slot whose
+ * center is nearest `x` (y only breaks ties between rows), so sliding past the
+ * first or last card stays on it. -1 for an empty hand.
+ */
+export function nearestSlot(slots: readonly Box[], x: number, y: number): number {
+  let best = -1;
+  let bestDx = Infinity;
+  let bestDy = Infinity;
+  slots.forEach((s, i) => {
+    const dx = Math.abs(s.x + s.width / 2 - x);
+    const dy = Math.abs(s.y + s.height / 2 - y);
+    if (dx < bestDx - 0.5 || (Math.abs(dx - bestDx) <= 0.5 && dy < bestDy)) {
+      best = i;
+      bestDx = dx;
+      bestDy = dy;
+    }
+  });
+  return best;
+}
+
+/**
  * Positions for `count` hand cards inside the hand area. Side by side with
  * no overlap while they fit (wrapping into more rows if the area is tall
  * enough), then overlapping with at least MIN_TOUCH of each card showing;

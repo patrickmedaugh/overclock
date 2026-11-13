@@ -217,7 +217,18 @@ export class Board {
   /** Installed card picked for its choices (Corp agenda: Advance / Score). */
   private pickedInstalled: string | null = null;
   private hint: { text: string; root: Container; box: Box } | null = null;
-  private zoom: { cardId: string | null; root: Container; card: Container; width: number; height: number; overflow: boolean } | null = null;
+  private zoom: {
+    cardId: string | null;
+    root: Container;
+    card: Container;
+    width: number;
+    height: number;
+    overflow: boolean;
+    /** Faces already made during this zoom (a slide back and forth reuses them). */
+    faces: Map<string, { card: Container; overflow: boolean }>;
+    /** Hand zooms: an undimmed outline over the hand card the zoom shows (S-04-3). */
+    frame: Graphics | null;
+  } | null = null;
   /** Hand indices picked in the discard picker (UI state only). */
   private readonly marked = new Set<number>();
   /** Hand index picked to play (UI state only). */
@@ -244,8 +255,9 @@ export class Board {
   ) {
     const handCallbacks = (side: Side) => ({
       onTap: (i: number) => this.onCardTap(i),
-      onLongPress: (id: string, from: Box) => this.openZoom(id, side, from),
+      onLongPress: (id: string, from: Box) => this.openZoom(id, side, from, true),
       onLongPressEnd: () => this.closeZoom(),
+      onZoomSlide: (id: string, box: Box, at: number) => this.swapZoom(id, box, at),
       log: (r: Omit<AnimRecord, 'startedAt'>) => callbacks.log(r),
     });
     this.hands = { corp: new Hand('corp', fx, ui, handCallbacks('corp')), runner: new Hand('runner', fx, ui, handCallbacks('runner')) };
@@ -1784,7 +1796,7 @@ export class Board {
   }
 
   /** Zooms a card: a face for a known card id, a back for a face-down card the viewer may not see. */
-  private openZoom(cardId: string | null, side: Side, from: Box): void {
+  private openZoom(cardId: string | null, side: Side, from: Box, fromHand = false): void {
     const layout = this.layout;
     if (!layout) return;
     const def = cardId ? getCard(cardId) : undefined;
@@ -1812,13 +1824,63 @@ export class Board {
     const cy = z.y + z.height / 2;
     card.position.set(from.x + from.width / 2, from.y + from.height / 2);
     card.scale.set(Math.min(from.width, from.height) / z.width);
-    root.addChild(dim, card);
+    root.addChild(dim);
+    let frame: Graphics | null = null;
+    if (fromHand) {
+      frame = new Graphics();
+      const { width: w, height: h } = layout.card;
+      glowRoundRect(frame, -w / 2, -h / 2, w, h, Math.max(4, w * 0.08), theme.text, Math.max(2, w * 0.035), 1.4);
+      frame.position.set(from.x + from.width / 2, from.y + from.height / 2);
+      root.addChild(frame);
+    }
+    root.addChild(card);
     root.alpha = 0;
     this.zoomLayer.addChild(root);
-    this.zoom = { cardId: def ? cardId : null, root, card, width: z.width, height: z.height, overflow };
+    const faces = new Map<string, { card: Container; overflow: boolean }>();
+    if (def && cardId) faces.set(cardId, { card, overflow });
+    this.zoom = { cardId: def ? cardId : null, root, card, width: z.width, height: z.height, overflow, faces, frame };
     this.ui.add({ target: root, to: { alpha: 1 }, duration: timing.zoomIn, owner: root });
     this.ui.add({ target: card, to: { x: cx, y: cy }, duration: timing.zoomIn, ease: ease.outCubic, owner: card });
     this.ui.add({ target: card.scale, to: { x: 1, y: 1 }, duration: timing.zoomIn, ease: ease.outBack, owner: card });
+  }
+
+  /**
+   * S-04-3: the held finger slid onto another hand card. The zoom shows it at
+   * once, in place (no zoom-in tween), so reading a hand is instant. `inputAt`:
+   * the move's event time, logged for the <100ms check.
+   */
+  private swapZoom(cardId: string, from: Box, inputAt: number): void {
+    const zoom = this.zoom;
+    const layout = this.layout;
+    const def = getCard(cardId);
+    if (!zoom || !layout || !def || zoom.cardId === cardId) return;
+    const z = layout.zoom;
+    // Finish the zoom-in now: the slide is the reader moving on.
+    this.ui.cancel(zoom.root);
+    this.ui.cancel(zoom.card);
+    this.ui.cancel(zoom.card.scale);
+    zoom.root.alpha = 1;
+    zoom.frame?.position.set(from.x + from.width / 2, from.y + from.height / 2);
+    let next = zoom.faces.get(cardId);
+    if (!next) {
+      const card = createCardFace(def, z.width, z.height, 'full');
+      next = { card, overflow: textOverflows(card, z.width, z.height) };
+      zoom.faces.set(cardId, next);
+    }
+    zoom.card.visible = false;
+    zoom.root.removeChild(zoom.card);
+    // A face made during this zoom is kept (destroyed with the zoom); one not in the cache is dropped.
+    if (![...zoom.faces.values()].some((f) => f.card === zoom.card)) zoom.card.destroy({ children: true });
+    const card = next.card;
+    card.visible = true;
+    card.position.set(z.x + z.width / 2, z.y + z.height / 2);
+    card.scale.set(1);
+    zoom.root.addChild(card);
+    zoom.card = card;
+    zoom.cardId = cardId;
+    zoom.overflow = next.overflow;
+    this.callbacks.changed();
+    this.callbacks.log({ kind: 'zoom_swap', text: cardId, scheduledMs: 0, inputAt });
   }
 
   private closeZoom(immediate = false): void {
@@ -1828,6 +1890,8 @@ export class Board {
     this.ui.cancel(zoom.root);
     this.ui.cancel(zoom.card);
     this.ui.cancel(zoom.card.scale);
+    // Faces made during a slide but not on screen now are not under zoom.root.
+    for (const f of zoom.faces.values()) if (f.card !== zoom.card && !f.card.destroyed) f.card.destroy({ children: true });
     if (immediate) {
       zoom.root.destroy({ children: true });
       return;
