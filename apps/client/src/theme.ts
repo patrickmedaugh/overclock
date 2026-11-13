@@ -66,4 +66,8 @@ export const timing = {
   advancePop: 220,
   /** End turn ignores taps this long after the tap that ended the last turn (stops a double tap ending two turns). */
   endTurnGuard: 300,
+  /** S-04-4: a status note ("Bad publicity 1", "+1 for this run") pops. */
+  tagPop: 260,
+  /** S-04-4: the ICE offered for a free rez flash once. */
+  choiceFlash: 300,
 } as const;

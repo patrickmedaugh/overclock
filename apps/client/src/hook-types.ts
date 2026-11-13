@@ -59,8 +59,10 @@ export interface TargetSnapshot {
    * server / new_server / install / play: where a picked hand card can go
    * (play with `server`: a run event that names its server, e.g. Inside Job).
    * run: a server lit after tapping Run. advance / score: a picked installed agenda's choices.
+   * free_rez / skip (S-04-4): the Corp's free-rez choice after scoring Priority Requisition
+   * (each offered ICE, with `uid`; Skip in the Play slot).
    */
-  kind: 'server' | 'new_server' | 'install' | 'play' | 'run' | 'advance' | 'score';
+  kind: 'server' | 'new_server' | 'install' | 'play' | 'run' | 'advance' | 'score' | 'free_rez' | 'skip';
   /** For server targets (and run / server-named play targets). */
   server?: string;
   /** For advance / score: the installed card. */
@@ -160,7 +162,11 @@ export interface LayoutSnapshot {
     /** Count badge on each discard pile. */
     corpDiscard: string;
     runnerDiscard: string;
+    /** The help text (rail / control strip), '' while hidden. */
+    help: string;
   };
+  /** S-04-4: the status notes by each side's credits ("Bad publicity 1", "+1 for this run"), null while hidden. */
+  tags: { corp: { text: string; box: Box } | null; runner: { text: string; box: Box } | null };
   /** End turn button; null while the discard picker shows or the game is over. */
   endTurn: { box: Box; label: string; glowing: boolean; enabled: boolean } | null;
   /** Hand-limit discard picker, when the viewer must discard. */
@@ -226,7 +232,11 @@ export type AnimKind =
   /** A short non-blocking notice (run result, damage, bypass). */
   | 'notice'
   /** S-04-3: a hold-and-slide put another hand card in the zoom (`text`: its card id). */
-  | 'zoom_swap';
+  | 'zoom_swap'
+  /** S-04-4: a status note pops (bad publicity taken, run-only credits gained or spent). */
+  | 'tag_pop'
+  /** S-04-4: the free-rez choice lights the offered ICE. */
+  | 'choice_open';
 
 /** Logged when an animation or hint starts. */
 export interface AnimRecord {

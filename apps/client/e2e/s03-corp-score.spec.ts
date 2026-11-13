@@ -65,7 +65,13 @@ test.describe('S-03-2 advance and score', () => {
     const pts = getCard(plan.info.cardId!)!.agendaPoints!;
     const clicks = (await getView(page)).players.corp.clicks;
     const s = await measureTap(page, targetOf(l, 'score').box);
-    expect(s.events.map((e) => e.type)).toEqual(['agenda_scored']);
+    // Sprint 4: an agenda with a "when scored" bonus adds its effects after agenda_scored (S-04-4).
+    const bonus: Record<string, string[]> = { 'Hostile Takeover': ['credit_gained', 'bad_publicity_gained'], 'Priority Requisition': ['choice_opened'] };
+    const name = getCard(plan.info.cardId!)!.name;
+    const types = s.events.map((e) => e.type);
+    expect(types[0]).toBe('agenda_scored');
+    if (name === 'Priority Requisition') expect(types.slice(1).every((t) => t === 'choice_opened')).toBe(true);
+    else expect(types.slice(1)).toEqual(bonus[name] ?? []);
     expect(s.view.players.corp.points).toBe(before.players.corp.points + pts);
     expect(s.view.players.corp.clicks).toBe(clicks); // no click needed
     expectSnappy(s, ['score_flight']);

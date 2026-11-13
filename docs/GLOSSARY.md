@@ -20,6 +20,9 @@
 - **Trash** — pay a card's trash cost to destroy it (it goes to Archives face up). **Leave it** puts the card back; **Done** puts back a card you can't steal or trash.
 - **Advance** — the Corp paying 1 click and 1 credit to put an advancement counter on an installed agenda. Both players see the counters, even on a face-down card.
 - **Score** — once an agenda has enough counters, the Corp moves it face up to its score area (no click needed) and gets its points.
+- **"When scored" bonus** — some agendas do something extra the moment the Corp scores them (never when the Runner steals them). Hostile Takeover gives the Corp 7 credits and 1 bad publicity; Priority Requisition lets the Corp flip one face-down ICE face up for free (tap a lit ICE, or **Skip**).
+- **Bad publicity** — a black mark against the Corp, shown as "Bad publicity 1" by the Corp's credits. For each one, the Runner gets 1 extra credit at the start of every run, usable only during that run (shown as "+1 for this run"); left-over ones disappear when the run ends.
+- **Run-only credits** — the Runner's extra credits from bad publicity ("+1 for this run"). They are spent first during the run and vanish when it ends.
 - **Points** — agenda points in a player's score area, shown as "Corp 1 point" / "Runner 2 points". 7 points wins.
 - **Net damage** — the Runner discards that many random cards from the Grip to the Heap.
 - **Flatline** — the Runner takes more damage than cards in the Grip: the Corp wins at once ("Runner flatlined").

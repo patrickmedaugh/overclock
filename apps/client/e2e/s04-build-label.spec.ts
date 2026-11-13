@@ -3,7 +3,8 @@
 import { expect, test } from '@playwright/test';
 import { dispatch, expectCleanLayout, inside, layout, openBoard, safeRect, startRun, toBusyBoard, toRunnerTurn, waitIdle } from './helpers';
 
-const BUILT = /^Built \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC$/;
+// Sideways the narrow rail shows just the date and time; the column says "Built …".
+const BUILT = /^(Built )?\d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC$/;
 
 test.describe('S-04-1 build date', () => {
   test('shows small, inside the safe area, without covering anything, on both turns', async ({ page }) => {

@@ -17,16 +17,16 @@ import { centeredBox } from './geometry';
 import { Hand, type HandCard } from './hand';
 import type { AnimRecord, Box, EndTurnClock, InstalledSnapshot, Insets, LayoutSnapshot, SideLayout, TargetSnapshot } from './hook-types';
 import type { Decision, Presentation } from './hotseat';
-import { hintFor } from './hints';
+import { CHOICE_HINT, hintFor } from './hints';
 import { attachPress, inputTime } from './input';
 import { BUILD_LINE, type BoardLayout, type BoardShape, CARD_RATIO, type SideRow, computeLayout } from './layout';
 import { LeaveDialog } from './leaveDialog';
 import { RunDisplay } from './runDisplay';
 import { RUN_END, nameOf, runEndText } from './runText';
-import { SIDE_NAME, TERMS, plural, pointsText, priceText, serverLabel, zoneName } from './terms';
+import { SIDE_NAME, TERMS, badPublicityText, plural, pointsText, priceText, serverLabel, tempCreditsText, zoneName } from './terms';
 import { sideColor, theme, timing } from './theme';
 import { ease, type Tweens } from './tween';
-import { ActionButton, Counter, DeckPile, DiscardPile, MemoryCounter, PanelButton, ScorePill, TargetMarker, fitText, placeAt } from './widgets';
+import { ActionButton, Counter, DeckPile, DiscardPile, MemoryCounter, PanelButton, ScorePill, StatusTag, TargetMarker, fitText, placeAt } from './widgets';
 
 type Pos = 'top' | 'bottom';
 const SIDES: readonly Side[] = ['corp', 'runner'];
@@ -57,6 +57,11 @@ export function bannerText(view: PlayerView): string {
   const who = view.activePlayer.toUpperCase();
   if (view.phase === 'discard') return `TURN ${view.turn} · ${who} · hand limit`;
   return `TURN ${view.turn} · ${who} · ${plural(view.players[view.activePlayer].clicks, 'click', 'clicks')} left`;
+}
+
+/** Markers are kept per kind and place: a server, or an installed card (free rez). */
+function targetKey(kind: TargetSnapshot['kind'], where: { server?: string; uid?: string }): string {
+  return `${kind}:${where.server ?? (kind === 'free_rez' ? (where.uid ?? '') : '')}`;
 }
 
 function handText(side: Side, n: number): string {
@@ -115,6 +120,8 @@ interface SeatWidgets {
   handText: Text;
   credits: Counter;
   clicks: Counter;
+  /** S-04-4: "Bad publicity 1" (Corp) / "+1 for this run" (Runner). */
+  tag: StatusTag;
 }
 
 interface InstalledCard {
@@ -207,6 +214,8 @@ export class Board {
   private readonly zoomLayer = new Container();
   /** The small build date (S-04-1). */
   private readonly buildText: Text;
+  /** The agenda whose free-rez choice was open before this update (for the "skipped" notice). */
+  private lastChoiceCard: string | null = null;
   /** "Leave the game?" over everything (S-04-2). */
   private readonly dialogLayer = new Container();
   private leave: { dialog: LeaveDialog; onLeave: () => void } | null = null;
@@ -373,6 +382,7 @@ export class Board {
   render(view: PlayerView, events: readonly GameEvent[], decision: Decision | null = null): void {
     this.fx.finishAll();
     const prev = this.view;
+    if (prev?.choice) this.lastChoiceCard = prev.choice.cardId;
     const prevDecision = this.decision;
     this.view = view;
     this.decision = decision;
@@ -419,7 +429,9 @@ export class Board {
     const notices: string[] = [];
     for (const e of events) {
       if (e.type === 'server_created') this.serverOpen(e.server, layout);
-      if (e.type === 'credits_spent' && e.player === viewer) this.creditFloat(-e.amount);
+      // Run-only credits (bad publicity) are paid first: only the rest leaves the credits pill.
+      if (e.type === 'credits_spent' && e.player === viewer) this.creditFloat(-(e.amount - (e.temp ?? 0)));
+      this.animateBonusEvent(e, notices);
       if (e.type === 'credit_gained' && e.player === viewer) this.creditFloat(e.amount);
       if (e.type === 'action_rejected') {
         this.showHint(hintFor(e.reason, view));
@@ -519,6 +531,11 @@ export class Board {
         runnerHand: runner?.handText.text ?? '',
         corpDiscard: gen?.discards.corp.text ?? '',
         runnerDiscard: gen?.discards.runner.text ?? '',
+        help: gen?.subHelp.visible && gen.subHelp.renderable ? gen.subHelp.text : '',
+      },
+      tags: {
+        corp: corp && corp.tag.text ? { text: corp.tag.text, box: { ...corp.tag.box } } : null,
+        runner: runner && runner.tag.text ? { text: runner.tag.text, box: { ...runner.tag.box } } : null,
       },
       endTurn:
         button && button.root.visible && button.mode === 'end'
@@ -543,7 +560,7 @@ export class Board {
       dialog: this.leave ? this.leave.dialog.snapshot() : null,
       buildLabel:
         layout && this.buildText.visible && this.buildText.text
-          ? { text: this.buildText.text.replace('\n', ' '), box: this.buildTextBox() }
+          ? { text: this.buildText.text, box: this.buildTextBox() }
           : null,
       zoom: this.zoom
         ? { cardId: this.zoom.cardId, box: centeredBox(this.zoom.card, this.zoom.width, this.zoom.height), texts: textsOf(this.zoom.card), textOverflow: this.zoom.overflow }
@@ -914,9 +931,10 @@ export class Board {
       clicks.root.eventMode = 'none';
       if (pos === 'bottom') gen.detachers.push(this.pressFeedback(credits.root, () => this.boardTap(() => this.callbacks.onCreditsTap())));
       else credits.root.eventMode = 'none';
-      root.addChild(label, credits.root, clicks.root);
+      const tag = new StatusTag(`tag:${side}`, side === 'corp' ? 'bad' : 'run');
+      root.addChild(label, credits.root, clicks.root, tag.root);
       this.boardLayer.addChild(root);
-      w = { side, pos, root, label, name, handText: hand, credits, clicks };
+      w = { side, pos, root, label, name, handText: hand, credits, clicks, tag };
       gen.seats.set(key, w);
     }
     w.label.position.set(row.label.x, row.label.y + Math.max(0, (row.label.height - w.name.height) / 2));
@@ -1041,6 +1059,9 @@ export class Board {
       w.handText.x = w.name.width + fs * 0.7;
       const row = layout[w.pos].label;
       w.label.scale.set(Math.min(1, row.width / Math.max(1, w.handText.x + w.handText.width)));
+      // The client shows the engine's numbers; it never adds run-only credits to the Runner's credits.
+      const note = s === 'corp' ? (view.badPublicity > 0 ? badPublicityText(view.badPublicity) : null) : view.run && view.run.tempCredits > 0 ? tempCreditsText(view.run.tempCredits) : null;
+      w.tag.set(layout[w.pos].tag, note, layout.mode === 'landscape' && w.pos === 'bottom' ? 'center' : 'right');
       const mine = s === viewer;
       gen.decks[s].setActionable(mine && view.legalActions.some((a) => a.type === 'draw'));
       w.credits.setActionable(mine && view.legalActions.some((a) => a.type === 'gain_credit'));
@@ -1065,7 +1086,12 @@ export class Board {
     // Sideways, the run's info panel takes the help text's room in the rail.
     help.visible = !view.result && !(view.run && layout.mode === 'landscape');
     let helpText: string;
-    if (view.run) {
+    const choiceCard = view.choice ? (getCard(view.choice.cardId)?.name ?? 'Agenda') : '';
+    if (view.choice && view.choice.options.length > 0) {
+      helpText = `${choiceCard}: rez one ${TERMS.ice} for free.\nTap a lit ${TERMS.ice}, or ${TERMS.skip}.`;
+    } else if (view.choice) {
+      helpText = `${SIDE_NAME[view.choice.waitingOn]} is choosing (${choiceCard})…`;
+    } else if (view.run) {
       helpText = 'Tap a button to decide.\nHold a card to read it.';
     } else if (this.runPicking) {
       helpText = `Tap a lit server to run on it.\nTap ${TERMS.run} again to cancel.`;
@@ -1129,7 +1155,7 @@ export class Board {
 
     // Run button: where Play goes, while the view offers runs and nothing is picked.
     const rb = gen.runButton;
-    const showRun = !view.run && !view.result && pending === 0 && view.runOptions.length > 0 && this.selected === null && this.pickedInstalled === null;
+    const showRun = !view.run && !view.choice && !view.result && pending === 0 && view.runOptions.length > 0 && this.selected === null && this.pickedInstalled === null;
     rb.root.visible = showRun;
     if (showRun) rb.set(layout.action, TERMS.run, view.runOptions.some((o) => o.reject === null), theme.runner, this.runPicking);
 
@@ -1378,6 +1404,53 @@ export class Board {
     }
   }
 
+  /**
+   * S-04-4 "when scored" bonuses and bad publicity (fx queue, <= 300ms each):
+   * the status notes pop, the offered ICE flash, and a short notice says what happened.
+   */
+  private animateBonusEvent(e: GameEvent, notices: string[]): void {
+    const gen = this.gen;
+    const view = this.view;
+    if (!gen || !view) return;
+    const popTag = (side: Side) => {
+      const tag = this.seatOf(side)?.tag;
+      if (!tag || !tag.text) return null;
+      this.callbacks.log({ kind: 'tag_pop', text: tag.text, scheduledMs: timing.tagPop, box: { ...tag.box } });
+      tag.pop(this.fx, timing.tagPop);
+      return tag;
+    };
+    switch (e.type) {
+      case 'bad_publicity_gained':
+        popTag('corp');
+        notices.push(`${SIDE_NAME.corp} takes ${e.amount} ${TERMS.badPublicity.toLowerCase()}`);
+        return;
+      case 'temp_credits_gained':
+        popTag('runner');
+        notices.push(`${tempCreditsText(e.amount)} (${TERMS.badPublicity.toLowerCase()})`);
+        return;
+      case 'credits_spent': {
+        if (!e.temp) return;
+        const tag = popTag('runner');
+        const b = tag?.box ?? this.seatOf('runner')?.credits.box();
+        if (b) this.floatText(`-${e.temp}`, b, theme.warn, timing.tagPop);
+        return;
+      }
+      case 'choice_opened': {
+        const boxes = (view.choice?.options ?? []).flatMap((o) => (o.action.type === 'rez' ? [gen.installed.get(o.action.uid)?.box] : [])).filter((b): b is Box => !!b);
+        this.callbacks.log({ kind: 'choice_open', text: e.cardId, scheduledMs: timing.choiceFlash });
+        for (const b of boxes) this.flash(b, theme.credit, timing.choiceFlash);
+        return;
+      }
+      case 'choice_closed': {
+        const name = getCard(this.lastChoiceCard ?? '')?.name ?? 'Bonus';
+        notices.push(e.skipped ? `${name}: skipped` : `${name}: ${TERMS.ice} rezzed for free`);
+        return;
+      }
+      default:
+        return;
+    }
+  }
+
   /** A glow over `b` that fades out. */
   private flash(b: Box, color: number, ms: number): void {
     const g = new Graphics();
@@ -1429,6 +1502,11 @@ export class Board {
       return;
     }
     const hand = this.hands[view.viewer];
+    if (view.choice) {
+      // Only the choice can be answered now (S-04-4).
+      this.showHint(view.choice.options.length > 0 ? CHOICE_HINT : `${SIDE_NAME[view.choice.waitingOn]} is choosing`);
+      return;
+    }
     if (view.pendingDiscard > 0) {
       const pending = view.pendingDiscard;
       if (this.marked.has(index)) this.marked.delete(index);
@@ -1495,6 +1573,18 @@ export class Board {
     }
     // The price pill sits on the Runner's side of a Corp column (where the next ICE goes).
     const columnSide: 'top' | 'bottom' = layout.corp.outward === 'down' ? 'bottom' : 'top';
+    if (view.choice) {
+      // S-04-4: the free-rez choice. Only its options show: each offered ICE, and Skip where Play goes.
+      for (const option of view.choice.options) {
+        const a = option.action;
+        if (a.type === 'rez') {
+          const c = gen.installed.get(a.uid);
+          if (c) this.addTarget(gen, layout, 'free_rez', option, c.box, `${TERMS.rez} · free`, 'center', { uid: a.uid });
+        } else if (a.type === 'pass') this.addTarget(gen, layout, 'skip', option, layout.action, TERMS.skip, 'center', {});
+      }
+      this.setNewServerLabel(false);
+      return;
+    }
     if (this.runPicking) {
       for (const option of view.runOptions) {
         const a = option.action;
@@ -1566,7 +1656,7 @@ export class Board {
     where: { server?: string; uid?: string },
   ): void {
     // Markers are kept per place: advance / score always use the same two slots.
-    const key = `${kind}:${where.server ?? ''}`;
+    const key = targetKey(kind, where);
     let marker = gen.targets.get(key);
     if (!marker) {
       const m = new TargetMarker(layout.scale);
@@ -1596,6 +1686,13 @@ export class Board {
     }
     if (this.pickedInstalled === uid) {
       this.cancelSelection();
+      return;
+    }
+    if (view.choice) {
+      // The offered ICE are lit; a tap on one (or its marker) rezzes it for free.
+      const rez = view.choice.options.find((o) => o.action.type === 'rez' && o.action.uid === uid);
+      if (rez) this.callbacks.onAction(rez.action);
+      else this.showHint(view.choice.options.length > 0 ? CHOICE_HINT : `${SIDE_NAME[view.choice.waitingOn]} is choosing`);
       return;
     }
     const options = view.installedOptions[uid] ?? [];
@@ -1648,7 +1745,7 @@ export class Board {
   }
 
   private onTargetTap(key: string): void {
-    const t = this.activeTargets.find((x) => `${x.kind}:${x.server ?? ''}` === key);
+    const t = this.activeTargets.find((x) => targetKey(x.kind, x) === key);
     if (!t || this.flipPending) return;
     // The engine judges it; a refusal comes back as action_rejected and shows its hint.
     this.callbacks.onAction(t.option.action);
@@ -1873,19 +1970,18 @@ export class Board {
     return { x: b.x, y: b.y, width: b.width, height: b.height };
   }
 
-  /** The build date: two short lines in the rail (sideways), one line in the column's hint slot. */
+  /** The build date: the date and time centered in the narrow rail (sideways), "Built …" in the column's hint slot. */
   private placeBuildLabel(layout: BoardLayout): void {
     const t = this.buildText;
     const when = this.callbacks.buildTime;
-    const cut = when.indexOf(' ');
-    const twoLines = layout.mode === 'landscape' && cut > 0;
-    const text = twoLines ? `Built ${when.slice(0, cut)}\n${when.slice(cut + 1)}` : `Built ${when}`;
+    const rail = layout.mode === 'landscape';
+    const text = rail ? when : `Built ${when}`;
     if (t.text !== text) t.text = text;
     const b = layout.buildLabel;
-    t.style.align = twoLines ? 'center' : 'left';
-    t.anchor.set(twoLines ? 0.5 : 0, 0.5);
+    t.style.align = rail ? 'center' : 'left';
+    t.anchor.set(rail ? 0.5 : 0, 0.5);
     fitText(t, b.width, b.height);
-    t.position.set(twoLines ? b.x + b.width / 2 : b.x, b.y + b.height / 2);
+    t.position.set(rail ? b.x + b.width / 2 : b.x, b.y + b.height / 2);
   }
 
   private positionHint(hint: { root: Container; box: Box }): void {

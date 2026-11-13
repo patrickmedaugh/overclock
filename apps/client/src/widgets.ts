@@ -660,3 +660,71 @@ export class ScorePill {
     ui.add({ target: this.inner.scale, to: { x: 1, y: 1 }, duration: 260, ease: ease.outBack, owner: this.inner });
   }
 }
+
+/**
+ * A small status note by a side's credits (S-04-4): the Corp's black "Bad
+ * publicity 1" mark, the Runner's "+1 for this run". Hidden when there is
+ * nothing to say. `align`: where in its slot the note sits.
+ */
+export class StatusTag {
+  readonly root = new Container();
+  private readonly g = new Graphics();
+  private readonly label: Text;
+  private readonly inner = new Container();
+  private drawn = '';
+  /** The note as drawn (CSS px); zero-size while hidden. */
+  box: Box = { x: 0, y: 0, width: 0, height: 0 };
+
+  constructor(
+    name: string,
+    private readonly tone: 'bad' | 'run',
+  ) {
+    this.root.label = name;
+    this.root.eventMode = 'none';
+    this.label = new Text({ text: '', style: { fontFamily: theme.fontFamily, fontSize: 11, fontWeight: '800', fill: tone === 'bad' ? theme.text : theme.credit } });
+    this.label.anchor.set(0.5);
+    this.inner.addChild(this.g, this.label);
+    this.root.addChild(this.inner);
+    this.root.visible = false;
+  }
+
+  get text(): string {
+    return this.root.visible ? this.label.text : '';
+  }
+
+  set(slot: Box, text: string | null, align: 'center' | 'right'): void {
+    if (text === null) {
+      this.root.visible = false;
+      this.box = { x: 0, y: 0, width: 0, height: 0 };
+      this.drawn = '';
+      return;
+    }
+    this.root.visible = true;
+    const h = slot.height;
+    const key = `${slot.width}x${h}:${text}`;
+    if (key !== this.drawn) {
+      this.drawn = key;
+      this.label.style.fontSize = Math.max(9, Math.round(h * 0.72));
+      this.label.text = text;
+      fitText(this.label, slot.width - 8, h);
+    }
+    const w = Math.min(slot.width, Math.ceil(this.label.width) + Math.max(8, Math.round(h * 0.8)));
+    const x = align === 'right' ? slot.x + slot.width - w : slot.x + (slot.width - w) / 2;
+    this.box = { x, y: slot.y, width: w, height: h };
+    placeAt(this.root, this.box);
+    this.g.clear();
+    if (this.tone === 'bad') {
+      // A black mark: solid black, a thin pale rim.
+      this.g.roundRect(-w / 2, -h / 2, w, h, h / 2).fill({ color: 0x000000, alpha: 1 }).stroke({ width: 1, color: theme.textDim, alpha: 0.9 });
+    } else {
+      this.g.roundRect(-w / 2, -h / 2, w, h, h / 2).fill({ color: theme.runnerDeep, alpha: 0.95 }).stroke({ width: 1, color: theme.credit, alpha: 0.9 });
+    }
+  }
+
+  /** Pops in when it appears or changes. */
+  pop(fx: Tweens, ms: number): void {
+    fx.cancel(this.inner.scale);
+    this.inner.scale.set(1.4);
+    fx.add({ target: this.inner.scale, to: { x: 1, y: 1 }, duration: ms, ease: ease.outBack, owner: this.inner });
+  }
+}

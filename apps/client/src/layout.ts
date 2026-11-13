@@ -38,6 +38,12 @@ export interface SideRow {
   label: Box;
   credits: Box;
   clicks: Box;
+  /**
+   * A small status note by the side's credits (S-04-4): the Corp's "Bad
+   * publicity 1", the Runner's "+1 for this run". Always reserved, so the
+   * board does not move when one appears.
+   */
+  tag: Box;
   /** Archives (in its column) / the Heap. */
   discard: Box;
   /** R&D (in its column) / the Stack. */
@@ -135,8 +141,8 @@ export interface BoardLayout {
   card: { width: number; height: number };
   zoom: Box;
   /**
-   * The small build date (S-04-1: which app version is this?). Sideways: the
-   * bottom of the rail's help room, above the viewer's name (outside `sub`).
+   * The small build date (S-04-1: which app version is this?). Sideways: one
+   * line at the bottom of the rail's help room, above the viewer's name (outside `sub`).
    * Column: the bottom-left corner of the hint slot (hidden while a hint shows).
    */
   buildLabel: Box;
@@ -451,9 +457,12 @@ function landscapeLayout(vw: number, vh: number, insets: Insets, safe: Box, view
   const chipW = Math.max(52, Math.round(60 * s));
   const oppClicks = box(bx + bw - chipW, top, chipW, headerH);
   const oppCredits = box(oppClicks.x - k.g - chipW, top, chipW, headerH);
-  // Score pills between the opponent's name and its chips.
+  // The opponent's status note just left of its credits chip.
+  const tagW = Math.max(84, Math.round(100 * s));
+  const oppTag = box(oppCredits.x - k.g - tagW, top, tagW, headerH);
+  // Score pills between the opponent's name and its status note.
   const scoreW = Math.max(64, Math.round(80 * s));
-  const scoreRunner = box(oppCredits.x - k.gc - scoreW, top, scoreW, headerH);
+  const scoreRunner = box(oppTag.x - k.gc - scoreW, top, scoreW, headerH);
   const scoreCorp = box(scoreRunner.x - k.g - scoreW, top, scoreW, headerH);
   const oppLabel = box(bx, top, scoreCorp.x - k.gc - bx, headerH);
 
@@ -464,14 +473,17 @@ function landscapeLayout(vw: number, vh: number, insets: Insets, safe: Box, view
   const endTurn = box(railX, bottom - pillH, railW, pillH);
   const clicks = box(railX, endTurn.y - rg - pillH, railW, pillH);
   const credits = box(railX, clicks.y - rg - pillH, railW, pillH);
-  const railLabel = box(railX, credits.y - rg - Math.max(11, Math.round(12 * s)), railW, Math.max(11, Math.round(12 * s)));
+  const lineH = Math.max(11, Math.round(12 * s));
+  // The viewer's status note sits right above its credits pill, the name above that.
+  const railTag = box(railX, credits.y - rg - lineH, railW, lineH);
+  const railLabel = box(railX, railTag.y - rg - lineH, railW, lineH);
   // Help / Play fill the rail between the banner and the viewer's name. A hint
   // (a short-lived toast) uses the help text's room below the Play button and
   // hides the help text while it shows, so long hints wrap at a readable size
   // instead of shrinking into a short slot (QA-S2-1).
   const subY = banner.y + banner.height + rg;
-  // Two tiny lines for the build date ("Built 2026-11-13" / "14:32 UTC").
-  const buildH = 2 * BUILD_LINE;
+  // One tiny line for the build date ("2026-11-13 14:32 UTC").
+  const buildH = BUILD_LINE;
   const buildLabel = box(railX, railLabel.y - rg - buildH, railW, buildH);
   const sub = box(railX, subY, railW, Math.max(0, buildLabel.y - rg - subY));
   const action = box(railX, subY, railW, Math.min(sub.height, pillH));
@@ -484,8 +496,8 @@ function landscapeLayout(vw: number, vh: number, insets: Insets, safe: Box, view
     viewer,
     corp,
     rig,
-    { row: topRegion, label: oppLabel, credits: oppCredits, clicks: oppClicks },
-    { row: box(bx, bottomBandY, bw, bottomBandH), label: railLabel, credits, clicks },
+    { row: topRegion, label: oppLabel, credits: oppCredits, clicks: oppClicks, tag: oppTag },
+    { row: box(bx, bottomBandY, bw, bottomBandH), label: railLabel, credits, clicks, tag: railTag },
   );
 
   const goH = Math.min(availH, Math.round(150 * s));
@@ -545,12 +557,22 @@ function portraitLayout(vw: number, vh: number, insets: Insets, safe: Box, viewe
   const pillW = Math.max(MIN_TOUCH * 2, Math.min(Math.round(124 * s), Math.floor((avail - gap) / 2)));
   // Score pills at the right end of the opponent's name row.
   const scoreW = Math.max(72, Math.min(Math.round(104 * s), Math.floor(avail / 4)));
-  const row = (y: number, scores = false) => ({
-    row: box(boardX, y, boardW, rowH),
-    label: box(left, y, scores ? avail - 2 * scoreW - 2 * gap : avail, labelH),
-    credits: box(left, y + labelH + labelGap, pillW, pillH),
-    clicks: box(left + pillW + gap, y + labelH + labelGap, pillW, pillH),
-  });
+  // The status note right of the clicks pill when the row has room (wide columns), else at
+  // the right end of the name row (left of the score pills), just above the pills.
+  const tagW = Math.max(96, Math.round(120 * s));
+  const pillsEnd = left + 2 * pillW + gap;
+  const tagBeside = left + avail - pillsEnd - gap >= tagW;
+  const row = (y: number, scores = false) => {
+    const labelEnd = left + (scores ? avail - 2 * scoreW - 2 * gap : avail);
+    const pillY = y + labelH + labelGap;
+    return {
+      row: box(boardX, y, boardW, rowH),
+      label: box(left, y, tagBeside ? labelEnd - left : Math.max(0, labelEnd - tagW - gap - left), labelH),
+      tag: tagBeside ? box(pillsEnd + gap, pillY + Math.round((pillH - labelH) / 2), tagW, labelH) : box(labelEnd - tagW, y, tagW, labelH),
+      credits: box(left, pillY, pillW, pillH),
+      clicks: box(left + pillW + gap, pillY, pillW, pillH),
+    };
+  };
 
   const cg = Math.round(4 * s);
   const bannerH = Math.max(14, Math.round(22 * s));

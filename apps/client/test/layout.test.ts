@@ -76,7 +76,7 @@ function safeRect(w: number, h: number, i: Insets): Box {
 function elements(l: BoardLayout, opts: { fanned?: boolean } = {}): [string, Box][] {
   const out: [string, Box][] = [];
   for (const pos of ['top', 'bottom'] as const) {
-    for (const k of ['label', 'credits', 'clicks'] as const) out.push([`${pos}.${k}`, l[pos][k]]);
+    for (const k of ['label', 'credits', 'clicks', 'tag'] as const) out.push([`${pos}.${k}`, l[pos][k]]);
   }
   for (const s of l.corp.servers) {
     out.push([`${s.id}.label`, s.label]);
