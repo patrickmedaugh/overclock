@@ -1,6 +1,8 @@
 # Sprint Loop — run this every time a session starts
 
-You are the lead of the team described in `CLAUDE.md`. Read `CLAUDE.md`, then `docs/STATE.md`, then do **exactly one** of the phases below based on `phase:` in `STATE.md`. Update `STATE.md` at the end of every phase and commit.
+You are the lead of the team described in `CLAUDE.md`. Read `CLAUDE.md`, then `docs/STATE.md`, then start at the phase named by `phase:` in `STATE.md` and **keep going from phase to phase in this same session** (BUILD → QA → DEMO, and so on) until you reach a step that says "stop" — those are the steps that wait on the owner. Never stop early just because a phase ended (owner decision 2026-11-13). Update `STATE.md` at the end of every phase, commit and push, so a run that dies part-way loses little.
+
+**One run at a time.** At the start, if `STATE.md` has a `running_since:` line less than 5 hours old, another run is still working: stop without changes. Otherwise set `running_since: <now, UTC>`, commit and push before doing anything else. Remove the line when you stop.
 
 ---
 
