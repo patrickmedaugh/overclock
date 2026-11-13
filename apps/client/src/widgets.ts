@@ -641,6 +641,9 @@ export class ScorePill {
   set(b: Box, text: string, points: number): void {
     this.box = { ...b };
     placeAt(this.root, b);
+    // S-05-1: held to read the scored agendas; a thin pill still gets a 44px-tall touch target.
+    const hitH = Math.max(44, b.height);
+    this.root.hitArea = new Rectangle(-b.width / 2, -hitH / 2, b.width, hitH);
     const key = `${b.width}x${b.height}:${text}:${points > 0}`;
     if (key === this.drawn) return;
     this.drawn = key;
