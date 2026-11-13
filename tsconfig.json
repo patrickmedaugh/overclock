@@ -6,6 +6,7 @@
     { "path": "packages/engine" },
     { "path": "packages/ai" },
     { "path": "packages/match" },
+    { "path": "packages/protocol" },
     { "path": "apps/client" },
     { "path": "apps/client/tsconfig.node.json" }
   ]

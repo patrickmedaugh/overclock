@@ -7,10 +7,12 @@
 import {
   apply,
   newGame,
+  replay,
   viewEvents,
   viewFor,
   type Action,
   type GameEvent,
+  type GameOptions,
   type GameState,
   type PlayerView,
   type Side,
@@ -28,12 +30,44 @@ const SIDES: readonly Side[] = ['corp', 'runner'];
 
 export class LocalMatch {
   readonly seed: number;
+  /** Sprint 6: the rule options this game was created with (defaults filled in). */
+  readonly options: GameOptions;
   private state: GameState;
   private readonly log: Action[] = [];
 
-  constructor(seed: number) {
+  constructor(seed: number, options?: Partial<GameOptions>) {
     this.seed = seed;
-    this.state = newGame(seed);
+    this.state = newGame(seed, options);
+    this.options = this.state.options;
+  }
+
+  /**
+   * Sprint 6: rebuilds a match from its seed, its action log and the options it was
+   * created with (`replay`). `actions()` of the result equals `actions`.
+   */
+  static restore(seed: number, actions: readonly Action[], options?: Partial<GameOptions>): LocalMatch {
+    const m = new LocalMatch(seed, options);
+    const copy = actions.map((a) => JSON.parse(JSON.stringify(a)) as Action);
+    m.state = replay(seed, copy, m.options).state;
+    m.log.push(...copy);
+    return m;
+  }
+
+  /**
+   * Sprint 6 (server): resumes a match from a `snapshot()` taken after `actions`, without
+   * replaying. The caller guarantees the snapshot belongs to (seed, actions) and was written
+   * by the same engine build; otherwise use `restore`.
+   */
+  static fromSnapshot(seed: number, state: GameState, actions: readonly Action[]): LocalMatch {
+    const m = new LocalMatch(seed, state.options);
+    m.state = JSON.parse(JSON.stringify(state)) as GameState;
+    m.log.push(...actions.map((a) => JSON.parse(JSON.stringify(a)) as Action));
+    return m;
+  }
+
+  /** Sprint 6 (server persistence only): a JSON copy of the full state. Never send it to a seat. */
+  snapshot(): GameState {
+    return JSON.parse(JSON.stringify(this.state)) as GameState;
   }
 
   view(seat: Side): PlayerView {
