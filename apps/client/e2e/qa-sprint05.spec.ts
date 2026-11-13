@@ -66,6 +66,7 @@ async function finishAccess(page: Page): Promise<void> {
 
 test.describe('QA S-05-1 read the cards you find', () => {
   test('Archives access with several cards: hold each one to read it; lifting leaves the same buttons and changes nothing; Last run then lists them all', async ({ page }) => {
+    test.setTimeout(90_000); // 2 x (up to 6) holds of 250 ms+ each: ~30 s on CI's slower runners
     await openBoard(page, 1);
     await toStep(page, 1, 'runner_at_access');
     let l = await waitIdle(page);
@@ -95,6 +96,7 @@ test.describe('QA S-05-1 read the cards you find', () => {
   });
 
   test('HQ run: a Corp hand card can be read at access and in Last run; a new run hides Last run; End turn removes it for good (Corp seat and the Runner\'s next turn)', async ({ page }) => {
+    test.setTimeout(60_000);
     await openBoard(page, 1);
     await toRunnerTurn(page);
     let l = await startRun(page, 'hq');
