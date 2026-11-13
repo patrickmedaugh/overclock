@@ -2,6 +2,8 @@
 
 QA date: 2026-11-12 · Branch `sprint-03` · Verified at **73eec24** · QA did not write the code under test.
 
+**Round 3 summary (2026-11-13, final, at 13ecbad): 31 of 31 acceptance criteria PASS, 0 FAIL, nothing carried over.** The last open bug, QA-S3-7 (a quick tap read as a "hold" when the page froze mid-tap), is fixed and checked three ways: QA's round-2 repro 180/180 at 6× slow-down, QA's own freeze test green (and red with the fix taken out), and real holds still zoom. S-03-6 AC2 (6× slowed) now 150/150; AC1 (busy machine) 150/150; AC3 (break the guard on purpose) still red every time. Full screen tests 536 passed / 6 skipped / 0 failed with no retries; 740 unit tests pass. See "Round 3" at the end.
+
 **Round 2 summary (2026-11-13, at 34ab59a + QA's test update): both bugs from this report are fixed (QA-S3-1, QA-S3-2), and S-03-6 AC1 now PASSES. Still 30 of 31 PASS, 1 FAIL: S-03-6 AC2 (the 6× slowed-down check) went red once in 150 runs for a new, different reason (QA-S3-7, see "Round 2" at the end). All other checks green: full screen tests 512 passed / 6 skipped / 0 failed with no retries.**
 
 **Round 1 summary: 30 of 31 acceptance criteria PASS, 1 FAIL (S-03-6 AC1, a test-only problem), 0 OWNER CHECK.** The game itself passed everything QA threw at it: runs, rez, breaking, access, stealing, trashing, advancing, scoring, both kinds of win, flatline, and the three "Needs runs" cards. **2 bugs found:**
@@ -206,3 +208,45 @@ Verified at **34ab59a** (fixes in 024c12f, 489211d, 7dc4848, ad9ef03, 49cb721) p
 ### Round 2 screenshots (`docs/sprints/sprint-03-qa/`)
 - `phone-640x360-r2-02-archives-twelve-cards.png`, `desktop-1280x800-r2-02-archives-twelve-cards.png` (QA-S3-1 fixed: 2 / 3 rows, names readable)
 - `phone-640x360-r2-01-enigma-vs-gordian-4-buttons.png`, `desktop-1280x800-r2-01-enigma-vs-gordian-4-buttons.png` (the crowded encounter after the QA-S3-4 fix; desktop buttons now readable)
+
+## Round 3 (2026-11-13, last round)
+
+Verified at **13ecbad** (fix for QA-S3-7 in 007a2d1, by ui-dev; QA did not write it). Same 2-CPU machine. The second report (`sprint-03-qa-pass2.md`) has a matching short Round 3 section.
+
+### QA-S3-7 (a quick tap read as a hold after a long page stall): **FIXED, PASS**
+
+| Check | Result | Evidence |
+|---|---|---|
+| QA's round-2 repro: `E2E_CPU_THROTTLE=6 … qa-sprint01.spec.ts -g "after a 4-card discard" --project=phone,phone-small,desktop --repeat-each=30 --retries=0 --workers=2` | **PASS: 180/180** (0 failed, 0 flaky, 23.9 min) | The filter matches 2 tests, so this is 90 runs of the test that went red in round 2 ("extra taps on the Confirm / End turn spot…") plus 90 of its sister test. Round 2: 1 red in 90. |
+| QA's own stall probe (not the team's test): a tap whose finger-down and finger-up are stamped 30 ms apart, with the page frozen 600 ms or 1200 ms right after the game handled the press; release either queued during the freeze or sent after the page woke and the hold timer had run | **PASS** | New QA spec `apps/client/e2e/qa-sprint03-r3.spec.ts` (4 stall cases): the card is picked ("Discard 2"), no zoom left open, and the test checks its own setup (finger down < 60 ms, release handled > 400 ms after the press). 3 sizes × 3 repeats = 36/36 green; at `E2E_CPU_THROTTLE=6` 3 sizes × 2 = 24/24 green; and in the full run. |
+| Mutation: the fix taken out (old `input.ts` put back in a throw-away git worktree, everything else unchanged) | **Tests go red** | Unit `test/input.test.ts`: 3 of 11 red on the old code ("page stalls 600ms … still a tap", "even if the zoom opened late, a quick release … counts as the tap", "a hold whose release is handled before the stalled timer runs is not a tap"); 11/11 green on the fix. E2E on the old code (3 sizes × 2): **18 red**, every one failing on the real check ("picked" / "the tap picked the card", none on setup): the team's "release delivered after the page wakes" test 6/6 red, its "queued during the freeze" 1/6, QA's stall cases 11/24. The same specs on the fix: all green. |
+| Real holds still zoom (S-00-4) | **PASS** | `zoom.spec.ts` (4 tests × 3 sizes) green, also at 6× slow-down (×2) and in the full run. QA spec: a 600 ms hold on a hand card in the discard picker opens the zoom and the release does **not** pick the card; a 900 ms hold with a 600 ms freeze inside it still zooms and does not pick. Screenshots `sprint-03-qa/*-r3-01-hold-zooms-in-discard-picker.png` (3 sizes; our own glyph art). |
+| Taps still answer in < 100 ms | **PASS** | Every `expectSnappy` / `measureTap` test in the full run (Run, Rez, Break, Steal, Advance, End turn, discard Confirm…) green with no retries. QA read the change: on finger-up the tap is decided at once from the two event times; the only added wait (one frame) is on the late *hold* path, never on a tap. |
+
+QA's reading of the change (007a2d1): tap vs hold is now decided from the press's and release's own event times, the same way the End turn guard judges taps. Behaviour kept: moving away cancels a hold; a target without hold-to-read is always a tap; released outside = no tap. One new rule: a press held ≥ 350 ms whose release is handled before the late hold timer is **not** a tap (stops an accidental play); that is the safe choice.
+
+### Criteria re-checked
+
+| Criterion | Round 2 | Round 3 | Evidence |
+|---|---|---|---|
+| S-03-6 AC1 (busy machine, 10×) | PASS | **PASS** | 5 guard tests × 3 sizes × 10, `--retries=0`, while a second Playwright run (all `s03-*`, both QA Sprint 3 specs, `s02-corp`, `s02-runner-play`; own port and output) loaded the machine the whole time: **150/150, 0 skipped, 0 flaky** (7.6 min). Note: QA's first try had 1 red (`turn.spec` on phone: the page never loaded) because the second run rebuilt the shared `dist/` folder at that very moment (test started 03:27:03.28, `dist/index.html` rewritten 03:27:03.64): a fault in QA's set-up, not in the game or the test. QA re-ran with both runs served from one finished build; that run is the result above. |
+| S-03-6 AC2 (CPU 6× slower, 10×) | FAIL (QA-S3-7) | **PASS** | `E2E_CPU_THROTTLE=6`, the 5 guard tests × 3 sizes × 10, `--retries=0 --workers=2`: **150/150 passed, 0 skipped, 0 flaky** (12.6 min, JSON report). Plus the 90 extra runs of the round-2 red test above (all green). No test skips or has a slow-machine exception (unchanged, read in round 1/2). |
+| S-03-6 AC3 (breaking the guard fails the tests) | PASS | **PASS** | `npm run test:guard-mutation` re-run at 13ecbad (with the fix): exit 0, "guard-mutation: ok". Baseline 0/15 red; guard 300→0 ms 12/15 red; judged by handling time 12/15 red; guard check removed 12/15 red. Every in-guard test is red on phone, phone-small and desktop; the 3 green ones are the "control" tests (tap after the guard), as designed. |
+
+### Other checks (Round 3)
+
+| Check | Result |
+|---|---|
+| `npm run lint` / `npm run typecheck` | PASS (exit 0), incl. QA's new spec |
+| `npm test` | PASS: **740** (ai 4, cards 24, engine 323, match 61, client 328: +11 `input.test.ts`) |
+| `npm run build` | PASS (main bundle 457 kB, 141 kB gzipped) |
+| Full e2e `CI=1 npx playwright test --retries=0` | PASS: **536 passed, 6 skipped, 0 failed, 0 flaky** (23.1 min). That is the team's 524 tests (518 passed + the same 6 intended skips as round 2) plus QA's new spec (18). Screenshots rewritten by the run in `sprint-02-screens/` restored with `git checkout`. |
+| Snappiness | PASS (above). Observation: in the deliberately overloaded AC1 set-up, the *loading* run had one snappiness check red (`s03-runs` "tapping Run lights every Corp server": 467 ms instead of < 100 ms) while two test runs and their browsers shared 2 CPUs; the same test is green in the normal full run. Not a criterion; mentioned so nobody is surprised if a snappiness test is run on a saturated machine. |
+| Empty windows auto-pass, hidden info, IP | Unchanged since round 2, green in `npm test`; new screenshots show only our own art and real card names (allowed, charter rule 3) |
+
+**Round 3 criterion count: 31 = 31 PASS, 0 FAIL.** QA-S3-1..QA-S3-7 all fixed. Nothing carried over.
+
+### Files changed by QA in Round 3
+- `apps/client/e2e/qa-sprint03-r3.spec.ts` (new): QA's own QA-S3-7 checks (4 stall cases, stalled real hold, plain hold; screenshots only with `QA_SCREENS=1`).
+- `docs/sprints/sprint-03-qa/{phone-844x390,phone-640x360,desktop-1280x800}-r3-01-hold-zooms-in-discard-picker.png` (new).
+- This report and `sprint-03-qa-pass2.md` (Round 3 sections, summary lines).

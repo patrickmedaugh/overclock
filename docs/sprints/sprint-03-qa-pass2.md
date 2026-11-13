@@ -4,6 +4,8 @@
 
 QA date: 2026-11-12 · Branch `sprint-03` · **Round 1 verified at 73eec24** (team tip, CI green) plus QA's own tests (commits after it) · QA did not write the code under test. Owner defaults used: Q1 = A (Rez / Don't rez on the board), Q2 = A (Corp deck 17 cards / 9 points).
 
+**Round 3 summary (2026-11-13, final, at 13ecbad): 31 of 31 acceptance criteria PASS (S-03-3 AC6 "clear enough to follow" is also an owner check at the demo), 0 FAIL, nothing carried over.** QA-S3-7 is fixed (ui-dev, 007a2d1), so S-03-6 AC2 (6× slowed) passes: 150/150. AC1 150/150 on a busy machine, AC3 mutation job still red for every broken guard. Full screen tests 536 passed / 6 skipped / 0 failed, no retries. Details in `sprint-03-qa.md` › Round 3 and "Round 3" at the end.
+
 **Round 2 summary (2026-11-13, at 34ab59a + QA's test update): all four bugs from this report are fixed (QA-S3-3, QA-S3-4, QA-S3-5, QA-S3-6). Still 30 of 31 PASS, 1 FAIL: S-03-6 AC2 (6× slowed-down check) went red once in 150 runs, now for a different reason (QA-S3-7: a setup tap read as a "hold"; see `sprint-03-qa.md` Round 2). The CI failure on 49cb721 was QA's own test and is fixed. Full screen tests 512 passed / 6 skipped / 0 failed with no retries. Details in "Round 2" at the end.**
 
 **Round 1 summary: 30 of 31 acceptance criteria PASS (one of them also needs an owner check at demo), 1 FAIL** (S-03-3 "each step is shown clearly enough to follow": the automated part passes, but whether it is clear enough is the owner's call). **The FAIL is S-03-6 AC2** (the slowed-down machine): 1 of 150 double-tap runs went red at 6× slow-down, because one of the two guard test files still times its second tap with the test machine's clock (QA-S3-5). **4 bugs found:** QA-S3-3 (minor: a run that gets into a server with nothing in it ends with no message at all), QA-S3-4 (minor, readability: long break buttons such as Enigma's "Break "The Runner loses 1 click, if able" · 1 credit" shrink to about 7-pixel text on a computer), QA-S3-5 (test-only, fails S-03-6 AC2: `guard-slow-frame.spec.ts` still times its second tap with the test machine's clock), QA-S3-6 (test-only, low: `turn.spec.ts` "a double tap on End turn ends only one turn" stays green when the guard is broken, and the mutation job doesn't cover it). The game rules themselves held up in every check QA ran. Lint, typecheck, unit tests, build and the team's full e2e all pass (e2e 431 passed / 3 intended skips, no retries). Snappiness budget met for every run step.
@@ -183,3 +185,20 @@ Verified at **34ab59a** (fixes in 024c12f, 489211d, 7dc4848, ad9ef03, 49cb721) p
 - `apps/client/e2e/qa-sprint03-pass2.spec.ts`: snappiness test (toasts out of the 600 ms rule, notice text checked, next tap while the toast shows), QA-S3-3 test checks the words, new empty-Archives test, round-2 screenshots.
 - `docs/sprints/sprint-03-qa-pass2/*-r2-*.png`, `docs/sprints/sprint-03-qa/*-r2-*.png`: new screenshots.
 - This report and `sprint-03-qa.md` (Round 2 sections).
+
+## Round 3 (2026-11-13, last round)
+
+Verified at **13ecbad** (QA-S3-7 fix 007a2d1 by ui-dev; QA did not write it). Full evidence for QA-S3-7 is in `sprint-03-qa.md` › Round 3; this section records the criteria this report had open.
+
+| Criterion | Round 2 | Round 3 | Evidence |
+|---|---|---|---|
+| S-03-6 AC1 (busy machine, 10×) | PASS | **PASS** | 5 guard tests × 3 sizes × 10, `--retries=0`, while a second Playwright run loaded the machine: **150/150, 0 skipped, 0 flaky**. |
+| S-03-6 AC2 (6× slower, 10×) | FAIL (QA-S3-7) | **PASS** | `E2E_CPU_THROTTLE=6`, same 150: **150/150, 0 skipped, 0 flaky** (12.6 min). The round-2 red test ("after a 4-card discard, extra taps…") also ran 90 more times at 6×: 90/90. QA-S3-7 fixed: a 30 ms tap with a 600 or 1200 ms page freeze in the middle now picks the card (QA's own test `qa-sprint03-r3.spec.ts`, red on the old code). |
+| S-03-6 AC3 (mutation) | PASS | **PASS** | `npm run test:guard-mutation` re-run with the fix: exit 0; baseline 0/15 red, each of the 3 breaks 12/15 red (all in-guard tests, all sizes). |
+| S-03-3 AC6 (clear enough to follow) | PASS / owner check | **PASS / owner check** | Unchanged; still the owner's call at the demo. |
+
+Other checks: lint, typecheck PASS; `npm test` **740** PASS; build PASS; full e2e `CI=1 --retries=0` **536 passed, 6 skipped, 0 failed, 0 flaky** (team 518 + 6 intended skips, QA's new spec 18); rewritten `sprint-02-screens/` restored. Bugs QA-S3-3..QA-S3-6 from this report stay fixed (their tests green in the full run).
+
+**Round 3 criterion count: 31 = 31 PASS (S-03-3 AC6 also an owner check), 0 FAIL. Nothing carried over.**
+
+Files changed by QA in Round 3: `apps/client/e2e/qa-sprint03-r3.spec.ts` (new), `docs/sprints/sprint-03-qa/*-r3-01-hold-zooms-in-discard-picker.png` (new, 3 sizes), this report and `sprint-03-qa.md`.

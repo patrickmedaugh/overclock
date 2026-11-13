@@ -220,5 +220,5 @@ describe('QA Sprint 3: random games with runs', () => {
     expect(stats.steals).toBeGreaterThan(20);
     expect(stats.scores).toBeGreaterThan(20);
     expect(stats.over.agenda_points + stats.over.flatline + stats.over.corp_decked).toBeGreaterThan(100);
-  });
+  }, 60_000); // ~2–8s; a long timeout so a busy CI runner cannot turn it red (architect, 2026-11-13). Assertions unchanged.
 });
