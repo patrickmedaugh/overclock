@@ -89,6 +89,9 @@ function isUnder(c: Container | null, root: Container | null): boolean {
   return false;
 }
 
+/** QA-S4-1 pre-draw: no bake from this long before the hold opens the zoom until it has opened (ms). */
+const PREDRAW_QUIET_MS = 60;
+
 function shapeOf(view: PlayerView): BoardShape {
   return {
     servers: view.corpServers.map((s) => ({ id: s.id, ice: s.ice.length, content: s.content.length })),
@@ -249,7 +252,7 @@ export class Board {
   /** A closed zoom still fading out (freed before evicted zoom faces are). */
   private fadingZoom: Container | null = null;
   /** QA-S4-1: zoom faces still to pre-draw for a held hand (one per frame), nearest first. */
-  private predraw: { ids: string[]; frame: number } | null = null;
+  private predraw: { ids: string[]; total: number; frame: number; at: number } | null = null;
   /** Hand indices picked in the discard picker (UI state only). */
   private readonly marked = new Set<number>();
   /** Hand index picked to play (UI state only). */
@@ -2375,21 +2378,27 @@ export class Board {
       }
     }
     if (order.length === 0) return;
-    this.predraw = { ids: order, frame: requestAnimationFrame(() => this.predrawStep()) };
+    this.predraw = { ids: order, total: order.length, frame: requestAnimationFrame(() => this.predrawStep()), at: performance.now() };
   }
 
   private predrawStep(): void {
     const p = this.predraw;
     const layout = this.layout;
     if (!p || !layout) return;
+    // Around the moment the hold turns into a zoom, draw nothing more: on a slow
+    // device a bake in that frame would make the zoom itself late (the held card's
+    // own face, first in the list, is already drawn by then). Resumes once it opens.
+    const drawnOne = p.ids.length < p.total;
+    if (!this.zoom && drawnOne && performance.now() - p.at > timing.longPress - PREDRAW_QUIET_MS) {
+      p.frame = requestAnimationFrame(() => this.predrawStep());
+      return;
+    }
     const z = layout.zoom;
     const id = p.ids.shift();
     const def = id ? getCard(id) : undefined;
     if (id && def && !hasZoomFace(def, z.width, z.height)) {
       // Drawn into the cache; the sprite made here is not needed.
-      const t0 = performance.now();
       createZoomFace(def, z.width, z.height).root.destroy({ children: true });
-      ((globalThis as unknown as { __pd?: number[] }).__pd ??= []).push(performance.now() - t0);
       if (this.zoom?.carousel?.upgrade(id)) this.callbacks.changed();
     }
     if (p.ids.length > 0) p.frame = requestAnimationFrame(() => this.predrawStep());
