@@ -1,6 +1,6 @@
 // Types for the Playwright test hook (`window.__overclock`).
 // Shared by the client (src) and the e2e specs, so keep this file type-only.
-import type { Action, GameEvent, PlayerView, Side } from '@overclock/engine';
+import type { Action, GameEvent, PlayerView, RunStep, RunView, Side } from '@overclock/engine';
 
 /** Axis-aligned box in CSS pixels, relative to the page viewport. */
 export interface Box {
@@ -35,6 +35,8 @@ export interface InstalledSnapshot {
   faceUp: boolean;
   /** Drawn bounds (ICE: sideways, wider than tall). */
   box: Box;
+  /** The advancement counter drawn on it ("2"), or null when none is shown. */
+  counter: string | null;
 }
 
 export interface ServerSnapshot {
@@ -53,9 +55,16 @@ export interface ServerSnapshot {
 
 /** A place a picked hand card can go, lit while the card is picked. */
 export interface TargetSnapshot {
-  kind: 'server' | 'new_server' | 'install' | 'play';
-  /** For server targets. */
+  /**
+   * server / new_server / install / play: where a picked hand card can go
+   * (play with `server`: a run event that names its server, e.g. Inside Job).
+   * run: a server lit after tapping Run. advance / score: a picked installed agenda's choices.
+   */
+  kind: 'server' | 'new_server' | 'install' | 'play' | 'run' | 'advance' | 'score';
+  /** For server targets (and run / server-named play targets). */
   server?: string;
+  /** For advance / score: the installed card. */
+  uid?: string;
   box: Box;
   /** The price label, e.g. "Install · 1 credit". */
   label: string;
@@ -63,6 +72,53 @@ export interface TargetSnapshot {
   lit: boolean;
   /** The engine's reason it would be refused (from view.handOptions). */
   reject: string | null;
+}
+
+/** A big button in the run panel (or the Run button), drawn from engine options. */
+export interface PanelButtonSnapshot {
+  label: string;
+  /** Bright (the engine would accept it) vs dim (shown, refused with a hint when tapped). */
+  lit: boolean;
+  reject: string | null;
+  box: Box;
+  /** The action it submits (as the deciding seat). */
+  action: Action;
+  /** The label's text size as drawn, after any shrink to fit (px; QA-S3-4). */
+  fontPx: number;
+}
+
+/** The run tracker and its decision panel. */
+export interface RunSnapshot {
+  server: string;
+  step: RunStep;
+  /** The seat the buttons act for (the Corp at approach, otherwise the Runner). */
+  deciding: Side;
+  /** Panel title, e.g. "Run on Server 1", and the step line, e.g. "Rez Wall of Static?". */
+  title: string;
+  stepLabel: string;
+  /** Info lines (ICE name and strength, breaker strengths, next stop). */
+  lines: string[];
+  /** The current ICE's subroutines as listed (broken ones crossed out). */
+  subroutines: { text: string; broken: boolean }[];
+  /** The highlighted ICE (approached / encountered / just passed), null at the server. */
+  iceUid: string | null;
+  /** The current ICE's box, or the server column at access. */
+  highlight: Box | null;
+  /** The run's server column (outlined for the whole run). */
+  serverBox: Box;
+  /** The info panel's area. */
+  infoBox: Box;
+  /** The smallest text size in the info panel as drawn, after any shrink to fit (px; QA-S3-4). */
+  infoFontPx: number;
+  buttons: PanelButtonSnapshot[];
+  /** Accessed cards, drawn large. */
+  access: { cards: { cardId: string | null; stolen: boolean; box: Box }[] } | null;
+}
+
+export interface ScoreSnapshot {
+  /** "Corp 1 point", "Runner 2 points". */
+  text: string;
+  box: Box;
 }
 
 export interface LayoutSnapshot {
@@ -108,7 +164,16 @@ export interface LayoutSnapshot {
   endTurn: { box: Box; label: string; glowing: boolean; enabled: boolean } | null;
   /** Hand-limit discard picker, when the viewer must discard. */
   picker: { remaining: number; label: string; confirm: { box: Box; enabled: boolean } } | null;
-  gameOver: { text: string; box: Box } | null;
+  /** text = title + ": " + reason, e.g. "Runner wins: 7 agenda points". */
+  gameOver: { text: string; title: string; reason: string; box: Box } | null;
+  /** The run tracker and its buttons, while a run is on. */
+  run: RunSnapshot | null;
+  /** The Runner's Run button (rail), when the view offers runs; `picking` while servers are lit. */
+  runButton: { box: Box; label: string; lit: boolean; picking: boolean } | null;
+  /** Both sides' points, shown to both seats. */
+  score: Record<Side, ScoreSnapshot>;
+  /** uid of the installed card picked for its choices (Corp agendas: Advance / Score), or null. */
+  selectedInstalled: string | null;
   /** The transient hint toast, if one is visible. */
   hint: { text: string; box: Box } | null;
   /**
@@ -132,7 +197,29 @@ export type AnimKind =
   /** An operation/event flies to its owner's discard pile. */
   | 'play_flight'
   /** A new remote server's column appears. */
-  | 'server_open';
+  | 'server_open'
+  /** The ICE flips face up. */
+  | 'ice_rez'
+  /** A run step moves the tracker (approach, encounter, pass, access). */
+  | 'run_step'
+  /** A subroutine is crossed out. */
+  | 'sub_broken'
+  /** A subroutine happens (flash on the ICE, with a notice). */
+  | 'sub_fired'
+  /** A breaker's strength changes. */
+  | 'strength_pop'
+  /** Net damage: Grip cards fly to the Heap. */
+  | 'net_damage'
+  /** The Runner loses clicks. */
+  | 'clicks_lost'
+  /** A stolen or scored agenda flies to its score. */
+  | 'score_flight'
+  /** A trashed card flies to Archives. */
+  | 'trash_flight'
+  /** An advancement counter is added. */
+  | 'advance_pop'
+  /** A short non-blocking notice (run result, damage, bypass). */
+  | 'notice';
 
 /** Logged when an animation or hint starts. */
 export interface AnimRecord {
@@ -174,6 +261,8 @@ export interface EndTurnClock {
 export interface OverclockTestHook {
   /** The bottom seat's view. */
   getView(): PlayerView;
+  /** The other seat's run view while the game waits on it mid-run (the Corp's rez choice), else null. */
+  decision(): { seat: Side; run: RunView } | null;
   /** Submits as seat `action.player`; returns that seat's projected events. */
   dispatch(action: Action): GameEvent[];
   lastEvents(): GameEvent[];

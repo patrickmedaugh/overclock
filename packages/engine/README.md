@@ -152,6 +152,110 @@ For each of the viewer's hand cards: every offered target for that card's type, 
 ### `legalActions` order
 `draw, gain_credit, end_turn, discard, install… (by hand index, then target order), play… (by hand index)`.
 
+## Sprint 3 interface (pinned: implement exactly this; changes go through the architect)
+
+Everything in the Sprint 1 and 2 interfaces still holds. Rules: `docs/RULES_SPEC.md` § Runs, Advancing and scoring, Damage, Winning. Tech plan: `docs/sprints/sprint-03-tech-plan.md`.
+
+```ts
+const WINNING_POINTS = 7;
+type Phase = 'action' | 'discard' | 'run' | 'over';          // every Sprint 1/2 action is wrong_phase during a run
+type WinReason = 'corp_decked' | 'agenda_points' | 'flatline';
+type RunStep = 'approach' | 'encounter' | 'continue' | 'access';
+type AccessFrom = 'hq' | 'rd' | 'archives' | 'remote';
+type RunOutcome = 'accessed' | 'jacked_out' | 'ended_by_ice' | 'flatline';
+
+// ---- state additions (plain JSON) ----
+// Installed.advancements: number                 0 by default (Runner cards too)
+// PlayerState.scoreArea: string[]                card ids, face up, in order
+// GameState.run: RunState | null                 internal shape (state.ts); clients read PlayerView.run
+// GameState.lastRunTurn: number | null           turn a run was last *started* (Neural EMP)
+
+// ---- actions ----
+type Action = /* Sprint 1/2 actions */
+  | { type: 'play'; player; handIndex; server?: ServerId }   // server: only for run events with no fixed server (Inside Job)
+  | { type: 'run'; player; server: ServerId }                // Runner, 1 click
+  | { type: 'rez'; player; uid: string }                     // Corp, approach step, uid = approached ICE; pays card cost
+  | { type: 'pass'; player }                                 // the default at the current step (see below)
+  | { type: 'jack_out'; player }                             // Runner, continue step only
+  | { type: 'use_ability'; player; uid: string; ability: number; sub?: number } // breaker uid, index into card abilities; sub required for breaks
+  | { type: 'steal'; player; card: number }                  // index into run.access.cards
+  | { type: 'trash'; player; card: number }                  // index into run.access.cards; pays trash cost
+  | { type: 'advance'; player; uid: string }                 // Corp, 1 click + 1 credit, own installed agenda
+  | { type: 'score'; player; uid: string };                  // Corp, no click, own turn, action phase, counters >= requirement
+
+type RejectReason = /* Sprint 1/2 reasons */ | 'too_weak' | 'condition_not_met';
+```
+
+### Run steps and `pass`
+Who decides (`run.waitingOn`): the Corp at `approach`, the Runner at every other step. The other side gets `not_your_turn` for any action.
+
+| step | decider | `pass` means | other actions |
+|---|---|---|---|
+| `approach` | Corp | Don't rez (ICE passed face down) | `rez` |
+| `encounter` | Runner | Let it through (unbroken subroutines fire in order) | `use_ability` |
+| `continue` | Runner | Continue (next ICE inward, or into the server) | `jack_out` |
+| `access` | Runner | Leave it / Done (refused `bad_target` while an unstolen agenda is shown) | `steal`, `trash` |
+
+Position walks `ice.length-1 … 0` (outermost first), then the server (`position = -1`). The engine auto-passes (the client never does):
+- **approach** is skipped when the ICE is already rezzed (→ encounter) or the Corp cannot pay its rez cost (→ passed face down);
+- an **encounter** ends by itself when every subroutine is broken, or when Inside Job's bypass applies (`ice_bypassed`);
+- no `continue` stop before the first ICE; a server with no ICE is entered directly;
+- an access group ends by itself once every card in it is stolen or trashed; the run ends when nothing is left to access.
+"Let it through" with no usable breaker still stops (the player sees what fires), and so does Done on a card that can't be taken.
+
+### Access
+- HQ: 1 card picked with the seeded RNG. R&D: the top card, then (The Maker's Eye) the next ones, one at a time; a short deck stops early. A remote: every card in it, one at a time (install order). Archives: every card as **one** group (`access.cards` has them all), all turned face up for good; agendas stealable, nothing trashable.
+- Upgrades installed in a central server's root are accessed after the central's own cards, one at a time.
+- Agendas: only `steal` (mandatory). Cards with a trash cost (not from Archives): `trash` (price; may be `no_credits`) or `pass` (Leave it). Other cards: `pass` (Done).
+- An empty HQ/R&D/Archives/remote: the run is successful and ends (`run_ended{accessed}`).
+
+### Rejection order
+- Run decisions (`rez`, `pass`, `jack_out`, `use_ability`, `steal`, `trash`): `invalid_action` (shape) → `game_over` → `not_your_turn` (not the deciding side; outside a run, not the active player) → `wrong_phase` (no run, or a step the action does not belong to) → `bad_target` (bad uid / ability / sub / card, sub already broken, breaker type ≠ ICE type, `rez` uid ≠ approached ICE, `trash` on an agenda / a card without trash cost / from Archives, `steal` on a non-agenda or a stolen card, `pass` at access with an unstolen agenda) → `too_weak` (break only) → `no_credits`.
+- `run`: `invalid_action` → `game_over` → `not_your_turn` → `wrong_phase` → `no_clicks` → `bad_target` (unknown server, or the Corp) .
+- `advance`: `invalid_action` → `game_over` → `not_your_turn` → `wrong_phase` → `no_clicks` → `bad_target` (not one of the player's installed agendas; the Runner always) → `no_credits`.
+- `score`: `invalid_action` → `game_over` → `not_your_turn` → `wrong_phase` → `bad_target` (not an installed agenda of the player, or fewer counters than its requirement — never offered then).
+- `play`: `… no_clicks → bad_card → bad_target (server given to a card that takes none, or missing/unknown for Inside Job) → not_implemented → condition_not_met (playIf) → no_credits`.
+
+### Events (all public unless noted)
+`run_started{server, cardId?}` (cardId = the run event), `ice_approached{uid, position}`, `ice_rezzed{uid, cardId}`, `ice_encountered{uid}`, `ice_bypassed{uid}`, `strength_changed{uid, strength}` (breaker pump, and each boost dropping back at the end of the encounter/run), `subroutine_broken{iceUid, sub, breakerUid}`, `subroutine_fired{iceUid, sub}`, `clicks_lost{player, amount}` (only when > 0), `net_damage{amount, cardIds}` (discarded face up to the Heap), `ice_passed{uid}`, `run_successful{server}`, `card_accessed{cardId?, from, uid?}` (**the Corp's projection drops `cardId` when `from` is `rd`**), `agenda_stolen{cardId, points}`, `card_trashed{cardId, from, uid?}`, `run_ended{server, outcome}`, `card_advanced{uid, advancements}`, `agenda_scored{uid, cardId, points}`; `credits_spent` for rez / break / pump / trash / advance; `game_over` with the new reasons (after `run_ended` when a run ends the game).
+
+Sequences: `run` → `run_started` → (`ice_approached` → [`ice_rezzed`] → `ice_encountered` …) or (`run_successful` → `card_accessed`…). `pass` at encounter → per unbroken sub `subroutine_fired` + its effect (`clicks_lost` / `net_damage` / `run_ended{ended_by_ice}`). Passing ICE → [`strength_changed`…] `ice_passed`. `jack_out` → `run_ended{jacked_out}`. Steal to 7 → `agenda_stolen`, `run_ended{accessed}`, `game_over{runner, agenda_points}`. Flatline → `net_damage`, [`run_ended{flatline}`], `game_over{corp, flatline}`.
+
+### View additions
+```ts
+interface InstalledView { /* ... */ advancements: number }       // both sides see the number (backs too)
+interface PlayerSideView { /* ... */ scored: string[]; points: number }
+interface PlayerView {
+  /* ... */
+  runOptions: CardOption[];                         // Runner: one `run` per server (corpServers order); Corp: []
+  installedOptions: Record<string, CardOption[]>;  // Corp: per installed agenda uid, `advance` (cost 1), then `score` once it has enough counters; Runner: {}
+  run: RunView | null;
+}
+interface RunView {
+  server: ServerId;
+  position: number;               // index into the server's ice; -1 at the server
+  step: RunStep;
+  waitingOn: Side;
+  iceUid: string | null;          // ICE approached / encountered / just passed
+  ice: { cardId: string | null; strength: number | null; subroutines: { text: string; broken: boolean }[] } | null;
+                                  // the Runner sees cardId/strength/subroutines only once the ICE is rezzed (null / null / [])
+  breakerStrength: Record<string, number>;   // every installed icebreaker's current strength, boosts included
+  access: { cards: { cardId: string | null; from: AccessFrom; stolen: boolean; uid: string | null }[] } | null;
+                                  // cardId null only in the Corp's view of R&D cards; uid = installed card, else null
+  extraAccess: number;
+  bypassPending: boolean;         // Inside Job's bypass not used yet
+  options: CardOption[];          // the viewer's offered moves at this step (empty when not the viewer's decision)
+}
+```
+`run.options` order: approach `rez`, `pass` · encounter: per matching breaker (rig order) its abilities in printed order (a break ability once per unbroken subroutine, `sub` ascending), then `pass` · continue `pass`, `jack_out` · access: per card `steal` / `trash`, then `pass` (only when no unstolen agenda is shown). Same rules as `handOptions`: `bad_target` moves are never listed (so a wrong-type breaker shows nothing), any other reason is in `reject` (`too_weak`, `no_credits`), and `cost` is the credits the move would cost (break/pump price, rez cost, trash cost). **The client never computes a price, a strength or what fires.**
+
+`legalActions` order: `draw, gain_credit, end_turn, discard, install…, play…, run…, advance/score…` (by `installedOptions`), and during a run the decider's legal `run.options`.
+
+Extra exports: `waitingOn(state): Side | null` (who the game waits on: the run's decider, else the active player; null when over) and `hasMeaningfulResponse(state, player): boolean` (`legalActions(state, player).length > 0`). The engine already auto-passes empty windows; these are for hosts/AI.
+
+### Card DSL v1 (`@overclock/cards`)
+`Effect += {op:'net_damage', amount} | {op:'lose_clicks', amount} | {op:'end_run'} | {op:'run', server?, extraAccess?, bypassFirst?}` (damage/click loss always hit the Runner; `run` is a card's last effect). ICE: `subroutines: {text, effect}[]`. Breakers: `abilities: ({op:'break', cost, iceType, count: 1} | {op:'strength', cost, amount, until: 'encounter' | 'run'})[]`. Operations: `playIf?: 'runner_ran_last_turn'` (`lastRunTurn === turn − 1`). `ServerId`/`CentralServerId` now live in `@overclock/cards` (re-exported by the engine). No card has `needs` any more.
+
 ## `@overclock/match` (host; `packages/match`)
 Owns one game's `GameState` and talks to seats only through projections. It is the same contract a network server will expose later.
 
@@ -173,6 +277,14 @@ class LocalMatch {
 Seats receive Sprint 2 events already projected (`card_installed` without `cardId`/`handIndex` for the Runner seat on Corp installs).
 
 **Test-only:** `@overclock/match/testing` exports `planBusyBoard(seed, goal?) -> { seed, actions, activePlayer }` (drives a `LocalMatch` through seat views until 3 remotes have 2 ICE each and the Runner has 4 installs; `actions` replay to that board for the same seed) and `busyBoardReached(view)`. For Node-side e2e setup only; the client must not import it.
+
+**Test-only (Sprint 3):** `@overclock/match/testing` also exports `planToStep(seed, goal) -> { seed, goal, actions, waitingOn, activePlayer, info }`, `stepReached(goal, {corp, runner})` and `STEP_GOALS`. It plays a real game from `newGame(seed)` (both seats, through seat views) until `goal`:
+- `corp_rez_prompt` — a run waits on the Corp's Rez / Don't rez (face-down ICE it can pay for). `info: {server, iceUid}`.
+- `wall_of_static_encounter` — the Runner encounters a rezzed Wall of Static, Corroder installed, ≥ 2 credits. `info: {server, iceUid, breakerUid}`.
+- `agenda_one_advance` — Corp's action step with a click and a credit, an installed agenda one advancement short. `info: {uid, cardId, server}`.
+- `corp_one_score_from_win` — Corp's action step, an installed agenda ready to score that brings the Corp to 7. `info: {uid, cardId, server}`. **Not every seed works** (7 points needs Priority Requisition; if it lies deep in R&D the Corp runs out of cards first): seeds 1, 2, 3, 4, 5, 7, 12345 do (~80% of 1-100).
+- `runner_one_steal_from_win` — Runner's action step with a click, a remote with no ICE holding an agenda that brings the Runner to 7. `info: {uid, cardId, server}`.
+Dispatch `actions` in order, each as its own `action.player` (Corp actions happen during the Runner's turn: the rez decisions). Throws if the goal isn't reached.
 
 The client and AI may import only the public index of engine/cards/match. The client may not import `apply`, `newGame`, `legalActions`, `viewFor` or `replay` (it goes through the match).
 

@@ -15,14 +15,16 @@ import { createCardBack, createCardFace, glowRoundRect, retireCardTextures } fro
 import { centeredBox } from './geometry';
 import { Hand, type HandCard } from './hand';
 import type { AnimRecord, Box, EndTurnClock, InstalledSnapshot, Insets, LayoutSnapshot, SideLayout, TargetSnapshot } from './hook-types';
-import type { Presentation } from './hotseat';
+import type { Decision, Presentation } from './hotseat';
 import { hintFor } from './hints';
 import { attachPress, inputTime } from './input';
-import { type BoardLayout, type BoardShape, type SideRow, computeLayout } from './layout';
-import { SIDE_NAME, TERMS, plural, priceText, serverLabel, zoneName } from './terms';
+import { type BoardLayout, type BoardShape, CARD_RATIO, type SideRow, computeLayout } from './layout';
+import { RunDisplay } from './runDisplay';
+import { RUN_END, nameOf, runEndText } from './runText';
+import { SIDE_NAME, TERMS, plural, pointsText, priceText, serverLabel, zoneName } from './terms';
 import { sideColor, theme, timing } from './theme';
 import { ease, type Tweens } from './tween';
-import { ActionButton, Counter, DeckPile, DiscardPile, MemoryCounter, TargetMarker, fitText, placeAt } from './widgets';
+import { ActionButton, Counter, DeckPile, DiscardPile, MemoryCounter, PanelButton, ScorePill, TargetMarker, fitText, placeAt } from './widgets';
 
 type Pos = 'top' | 'bottom';
 const SIDES: readonly Side[] = ['corp', 'runner'];
@@ -31,13 +33,21 @@ const other = (s: Side): Side => (s === 'corp' ? 'runner' : 'corp');
 /** Refusals that apply to every target of a card alike: shown at once instead of lighting targets. */
 const GATE_REASONS: ReadonlySet<RejectReason> = new Set(['game_over', 'not_your_turn', 'wrong_phase', 'no_clicks']);
 
-/** Why the game ended, in plain words (completes "<Winner> wins: ..."). */
+/** Why the game ended, in plain words (the line under "<Winner> wins"). */
 const WIN_REASON: Record<WinReason, string> = {
-  corp_decked: `the Corp ran out of cards`,
+  corp_decked: `${TERMS.rd} is empty`,
+  agenda_points: `7 agenda points`,
+  flatline: `${SIDE_NAME.runner} flatlined`,
 };
 
+/** "Runner wins" / "7 agenda points". */
+export function gameOverLines(result: { winner: Side; reason: WinReason }): { title: string; reason: string } {
+  return { title: `${SIDE_NAME[result.winner]} wins`, reason: WIN_REASON[result.reason] };
+}
+
 export function gameOverText(result: { winner: Side; reason: WinReason }): string {
-  return `${SIDE_NAME[result.winner]} wins: ${WIN_REASON[result.reason]}`;
+  const { title, reason } = gameOverLines(result);
+  return `${title}: ${reason}`;
 }
 
 export function bannerText(view: PlayerView): string {
@@ -116,6 +126,9 @@ interface InstalledCard {
   faceUp: boolean;
   /** Drawn bounds (ICE: sideways). */
   box: Box;
+  /** Advancement counter badge (shown on backs too). */
+  badge: Container;
+  badgeText: Text;
   detach: () => void;
 }
 
@@ -128,6 +141,7 @@ interface ColumnWidgets {
 interface ActiveTarget {
   kind: TargetSnapshot['kind'];
   server?: string;
+  uid?: string;
   option: CardOption;
   marker: TargetMarker;
 }
@@ -149,6 +163,12 @@ interface Generation {
   subMain: Text;
   subHelp: Text;
   button: ActionButton;
+  /** The Runner's Run button (rail / control strip, where Play goes). */
+  runButton: PanelButton;
+  run: RunDisplay;
+  scores: Record<Side, ScorePill>;
+  /** Outline around a picked installed card. */
+  pickMark: Graphics;
 }
 
 export interface BoardCallbacks {
@@ -171,7 +191,11 @@ export class Board {
   private readonly bgLayer = new Container();
   private readonly boardLayer = new Container();
   private readonly installedLayer = new Container();
+  /** Run tracker marks (server outline, current ICE) over the cards. */
+  private readonly runLayer = new Container();
   private readonly centerLayer = new Container();
+  /** Accessed cards shown large, over the bands. */
+  private readonly accessLayer = new Container();
   private readonly targetLayer = new Container();
   private readonly handLayer = new Container();
   private readonly fxLayer = new Container();
@@ -185,7 +209,13 @@ export class Board {
   private layout: BoardLayout | null = null;
   private view: PlayerView | null = null;
   private gen: Generation | null = null;
-  private gameOver: { text: string; root: Container } | null = null;
+  private gameOver: { text: string; title: string; reason: string; root: Container } | null = null;
+  /** The other seat's run decision shown on this board (the Corp's rez choice), or null. */
+  private decision: Decision | null = null;
+  /** True while servers are lit after tapping Run (UI state only). */
+  private runPicking = false;
+  /** Installed card picked for its choices (Corp agenda: Advance / Score). */
+  private pickedInstalled: string | null = null;
   private hint: { text: string; root: Container; box: Box } | null = null;
   private zoom: { cardId: string | null; root: Container; card: Container; width: number; height: number; overflow: boolean } | null = null;
   /** Hand indices picked in the discard picker (UI state only). */
@@ -224,13 +254,10 @@ export class Board {
     this.hintLayer.eventMode = 'none';
     this.fxLayer.eventMode = 'none';
     this.catcher.label = 'board:empty';
-    attachPress(this.catcher, {
-      onTap: () => {
-        if (this.selected !== null) this.cancelSelection();
-      },
-    });
+    attachPress(this.catcher, { onTap: () => this.cancelSelection() });
     this.catcher.cursor = 'default';
-    this.table.addChild(this.catcher, this.bgLayer, this.boardLayer, this.installedLayer, this.centerLayer, this.targetLayer, this.handLayer);
+    this.runLayer.eventMode = 'none';
+    this.table.addChild(this.catcher, this.bgLayer, this.boardLayer, this.installedLayer, this.runLayer, this.centerLayer, this.accessLayer, this.targetLayer, this.handLayer);
     this.stage.addChild(this.table, this.fxLayer, this.hintLayer, this.zoomLayer);
   }
 
@@ -248,15 +275,20 @@ export class Board {
   show(p: Presentation): void {
     // Tap-to-skip: finish whatever is still animating before the new events.
     this.fx.finishAll();
-    if (p.kind === 'same') this.render(p.view, p.events);
+    if (p.kind === 'same') this.render(p.view, p.events, p.decision);
     else this.handoff(p);
   }
 
-  /** Shows a view and animates the events that produced it (same seat). */
-  render(view: PlayerView, events: readonly GameEvent[]): void {
+  /**
+   * Shows a view and animates the events that produced it (same seat).
+   * `decision`: the other seat's run decision to show (the Corp's rez choice).
+   */
+  render(view: PlayerView, events: readonly GameEvent[], decision: Decision | null = null): void {
     this.fx.finishAll();
     const prev = this.view;
+    const prevDecision = this.decision;
     this.view = view;
+    this.decision = decision;
     if (!this.viewport) return;
     if (!prev || prev.viewer !== view.viewer || !this.gen) {
       this.fullRender();
@@ -274,7 +306,17 @@ export class Board {
       }
     }
     // A refused tap on a lit target keeps the card picked; anything else that changed the game drops it.
-    if (!rejected) this.selected = null;
+    // An agenda stays picked after an Advance (advance again with one tap).
+    if (!rejected) {
+      this.selected = null;
+      this.runPicking = false;
+      const advanced = events.some((e) => e.type === 'card_advanced' && e.uid === this.pickedInstalled);
+      if (!advanced) this.pickedInstalled = null;
+    }
+    if (this.pickedInstalled !== null && !(view.installedOptions[this.pickedInstalled]?.length)) this.pickedInstalled = null;
+    // Where things were before this action moved them (for the flights).
+    const before = this.boxesBefore(events);
+    const prevRun = prevDecision?.run ?? prev.run;
     const ids = view.players[viewer].hand ?? [];
     if (this.selected !== null && this.selected >= ids.length) this.selected = null;
     const layout = this.sync(view, true);
@@ -285,8 +327,9 @@ export class Board {
     hand.setMarked(this.marked);
     hand.setSelected(this.selected);
     this.showTargets();
-    this.applyView(view, true);
+    const newStep = this.applyView(view, true);
     for (const l of leaving) this.flyFromHand(l.e, l.card, layout);
+    const notices: string[] = [];
     for (const e of events) {
       if (e.type === 'server_created') this.serverOpen(e.server, layout);
       if (e.type === 'credits_spent' && e.player === viewer) this.creditFloat(-e.amount);
@@ -295,7 +338,13 @@ export class Board {
         this.showHint(hintFor(e.reason, view));
         if (e.reason === 'no_clicks') this.seatAt('bottom')?.clicks.shake();
       }
+      this.animateRunEvent(e, layout, before, prevRun, notices, events);
     }
+    if (newStep && view.run) this.stepFlash();
+    // A fired subroutine already says what happened: no extra "loses 1 click" / "Run ended" lines.
+    const fired = events.some((e) => e.type === 'subroutine_fired');
+    const shown = fired ? notices.filter((n) => !n.startsWith(`${SIDE_NAME.runner} loses`) && n !== RUN_END['ended_by_ice']) : notices;
+    if (shown.length > 0 && !events.some((e) => e.type === 'action_rejected')) this.showHint(shown.join('\n'), 'notice');
   }
 
   /** The End turn guard and flip timestamps (test hook). */
@@ -322,6 +371,7 @@ export class Board {
         cardId: v.cardId,
         faceUp: v.faceUp,
         box: c ? centeredBox(c.root, ice ? u.height : u.width, ice ? u.width : u.height) : zero,
+        counter: c && c.badge.visible ? c.badgeText.text : null,
       };
     };
     const corp = this.seatOf('corp');
@@ -337,7 +387,8 @@ export class Board {
       corp: side('corp'),
       runner: side('runner'),
       handArea: layout?.handArea ?? zero,
-      hand: this.hands[viewer].boxes(),
+      // Put away during a run (the run's buttons use its room).
+      hand: this.hands[viewer].container.visible ? this.hands[viewer].boxes() : [],
       servers:
         view && layout
           ? view.corpServers.map((srv, i) => {
@@ -363,13 +414,14 @@ export class Board {
       targets: this.activeTargets.map((t) => ({
         kind: t.kind,
         ...(t.server !== undefined ? { server: t.server } : {}),
+        ...(t.uid !== undefined ? { uid: t.uid } : {}),
         box: { ...t.marker.box },
         label: t.marker.text,
         lit: t.option.reject === null,
         reject: t.option.reject,
       })),
       selected: this.selected,
-      labels: [...visibleTexts(this.boardLayer), ...visibleTexts(this.centerLayer), ...visibleTexts(this.targetLayer)],
+      labels: [...visibleTexts(this.boardLayer), ...visibleTexts(this.centerLayer), ...visibleTexts(this.accessLayer), ...visibleTexts(this.targetLayer)],
       text: {
         banner: gen?.banner.visible ? this.bannerFull : '',
         corpCredits: corp?.credits.text ?? '',
@@ -389,7 +441,17 @@ export class Board {
         button && button.root.visible && button.mode === 'confirm' && pending > 0
           ? { remaining: pending - this.marked.size, label: gen?.subMain.text ?? '', confirm: { box: button.box(), enabled: button.enabled } }
           : null,
-      gameOver: this.gameOver && layout ? { text: this.gameOver.text, box: layout.gameOver } : null,
+      gameOver: this.gameOver && layout ? { text: this.gameOver.text, title: this.gameOver.title, reason: this.gameOver.reason, box: layout.gameOver } : null,
+      run: gen?.run.snapshot ?? null,
+      runButton:
+        gen && gen.runButton.root.visible
+          ? { box: { ...gen.runButton.box }, label: gen.runButton.text, lit: gen.runButton.lit, picking: this.runPicking }
+          : null,
+      score: {
+        corp: { text: gen?.scores.corp.text ?? '', box: gen ? { ...gen.scores.corp.box } : zero },
+        runner: { text: gen?.scores.runner.text ?? '', box: gen ? { ...gen.scores.runner.box } : zero },
+      },
+      selectedInstalled: this.pickedInstalled,
       hint: this.hint && this.hint.root.alpha > 0.05 ? { text: this.hint.text, box: this.hint.box } : null,
       zoom: this.zoom
         ? { cardId: this.zoom.cardId, box: centeredBox(this.zoom.card, this.zoom.width, this.zoom.height), texts: textsOf(this.zoom.card), textOverflow: this.zoom.overflow }
@@ -410,6 +472,7 @@ export class Board {
     // The actor's own view from here on: no picker, nothing to tap but the
     // board's deck/credits, which already act for the new seat.
     this.view = p.actorView;
+    this.decision = null;
     this.marked.clear();
     this.cancelSelection();
     const actorHand = this.hands[p.actor];
@@ -681,7 +744,20 @@ export class Board {
     subHelp.anchor.set(0.5, 0);
     const button = new ActionButton(layout.endTurn, sideColor(layout.viewer), s, 'button:action');
     press(button.root, () => this.onButtonTap());
-    this.centerLayer.addChild(banner, subMain, subHelp, button.root);
+    const runButton = new PanelButton(s, 'button:run');
+    press(runButton.root, () => this.onRunButtonTap());
+    runButton.root.visible = false;
+    const run = new RunDisplay(layout, this.ui, {
+      onButton: (i) => this.onRunOptionTap(i),
+      press: (target, onTap) => this.pressFeedback(target, onTap),
+    });
+    const scores = { corp: new ScorePill('corp'), runner: new ScorePill('runner') };
+    this.boardLayer.addChild(scores.corp.root, scores.runner.root);
+    const pickMark = new Graphics();
+    pickMark.eventMode = 'none';
+    this.runLayer.addChild(run.marks, pickMark);
+    this.centerLayer.addChild(banner, subMain, subHelp, button.root, runButton.root, run.info, run.buttons);
+    this.accessLayer.addChild(run.access);
     this.gameOver = null;
 
     this.gen = {
@@ -700,6 +776,10 @@ export class Board {
       subMain,
       subHelp,
       button,
+      runButton,
+      run,
+      scores,
+      pickMark,
     };
     // Hand sprites are sized for the old board: rebuilt when next shown.
     for (const side of SIDES) this.hands[side].reset();
@@ -710,7 +790,8 @@ export class Board {
     if (!gen) return;
     for (const d of gen.detachers) d();
     for (const c of gen.installed.values()) c.detach();
-    for (const layer of [this.bgLayer, this.boardLayer, this.installedLayer, this.centerLayer, this.targetLayer]) {
+    gen.run.detach();
+    for (const layer of [this.bgLayer, this.boardLayer, this.installedLayer, this.runLayer, this.centerLayer, this.accessLayer, this.targetLayer]) {
       for (const c of layer.removeChildren()) c.destroy({ children: true });
     }
     this.activeTargets = [];
@@ -775,12 +856,20 @@ export class Board {
       root.hitArea = new Rectangle(-u / 2, -uh / 2, u, uh);
       if (zone === 'ice') root.rotation = Math.PI / 2;
       const visual = new Container();
-      root.addChild(visual);
-      const c: InstalledCard = { uid: v.uid, owner, zone, root, visual, visualKey: '', cardId: v.cardId, faceUp: v.faceUp, box: b, detach: () => {} };
+      // Advancement counters: a numbered disc in the corner, on backs too (both players see the number).
+      const badge = new Container();
+      const br = Math.max(9, Math.round(u * 0.2));
+      const disc = new Graphics();
+      disc.circle(0, 0, br).fill({ color: theme.warn }).stroke({ width: 1.5, color: 0x140a00 });
+      const badgeText = new Text({ text: '', style: { fontFamily: theme.monoFamily, fontSize: Math.round(br * 1.25), fontWeight: '800', fill: 0x140a00 } });
+      badgeText.anchor.set(0.5);
+      badge.addChild(disc, badgeText);
+      badge.position.set(u / 2 - br - 1, -uh / 2 + br + 1);
+      badge.visible = false;
+      root.addChild(visual, badge);
+      const c: InstalledCard = { uid: v.uid, owner, zone, root, visual, visualKey: '', cardId: v.cardId, faceUp: v.faceUp, box: b, badge, badgeText, detach: () => {} };
       c.detach = attachPress(root, {
-        onTap: () => {
-          if (this.selected !== null) this.cancelSelection();
-        },
+        onTap: () => this.onInstalledTap(c.uid),
         onLongPress: () => this.openZoom(c.cardId, c.owner, c.box),
         onLongPressEnd: () => this.closeZoom(),
       });
@@ -799,6 +888,8 @@ export class Board {
     card.box = b;
     card.cardId = v.cardId;
     card.faceUp = v.faceUp;
+    card.badge.visible = v.advancements > 0;
+    if (card.badgeText.text !== String(v.advancements)) card.badgeText.text = String(v.advancements);
     const visualKey = v.faceUp && v.cardId ? `face:${v.cardId}` : 'back';
     if (card.visualKey !== visualKey) {
       card.visualKey = visualKey;
@@ -825,18 +916,23 @@ export class Board {
   private helpBox(layout: BoardLayout): Box {
     const { sub, action } = layout;
     if (layout.mode === 'landscape') {
-      const y = action.y + action.height + 4;
+      // Below Play (or below Score too, while a picked agenda shows two choices).
+      const above = this.pickedInstalled !== null ? layout.action2 : action;
+      const y = above.y + above.height + 4;
       return { x: sub.x, y, width: sub.width, height: Math.max(0, sub.y + sub.height - y) };
     }
-    return { x: sub.x, y: sub.y, width: Math.max(0, action.x - 6 - sub.x), height: sub.height };
+    // Column: left of Play (and of the second choice, while a picked agenda shows two).
+    const right = this.pickedInstalled !== null ? layout.action2.x : action.x;
+    return { x: sub.x, y: sub.y, width: Math.max(0, right - 6 - sub.x), height: sub.height };
   }
 
   // ---- view -> widgets ----------------------------------------------------
 
-  private applyView(view: PlayerView, animate: boolean): void {
+  /** Puts `view` on the widgets. Returns true when a run moved to a new step. */
+  private applyView(view: PlayerView, animate: boolean): boolean {
     const layout = this.layout;
     const gen = this.gen;
-    if (!layout || !gen) return;
+    if (!layout || !gen) return false;
     const viewer = view.viewer;
     for (const s of SIDES) {
       const w = this.seatOf(s);
@@ -873,9 +969,16 @@ export class Board {
     const main = gen.subMain;
     const help = gen.subHelp;
     main.visible = pending > 0;
-    help.visible = !view.result;
+    // Sideways, the run's info panel takes the help text's room in the rail.
+    help.visible = !view.result && !(view.run && layout.mode === 'landscape');
     let helpText: string;
-    if (pending > 0) {
+    if (view.run) {
+      helpText = 'Tap a button to decide.\nHold a card to read it.';
+    } else if (this.runPicking) {
+      helpText = `Tap a lit server to run on it.\nTap ${TERMS.run} again to cancel.`;
+    } else if (this.pickedInstalled !== null) {
+      helpText = 'Tap a lit button.\nTap the card again to cancel.';
+    } else if (pending > 0) {
       const k = pending - this.marked.size;
       main.text = k > 0 ? `Discard ${k}` : 'Tap Confirm';
       fitText(main, layout.action.width - 4, layout.action.height - 2);
@@ -886,12 +989,18 @@ export class Board {
       helpText = 'Tap a lit spot to play it.\nTap the card again to cancel.';
     } else if (view.activePlayer === viewer && view.phase === 'action' && view.players[viewer].clicks === 0) {
       helpText = "No clicks left. Tap End turn when you're ready.";
+    } else if (viewer === 'runner' && view.runOptions.length > 0 && view.activePlayer === viewer) {
+      helpText = `Tap your ${TERMS.stack} to draw, your credits for +1, ${TERMS.run} to attack a server, or a card to play it.`;
     } else {
       const deck = viewer === 'corp' ? TERMS.rd : `your ${TERMS.stack}`;
-      helpText = `Tap ${deck} to draw, your credits for +1, or a card to play it.\nHold a card to read it.`;
+      const agenda = Object.keys(view.installedOptions).length > 0 ? ' Tap your agenda to advance it.' : '';
+      helpText = `Tap ${deck} to draw, your credits for +1, or a card to play it.${agenda}\nHold a card to read it.`;
     }
     if (help.text !== helpText) help.text = helpText;
     const hb = this.helpBox(layout);
+    const wrap = Math.max(40, hb.width - 4);
+    if (help.style.wordWrapWidth !== wrap) help.style.wordWrapWidth = wrap;
+    help.position.set(hb.x + hb.width / 2, hb.y);
     fitText(help, hb.width, hb.height);
     this.syncHelp();
 
@@ -907,7 +1016,36 @@ export class Board {
       button.set('end', canEnd, canEnd && view.players[viewer].clicks === 0, animate ? this.ui : null);
     }
 
-    if (view.result && !this.gameOver) this.showGameOver(layout, gameOverText(view.result), view.result.winner, animate);
+    if (view.result && !this.gameOver) this.showGameOver(layout, gameOverLines(view.result), view.result.winner, animate);
+
+    // Both sides' points, for both seats.
+    for (const s of SIDES) gen.scores[s].set(layout.scores[s], pointsText(s, view.players[s].points), view.players[s].points);
+
+    // The run: tracker, info, buttons, access view. The hand is put away meanwhile.
+    gen.run.setLayout(layout);
+    const newStep = gen.run.update(
+      view,
+      this.decision,
+      {
+        installed: (uid) => gen.installed.get(uid)?.box ?? null,
+        column: (id) => layout.corp.servers.find((x) => x.id === id)?.column ?? null,
+      },
+      animate,
+    );
+    this.hands[viewer].container.visible = !view.run;
+
+    // Run button: where Play goes, while the view offers runs and nothing is picked.
+    const rb = gen.runButton;
+    const showRun = !view.run && !view.result && pending === 0 && view.runOptions.length > 0 && this.selected === null && this.pickedInstalled === null;
+    rb.root.visible = showRun;
+    if (showRun) rb.set(layout.action, TERMS.run, view.runOptions.some((o) => o.reject === null), theme.runner, this.runPicking);
+
+    // The picked installed card is outlined.
+    const pm = gen.pickMark;
+    pm.clear();
+    const picked = this.pickedInstalled !== null ? gen.installed.get(this.pickedInstalled) : undefined;
+    if (picked) glowRoundRect(pm, picked.box.x - 3, picked.box.y - 3, picked.box.width + 6, picked.box.height + 6, 5, theme.credit, 3, 1.4);
+    return newStep;
   }
 
   /** "+3" / "-5" floating up from the viewer's credits. */
@@ -1016,6 +1154,178 @@ export class Board {
     this.fx.add({ target: label.scale, to: { x: base, y: base }, duration: timing.serverOpen, ease: ease.outBack, owner: label });
   }
 
+  // ---- runs, advancing, scoring ---------------------------------------------
+
+  /** Boxes of things the events will move away (scored / trashed installed cards, accessed cards). */
+  private boxesBefore(events: readonly GameEvent[]): Map<string, Box> {
+    const out = new Map<string, Box>();
+    const gen = this.gen;
+    if (!gen) return out;
+    for (const e of events) {
+      if ((e.type === 'agenda_scored' || e.type === 'card_trashed') && e.uid) {
+        const b = gen.installed.get(e.uid)?.box;
+        if (b) out.set(`uid:${e.uid}`, { ...b });
+      }
+      if (e.type === 'agenda_stolen' || e.type === 'card_trashed') {
+        const b = gen.run.accessBoxOf(e.cardId);
+        if (b) out.set(`access:${e.cardId}`, { ...b });
+      }
+    }
+    return out;
+  }
+
+  /** The tracker's highlight fades in on each new run step. */
+  private stepFlash(): void {
+    const marks = this.gen?.run.marks;
+    if (!marks) return;
+    this.callbacks.log({ kind: 'run_step', scheduledMs: timing.runStep });
+    this.fx.cancel(marks);
+    marks.alpha = 0.2;
+    this.fx.add({ target: marks, to: { alpha: 1 }, duration: timing.runStep, ease: ease.outCubic, owner: marks });
+  }
+
+  /** One run / advance / score event on screen (all on the skippable fx queue, <= 300ms). */
+  private animateRunEvent(e: GameEvent, layout: BoardLayout, before: Map<string, Box>, prevRun: PlayerView['run'], notices: string[], batch: readonly GameEvent[]): void {
+    const gen = this.gen;
+    const view = this.view;
+    if (!gen || !view) return;
+    switch (e.type) {
+      case 'ice_rezzed': {
+        const c = gen.installed.get(e.uid);
+        if (!c) return;
+        this.callbacks.log({ kind: 'ice_rez', scheduledMs: timing.rezFlip, box: { ...c.box } });
+        this.fx.cancel(c.visual.scale);
+        c.visual.scale.x = 0.05;
+        this.fx.add({ target: c.visual.scale, to: { x: 1 }, duration: timing.rezFlip, ease: ease.outBack, owner: c.visual });
+        return;
+      }
+      case 'subroutine_broken': {
+        const strike = gen.run.strike(e.sub);
+        this.callbacks.log({ kind: 'sub_broken', scheduledMs: timing.subBreak });
+        if (!strike) return;
+        strike.scale.x = 0;
+        this.fx.add({ target: strike.scale, to: { x: 1 }, duration: timing.subBreak, ease: ease.outCubic, owner: strike });
+        return;
+      }
+      case 'subroutine_fired': {
+        const text = prevRun?.ice?.subroutines[e.sub]?.text;
+        if (text) notices.push(`${nameOf(prevRun?.ice?.cardId ?? null)}: ${text}`);
+        const b = gen.installed.get(e.iceUid)?.box;
+        this.callbacks.log({ kind: 'sub_fired', scheduledMs: timing.subFlash, ...(b ? { box: { ...b } } : {}), ...(text ? { text } : {}) });
+        if (b) this.flash(b, theme.warn, timing.subFlash);
+        return;
+      }
+      case 'strength_changed': {
+        const c = gen.installed.get(e.uid);
+        if (!c) return;
+        this.callbacks.log({ kind: 'strength_pop', scheduledMs: timing.strengthPop, box: { ...c.box } });
+        this.floatText(`${TERMS.strength} ${e.strength}`, c.box, theme.runner, timing.strengthPop);
+        return;
+      }
+      case 'clicks_lost': {
+        notices.push(`${SIDE_NAME[e.player]} loses ${plural(e.amount, 'click', 'clicks')}`);
+        this.callbacks.log({ kind: 'clicks_lost', scheduledMs: 260 });
+        this.seatOf(e.player)?.clicks.shake();
+        return;
+      }
+      case 'net_damage': {
+        notices.push(`${e.amount} ${TERMS.netDamage.toLowerCase()}`);
+        const pos: Pos = view.viewer === 'runner' ? 'bottom' : 'top';
+        const from = pos === 'bottom' ? layout.handArea : layout.top.label;
+        const heap = gen.discards.runner.box();
+        this.callbacks.log({ kind: 'net_damage', scheduledMs: timing.runFlight + 20 * Math.max(0, e.cardIds.length - 1), box: { ...heap } });
+        const w = Math.min(layout.card.width, from.height / CARD_RATIO);
+        e.cardIds.forEach((id, i) => {
+          const start = { x: from.x + from.width / 2 - w / 2 + (i - (e.cardIds.length - 1) / 2) * w * 0.6, y: from.y + from.height / 2 - (w * CARD_RATIO) / 2, width: w, height: w * CARD_RATIO };
+          this.flyCard(id, 'runner', start, heap, i * 20, () => gen.discards.runner.pop(this.ui));
+        });
+        return;
+      }
+      case 'agenda_stolen': {
+        const from = before.get(`access:${e.cardId}`) ?? layout.access;
+        const pill = gen.scores.runner;
+        this.callbacks.log({ kind: 'score_flight', scheduledMs: timing.runFlight, box: { ...pill.box } });
+        this.flyCard(e.cardId, 'corp', from, pill.box, 0, () => pill.pop(this.ui));
+        return;
+      }
+      case 'agenda_scored': {
+        const from = before.get(`uid:${e.uid}`);
+        const pill = gen.scores.corp;
+        this.callbacks.log({ kind: 'score_flight', scheduledMs: timing.runFlight, box: { ...pill.box } });
+        if (from) this.flyCard(e.cardId, 'corp', from, pill.box, 0, () => pill.pop(this.ui));
+        else pill.pop(this.ui);
+        return;
+      }
+      case 'card_trashed': {
+        const from = before.get(`access:${e.cardId}`) ?? (e.uid ? before.get(`uid:${e.uid}`) : undefined);
+        const pile = gen.discards.corp;
+        this.callbacks.log({ kind: 'trash_flight', scheduledMs: timing.runFlight, box: pile.box() });
+        if (from) this.flyCard(e.cardId, 'corp', from, pile.box(), 0, () => pile.pop(this.ui));
+        return;
+      }
+      case 'card_advanced': {
+        const c = gen.installed.get(e.uid);
+        if (!c) return;
+        this.callbacks.log({ kind: 'advance_pop', scheduledMs: timing.advancePop, box: { ...c.box } });
+        this.fx.cancel(c.badge.scale);
+        c.badge.scale.set(1.8);
+        this.fx.add({ target: c.badge.scale, to: { x: 1, y: 1 }, duration: timing.advancePop, ease: ease.outBack, owner: c.badge });
+        return;
+      }
+      case 'ice_bypassed':
+        notices.push(`Inside Job: ${TERMS.ice} bypassed`);
+        return;
+      case 'run_ended': {
+        const t = runEndText(e, batch);
+        if (t) notices.push(t);
+        return;
+      }
+      default:
+        return;
+    }
+  }
+
+  /** A glow over `b` that fades out. */
+  private flash(b: Box, color: number, ms: number): void {
+    const g = new Graphics();
+    glowRoundRect(g, b.x - 4, b.y - 4, b.width + 8, b.height + 8, 6, color, 3, 1.6);
+    g.rect(b.x, b.y, b.width, b.height).fill({ color, alpha: 0.25 });
+    this.fxLayer.addChild(g);
+    this.fx.add({ target: g, to: { alpha: 0 }, duration: ms, ease: ease.linear, owner: g, onComplete: () => g.destroy() });
+  }
+
+  /** A short text floating up from a card. */
+  private floatText(text: string, b: Box, color: number, ms: number): void {
+    const s = Math.min(this.layout?.scale ?? 1, 1.2);
+    const t = new Text({ text, style: { fontFamily: theme.monoFamily, fontSize: Math.round(13 * s), fontWeight: '800', fill: color, stroke: { color: 0x000000, width: 3 } } });
+    t.anchor.set(0.5);
+    t.position.set(b.x + b.width / 2, b.y + b.height * 0.3);
+    this.fxLayer.addChild(t);
+    this.fx.add({ target: t, to: { y: t.y - 18 * s, alpha: 0.3 }, duration: ms, ease: ease.outCubic, owner: t, onComplete: () => t.destroy() });
+  }
+
+  /** A card (face, or a back when unknown) flies from `from` to `to`, shrinking to fit. */
+  private flyCard(cardId: string | null, side: Side, from: Box, to: Box, delay: number, done: () => void): void {
+    const def = cardId ? getCard(cardId) : undefined;
+    const card = def ? createCardFace(def, from.width, from.height, 'small') : createCardBack(side, from.width, from.height);
+    card.position.set(from.x + from.width / 2, from.y + from.height / 2);
+    this.fxLayer.addChild(card);
+    const k = Math.max(0.15, Math.min(to.width / from.width, to.height / from.height));
+    this.fx.add({
+      target: card,
+      to: { x: to.x + to.width / 2, y: to.y + to.height / 2 },
+      delay,
+      duration: timing.runFlight,
+      ease: ease.inOutCubic,
+      owner: card,
+      onUpdate: (t) => card.scale.set(1 + (k - 1) * ease.inOutCubic(t)),
+      onComplete: () => {
+        card.destroy({ children: true });
+        done();
+      },
+    });
+  }
+
   // ---- picking a card and its targets --------------------------------------
 
   private onCardTap(index: number): void {
@@ -1056,17 +1366,21 @@ export class Board {
       if (first === 'no_clicks') this.seatAt('bottom')?.clicks.shake();
       return;
     }
+    this.runPicking = false;
+    this.pickedInstalled = null;
     this.selected = index;
     hand.setSelected(index);
     this.showTargets();
     this.applyView(view, false);
-    if (options.every((o) => o.reject === 'not_implemented')) this.showHint(hintFor('not_implemented', view));
     this.callbacks.changed();
   }
 
+  /** Drops whatever is picked: a hand card, the Run choice, an installed card. */
   private cancelSelection(): void {
-    if (this.selected === null) return;
+    if (this.selected === null && !this.runPicking && this.pickedInstalled === null) return;
     this.selected = null;
+    this.runPicking = false;
+    this.pickedInstalled = null;
     const view = this.view;
     if (!view) return;
     this.hands[view.viewer].setSelected(null);
@@ -1082,7 +1396,33 @@ export class Board {
     const view = this.view;
     this.activeTargets = [];
     if (gen) for (const m of gen.targets.values()) m.root.visible = false;
-    if (!gen || !layout || !view || this.selected === null) {
+    if (!gen || !layout || !view) {
+      this.setNewServerLabel(false);
+      return;
+    }
+    // The price pill sits on the Runner's side of a Corp column (where the next ICE goes).
+    const columnSide: 'top' | 'bottom' = layout.corp.outward === 'down' ? 'bottom' : 'top';
+    if (this.runPicking) {
+      for (const option of view.runOptions) {
+        const a = option.action;
+        if (a.type !== 'run') continue;
+        const slots = layout.corp.servers.find((x) => x.id === a.server);
+        if (slots) this.addTarget(gen, layout, 'run', option, slots.column, TERMS.run, columnSide, { server: a.server });
+      }
+      this.setNewServerLabel(false);
+      return;
+    }
+    if (this.pickedInstalled !== null) {
+      const uid = this.pickedInstalled;
+      for (const option of view.installedOptions[uid] ?? []) {
+        const a = option.action;
+        if (a.type === 'advance') this.addTarget(gen, layout, 'advance', option, layout.action, `${TERMS.advance} · ${priceText(option.cost)}`, 'center', { uid });
+        else if (a.type === 'score') this.addTarget(gen, layout, 'score', option, layout.action2, TERMS.score, 'center', { uid });
+      }
+      this.setNewServerLabel(false);
+      return;
+    }
+    if (this.selected === null) {
       this.setNewServerLabel(false);
       return;
     }
@@ -1092,7 +1432,15 @@ export class Board {
       let server: string | undefined;
       let b: Box;
       let at: 'top' | 'bottom' | 'center' = 'center';
-      if (a.type === 'install' && a.server !== undefined) {
+      if (a.type === 'play' && a.server !== undefined) {
+        // A run event that names its server (Inside Job): the servers light up.
+        const slots = layout.corp.servers.find((x) => x.id === a.server);
+        if (!slots) continue;
+        kind = 'play';
+        server = a.server;
+        b = slots.column;
+        at = columnSide;
+      } else if (a.type === 'install' && a.server !== undefined) {
         const slots = a.server === 'new' ? layout.corp.newServer : layout.corp.servers.find((s) => s.id === a.server);
         if (!slots) continue;
         kind = a.server === 'new' ? 'new_server' : 'server';
@@ -1107,27 +1455,103 @@ export class Board {
         kind = 'play';
         b = layout.action;
       } else continue;
-      const key = `${kind}:${server ?? ''}`;
-      let marker = gen.targets.get(key);
-      if (!marker) {
-        const m = new TargetMarker(layout.scale);
-        m.root.label = `target:${key}`;
-        gen.detachers.push(attachPress(m.root, { onTap: () => this.onTargetTap(key) }));
-        this.targetLayer.addChild(m.root);
-        gen.targets.set(key, m);
-        marker = m;
-      }
       const verb = a.type === 'play' ? TERMS.play : TERMS.install;
-      marker.set(b, `${verb} · ${priceText(option.cost)}`, option.reject === null, at);
-      marker.root.visible = true;
-      this.activeTargets.push({ kind, ...(server !== undefined ? { server } : {}), option, marker });
+      this.addTarget(gen, layout, kind, option, b, `${verb} · ${priceText(option.cost)}`, at, server !== undefined ? { server } : {});
     }
     this.setNewServerLabel(this.activeTargets.some((t) => t.kind === 'new_server'));
+  }
+
+  /** Lights one target (markers are reused per kind and place). */
+  private addTarget(
+    gen: Generation,
+    layout: BoardLayout,
+    kind: TargetSnapshot['kind'],
+    option: CardOption,
+    b: Box,
+    label: string,
+    at: 'top' | 'bottom' | 'center',
+    where: { server?: string; uid?: string },
+  ): void {
+    // Markers are kept per place: advance / score always use the same two slots.
+    const key = `${kind}:${where.server ?? ''}`;
+    let marker = gen.targets.get(key);
+    if (!marker) {
+      const m = new TargetMarker(layout.scale);
+      m.root.label = `target:${key}`;
+      gen.detachers.push(attachPress(m.root, { onTap: () => this.onTargetTap(key) }));
+      this.targetLayer.addChild(m.root);
+      gen.targets.set(key, m);
+      marker = m;
+    }
+    marker.set(b, label, option.reject === null, at);
+    marker.root.visible = true;
+    this.activeTargets.push({ kind, ...where, option, marker });
   }
 
   private setNewServerLabel(on: boolean): void {
     const col = this.gen?.columns.get('new');
     if (col) col.label.visible = on;
+  }
+
+  /** An installed card: the Corp's agenda shows its choices (Advance / Score); anything else drops the pick. */
+  private onInstalledTap(uid: string): void {
+    const view = this.view;
+    if (!view) return;
+    if (this.flipPending) {
+      this.fx.finishAll();
+      return;
+    }
+    if (this.pickedInstalled === uid) {
+      this.cancelSelection();
+      return;
+    }
+    const options = view.installedOptions[uid] ?? [];
+    this.cancelSelection();
+    if (options.length === 0 || view.run) return;
+    const first = options[0]!.reject;
+    if (first !== null && GATE_REASONS.has(first) && options.every((o) => o.reject === first)) {
+      this.showHint(hintFor(first, view));
+      if (first === 'no_clicks') this.seatAt('bottom')?.clicks.shake();
+      return;
+    }
+    this.pickedInstalled = uid;
+    this.showTargets();
+    this.applyView(view, false);
+    this.callbacks.changed();
+  }
+
+  /** Run: lights every server (view.runOptions); tapping Run again cancels with nothing sent. */
+  private onRunButtonTap(): void {
+    const view = this.view;
+    if (!view) return;
+    if (this.flipPending) {
+      this.fx.finishAll();
+      return;
+    }
+    if (this.runPicking) {
+      this.cancelSelection();
+      return;
+    }
+    const options = view.runOptions;
+    if (options.length === 0) return;
+    this.cancelSelection();
+    const first = options[0]!.reject;
+    if (first !== null && GATE_REASONS.has(first) && options.every((o) => o.reject === first)) {
+      this.showHint(hintFor(first, view));
+      if (first === 'no_clicks') this.seatAt('bottom')?.clicks.shake();
+      return;
+    }
+    this.runPicking = true;
+    this.showTargets();
+    this.applyView(view, false);
+    this.callbacks.changed();
+  }
+
+  /** A run decision button: sent as the deciding seat; the engine judges it (a dim one comes back with its hint). */
+  private onRunOptionTap(index: number): void {
+    const option = this.gen?.run.option(index);
+    if (!option || this.flipPending) return;
+    this.callbacks.onAction(option.action);
   }
 
   private onTargetTap(key: string): void {
@@ -1212,7 +1636,7 @@ export class Board {
     return g;
   }
 
-  private showGameOver(layout: BoardLayout, text: string, winner: Side, animate: boolean): void {
+  private showGameOver(layout: BoardLayout, lines: { title: string; reason: string }, winner: Side, animate: boolean): void {
     const b = layout.gameOver;
     const s = Math.min(layout.scale, 1.2);
     const color = sideColor(winner);
@@ -1223,22 +1647,25 @@ export class Board {
     glowRoundRect(g, -b.width / 2, -b.height / 2, b.width, b.height, 16 * s, color, Math.max(2, 2.5 * s), 1.2);
     const btnW = Math.max(120, Math.round(150 * s));
     const btnH = Math.max(44, Math.round(46 * s));
+    // "Runner wins" big, the reason ("7 agenda points") under it.
+    const heading = new Container();
     const title = new Text({
-      text,
-      style: {
-        fontFamily: theme.fontFamily,
-        fontSize: Math.max(14, Math.round(20 * s)),
-        fontWeight: '800',
-        fill: color,
-        align: 'center',
-        wordWrap: true,
-        wordWrapWidth: b.width - 24 * s,
-      },
+      text: lines.title,
+      style: { fontFamily: theme.fontFamily, fontSize: Math.max(18, Math.round(28 * s)), fontWeight: '900', fill: color, align: 'center', letterSpacing: 1 },
     });
-    title.anchor.set(0.5);
+    title.anchor.set(0.5, 0);
+    const reason = new Text({
+      text: lines.reason,
+      style: { fontFamily: theme.fontFamily, fontSize: Math.max(13, Math.round(16 * s)), fontWeight: '700', fill: theme.text, align: 'center', wordWrap: true, wordWrapWidth: b.width - 24 * s },
+    });
+    reason.anchor.set(0.5, 0);
+    reason.y = title.height + 2 * s;
+    heading.addChild(title, reason);
     const room = b.height - btnH - 24 * s;
-    title.position.set(0, -b.height / 2 + 10 * s + room / 2);
-    if (title.height > room) title.scale.set(room / title.height);
+    const hh = reason.y + reason.height;
+    const k = Math.min(1, room / hh, (b.width - 16 * s) / Math.max(title.width, reason.width));
+    heading.scale.set(k);
+    heading.position.set(0, -b.height / 2 + 10 * s + (room - hh * k) / 2);
     const btn = new Container();
     btn.position.set(0, b.height / 2 - 10 * s - btnH / 2);
     btn.hitArea = new Rectangle(-btnW / 2, -btnH / 2, btnW, btnH);
@@ -1253,9 +1680,9 @@ export class Board {
     bl.anchor.set(0.5);
     btn.addChild(bg, bl);
     this.gen?.detachers.push(this.pressFeedback(btn, () => this.callbacks.onNewGame()));
-    root.addChild(g, title, btn);
+    root.addChild(g, heading, btn);
     this.centerLayer.addChild(root);
-    this.gameOver = { text, root };
+    this.gameOver = { text: `${lines.title}: ${lines.reason}`, title: lines.title, reason: lines.reason, root };
     if (animate) {
       root.scale.set(0.6);
       root.alpha = 0;
@@ -1266,7 +1693,8 @@ export class Board {
 
   // ---- hint and zoom ------------------------------------------------------
 
-  private showHint(text: string): void {
+  /** The toast: a refusal hint (amber), or a notice of what just happened in a run (cyan). Never blocks input. */
+  private showHint(text: string, kind: 'hint' | 'notice' = 'hint'): void {
     if (this.hint) {
       this.ui.cancel(this.hint.root);
       this.hint.root.destroy({ children: true });
@@ -1298,8 +1726,9 @@ export class Board {
     const w = label.width + 2 * padX;
     const h = Math.max(32, label.height + 2 * padY);
     const g = new Graphics();
-    g.roundRect(-w / 2, -h / 2, w, h, Math.min(h / 2, 18)).fill({ color: theme.warn });
-    g.roundRect(-w / 2 - ring, -h / 2 - ring, w + 2 * ring, h + 2 * ring, Math.min(h / 2, 18) + ring).stroke({ width: 3, color: theme.warn, alpha: 0.35 });
+    const tone = kind === 'notice' ? theme.runner : theme.warn;
+    g.roundRect(-w / 2, -h / 2, w, h, Math.min(h / 2, 18)).fill({ color: tone });
+    g.roundRect(-w / 2 - ring, -h / 2 - ring, w + 2 * ring, h + 2 * ring, Math.min(h / 2, 18) + ring).stroke({ width: 3, color: tone, alpha: 0.35 });
     root.addChild(g, label);
     // The slot is sized so hints wrap at full size; shrink only if one ever does not fit.
     const fit = Math.min(1, (area.width - 2 * ring) / w, (area.height - 2 * ring) / h);
@@ -1311,7 +1740,7 @@ export class Board {
     this.hint = hint;
     this.syncHelp();
     this.callbacks.log({
-      kind: 'hint',
+      kind,
       text,
       box: { ...hint.box },
       fontPx: (label.style.fontSize as number) * fit,

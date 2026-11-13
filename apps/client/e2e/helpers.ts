@@ -1,7 +1,7 @@
 import { type CDPSession, type Page, expect, test } from '@playwright/test';
 import type { Action, GameEvent, PlayerView } from '@overclock/engine';
 import { getCard } from '@overclock/cards';
-import { planBusyBoard } from '@overclock/match/testing';
+import { type StepGoal, type StepPlan, planBusyBoard, planToStep } from '@overclock/match/testing';
 import type { AnimRecord, Box, EndTurnClock, InputStamp, Insets, LayoutSnapshot, TargetSnapshot } from '../src/hook-types';
 
 export type { AnimRecord, Box, EndTurnClock, InputStamp, Insets, LayoutSnapshot, TargetSnapshot };
@@ -109,8 +109,13 @@ const cdpSessions = new WeakMap<Page, Promise<CDPSession>>();
  * busy, and the page handles it whenever it can. The promise settles once the
  * page has handled it. Used to tap "during" slow frames, which page timers can't.
  * `touch` overrides the project's input kind (touch needs a context with hasTouch).
+ *
+ * `madeAt` (wall clock, ms since the epoch, i.e. a `Date.now()` value) stamps the
+ * tap as made at that moment: Chrome uses a CDP input event's `timestamp` as the
+ * DOM `event.timeStamp` (verified for touch and mouse, also while the page is busy;
+ * see DECISIONS 2026-11-12 S-03-6). Only pass a moment that has already passed.
  */
-export function sendTap(page: Page, b: Box, opts: { touch?: boolean } = {}): Promise<void> {
+export function sendTap(page: Page, b: Box, opts: { touch?: boolean; madeAt?: number } = {}): Promise<void> {
   const { x, y } = center(b);
   let cdp = cdpSessions.get(page);
   if (!cdp) {
@@ -118,15 +123,16 @@ export function sendTap(page: Page, b: Box, opts: { touch?: boolean } = {}): Pro
     cdpSessions.set(page, cdp);
   }
   const touch = opts.touch ?? isTouch();
+  const stamp = opts.madeAt === undefined ? {} : { timestamp: opts.madeAt / 1000 };
   return cdp.then(async (s) => {
     const sent = touch
       ? [
-          s.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] }),
-          s.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] }),
+          s.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }], ...stamp }),
+          s.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [], ...stamp }),
         ]
       : [
-          s.send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 }),
-          s.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 }),
+          s.send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1, ...stamp }),
+          s.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1, ...stamp }),
         ];
     await Promise.all(sent);
   });
@@ -283,6 +289,11 @@ export function boardElements(l: LayoutSnapshot): [string, Box][] {
   }
   l.rig.forEach((c, i) => out.push([`rig card ${i}`, c.box]));
   out.push(['memory', l.memory.box]);
+  for (const s of ['corp', 'runner'] as const) if (l.score[s].box.width > 0) out.push([`${s} score`, l.score[s].box]);
+  if (l.runButton) out.push(['Run button', l.runButton.box]);
+  if (l.run) {
+    l.run.buttons.forEach((b, i) => out.push([`run button ${i} "${b.label}"`, b.box]));
+  }
   if (l.endTurn) out.push(['End turn', l.endTurn.box]);
   if (l.picker) out.push(['Confirm', l.picker.confirm.box]);
   return out;
@@ -429,4 +440,44 @@ export async function passTurn(page: Page): Promise<void> {
     if (w.pendingDiscard > 0) hook.dispatch({ type: 'discard', player: w.viewer, handIndices: Array.from({ length: w.pendingDiscard }, (_, i) => i) });
   });
   await waitIdle(page);
+}
+
+/**
+ * Plays the page (opened with `seed`) to a Sprint 3 step (`@overclock/match/testing`
+ * planToStep): each planned action is dispatched through the hook as its own player
+ * (the Corp's rez decisions happen during the Runner's turn). Leaves the board idle.
+ */
+export async function toStep(page: Page, seed: number, goal: StepGoal): Promise<StepPlan> {
+  const plan = planToStep(seed, goal);
+  const rejected = await page.evaluate((actions) => {
+    const hook = window.__overclock!;
+    for (const a of actions) {
+      const events = hook.dispatch(a);
+      const r = events.find((e) => e.type === 'action_rejected');
+      if (r) return JSON.stringify({ a, r });
+    }
+    return null;
+  }, plan.actions);
+  expect(rejected).toBeNull();
+  await waitIdle(page);
+  const v = await getView(page);
+  expect(v.activePlayer).toBe(plan.activePlayer);
+  return plan;
+}
+
+/** The run panel button whose label matches, from the layout snapshot. */
+export function runButtonOf(l: LayoutSnapshot, label: string | RegExp): NonNullable<LayoutSnapshot['run']>['buttons'][number] {
+  const b = l.run?.buttons.find((x) => (typeof label === 'string' ? x.label === label : label.test(x.label)));
+  if (!b) throw new Error(`no run button ${String(label)} in ${JSON.stringify(l.run?.buttons.map((x) => x.label))}`);
+  return b;
+}
+
+/** Taps Run, then the lit server `server`; returns the layout after the run started. */
+export async function startRun(page: Page, server: string): Promise<LayoutSnapshot> {
+  let l = await layout(page);
+  expect(l.runButton, 'the Run button shows').not.toBeNull();
+  await tap(page, l.runButton!.box);
+  l = await layout(page);
+  await tap(page, targetOf(l, 'run', server).box);
+  return waitIdle(page);
 }

@@ -6,6 +6,7 @@ import {
   newGame,
   replay,
   viewEvents,
+  waitingOn,
   viewFor,
   type Action,
   type GameState,
@@ -14,6 +15,7 @@ import {
   type Side,
 } from '../src/index';
 import { clone, finishTurn, rejection, run, withHand, withPlayer } from './helpers';
+import { expectRunnerEventsClean, expectRunnerViewClean } from './hidden';
 
 const install = (player: Side, handIndex: number, server?: ServerId | 'new'): Action =>
   server === undefined ? { type: 'install', player, handIndex } : { type: 'install', player, handIndex, server };
@@ -99,8 +101,11 @@ describe('play: every rejection reason, state unchanged', () => {
     ['bad_card', () => ({ state: corpWith(['c01']), action: play('corp', 1) })],
     ['bad_card', () => ({ state: corpWith(['c04']), action: play('corp', 0) })], // ICE cannot be played
     ['bad_card', () => ({ state: runnerWith(['r04']), action: play('runner', 0) })], // a program cannot be played
-    ['not_implemented', () => ({ state: corpWith(['c12']), action: play('corp', 0) })], // Neural EMP needs runs
-    ['not_implemented', () => ({ state: runnerWith(['r07']), action: play('runner', 0) })], // The Maker's Eye
+    ['bad_target', () => ({ state: runnerWith(['r11']), action: play('runner', 0) })], // Inside Job: must name a server
+    ['bad_target', () => ({ state: runnerWith(['r11']), action: { type: 'play', player: 'runner', handIndex: 0, server: 'remote5' } })],
+    ['bad_target', () => ({ state: runnerWith(['r07']), action: { type: 'play', player: 'runner', handIndex: 0, server: 'hq' } })], // Maker's Eye: fixed R&D
+    ['bad_target', () => ({ state: corpWith(['c01']), action: { type: 'play', player: 'corp', handIndex: 0, server: 'hq' } })],
+    ['condition_not_met', () => ({ state: corpWith(['c12']), action: play('corp', 0) })], // Neural EMP, no run last turn
     ['no_credits', () => ({ state: corpWith(['c01'], 4), action: play('corp', 0) })], // Hedge Fund costs 5
   ];
   it.each(cases)('%s', (reason, make) => {
@@ -108,8 +113,14 @@ describe('play: every rejection reason, state unchanged', () => {
     expectRejected(state, action, reason);
   });
 
-  it('precedence: not_implemented beats no_credits (a card that needs runs says so even when broke)', () => {
-    expect(rejection(apply(runnerWith(['r11'], 0), play('runner', 0)).events)).toBe('not_implemented');
+  it('precedence: condition_not_met beats no_credits (Neural EMP says why even when broke); bad_target beats both', () => {
+    expect(rejection(apply(corpWith(['c12'], 0), play('corp', 0)).events)).toBe('condition_not_met');
+    expect(rejection(apply(runnerWith(['r11'], 0), play('runner', 0)).events)).toBe('bad_target');
+  });
+
+  it('invalid_action for a non-string play server', () => {
+    const bad = { type: 'play', player: 'runner', handIndex: 0, server: 7 } as unknown as Action;
+    expect(apply(runnerWith(['r11']), bad).events).toEqual([{ type: 'action_rejected', reason: 'invalid_action' }]);
   });
 });
 
@@ -122,7 +133,7 @@ describe('S-02-1: Corp installs agendas, assets and upgrades', () => {
       { type: 'card_installed', player: 'corp', uid: 'i1', zone: 'content', server: 'remote1', handIndex: 1, cardId: 'c08' },
     ]);
     expect(r.state.players.corp).toMatchObject({ hand: ['c02'], clicks: 2, credits: 5 });
-    expect(server(r.state, 'remote1')).toEqual({ id: 'remote1', ice: [], content: [{ uid: 'i1', cardId: 'c08', rezzed: false }] });
+    expect(server(r.state, 'remote1')).toEqual({ id: 'remote1', ice: [], content: [{ uid: 'i1', cardId: 'c08', rezzed: false, advancements: 0 }] });
     expect(r.state).toMatchObject({ nextUid: 2, nextRemote: 2 });
   });
 
@@ -148,7 +159,7 @@ describe('S-02-1: Corp installs agendas, assets and upgrades', () => {
     for (const central of ['hq', 'rd', 'archives'] as const) {
       const r = apply(corpWith(['c11']), install('corp', 0, central));
       expect(rejection(r.events)).toBeNull();
-      expect(server(r.state, central).content).toEqual([{ uid: 'i1', cardId: 'c11', rezzed: false }]);
+      expect(server(r.state, central).content).toEqual([{ uid: 'i1', cardId: 'c11', rezzed: false, advancements: 0 }]);
       expect(r.events.some((e) => e.type === 'server_created')).toBe(false);
     }
   });
@@ -174,7 +185,7 @@ describe('S-02-2: Corp ICE', () => {
   it('ICE on a new server is free and creates the server', () => {
     const r = apply(corpWith(['c07'], 0), install('corp', 0, 'new'));
     expect(r.events.map((e) => e.type)).toEqual(['server_created', 'card_installed']);
-    expect(server(r.state, 'remote1').ice).toEqual([{ uid: 'i1', cardId: 'c07', rezzed: false }]);
+    expect(server(r.state, 'remote1').ice).toEqual([{ uid: 'i1', cardId: 'c07', rezzed: false, advancements: 0 }]);
   });
 
   it('not enough credits for the price: no_credits, nothing changes', () => {
@@ -192,8 +203,8 @@ describe('S-02-3: Runner installs', () => {
       { type: 'card_installed', player: 'runner', uid: 'i1', zone: 'rig', handIndex: 1, cardId: 'r04' },
     ]);
     expect(r.state.players.runner).toMatchObject({ hand: ['r03'], credits: 3, clicks: 3 });
-    expect(r.state.rig).toEqual([{ uid: 'i1', cardId: 'r04', rezzed: false }]);
-    expect(viewFor('corp', r.state).rig).toEqual([{ uid: 'i1', cardId: 'r04', faceUp: true }]);
+    expect(r.state.rig).toEqual([{ uid: 'i1', cardId: 'r04', rezzed: false, advancements: 0 }]);
+    expect(viewFor('corp', r.state).rig).toEqual([{ uid: 'i1', cardId: 'r04', faceUp: true, advancements: 0 }]);
   });
 
   it('a 0-cost resource emits no credits_spent', () => {
@@ -290,13 +301,13 @@ describe('views and projections', () => {
     const rv = viewFor('runner', s);
     expect(rv.corpServers.find((sv) => sv.id === 'remote1')).toEqual({
       id: 'remote1',
-      ice: [{ uid: 'i1', cardId: null, faceUp: false }],
-      content: [{ uid: 'i2', cardId: null, faceUp: false }],
+      ice: [{ uid: 'i1', cardId: null, faceUp: false, advancements: 0 }],
+      content: [{ uid: 'i2', cardId: null, faceUp: false, advancements: 0 }],
     });
-    expect(rv.corpServers.find((sv) => sv.id === 'hq')?.content).toEqual([{ uid: 'i3', cardId: null, faceUp: false }]);
+    expect(rv.corpServers.find((sv) => sv.id === 'hq')?.content).toEqual([{ uid: 'i3', cardId: null, faceUp: false, advancements: 0 }]);
     expect(JSON.stringify(rv)).not.toMatch(/"c\d\d"/);
     const cv = viewFor('corp', s);
-    expect(cv.corpServers.find((sv) => sv.id === 'remote1')?.content).toEqual([{ uid: 'i2', cardId: 'c08', faceUp: false }]);
+    expect(cv.corpServers.find((sv) => sv.id === 'remote1')?.content).toEqual([{ uid: 'i2', cardId: 'c08', faceUp: false, advancements: 0 }]);
   });
 
   it('viewEvents: the opponent loses handIndex, and Corp installs lose cardId', () => {
@@ -331,9 +342,9 @@ describe('views and projections', () => {
     expect(opts[1]!.map((o) => o.action)).toEqual([install('corp', 1, 'new')]);
     // Upgrade: any server + new.
     expect(opts[2]!.map((o) => (o.action as { server?: string }).server)).toEqual(['hq', 'rd', 'archives', 'new']);
-    // Hedge Fund: unaffordable but offered; Neural EMP: needs runs.
+    // Hedge Fund: unaffordable but offered; Neural EMP: no run last turn.
     expect(opts[3]).toEqual([{ action: play('corp', 3), cost: 5, reject: 'no_credits' }]);
-    expect(opts[4]).toEqual([{ action: play('corp', 4), cost: 2, reject: 'not_implemented' }]);
+    expect(opts[4]).toEqual([{ action: play('corp', 4), cost: 2, reject: 'condition_not_met' }]);
     // Off turn: same targets, reject not_your_turn; legalActions empty.
     const off = finishTurn(withPlayer(s, 'corp', { hand: ['c08'] })).state;
     expect(viewFor('corp', off).handOptions).toEqual([[{ action: install('corp', 0, 'new'), cost: 0, reject: 'not_your_turn' }]]);
@@ -382,7 +393,7 @@ function randomGame(seed: number, steps: number): Action[] {
   let s = newGame(seed);
   const log: Action[] = [];
   for (let i = 0; i < steps && s.phase !== 'over'; i++) {
-    const acts = legalActions(s, s.activePlayer);
+    const acts = legalActions(s, waitingOn(s)!);
     const busy = acts.filter((a) => a.type === 'install' || a.type === 'play');
     let a = (busy.length > 0 && pick(3) > 0 ? busy[pick(busy.length)] : acts[pick(acts.length)])!;
     if (a.type === 'discard') {
@@ -416,24 +427,15 @@ describe('replay and hidden information (property tests)', () => {
       const pick = picker(seed);
       let s = newGame(seed);
       for (let i = 0; i < 200 && s.phase !== 'over'; i++) {
-        const acts = legalActions(s, s.activePlayer);
+        const acts = legalActions(s, waitingOn(s)!);
         const busy = acts.filter((a) => a.type === 'install' || a.type === 'play');
         let a = (busy.length > 0 && pick(3) > 0 ? busy[pick(busy.length)] : acts[pick(acts.length)])!;
         if (a.type === 'discard') a = { ...a, handIndices: [...a.handIndices] };
         const r = apply(s, a);
         s = r.state;
-
-        // Events: only card_played may name a Corp card (it is face up for both).
-        for (const e of viewEvents('runner', r.events)) {
-          if (e.type === 'card_installed' && e.player === 'corp') corpInstalls++;
-          if (e.type === 'card_played') continue;
-          expect(JSON.stringify(e), `seed ${seed} step ${i}`).not.toMatch(/"c\d\d"/);
-        }
-        // View: Corp ids appear only in face-up Archives entries.
-        const v = viewFor('runner', s);
-        expect(v.players.corp.discard).toEqual(s.players.corp.discard.map((d) => (d.faceUp ? d.cardId : null)));
-        const rest = { ...v, players: { ...v.players, corp: { ...v.players.corp, discard: [] } } };
-        expect(JSON.stringify(rest), `seed ${seed} step ${i}`).not.toMatch(/"c\d\d"/);
+        for (const e of r.events) if (e.type === 'card_installed' && e.player === 'corp') corpInstalls++;
+        expectRunnerEventsClean(r.events, `seed ${seed} step ${i}`);
+        expectRunnerViewClean(s, `seed ${seed} step ${i}`);
       }
     }
     expect(corpInstalls).toBeGreaterThan(100); // the property was really exercised

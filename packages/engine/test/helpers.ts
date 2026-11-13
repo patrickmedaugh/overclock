@@ -1,4 +1,14 @@
-import { apply, type Action, type GameEvent, type GameState, type PlayerState, type Side } from '../src/index';
+import {
+  apply,
+  legalActions,
+  newGame,
+  type Action,
+  type GameEvent,
+  type GameState,
+  type PlayerState,
+  type ServerId,
+  type Side,
+} from '../src/index';
 
 /** Recursively freezes a value so any mutation throws in strict mode. */
 export function deepFreeze<T>(value: T): T {
@@ -67,4 +77,78 @@ export function finishTurn(state: GameState): { state: GameState; events: GameEv
 export function rejection(events: readonly GameEvent[]): string | null {
   const e = events.find((x) => x.type === 'action_rejected');
   return e && e.type === 'action_rejected' ? e.reason : null;
+}
+
+export interface BoardSpec {
+  /** Per server: ICE (innermost first) and content, as card ids; prefix '+' = rezzed. Unlisted centrals are empty. */
+  readonly servers?: Readonly<Record<string, { ice?: readonly string[]; content?: readonly string[] }>>;
+  readonly corpHand?: readonly string[];
+  readonly corpDeck?: readonly string[];
+  /** Archives entries; prefix '+' = face up. */
+  readonly archives?: readonly string[];
+  readonly corpCredits?: number;
+  readonly rig?: readonly string[];
+  readonly runnerHand?: readonly string[];
+  readonly runnerDeck?: readonly string[];
+  readonly runnerCredits?: number;
+  readonly runnerClicks?: number;
+  /** Advancement counters per uid. */
+  readonly advancements?: Readonly<Record<string, number>>;
+}
+
+/**
+ * A Runner turn (turn 2) on a hand-built board. Installed uids are i1, i2, ...
+ * in order: rig first, then servers in key order (ICE innermost first, then content).
+ */
+export function board(spec: BoardSpec, seed = 77): GameState {
+  const base = finishTurn(newGame(seed)).state;
+  let uid = 1;
+  const inst = (id: string) => {
+    const rezzed = id.startsWith('+');
+    const u = `i${uid++}`;
+    return { uid: u, cardId: rezzed ? id.slice(1) : id, rezzed, advancements: spec.advancements?.[u] ?? 0 };
+  };
+  const rig = (spec.rig ?? []).map((id) => ({ ...inst(id), rezzed: false }));
+  const ids = ['hq', 'rd', 'archives', ...Object.keys(spec.servers ?? {}).filter((k) => k.startsWith('remote'))];
+  const servers = ids.map((id) => {
+    const sv = spec.servers?.[id] ?? {};
+    return { id: id as ServerId, ice: (sv.ice ?? []).map(inst), content: (sv.content ?? []).map(inst) };
+  });
+  let s: GameState = {
+    ...base,
+    servers,
+    rig,
+    nextUid: uid,
+    nextRemote: ids.filter((k) => k.startsWith('remote')).length + 1,
+  };
+  s = withPlayer(s, 'corp', {
+    hand: [...(spec.corpHand ?? ['c01', 'c02'])],
+    deck: [...(spec.corpDeck ?? ['c01', 'c02', 'c03'])],
+    discard: (spec.archives ?? []).map((id) => ({ cardId: id.replace('+', ''), faceUp: id.startsWith('+') })),
+    credits: spec.corpCredits ?? 10,
+  });
+  s = withPlayer(s, 'runner', {
+    hand: [...(spec.runnerHand ?? ['r01', 'r03', 'r09'])],
+    deck: [...(spec.runnerDeck ?? ['r01', 'r01'])],
+    credits: spec.runnerCredits ?? 5,
+    clicks: spec.runnerClicks ?? 4,
+  });
+  return s;
+}
+
+/** Applies one action that must be accepted; returns state and events. */
+export function act(state: GameState, action: Action): { state: GameState; events: GameEvent[] } {
+  return run(state, [action]);
+}
+
+/** Exactly one side has legal actions (outside 'over'), and it is the one the game waits on. */
+export function liveness(state: GameState): Side | null {
+  const corp = legalActions(state, 'corp').length > 0;
+  const runner = legalActions(state, 'runner').length > 0;
+  if (state.phase === 'over') {
+    if (corp || runner) throw new Error('someone can act after the game is over');
+    return null;
+  }
+  if (corp === runner) throw new Error(`liveness: corp ${corp}, runner ${runner} (phase ${state.phase}, step ${state.run?.step})`);
+  return corp ? 'corp' : 'runner';
 }

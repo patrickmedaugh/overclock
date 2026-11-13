@@ -45,9 +45,14 @@ async function doubleTapWhileBusy(page: Page, secondMs: number): Promise<{ first
       }
     });
   });
-  const first = sendTap(page, spot, { touch: true });
-  await new Promise((r) => setTimeout(r, secondMs));
-  const second = sendTap(page, next, { touch: true });
+  // Both taps carry the time they were made (QA-S3-2 / QA-S3-5): the second is
+  // stamped `secondMs` after the first and sent once real time has passed that
+  // stamp, so a late Node timer on a busy test machine cannot move it out of (or
+  // into) the guard window. The first is not awaited: the page is busy handling it.
+  const t0 = Date.now();
+  const first = sendTap(page, spot, { touch: true, madeAt: t0 });
+  await new Promise((r) => setTimeout(r, Math.max(0, t0 + secondMs - Date.now() + 1)));
+  const second = sendTap(page, next, { touch: true, madeAt: t0 + secondMs });
   await Promise.all([first, second]);
   await waitIdle(page);
   const out = await page.evaluate(() => ({
@@ -61,6 +66,8 @@ async function doubleTapWhileBusy(page: Page, secondMs: number): Promise<{ first
   expect(out.rel.length, 'both taps reached the page').toBe(2);
   const [a, b] = out.rel as [Release, Release];
   expect(a.reached && b.reached, 'both taps reached a game target').toBe(true);
+  // Chrome made the second tap when we said (within 2ms of the stamp).
+  expect(Math.abs(b.ts - a.ts - secondMs), `the second tap was made ${secondMs}ms after the first`).toBeLessThanOrEqual(2);
   // The scenario really happened: the second tap was handled after the guard opened.
   expect(b.handled, 'the second tap waited behind the busy page past the guard').toBeGreaterThanOrEqual(out.armedAt);
   return { first: a, second: b, armedAt: out.armedAt };

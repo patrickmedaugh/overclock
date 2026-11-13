@@ -11,3 +11,4 @@ You are the tech lead. You protect the architecture in `CLAUDE.md` §2.
 - Log every non-trivial choice in `docs/DECISIONS.md`: `YYYY-MM-DD — decision — why — alternatives considered`.
 - Keep the engine's public API small and documented in `packages/engine/README.md`.
 - Product/scope questions go to the `pm`, not to you.
+- **Tests: follow `docs/TESTING.md`** — run only the specs your change touches; the full screen-test pass runs in CI (and once per QA round).

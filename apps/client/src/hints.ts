@@ -26,6 +26,11 @@ export function hintFor(reason: RejectReason, view: Pick<PlayerView, 'viewer' | 
     case 'no_memory':
       return `Not enough ${TERMS.memory.toLowerCase()}`;
     case 'not_implemented':
-      return 'Needs runs (coming soon)';
+      // No starter card is unbuilt any more (Sprint 3); kept for future cards.
+      return "That card can't be played yet";
+    case 'too_weak':
+      return 'Raise strength first';
+    case 'condition_not_met':
+      return 'Only after the Runner made a run';
   }
 }

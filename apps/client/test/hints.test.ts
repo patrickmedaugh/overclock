@@ -12,7 +12,7 @@ describe('hintFor', () => {
   it('the Sprint 2 hints read as the proposal says', () => {
     expect(hintFor('no_credits', null)).toBe('Not enough credits');
     expect(hintFor('no_memory', null)).toBe('Not enough memory');
-    expect(hintFor('not_implemented', null)).toBe('Needs runs (coming soon)');
+    expect(hintFor('not_implemented', null)).toBe("That card can't be played yet");
   });
 
   it('an empty deck is named with the real words', () => {

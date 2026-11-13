@@ -11,3 +11,4 @@ You verify work you did not write. Be skeptical and honest.
 - Check the snappiness budget and that empty timing windows auto-pass.
 - Check for IP violations: any official card names, text, or art → FAIL.
 - Write results to `docs/sprints/sprint-NN-qa.md`. Never mark a criterion PASS without evidence. Failures go back to the developers with exact repro steps.
+- **Tests: follow `docs/TESTING.md`** — run the full screen-test suite once per QA round (or record CI's result if CI already passed on that exact commit); repeats and slow-down only for timing criteria, on the specs involved.

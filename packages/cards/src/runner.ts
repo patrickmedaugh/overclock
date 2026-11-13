@@ -49,6 +49,10 @@ export const RUNNER_CARDS: readonly CardDef[] = [
     strength: 2,
     text: '1 credit: Break barrier subroutine.\n1 credit: +1 strength.',
     art: 'glyph:teeth',
+    abilities: [
+      { op: 'break', cost: 1, iceType: 'barrier', count: 1 },
+      { op: 'strength', cost: 1, amount: 1, until: 'encounter' },
+    ],
   },
   {
     id: 'r05',
@@ -61,6 +65,10 @@ export const RUNNER_CARDS: readonly CardDef[] = [
     strength: 2,
     text: '1 credit: Break code gate subroutine.\n1 credit: +1 strength for the remainder of this run.',
     art: 'glyph:keyhole',
+    abilities: [
+      { op: 'break', cost: 1, iceType: 'code_gate', count: 1 },
+      { op: 'strength', cost: 1, amount: 1, until: 'run' },
+    ],
   },
   {
     id: 'r06',
@@ -73,6 +81,10 @@ export const RUNNER_CARDS: readonly CardDef[] = [
     strength: 0,
     text: '1 credit: Break sentry subroutine.\n3 credits: +5 strength.',
     art: 'glyph:muzzle',
+    abilities: [
+      { op: 'break', cost: 1, iceType: 'sentry', count: 1 },
+      { op: 'strength', cost: 3, amount: 5, until: 'encounter' },
+    ],
   },
   {
     id: 'r07',
@@ -82,7 +94,7 @@ export const RUNNER_CARDS: readonly CardDef[] = [
     cost: 2,
     text: 'Make a run on R&D. If successful, access 2 additional cards from R&D.',
     art: 'glyph:pin',
-    needs: 'runs',
+    onPlay: [{ op: 'run', server: 'rd', extraAccess: 2 }],
   },
   {
     id: 'r08',
@@ -120,7 +132,7 @@ export const RUNNER_CARDS: readonly CardDef[] = [
     cost: 2,
     text: 'Make a run. Bypass the first piece of ICE encountered during this run.',
     art: 'glyph:wave-cut',
-    needs: 'runs',
+    onPlay: [{ op: 'run', bypassFirst: true }],
   },
   {
     id: 'r12',

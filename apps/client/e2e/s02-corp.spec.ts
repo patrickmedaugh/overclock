@@ -17,13 +17,14 @@ import {
   waitIdle,
 } from './helpers';
 
-// Seed 2: the Corp opens with Private Security Force, Hostile Takeover (agendas),
-// Akitaro Watanabe (upgrade), Anonymous Tip and two Hedge Funds.
-// Seed 9: the Corp opens with four ICE (Ice Wall x2, Enigma, Wall of Static).
+// Seeds re-picked for the 17-card Corp deck (Sprint 3), same hands as before:
+// Seed 332: the Corp opens with Private Security Force, Hostile Takeover (agendas),
+// Akitaro Watanabe (upgrade), Anonymous Tip and Hedge Fund.
+// Seed 6: the Corp opens with four ICE (Ice Wall x2, Enigma, Wall of Static) and Hedge Fund.
 
 test.describe('S-02-1 Corp: hide a card in a new server', () => {
   test('tapping an agenda lights only New server (agendas go in remotes), with its price', async ({ page }) => {
-    await openBoard(page, 2);
+    await openBoard(page, 332);
     const l = await pickCard(page, 'Hostile Takeover');
     expect(l.targets.map((t) => t.kind)).toEqual(['new_server']);
     expect(l.targets[0]).toMatchObject({ label: 'Install · free', lit: true, reject: null });
@@ -33,7 +34,7 @@ test.describe('S-02-1 Corp: hide a card in a new server', () => {
   });
 
   test('tapping New server slides the card face down into "Server 1": one click, no credits, quick', async ({ page }) => {
-    await openBoard(page, 2);
+    await openBoard(page, 332);
     const before = await getView(page);
     const l = await pickCard(page, 'Hostile Takeover');
     const m = await measureTap(page, targetOf(l, 'new_server').box);
@@ -59,7 +60,7 @@ test.describe('S-02-1 Corp: hide a card in a new server', () => {
   });
 
   test('one agenda or asset per server; upgrades go in any server, HQ, R&D and Archives included', async ({ page }) => {
-    await openBoard(page, 2);
+    await openBoard(page, 332);
     let l = await pickCard(page, 'Hostile Takeover');
     await tap(page, targetOf(l, 'new_server').box);
     await waitIdle(page);
@@ -79,7 +80,7 @@ test.describe('S-02-1 Corp: hide a card in a new server', () => {
   });
 
   test('tapping the card again, or an empty part of the board, cancels: nothing installed, no click used', async ({ page }) => {
-    await openBoard(page, 2);
+    await openBoard(page, 332);
     const before = await getView(page);
     let l = await pickCard(page, 'Hostile Takeover');
     await tap(page, l.hand[l.selected!]!.box);
@@ -95,7 +96,7 @@ test.describe('S-02-1 Corp: hide a card in a new server', () => {
   });
 
   test('holding a card in a server zooms it face up for the Corp', async ({ page }) => {
-    await openBoard(page, 2);
+    await openBoard(page, 332);
     const l = await pickCard(page, 'Hostile Takeover');
     await tap(page, targetOf(l, 'new_server').box);
     const after = await waitIdle(page);
@@ -111,7 +112,7 @@ test.describe('S-02-1 Corp: hide a card in a new server', () => {
   });
 
   test("on the Runner's turn the Corp's installed cards are card backs, and the Runner's view never names them", async ({ page }) => {
-    await openBoard(page, 2);
+    await openBoard(page, 332);
     let l = await pickCard(page, 'Hostile Takeover');
     await tap(page, targetOf(l, 'new_server').box);
     await waitIdle(page);
@@ -141,7 +142,7 @@ test.describe('S-02-1 Corp: hide a card in a new server', () => {
 
 test.describe('S-02-2 Corp: ICE in front of a server', () => {
   test('tapping ICE lights every server and New server, each with its price', async ({ page }) => {
-    await openBoard(page, 9);
+    await openBoard(page, 6);
     const l = await pickCard(page, 'Enigma');
     expect(l.targets.map((t) => [t.kind, t.server, t.label])).toEqual([
       ['server', 'hq', 'Install · free'],
@@ -153,7 +154,7 @@ test.describe('S-02-2 Corp: ICE in front of a server', () => {
   });
 
   test('first ICE on a server is free; the next costs 1 credit per ICE already there and goes outside', async ({ page }) => {
-    await openBoard(page, 9);
+    await openBoard(page, 6);
     const before = await getView(page);
     let l = await pickCard(page, 'Enigma');
     let m = await measureTap(page, targetOf(l, 'server', 'rd').box);
@@ -184,7 +185,7 @@ test.describe('S-02-2 Corp: ICE in front of a server', () => {
   });
 
   test("when you can't afford a server's price, only a small \"Not enough credits\" hint appears", async ({ page }) => {
-    await openBoard(page, 9);
+    await openBoard(page, 6);
     // R&D gets three ICE (0 + 1 + 2 credits: 5 -> 2), then the Runner's turn passes.
     for (const name of ['Enigma', 'Wall of Static', 'Ice Wall']) {
       const l = await pickCard(page, name);
@@ -213,7 +214,7 @@ test.describe('S-02-2 Corp: ICE in front of a server', () => {
   });
 
   test("on the Runner's turn you see how many ICE guard each server, only as backs", async ({ page }) => {
-    await openBoard(page, 9);
+    await openBoard(page, 6);
     for (const [name, server] of [['Enigma', 'rd'], ['Wall of Static', 'rd'], ['Ice Wall', 'hq']] as const) {
       const l = await pickCard(page, name);
       await tap(page, targetOf(l, 'server', server).box);

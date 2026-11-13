@@ -122,7 +122,7 @@ export default tseslint.config(
   {
     // Node-side e2e setup may use the match's test helpers (planBusyBoard,
     // packages/engine/README.md "@overclock/match/testing"); the client src may not.
-    files: ['apps/client/e2e/**/*.ts'],
+    files: ['apps/client/e2e/**/*.ts', 'apps/client/test/**/*.ts'],
     rules: {
       'no-restricted-imports': [
         'error',

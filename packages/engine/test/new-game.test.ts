@@ -19,15 +19,16 @@ describe('newGame (S-00-5 AC1: same seed deals the same cards)', () => {
     expect(deals.size).toBeGreaterThan(1);
   });
 
-  it('sets up both sides from shuffled 15-card decks with 5 credits (Corp has taken its free draw)', () => {
+  it('sets up both sides from shuffled decks (Corp 17, Runner 15) with 5 credits (Corp has taken its free draw)', () => {
     const g = newGame(99);
     for (const [side, list, handSize] of [
       ['corp', CORP_STARTER_DECK, 6],
       ['runner', RUNNER_STARTER_DECK, 5],
     ] as const) {
+      expect(g.players[side].scoreArea).toEqual([]);
       const p = g.players[side];
       expect(p.hand).toHaveLength(handSize);
-      expect(p.deck).toHaveLength(15 - handSize);
+      expect(p.deck).toHaveLength(list.length - handSize);
       expect(p.discard).toEqual([]);
       expect(p.credits).toBe(5);
       expect([...p.hand, ...p.deck].sort()).toEqual([...list].sort());

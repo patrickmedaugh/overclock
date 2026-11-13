@@ -7,8 +7,22 @@
 - **Agenda** — a Corp card worth points. First to 7 points usually wins.
 - **ICE** — the Corp's defenses, placed face down in front of a server. Each new one goes on the outside; adding one costs 1 credit for each ICE already there.
 - **Rez** — the Corp paying to flip a face-down card face up so it works.
-- **Run** — the Runner attacking a server, passing ICE one piece at a time.
-- **Breaker / icebreaker** — a Runner program that gets past ICE.
+- **Run** — the Runner attacking a server, passing ICE one piece at a time. Costs 1 click: tap **Run**, then a lit server. Tap Run again to cancel.
+- **Jack out** — the Runner giving up a run after passing a piece of ICE. Nothing is accessed.
+- **Approach** — the Runner reaching a piece of ICE. If it is face down, the Corp may rez it now (**Rez** / **Don't rez**); ICE the Corp doesn't rez is passed.
+- **Encounter** — meeting a face-up piece of ICE. The Runner breaks its subroutines or taps **Let it through**.
+- **Subroutine** — a line on a piece of ICE that happens unless the Runner breaks it, like "End the run".
+- **Breaker / icebreaker** — a Runner program that gets past ICE. Each kind breaks one kind of ICE: Corroder breaks barriers, Gordian Blade code gates, Ninja sentries.
+- **Strength** — how tough a piece of ICE is, and how strong an icebreaker is. A breaker can only break ICE whose strength is no higher than its own; pay to raise it (**+1 strength**). Raised strength lasts for one piece of ICE (Gordian Blade: the rest of the run).
+- **Break** — pay an icebreaker's price to cross out one subroutine so it doesn't happen.
+- **Access** — the Runner looking at the cards in a server after getting in: HQ shows 1 random card, R&D the top card, Archives every card, a remote server every card in it.
+- **Steal** — take an agenda you accessed into your score area (you must). Its points count for the Runner.
+- **Trash** — pay a card's trash cost to destroy it (it goes to Archives face up). **Leave it** puts the card back; **Done** puts back a card you can't steal or trash.
+- **Advance** — the Corp paying 1 click and 1 credit to put an advancement counter on an installed agenda. Both players see the counters, even on a face-down card.
+- **Score** — once an agenda has enough counters, the Corp moves it face up to its score area (no click needed) and gets its points.
+- **Points** — agenda points in a player's score area, shown as "Corp 1 point" / "Runner 2 points". 7 points wins.
+- **Net damage** — the Runner discards that many random cards from the Grip to the Heap.
+- **Flatline** — the Runner takes more damage than cards in the Grip: the Corp wins at once ("Runner flatlined").
 - **Server** — a place where the Corp keeps cards. Three are built in (HQ, R&D, Archives); the Corp can open remote servers.
 - **HQ** — the Corp's hand (its headquarters).
 - **R&D** — the Corp's deck ("research and development").

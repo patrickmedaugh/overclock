@@ -80,10 +80,10 @@ test.describe('S-02-5 a busy board fits on a phone', () => {
   });
 
   test('with a card picked on the busy board, every lit server fits and shows its price', async ({ page }) => {
-    await openBoard(page, 1);
-    await toBusyBoard(page, 1);
+    await openBoard(page, 7);
+    await toBusyBoard(page, 7);
     expect((await layout(page)).viewer).toBe('corp');
-    // Seed 1's Corp holds Akitaro Watanabe (an upgrade: any server, or a new one).
+    // Seed 7's Corp holds Akitaro Watanabe (an upgrade: any server, or a new one).
     const l = await pickCard(page, 'Akitaro Watanabe');
     expect(l.targets.map((t) => t.server)).toEqual([...l.servers.map((s) => s.id), 'new']);
     for (const t of l.targets) {
@@ -95,7 +95,7 @@ test.describe('S-02-5 a busy board fits on a phone', () => {
   });
 
   test('installs and plays answer in under 0.1s and animate within 0.6s (snappiness)', async ({ page }) => {
-    await openBoard(page, 2);
+    await openBoard(page, 332);
     let l = await pickCard(page, 'Hostile Takeover');
     expectSnappy(await measureTap(page, targetOf(l, 'new_server').box), ['install_flight', 'server_open']);
     await waitIdle(page);
@@ -109,7 +109,7 @@ test.describe('S-02-5 a busy board fits on a phone', () => {
 
 test.describe('S-02-5 real words and real cards', () => {
   test("board labels use the real game's words on both sides", async ({ page }) => {
-    await openBoard(page, 2);
+    await openBoard(page, 332);
     const l = await pickCard(page, 'Hostile Takeover');
     await tap(page, targetOf(l, 'new_server').box);
     const corp = await waitIdle(page);
@@ -128,7 +128,7 @@ test.describe('S-02-5 real words and real cards', () => {
   });
 
   test('held cards show real core-set names and text; long text fits the zoomed card', async ({ page }) => {
-    await openBoard(page, 5); // Runner: Easy Mark, Inside Job, Armitage Codebusting, Bank Job, Diesel
+    await openBoard(page, 32); // Runner: Easy Mark, Inside Job, Armitage Codebusting, Bank Job, Diesel
     await toRunnerTurn(page);
     let l = await layout(page);
     for (const h of l.hand) {

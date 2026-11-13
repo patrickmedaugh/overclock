@@ -1,4 +1,4 @@
-import type { ServerId, Side, WinReason } from './state';
+import type { AccessFrom, ServerId, Side, WinReason } from './state';
 
 /** Why an action was refused. Order of checks: see `rules.ts`. */
 export type RejectReason =
@@ -15,8 +15,15 @@ export type RejectReason =
   | 'bad_target'
   /** The card needs a system that is not built yet (card data `needs`). */
   | 'not_implemented'
+  /** A play condition (card `playIf`) does not hold, e.g. Neural EMP without a run last turn; or an agenda without enough counters to score. */
+  | 'condition_not_met'
+  /** Break with a breaker whose strength is below the ICE's strength. */
+  | 'too_weak'
   | 'no_credits'
   | 'no_memory';
+
+/** How a run ended. */
+export type RunOutcome = 'accessed' | 'jacked_out' | 'ended_by_ice' | 'flatline';
 
 export type InstallZone = 'ice' | 'content' | 'rig';
 
@@ -62,4 +69,28 @@ export type GameEvent =
       readonly cardId: string;
       /** Index into the hand before playing. Owner only. */
       readonly handIndex?: number;
-    };
+    }
+  // ---- Sprint 3: runs, advancing, scoring, damage (all public unless noted) ----
+  /** `cardId` = the run event that started it (face up), absent for a click run. */
+  | { readonly type: 'run_started'; readonly server: ServerId; readonly cardId?: string }
+  | { readonly type: 'ice_approached'; readonly uid: string; readonly position: number }
+  | { readonly type: 'ice_rezzed'; readonly uid: string; readonly cardId: string }
+  | { readonly type: 'ice_encountered'; readonly uid: string }
+  /** Inside Job: the encountered ICE is passed without breaking; nothing fires. */
+  | { readonly type: 'ice_bypassed'; readonly uid: string }
+  /** A breaker's current strength changed (pump, or a boost ending). */
+  | { readonly type: 'strength_changed'; readonly uid: string; readonly strength: number }
+  | { readonly type: 'subroutine_broken'; readonly iceUid: string; readonly sub: number; readonly breakerUid: string }
+  | { readonly type: 'subroutine_fired'; readonly iceUid: string; readonly sub: number }
+  | { readonly type: 'clicks_lost'; readonly player: Side; readonly amount: number }
+  /** The Runner discarded `cardIds` (face up, to the Heap). */
+  | { readonly type: 'net_damage'; readonly amount: number; readonly cardIds: readonly string[] }
+  | { readonly type: 'ice_passed'; readonly uid: string }
+  | { readonly type: 'run_successful'; readonly server: ServerId }
+  /** `cardId` is dropped in the Corp's projection when `from` is 'rd' (deck order is hidden from the Corp too). */
+  | { readonly type: 'card_accessed'; readonly cardId?: string; readonly from: AccessFrom; readonly uid?: string }
+  | { readonly type: 'agenda_stolen'; readonly cardId: string; readonly points: number }
+  | { readonly type: 'card_trashed'; readonly cardId: string; readonly from: AccessFrom; readonly uid?: string }
+  | { readonly type: 'run_ended'; readonly server: ServerId; readonly outcome: RunOutcome }
+  | { readonly type: 'card_advanced'; readonly uid: string; readonly advancements: number }
+  | { readonly type: 'agenda_scored'; readonly uid: string; readonly cardId: string; readonly points: number };

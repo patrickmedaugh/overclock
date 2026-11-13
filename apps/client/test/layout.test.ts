@@ -383,3 +383,30 @@ describe('computeLayout: a little past the busy board', () => {
     }
   });
 });
+
+describe('run panel room (QA-S3-4)', () => {
+  const inSafe = (b: Box, l: BoardLayout) =>
+    b.x >= l.safe.x - 0.5 && b.y >= l.safe.y - 0.5 && b.x + b.width <= l.safe.x + l.safe.width + 0.5 && b.y + b.height <= l.safe.y + l.safe.height + 0.5;
+  it('on desktop the run panel spreads beside the column, inside the safe area, info and buttons apart', () => {
+    for (const [w, h] of [
+      [1280, 800],
+      [1920, 1080],
+      [1024, 768],
+    ] as const) {
+      const l = computeLayout(w, h, {}, { shape: BUSY });
+      expect(l.mode).toBe('portrait');
+      const panelW = l.runButtons.x + l.runButtons.width - l.runInfo.x;
+      expect(panelW, `${w}x${h}`).toBeGreaterThan(l.handArea.width);
+      expect(l.runInfo.width, `${w}x${h} info wide enough for two columns`).toBeGreaterThanOrEqual(340);
+      expect(inSafe(l.runInfo, l) && inSafe(l.runButtons, l), `${w}x${h}`).toBe(true);
+      expect(l.runInfo.x + l.runInfo.width).toBeLessThanOrEqual(l.runButtons.x);
+      // Centered on the column.
+      expect(Math.abs(l.runInfo.x + panelW / 2 - (l.handArea.x + l.handArea.width / 2))).toBeLessThanOrEqual(1);
+    }
+  });
+  it('a full-width column (upright) keeps the run panel in the hand row', () => {
+    const l = computeLayout(390, 844, {}, { shape: BUSY });
+    expect(l.runInfo.x).toBe(l.handArea.x);
+    expect(l.runButtons.x + l.runButtons.width).toBe(l.handArea.x + l.handArea.width);
+  });
+});
