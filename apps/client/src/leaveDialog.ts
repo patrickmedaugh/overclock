@@ -11,6 +11,8 @@ import { PanelButton, fitText } from './widgets';
 
 export const LEAVE_TITLE = 'Leave the game?';
 export const LEAVE_TEXT = "This game ends. It isn't saved.";
+/** Sprint 6, online: the seat is kept, so the start screen offers Rejoin. */
+export const LEAVE_TEXT_ONLINE = 'You can come back with Rejoin on the start screen.';
 
 export interface LeaveDialogSnapshot {
   title: string;
@@ -25,7 +27,12 @@ export class LeaveDialog {
   private readonly panel: Box;
   private readonly buttons: { label: string; button: PanelButton }[] = [];
 
-  constructor(layout: BoardLayout, onStay: () => void, onLeave: () => void) {
+  constructor(
+    layout: BoardLayout,
+    onStay: () => void,
+    onLeave: () => void,
+    private readonly text: string = LEAVE_TEXT,
+  ) {
     const { width: vw, height: vh } = layout.viewport;
     const s = Math.min(layout.scale, 1.2);
     this.root.label = 'dialog:leave';
@@ -49,7 +56,7 @@ export class LeaveDialog {
       style: { fontFamily: theme.fontFamily, fontSize: Math.round(22 * s), fontWeight: '800', fill: theme.text, align: 'center' },
     });
     const body = new Text({
-      text: LEAVE_TEXT,
+      text,
       style: { fontFamily: theme.fontFamily, fontSize: Math.max(13, Math.round(15 * s)), fill: theme.textDim, align: 'center' },
     });
     title.anchor.set(0.5, 0);
@@ -91,7 +98,7 @@ export class LeaveDialog {
   snapshot(): LeaveDialogSnapshot {
     return {
       title: LEAVE_TITLE,
-      text: LEAVE_TEXT,
+      text: this.text,
       box: { ...this.panel },
       buttons: this.buttons.map((b) => ({ label: b.label, box: { ...b.button.box } })),
     };

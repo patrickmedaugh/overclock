@@ -81,6 +81,11 @@ export function runTitle(run: RunView): string {
   return `${TERMS.run} on ${serverLabel(run.server)}`;
 }
 
+/** Online: the other phone is deciding (its choice is not shown here). */
+export function decidingText(deciding: Side): string {
+  return `${SIDE_NAME[deciding]} is deciding…`;
+}
+
 /** What is happening now, for the deciding seat: "Corp: rez Wall of Static?", "Encounter: Enigma", ... */
 export function stepLabel(run: RunView, deciding: Side): string {
   const ice = nameOf(run.ice?.cardId);

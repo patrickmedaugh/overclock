@@ -1,13 +1,14 @@
 // S-06-1 (client part, U1): the start screen. Play on this phone / Play online
 // -> Start a game (Corp / Runner) / Join with code, `?join=CODE`, and "Online
-// play isn't set up yet" when the build has no online service. The online
-// game itself (code, Share, waiting, joining) is tested with the real service in U5.
+// play isn't set up yet" when the build has no online service (`server=none`).
+// The e2e web build points at the local service (playwright.config.ts); whole
+// online games are in s06-online.spec.ts.
 import { type Page, expect, test } from '@playwright/test';
 import type { Box } from './helpers';
 
 const START = '#start';
-/** Test builds only: points "Play online" at an address (nothing listens there in U1). */
-const FAKE_SERVER = 'server=ws://127.0.0.1:9';
+/** Test builds only: as if this build had no online service. */
+const NO_SERVER = 'server=none';
 
 async function openStart(page: Page, query = ''): Promise<void> {
   await page.goto(`./${query ? `?${query}` : ''}`);
@@ -89,7 +90,7 @@ test.describe('S-06-1 start screen', () => {
   });
 
   test('Play online without an online service says it is not set up yet, and Back returns', async ({ page }) => {
-    await openStart(page);
+    await openStart(page, NO_SERVER);
     await tapButton(page, /Play online/);
     await expect(page.locator(START)).toContainText("Online play isn't set up yet");
     expect(await screen(page)).toBe('not_set_up');
@@ -105,14 +106,14 @@ test.describe('S-06-1 start screen', () => {
   });
 
   test('a shared link (?join=CODE) without an online service says it is not set up yet and drops the code from the address', async ({ page }) => {
-    await openStart(page, 'join=k7qf');
+    await openStart(page, `join=k7qf&${NO_SERVER}`);
     expect(await screen(page)).toBe('not_set_up');
     await expect(page.locator(START)).toContainText("Online play isn't set up yet");
     expect(new URL(page.url()).searchParams.get('join')).toBeNull();
   });
 
   test('with an online service: Start a game asks Corp or Runner; Join with code takes a code', async ({ page }) => {
-    await openStart(page, FAKE_SERVER);
+    await openStart(page);
     await tapButton(page, /Play online/);
     expect(await screen(page)).toBe('online');
     await expect(page.locator(START).getByRole('button', { name: /Start a game/ })).toBeVisible();
@@ -128,9 +129,17 @@ test.describe('S-06-1 start screen', () => {
     await expectFits(page);
     await shot(page, 'start-pick-side');
     await tapButton(page, /^Corp/);
-    await expect(page.locator(START)).toContainText('Connecting…');
+    // The lobby: the code to send, Share, waiting (the joining is in s06-online).
+    await expect(page.locator(`${START} .code-big`)).toHaveText(/^[A-Z2-9]{4}$/);
+    await expect(page.locator(START)).toContainText('Waiting for the other player…');
+    await expectFits(page);
+    await shot(page, 'start-lobby');
+    // Back gives the game up (not offered for Rejoin).
     await tapButton(page, 'Back');
     expect(await screen(page)).toBe('online');
+    await tapButton(page, 'Back');
+    await expect(page.locator(START).getByRole('button', { name: /Rejoin/ })).toHaveCount(0);
+    await tapButton(page, /Play online/);
 
     await tapButton(page, /Join with code/);
     expect(await screen(page)).toBe('join');
@@ -147,17 +156,24 @@ test.describe('S-06-1 start screen', () => {
     await expect(input).toHaveValue('K7QF');
     await expect(page.locator(`${START} .error`)).toHaveText('');
     await input.press('Enter');
-    await expect(page.locator(START)).toContainText('Joining K7QF');
+    // Nobody started K7QF: a plain message, and the code stays to fix and try again.
+    await expect(page.locator(`${START} .error`)).toHaveText('No game with that code');
+    expect(await screen(page)).toBe('join');
+    await expect(input).toHaveValue('K7QF');
+    await expectFits(page);
+    await shot(page, 'start-join-no-game');
   });
 
   test('a shared link (?join=CODE) with an online service goes straight to joining that code', async ({ page }) => {
-    await openStart(page, `join=k7qf&${FAKE_SERVER}`);
-    await expect(page.locator(START)).toContainText('Joining K7QF');
+    await openStart(page, 'join=k7qf');
+    // (Nobody started K7QF here; s06-online joins a real one.)
+    await expect(page.locator(`${START} .error`)).toHaveText('No game with that code');
+    await expect(page.locator(`${START} input`)).toHaveValue('K7QF');
     expect(new URL(page.url()).searchParams.get('join')).toBeNull();
   });
 
   test("the phone's Back button steps back through the start screen, then closes the app", async ({ page }) => {
-    await openStart(page, FAKE_SERVER);
+    await openStart(page);
     await tapButton(page, /Play online/);
     await tapButton(page, /Join with code/);
     expect(await screen(page)).toBe('join');

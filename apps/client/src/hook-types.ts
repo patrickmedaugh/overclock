@@ -172,7 +172,9 @@ export interface LayoutSnapshot {
   /** Hand-limit discard picker, when the viewer must discard. */
   picker: { remaining: number; label: string; confirm: { box: Box; enabled: boolean } } | null;
   /** text = title + ": " + reason, e.g. "Runner wins: 7 agenda points". */
-  gameOver: { text: string; title: string; reason: string; box: Box } | null;
+  gameOver: { text: string; title: string; reason: string; box: Box; button: string; buttonBox: Box } | null;
+  /** Sprint 6: the status line over the board (online: reconnecting, the other player away), if showing. */
+  status: { text: string; box: Box } | null;
   /** The run tracker and its buttons, while a run is on. */
   run: RunSnapshot | null;
   /** The Runner's Run button (rail), when the view offers runs; `picking` while servers are lit. */
@@ -334,6 +336,15 @@ export interface OverclockTestHook {
   back(): 'close_dialog' | 'close_zoom' | 'close_panel' | 'exit' | 'ask_leave';
   /** How many times the game asked to close the app (Leave, or Back after the game ended). Web only counts. */
   exitRequests(): number;
+  /** Sprint 6: the online game's state (null in pass-the-phone). */
+  online(): {
+    code: string | null;
+    seat: Side;
+    phase: 'connecting' | 'lobby' | 'playing' | 'failed';
+    connection: 'local' | 'connecting' | 'open' | 'reconnecting' | 'closed';
+    opponent: 'none' | 'here' | 'away';
+    busy: boolean;
+  } | null;
   /** S-05-3: pins whether drawn frames count as slow (slow: the carousel jumps instead of sliding). */
   frameSpeed(mode: 'fast' | 'slow' | 'measured'): void;
 }
@@ -354,6 +365,8 @@ declare global {
       /** The phone's Back button (same handler as the app's). */
       back(): 'close_dialog' | 'close_zoom' | 'close_panel' | 'exit' | 'ask_leave';
       exitRequests(): number;
+      /** Starts an online game as `side`; `test` (seed + prelude) only works against a service in test mode. */
+      startOnline(side: Side, test?: { seed: number; actions: Action[] }): void;
     };
   }
 }

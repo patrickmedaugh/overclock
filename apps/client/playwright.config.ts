@@ -1,3 +1,6 @@
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from '@playwright/test';
 
 // E2E_PORT lets several checkouts run e2e side by side (a busy port would
@@ -7,6 +10,12 @@ const PORT = Number(process.env.E2E_PORT ?? 4173);
 // Offset well past PORT so side-by-side runs (E2E_PORT 4173, 4174, ...) never collide.
 const ANDROID_PORT = Number(process.env.E2E_ANDROID_PORT ?? PORT + 500);
 const NOT_WEB = [/rotate\.spec\.ts/, /android\.spec\.ts/];
+// Sprint 6: the online service (apps/server) under `wrangler dev`, test mode on,
+// fresh storage every run. The web build points "Play online" at it.
+const SERVER_PORT = Number(process.env.E2E_SERVER_PORT ?? PORT + 600);
+const SERVER_URL = `ws://127.0.0.1:${SERVER_PORT}`;
+const SERVER_DIR = join(dirname(fileURLToPath(import.meta.url)), '../server');
+const PERSIST = join(tmpdir(), `overclock-e2e-${SERVER_PORT}`);
 
 export default defineConfig({
   testDir: './e2e',
@@ -80,6 +89,7 @@ export default defineConfig({
   webServer: [
     {
       command: `npm run build && npm run preview -- --port ${PORT}`,
+      env: { ...(process.env as Record<string, string>), OVERCLOCK_SERVER_URL: SERVER_URL },
       url: `http://localhost:${PORT}/overclock/`,
       reuseExistingServer: !process.env.CI,
       timeout: 120_000,
@@ -87,6 +97,19 @@ export default defineConfig({
     {
       command: `npm run build:android && npx vite preview --mode android --port ${ANDROID_PORT}`,
       url: `http://localhost:${ANDROID_PORT}/`,
+      reuseExistingServer: !process.env.CI,
+      timeout: 120_000,
+    },
+    {
+      // Pages are served from http://localhost:<port>, which this allowlist lets in.
+      command: [
+        `rm -rf "${PERSIST}" &&`,
+        `npx wrangler dev --port ${SERVER_PORT} --ip 127.0.0.1 --persist-to "${PERSIST}"`,
+        `--var OVERCLOCK_TEST_MODE:1 --var "ALLOWED_ORIGINS:http://localhost:*,http://127.0.0.1:*"`,
+        '--show-interactive-dev-session=false',
+      ].join(' '),
+      cwd: SERVER_DIR,
+      url: `http://127.0.0.1:${SERVER_PORT}/health`,
       reuseExistingServer: !process.env.CI,
       timeout: 120_000,
     },

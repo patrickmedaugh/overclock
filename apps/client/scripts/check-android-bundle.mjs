@@ -5,7 +5,8 @@
 // - the "Turn your phone sideways" prompt (#rotate) is not in it;
 // - index.html, the styles and the web manifest load nothing from the internet
 //   (no http:// or https:// URLs): the app works in airplane mode;
-// - assets load from the web root (Capacitor serves the app at https://localhost/).
+// - assets load from the web root (Capacitor serves the app at https://localhost/);
+// - the CSP connects only to the app itself and the online service (Sprint 6).
 // Exits 1 with a list of problems, else prints a short OK.
 import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
 import { join, relative, dirname } from 'node:path';
@@ -50,6 +51,27 @@ for (const s of srcs) {
   if (s.startsWith('/overclock/')) problems.push(`index.html: ${s} uses the web base path (/overclock/), not the app's web root`);
 }
 if (!/<meta http-equiv="Content-Security-Policy"/.test(index)) problems.push('index.html: the Content Security Policy is missing');
+
+// Sprint 6: the app may connect only to itself and the online service
+// (OVERCLOCK_SERVER_URL of this build, if set): nothing else in connect-src.
+const csp = (index.match(/<meta http-equiv="Content-Security-Policy" content="([^"]*)"/)?.[1] ?? '')
+  .replace(/&#39;/g, "'")
+  .replace(/&quot;/g, '"')
+  .replace(/&amp;/g, '&');
+const connect = csp.split(';').map((d) => d.trim()).find((d) => d.startsWith('connect-src')) ?? '';
+const server = process.env.OVERCLOCK_SERVER_URL ?? '';
+let serverOrigin = '';
+if (server) {
+  try {
+    const u = new URL(server);
+    serverOrigin = `${u.protocol}//${u.host}`;
+  } catch {
+    problems.push(`OVERCLOCK_SERVER_URL is not a URL: ${server}`);
+  }
+}
+const expected = ['connect-src', "'self'", ...(serverOrigin ? [serverOrigin] : [])].join(' ');
+if (connect !== expected) problems.push(`index.html: CSP "${connect}" — expected exactly "${expected}"`);
+if (serverOrigin && !serverOrigin.startsWith('wss://')) problems.push(`the app's online service must use wss:// (got ${serverOrigin})`);
 
 if (problems.length > 0) {
   console.error(`check-android-bundle: ${problems.length} problem(s) in ${root}`);

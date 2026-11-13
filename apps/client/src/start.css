@@ -61,3 +61,10 @@
 #start form.code .choice { flex: 0 0 auto; min-width: 110px; min-height: 56px; }
 #start .error { color: #ffc04a; min-height: 1.3em; }
 #start .busy { color: #c7d3e6; }
+#start .code-big {
+  font: 900 clamp(40px, 15vh, 64px) ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  letter-spacing: 0.35em; text-indent: 0.35em; line-height: 1;
+  color: #ff2bd6; text-shadow: 0 0 16px rgba(255, 43, 214, 0.6);
+  user-select: text; -webkit-user-select: text;
+}
+#start .screen.dense { gap: clamp(6px, 2.2vh, 14px); }

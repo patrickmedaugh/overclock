@@ -10,6 +10,19 @@ import { defineConfig } from 'vitest/config';
 const basePath = process.env['BASE_PATH'];
 
 /**
+ * The online service's origin (`wss://host[:port]`) from OVERCLOCK_SERVER_URL,
+ * or '' when unset. Anything but ws:/wss: fails the build (no silent CSP hole).
+ */
+export function serverOrigin(url: string): string {
+  if (!url) return '';
+  const u = new URL(url);
+  if (u.protocol !== 'wss:' && u.protocol !== 'ws:') throw new Error(`OVERCLOCK_SERVER_URL must be ws:// or wss://, got ${url}`);
+  return `${u.protocol}//${u.host}`;
+}
+
+const SERVER_URL = process.env['OVERCLOCK_SERVER_URL'] ?? '';
+
+/**
  * Strict Content Security Policy for the production build (every e2e run
  * executes under it). No 'unsafe-eval': Pixi runs through `pixi.js/unsafe-eval`
  * (imported first in main.ts) so it never calls `new Function`. Inline styles
@@ -17,18 +30,23 @@ const basePath = process.env['BASE_PATH'];
  * Pixi's image workers are created from blob: URLs. Dev builds skip this
  * because Vite's hot reload injects inline scripts.
  */
-export const CSP = [
-  "default-src 'self'",
-  "script-src 'self'",
-  "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob:",
-  "font-src 'self' data:",
-  "connect-src 'self'",
-  "worker-src 'self' blob:",
-  "object-src 'none'",
-  "base-uri 'self'",
-  "form-action 'none'",
-].join('; ');
+export function cspFor(server: string): string {
+  return [
+    "default-src 'self'",
+    "script-src 'self'",
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: blob:",
+    "font-src 'self' data:",
+    // Sprint 6: only the online service's origin besides our own.
+    `connect-src 'self'${server ? ` ${serverOrigin(server)}` : ''}`,
+    "worker-src 'self' blob:",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'none'",
+  ].join('; ');
+}
+
+export const CSP = cspFor(SERVER_URL);
 
 function cspMeta(): Plugin {
   return {
@@ -88,7 +106,7 @@ export default defineConfig(({ command, isPreview, mode }) => {
       __BUILD_TIME__: JSON.stringify(buildTime()),
       // Sprint 6: the online service (wss://...) and the web game's address (for
       // share links from the app). Unset: "Play online" says it isn't set up yet.
-      __SERVER_URL__: JSON.stringify(process.env['OVERCLOCK_SERVER_URL'] ?? ''),
+      __SERVER_URL__: JSON.stringify(SERVER_URL),
       __WEB_URL__: JSON.stringify(process.env['OVERCLOCK_WEB_URL'] ?? ''),
     },
     build: {

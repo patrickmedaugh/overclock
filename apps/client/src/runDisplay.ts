@@ -12,7 +12,7 @@ import { createCardBack, createCardFace, glowRoundRect } from './cardFace';
 import type { Box, RunSnapshot } from './hook-types';
 import type { Decision } from './session';
 import { type BoardLayout, accessSlots, buttonGrid } from './layout';
-import { type RigIds, infoLines, optionLabel, runTitle, stepLabel } from './runText';
+import { type RigIds, decidingText, infoLines, optionLabel, runTitle, stepLabel } from './runText';
 import { serverLabel } from './terms';
 import { sideColor, theme } from './theme';
 import type { Tweens } from './tween';
@@ -140,7 +140,9 @@ export class RunDisplay {
 
     // Info panel.
     const title = runTitle(run);
-    const step = stepLabel(panel, deciding);
+    // Online, the other phone decides: its choice is not on this board ("Corp is deciding…").
+    const elsewhere = decision === null && deciding !== view.viewer && options.length === 0;
+    const step = elsewhere ? decidingText(deciding) : stepLabel(panel, deciding);
     const lines = infoLines(panel, rig);
     // The passed ICE keeps its list at Continue, so a just-broken subroutine is seen crossed out.
     const showSubs = panel.step !== 'access';

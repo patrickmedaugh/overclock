@@ -11,12 +11,13 @@ import { forceFrameSpeed, noteDraw, noteTick } from './frameClock';
 import type { BackAction } from './back';
 import type { AnimRecord } from './hook-types';
 import { HotSeat, seedFromUrl } from './hotseat';
-import { joinCodeFromUrl } from './links';
+import { joinCodeFromUrl, shareLink, shareText } from './links';
 import { lastInput } from './input';
 import { coverFor } from './passCover';
 import { readSafeArea } from './safeArea';
 import type { Session } from './session';
-import { StartScreen } from './startScreen';
+import { FAIL_TEXT, START_TEXT, StartScreen } from './startScreen';
+import { OnlineMatch, type StoreLike, browserDeps, readStoredSeat } from './online';
 import { theme } from './theme';
 import { Tweens } from './tween';
 
@@ -44,7 +45,17 @@ async function start(): Promise<void> {
   // `cover=off` plays pass-the-phone without the S-06-5 cover (the specs written
   // before it), `server=` points "Play online" at a local service.
   const coverOn = !(__TEST_HOOK__ && params.get('cover') === 'off');
-  const serverUrl = (__TEST_HOOK__ ? params.get('server') : null) ?? __SERVER_URL__;
+  // `server=none`: as if no online service was set up.
+  const serverParam = __TEST_HOOK__ ? params.get('server') : null;
+  const serverUrl = serverParam === 'none' ? '' : (serverParam ?? __SERVER_URL__);
+  /** The start screen's address (a reload there forgets the board; test switches for the service stay). */
+  const startUrl = () => `${window.location.pathname}${serverParam !== null ? `?server=${encodeURIComponent(serverParam)}` : ''}`;
+  let storage: StoreLike | null = null;
+  try {
+    storage = window.localStorage;
+  } catch {
+    storage = null;
+  }
 
   // The game being played (null on the start screen). The board talks only to the Session interface.
   let game: Session | null = null;
@@ -87,8 +98,8 @@ async function start(): Promise<void> {
     onDiscard: (handIndices) => dispatch({ type: 'discard', player: seat(), handIndices }),
     // Install / play actions come straight from the view's handOptions.
     onAction: (action) => dispatch(action),
-    // A new pass-the-phone game straight away (same test switches).
-    onNewGame: () => window.location.assign(`${window.location.pathname}?play=here${coverOn ? '' : '&cover=off'}`),
+    // Pass-the-phone: a new game straight away (same test switches). Online: Back to start.
+    onNewGame: () => newGame(),
     changed: () => invalidate(),
     log,
     buildTime: __BUILD_TIME__,
@@ -141,8 +152,11 @@ async function start(): Promise<void> {
     exitRequests++;
     if (__NATIVE__) void import('@capacitor/app').then(({ App }) => App.exitApp());
   };
+  // Online, Leave keeps the seat (Rejoin) and goes to the start screen.
+  let leaveGame: () => void = exit;
+  let newGame = (): void => window.location.assign(`${window.location.pathname}?play=here${coverOn ? '' : '&cover=off'}`);
   const back = (): BackAction => {
-    if (game) return board.back(exit);
+    if (game) return board.back(leaveGame);
     // The start screen: Back steps back one screen; on the first screen it closes the app.
     if (start.back()) return 'close_panel';
     exit();
@@ -151,8 +165,11 @@ async function start(): Promise<void> {
   if (__NATIVE__) {
     void import('@capacitor/app').then(({ App }) => {
       void App.addListener('backButton', () => back());
-      // Back from another app: draw every card again (none blank).
-      void App.addListener('resume', () => board.redrawAll());
+      // Back from another app: draw every card again (none blank); an online game catches up.
+      void App.addListener('resume', () => {
+        board.redrawAll();
+        wake();
+      });
     });
   }
 
@@ -160,10 +177,35 @@ async function start(): Promise<void> {
   // whenever the insets change (after load, on rotation): lay out again then.
   new MutationObserver(relayout).observe(document.documentElement, { attributes: true, attributeFilter: ['style'] });
 
+  // Sprint 6: an online game wakes up when the page shows again or the network returns.
+  let online: OnlineMatch | null = null;
+  const wake = () => online?.wake();
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') wake();
+  });
+  window.addEventListener('online', wake);
+
   /** Plays `session` on the board (from the start screen, or at once with `?play=here`). */
   const play = (session: Session): void => {
     game = session;
     start.hide();
+    if (session instanceof OnlineMatch) {
+      const m = session;
+      board.setOnline(true);
+      leaveGame = () => {
+        m.leave();
+        window.location.assign(startUrl());
+      };
+      newGame = () => {
+        m.forget();
+        window.location.assign(startUrl());
+      };
+      const showStatus = () => board.setStatus(onlineStatusText(m));
+      m.onStatus(showStatus);
+      m.onPhase(showStatus);
+      // After the first draw (the status line is placed on the board's layout).
+      queueMicrotask(showStatus);
+    }
     // The other seat's decision the board showed before each change (for the S-06-5 covers).
     let shownDecision = session.decision()?.seat ?? null;
     session.onPresent((p) => {
@@ -199,18 +241,89 @@ async function start(): Promise<void> {
         back,
         exitRequests: () => exitRequests,
         frameSpeed: (mode) => forceFrameSpeed(mode),
+        online: () =>
+          online && game === online
+            ? { code: online.gameCode, seat: online.seat, phase: online.phase.kind, ...online.status(), busy: online.busy }
+            : null,
       };
     }
   };
   const playHere = () => play(new HotSeat(seedFromUrl(window.location.search)));
 
-  // S-06-1: the start screen. Online play itself arrives with U3/U4 (OnlineMatch).
+  /**
+   * Runs an online game from the start screen: the lobby while waiting, the
+   * board once both phones are in, the reason on the start screen if it fails.
+   */
+  const goOnline = (m: OnlineMatch, failTo: (text: string) => void): void => {
+    online?.leave();
+    online = m;
+    m.onPhase((p) => {
+      if (online !== m) return;
+      if (p.kind === 'lobby') {
+        if (!start.visible || start.screen !== 'lobby') start.show('lobby', { code: p.code });
+      } else if (p.kind === 'playing') {
+        if (game !== m) play(m);
+      } else if (p.kind === 'failed') {
+        const text = FAIL_TEXT[p.reason] ?? FAIL_TEXT['network']!;
+        if (game === m) board.setStatus(text);
+        else failTo(text);
+      }
+    });
+  };
+  const deps = () => browserDeps(serverUrl);
+  const share = (code: string): void => {
+    const url = shareLink(code, { native: __NATIVE__, page: window.location.href, webUrl: __WEB_URL__ });
+    const text = shareText(code);
+    const nav = navigator as Navigator & { share?: (d: ShareData) => Promise<void> };
+    if (typeof nav.share === 'function') {
+      nav.share(url ? { title: 'OVERCLOCK', text, url } : { title: 'OVERCLOCK', text }).catch(() => undefined);
+      return;
+    }
+    const copy = url ? `${text}\n${url}` : text;
+    navigator.clipboard
+      ?.writeText(copy)
+      .then(() => start.setLobbyStatus(START_TEXT.copied))
+      .catch(() => start.setLobbyStatus(url ?? text));
+  };
+
+  // S-06-1: the start screen.
   const start = new StartScreen(document.body, {
     playHere,
     onlineReady: () => serverUrl !== '',
-    startOnline: () => start.show('message', { title: 'Start a game', message: 'Connecting…' }),
-    joinOnline: (code) => start.show('message', { title: `Joining ${code}`, message: 'Connecting…' }),
+    startOnline: (side) => {
+      start.show('message', { title: START_TEXT.startGame, message: START_TEXT.connecting });
+      goOnline(OnlineMatch.create(deps(), side), (note) => start.show('online', { note }));
+    },
+    joinOnline: (code) => {
+      start.show('message', { title: `Joining ${code}`, message: START_TEXT.connecting });
+      goOnline(OnlineMatch.join(deps(), code), (error) => start.show('join', { code, error }));
+    },
+    rejoinCode: () => readStoredSeat(storage, serverUrl)?.code ?? null,
+    rejoin: () => {
+      const seat = readStoredSeat(storage, serverUrl);
+      if (!seat) return start.show('home');
+      start.show('message', { title: `${START_TEXT.rejoin} ${seat.code}`, message: START_TEXT.connecting });
+      goOnline(OnlineMatch.resume(deps(), seat), (note) => start.show('home', { note }));
+    },
+    share,
+    cancel: () => {
+      // Giving up a game nobody has joined yet: it is not offered for Rejoin.
+      if (online && game !== online) online.forget();
+      online = null;
+    },
   });
+  if (__TEST_HOOK__) {
+    // Online tests: start a game with a fixed deal and a prelude (the service must run in test mode).
+    window.__overclockStart = {
+      screen: () => (start.visible ? start.screen : null),
+      back,
+      exitRequests: () => exitRequests,
+      startOnline: (side, test) => {
+        start.show('message', { title: START_TEXT.startGame, message: START_TEXT.connecting });
+        goOnline(OnlineMatch.create(deps(), side, test), (note) => start.show('online', { note }));
+      },
+    };
+  }
   const joinCode = joinCodeFromUrl(window.location.search);
   if (joinCode !== null) {
     // A shared link: join at once (the code leaves the address, so a reload doesn't join again).
@@ -222,11 +335,17 @@ async function start(): Promise<void> {
     if (serverUrl !== '') start.root.querySelector('form')?.requestSubmit();
   } else if (params.get('play') === 'here') playHere();
 
-  if (__TEST_HOOK__) {
-    window.__overclockStart = { screen: () => (start.visible ? start.screen : null), back, exitRequests: () => exitRequests };
-  }
   document.getElementById('boot')?.remove();
   document.body.dataset.ready = 'true';
+}
+
+/** The status line over an online board: the connection first, then the other player. */
+function onlineStatusText(m: OnlineMatch): string | null {
+  const st = m.status();
+  if (m.phase.kind === 'failed') return FAIL_TEXT[m.phase.reason] ?? null;
+  if (st.connection === 'reconnecting' || st.connection === 'connecting') return 'Reconnecting…';
+  if (st.opponent === 'away') return 'Waiting for the other player to come back…';
+  return null;
 }
 
 start().catch((err: unknown) => {

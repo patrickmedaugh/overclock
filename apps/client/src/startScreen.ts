@@ -27,9 +27,30 @@ export const START_TEXT = {
   notSetUp: "Online play isn't set up yet",
   notSetUpNote: 'Play on this phone works now.',
   back: 'Back',
+  rejoin: 'Rejoin game',
+  rejoinSub: 'Back to your seat',
+  lobbyTitle: 'Your game code',
+  lobbyNote: 'Send it to the other player. They tap Play online, then Join with code.',
+  share: 'Share',
+  shareSub: 'Send the code',
+  copied: 'Link copied. Paste it in a message.',
+  waiting: 'Waiting for the other player…',
+  connecting: 'Connecting…',
 } as const;
 
-export type StartScreenName = 'home' | 'online' | 'pick' | 'join' | 'not_set_up' | 'message';
+/** Plain words for why an online game could not start or go on (protocol error codes and the network). */
+export const FAIL_TEXT: Record<string, string> = {
+  no_game: 'No game with that code',
+  full: 'That game already has two players',
+  network: "Can't reach the online game. Check your connection and try again.",
+  version: 'This copy of the game is out of date. Reload the page, or update the app.',
+  expired: 'That game has ended.',
+  bad_token: 'That seat belongs to another phone now.',
+  replaced: 'This game was opened on another screen.',
+  bad_message: 'Something went wrong. Try again.',
+};
+
+export type StartScreenName = 'home' | 'online' | 'pick' | 'join' | 'not_set_up' | 'message' | 'lobby';
 
 export interface StartHandlers {
   /** Start a pass-the-phone game. */
@@ -40,6 +61,13 @@ export interface StartHandlers {
   startOnline(side: Side): void;
   /** Join the online game with this (normalised, well-formed) code. */
   joinOnline(code: string): void;
+  /** The code of a game this phone has a seat in (offered as Rejoin), or null. */
+  rejoinCode(): string | null;
+  rejoin(): void;
+  /** Share the lobby's code (share sheet, or copy the link). */
+  share(code: string): void;
+  /** Back from a screen that is waiting on the online service (connecting, lobby): give it up. */
+  cancel(): void;
 }
 
 /** Where Back goes from each screen (home has nowhere to go: the app closes). */
@@ -50,6 +78,7 @@ const PARENT: Record<StartScreenName, StartScreenName | null> = {
   join: 'online',
   not_set_up: 'home',
   message: 'online',
+  lobby: 'online',
 };
 
 export class StartScreen {
@@ -83,11 +112,12 @@ export class StartScreen {
   back(): boolean {
     const to = PARENT[this.current];
     if (to === null) return false;
+    if (this.current === 'message' || this.current === 'lobby') this.handlers.cancel();
     this.show(to);
     return true;
   }
 
-  show(name: StartScreenName, opts: { code?: string; error?: string; message?: string; title?: string } = {}): void {
+  show(name: StartScreenName, opts: { code?: string; error?: string; message?: string; title?: string; note?: string } = {}): void {
     this.current = name;
     this.root.hidden = false;
     this.root.dataset.screen = name;
@@ -102,7 +132,13 @@ export class StartScreen {
     }
     switch (name) {
       case 'home': {
-        screen.append(el('h1', '', START_TEXT.title), el('p', '', START_TEXT.tagline));
+        screen.append(el('h1', '', START_TEXT.title), el('p', opts.note ? 'error' : '', opts.note ?? START_TEXT.tagline));
+        const rejoin = this.handlers.onlineReady() ? this.handlers.rejoinCode() : null;
+        if (rejoin) {
+          const row = el('div', 'choices');
+          row.append(this.choice('rejoin', `${START_TEXT.rejoin} ${rejoin}`, START_TEXT.rejoinSub, 'corp', () => this.handlers.rejoin()));
+          screen.appendChild(row);
+        }
         const row = el('div', 'choices');
         row.append(
           this.choice('play-here', START_TEXT.playHere, START_TEXT.playHereSub, 'runner', () => this.handlers.playHere()),
@@ -115,6 +151,7 @@ export class StartScreen {
       }
       case 'online': {
         screen.append(el('h2', '', START_TEXT.playOnline));
+        if (opts.note) screen.append(el('p', 'error', opts.note));
         const row = el('div', 'choices');
         row.append(
           this.choice('start-game', START_TEXT.startGame, START_TEXT.startGameSub, 'runner', () => this.show('pick')),
@@ -184,7 +221,27 @@ export class StartScreen {
         screen.append(el('p', 'busy', opts.message ?? ''));
         break;
       }
+      case 'lobby': {
+        const code = opts.code ?? '';
+        screen.classList.add('dense');
+        const big = el('div', 'code-big', code);
+        big.dataset.code = code;
+        big.setAttribute('aria-label', `Game code ${code.split('').join(' ')}`);
+        const row = el('div', 'choices');
+        row.style.maxWidth = '280px';
+        row.append(this.choice('share', START_TEXT.share, START_TEXT.shareSub, 'runner', () => this.handlers.share(code)));
+        const info = el('p', 'busy', opts.message ?? START_TEXT.waiting);
+        info.dataset.role = 'lobby-status';
+        screen.append(el('h2', '', START_TEXT.lobbyTitle), big, el('p', '', START_TEXT.lobbyNote), row, info);
+        break;
+      }
     }
+  }
+
+  /** The lobby's status line (e.g. "Link copied…"), while the lobby shows. */
+  setLobbyStatus(text: string): void {
+    const p = this.root.querySelector<HTMLElement>('[data-role="lobby-status"]');
+    if (p) p.textContent = text;
   }
 
   private choice(action: string, label: string, sub: string, side: Side | 'plain', onTap: () => void): HTMLButtonElement {
