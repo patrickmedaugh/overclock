@@ -9,7 +9,10 @@ name: android
 
 on:
   push:
-    branches: [main, 'sprint-*']
+    # Only main and the sprint branches themselves (sprint-04, sprint-05, ...):
+    # helper branches such as sprint-04-ui or sprint-05-proposal must not
+    # publish their own app releases (architect review, Sprint 4).
+    branches: [main, 'sprint-[0-9][0-9]']
     paths-ignore: ['docs/**']
   workflow_dispatch:
 
