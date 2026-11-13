@@ -98,8 +98,9 @@ describe('S-03-2 AC3: score (no click, Corp turn, counters >= requirement)', () 
     const s = run(corpInstalled(['c08']), [advance('corp', 'i1'), advance('corp', 'i1')]).state;
     expect(s.players.corp.clicks).toBe(1);
     const r = apply(s, score('corp', 'i1'));
-    expect(r.events).toEqual([{ type: 'agenda_scored', uid: 'i1', cardId: 'c08', points: 1 }]);
-    expect(r.state.players.corp).toMatchObject({ clicks: 1, credits: 3, scoreArea: ['c08'] });
+    // Sprint 4: followed by its "when scored" bonus (when-scored.test.ts).
+    expect(r.events[0]).toEqual({ type: 'agenda_scored', uid: 'i1', cardId: 'c08', points: 1 });
+    expect(r.state.players.corp).toMatchObject({ clicks: 1, credits: 3 + 7, scoreArea: ['c08'] });
     expect(r.state.servers.find((sv) => sv.id === 'remote1')!.content).toEqual([]);
     for (const p of ['corp', 'runner'] as const) {
       const v = viewFor(p, r.state);
@@ -126,7 +127,8 @@ describe('S-03-2 AC3: score (no click, Corp turn, counters >= requirement)', () 
     expectRejected(s, score('corp', 'i1'), 'bad_target');
     s = run(s, [advance('corp', 'i1')]).state;
     const r = apply(s, score('corp', 'i1'));
-    expect(r.events).toEqual([{ type: 'agenda_scored', uid: 'i1', cardId, points }]);
+    // Sprint 4: "when scored" bonuses may follow (when-scored.test.ts).
+    expect(r.events[0]).toEqual({ type: 'agenda_scored', uid: 'i1', cardId, points });
   });
 
   const ready = () => run(corpInstalled(['c08']), [advance('corp', 'i1'), advance('corp', 'i1')]).state;

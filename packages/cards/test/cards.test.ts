@@ -69,6 +69,25 @@ describe('card pool', () => {
     for (const c of ALL_CARDS) expect(c.needs, c.id).toBeUndefined();
   });
 
+  it('Sprint 4: only agendas have onScore; free_rez is always last; the two bonus agendas carry their text as data', () => {
+    for (const c of ALL_CARDS) {
+      if (c.type !== 'agenda') expect(c.onScore, c.id).toBeUndefined();
+      const effects = c.onScore ?? [];
+      effects.forEach((e, i) => {
+        if (e.op === 'free_rez') expect(i, c.id).toBe(effects.length - 1);
+      });
+    }
+    expect(getCard('c08')).toMatchObject({
+      name: 'Hostile Takeover',
+      onScore: [
+        { op: 'gain_credits', amount: 7 },
+        { op: 'bad_publicity', amount: 1 },
+      ],
+    });
+    expect(getCard('c10')).toMatchObject({ name: 'Priority Requisition', onScore: [{ op: 'free_rez', what: 'ice' }] });
+    expect(getCard('c09')?.onScore).toBeUndefined();
+  });
+
   it('a run effect is always the last effect of a card', () => {
     for (const c of ALL_CARDS) {
       const effects = c.onPlay ?? [];

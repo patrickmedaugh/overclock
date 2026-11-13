@@ -328,9 +328,14 @@ export function resolveEffect(state: GameState, effect: Effect, owner: Side, eve
       };
       return startRun(state, server, opts, events);
     }
-    case 'bad_publicity':
+    case 'bad_publicity': {
+      // Always the Corp's counter, whoever's card it is.
+      const total = state.badPublicity + effect.amount;
+      events.push({ type: 'bad_publicity_gained', amount: effect.amount, total });
+      return { ...state, badPublicity: total };
+    }
     case 'free_rez':
-      return state; // Sprint 4 E2/E3
+      return state; // Sprint 4 E3
   }
 }
 

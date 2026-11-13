@@ -176,7 +176,12 @@ function doScore(state: GameState, a: ActionOf<'score'>): ApplyResult {
     servers: state.servers.map((sv) => ({ ...sv, content: sv.content.filter((c) => c.uid !== a.uid) })),
   };
   s = withPlayer(s, a.player, { scoreArea: [...s.players[a.player].scoreArea, card.cardId] });
+  // A score that wins ends the game first: the "when scored" bonus is skipped.
   s = checkPointsWin(s, a.player, events);
+  for (const effect of getCard(card.cardId)?.onScore ?? []) {
+    if (s.phase !== 'action') break; // game over, or a choice opened (free_rez is last)
+    s = resolveEffect(s, effect, a.player, events, { cardId: card.cardId });
+  }
   return { state: s, events };
 }
 
