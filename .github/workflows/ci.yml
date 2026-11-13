@@ -28,9 +28,15 @@ jobs:
       - run: npm run typecheck
       - run: npm test
 
-  e2e:
-    name: e2e
+  # The screen tests are split into 4 pieces that run at the same time
+  # (one full pass took ~22 min on one machine). DECISIONS 2026-11-13.
+  e2e-shard:
+    name: e2e shard ${{ matrix.shard }}/4
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -43,14 +49,26 @@ jobs:
         # Ubuntu mirrors are sometimes unreachable from runners; the runner image
         # already has Chromium's system libraries, so fall back to browser-only.
         run: npx playwright install --with-deps chromium || npx playwright install chromium
-      - run: npm run test:e2e
+      - run: npm run test:e2e --workspace apps/client -- --shard=${{ matrix.shard }}/4
       - name: Upload Playwright report
         if: failure() && hashFiles('apps/client/playwright-report/**') != ''
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-report
+          name: playwright-report-shard-${{ matrix.shard }}
           path: apps/client/playwright-report
           retention-days: 7
+
+  # Keeps the required check named `e2e`: green only if every shard is green.
+  e2e:
+    name: e2e
+    runs-on: ubuntu-latest
+    needs: e2e-shard
+    if: always()
+    steps:
+      - name: All e2e shards passed
+        run: |
+          echo "shards: ${{ needs.e2e-shard.result }}"
+          test "${{ needs.e2e-shard.result }}" = "success"
 
   # S-03-6: the End turn double-tap-guard e2e must still fail when the guard is
   # broken (guard 0ms, judged by handling time, check removed). Builds each

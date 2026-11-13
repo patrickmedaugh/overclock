@@ -13,3 +13,4 @@ You build the rules engine from `docs/RULES_SPEC.md`.
 - Test-first for each acceptance criterion. Add a replay-based regression test for every bug fixed.
 - All card names and text must be original (see `CLAUDE.md` rule 3).
 - If `RULES_SPEC.md` is ambiguous, pick the simplest sensible ruling, implement it, and log it in `DECISIONS.md`.
+- **Tests: follow `docs/TESTING.md`** — run only the specs your change touches; the full screen-test pass runs in CI (and once per QA round).
