@@ -35,6 +35,7 @@
         padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px)
           env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
       }
+      /* rotate:start */
       /* Phones are played sideways. An upright phone (portrait, touch, short
          side under 600px) gets this prompt over the game, which keeps running
          underneath: rotating back shows the same board. Tablets and desktop
@@ -68,16 +69,19 @@
       @media (orientation: portrait) and (pointer: coarse) and (max-width: 599.98px) {
         #rotate { display: flex; }
       }
+      /* rotate:end */
     </style>
   </head>
   <body>
     <div id="safe-probe" aria-hidden="true"></div>
     <div id="boot">BOOTING…</div>
     <div id="app"></div>
+    <!-- rotate:start -->
     <div id="rotate" role="alert">
       <div class="phone" aria-hidden="true"></div>
       <p>Turn your phone sideways</p>
     </div>
+    <!-- rotate:end -->
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

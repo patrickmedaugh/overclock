@@ -18,7 +18,7 @@ import type { AnimRecord, Box, EndTurnClock, InstalledSnapshot, Insets, LayoutSn
 import type { Decision, Presentation } from './hotseat';
 import { hintFor } from './hints';
 import { attachPress, inputTime } from './input';
-import { type BoardLayout, type BoardShape, CARD_RATIO, type SideRow, computeLayout } from './layout';
+import { BUILD_LINE, type BoardLayout, type BoardShape, CARD_RATIO, type SideRow, computeLayout } from './layout';
 import { RunDisplay } from './runDisplay';
 import { RUN_END, nameOf, runEndText } from './runText';
 import { SIDE_NAME, TERMS, plural, pointsText, priceText, serverLabel, zoneName } from './terms';
@@ -182,6 +182,8 @@ export interface BoardCallbacks {
   /** The board changed outside a dispatch (a card picked or let go): redraw, and hit-test the new places at once. */
   changed(): void;
   log(rec: Omit<AnimRecord, 'startedAt'>): void;
+  /** When this copy of the game was built, e.g. "2026-11-13 14:32 UTC" (S-04-1: shown small in a corner). */
+  buildTime: string;
 }
 
 export class Board {
@@ -201,6 +203,8 @@ export class Board {
   private readonly fxLayer = new Container();
   private readonly hintLayer = new Container();
   private readonly zoomLayer = new Container();
+  /** The small build date (S-04-1). */
+  private readonly buildText: Text;
   /** One hand per seat, kept between turns. */
   private readonly hands: Record<Side, Hand>;
   /** Catches taps on empty board (cancels a picked card). */
@@ -269,7 +273,14 @@ export class Board {
     attachPress(this.catcher, { onTap: () => this.cancelSelection() });
     this.catcher.cursor = 'default';
     this.runLayer.eventMode = 'none';
-    this.table.addChild(this.catcher, this.bgLayer, this.boardLayer, this.installedLayer, this.runLayer, this.centerLayer, this.accessLayer, this.targetLayer, this.handLayer);
+    this.buildText = new Text({
+      text: '',
+      style: { fontFamily: theme.fontFamily, fontSize: 9, fill: theme.textDim, align: 'center', lineHeight: BUILD_LINE },
+    });
+    this.buildText.label = 'build-time';
+    this.buildText.eventMode = 'none';
+    this.buildText.alpha = 0.85;
+    this.table.addChild(this.catcher, this.bgLayer, this.boardLayer, this.installedLayer, this.runLayer, this.centerLayer, this.accessLayer, this.targetLayer, this.handLayer, this.buildText);
     this.stage.addChild(this.table, this.fxLayer, this.hintLayer, this.zoomLayer);
   }
 
@@ -465,6 +476,10 @@ export class Board {
       },
       selectedInstalled: this.pickedInstalled,
       hint: this.hint && this.hint.root.alpha > 0.05 ? { text: this.hint.text, box: this.hint.box } : null,
+      buildLabel:
+        layout && this.buildText.visible && this.buildText.text
+          ? { text: this.buildText.text.replace('\n', ' '), box: this.buildTextBox() }
+          : null,
       zoom: this.zoom
         ? { cardId: this.zoom.cardId, box: centeredBox(this.zoom.card, this.zoom.width, this.zoom.height), texts: textsOf(this.zoom.card), textOverflow: this.zoom.overflow }
         : null,
@@ -613,6 +628,7 @@ export class Board {
     const layout = computeLayout(vp.width, vp.height, vp.insets, { viewer: view.viewer, shape: shapeOf(view) });
     if (!this.gen || this.gen.sizeKey !== layout.sizeKey) this.newGeneration(layout);
     this.layout = layout;
+    this.placeBuildLabel(layout);
     const gen = this.gen!;
     const viewer = view.viewer;
     const opponent = other(viewer);
@@ -1782,6 +1798,29 @@ export class Board {
   private syncHelp(): void {
     const help = this.gen?.subHelp;
     if (help) help.renderable = !(this.hint && this.layout?.mode === 'landscape');
+    // In the column the build date shares the hint's slot: hide it while a hint shows.
+    this.buildText.visible = !(this.hint && this.layout?.mode === 'portrait');
+  }
+
+  /** Where the build date's text is drawn (CSS px). */
+  private buildTextBox(): Box {
+    const b = this.buildText.getBounds();
+    return { x: b.x, y: b.y, width: b.width, height: b.height };
+  }
+
+  /** The build date: two short lines in the rail (sideways), one line in the column's hint slot. */
+  private placeBuildLabel(layout: BoardLayout): void {
+    const t = this.buildText;
+    const when = this.callbacks.buildTime;
+    const cut = when.indexOf(' ');
+    const twoLines = layout.mode === 'landscape' && cut > 0;
+    const text = twoLines ? `Built ${when.slice(0, cut)}\n${when.slice(cut + 1)}` : `Built ${when}`;
+    if (t.text !== text) t.text = text;
+    const b = layout.buildLabel;
+    t.style.align = twoLines ? 'center' : 'left';
+    t.anchor.set(twoLines ? 0.5 : 0, 0.5);
+    fitText(t, b.width, b.height);
+    t.position.set(twoLines ? b.x + b.width / 2 : b.x, b.y + b.height / 2);
   }
 
   private positionHint(hint: { root: Container; box: Box }): void {

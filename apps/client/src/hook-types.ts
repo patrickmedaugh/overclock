@@ -183,6 +183,8 @@ export interface LayoutSnapshot {
    * is true if any text runs outside the card.
    */
   zoom: { cardId: string | null; box: Box; texts: string[]; textOverflow: boolean } | null;
+  /** S-04-1: the build date as shown ("Built 2026-11-13 14:32 UTC"), or null while hidden. */
+  buildLabel: { text: string; box: Box } | null;
   /** True while any event animation runs (never blocks input). */
   animating: boolean;
 }

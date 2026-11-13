@@ -75,6 +75,7 @@ async function start(): Promise<void> {
     onNewGame: () => window.location.assign(window.location.pathname),
     changed: () => invalidate(),
     log,
+    buildTime: __BUILD_TIME__,
   });
   app.stage.addChild(board.stage);
 
@@ -112,24 +113,27 @@ async function start(): Promise<void> {
   // Insets can settle a moment after an orientation change on iOS.
   window.visualViewport?.addEventListener('resize', relayout);
 
-  // Test hook for Playwright (always on for now; build flag later).
-  window.__overclock = {
-    getView: () => game.view(),
-    decision: () => game.decision(),
-    dispatch,
-    lastEvents: () => game.lastEvents(),
-    layout: () => board.snapshot(),
-    anims: () => records.map((r) => ({ ...r, box: r.box ? { ...r.box } : undefined })),
-    clearAnims: () => {
-      records.length = 0;
-    },
-    lastInput,
-    endTurn: () => board.endTurnClock(),
-    smallFace: (cardId, width, height) => {
-      const def = getCard(cardId);
-      return def ? smallFaceLayout(def, width, height) : null;
-    },
-  };
+  // Test hook for Playwright. Left out of the Android app (__TEST_HOOK__ is a
+  // compile-time constant, so the bundler drops this whole block there).
+  if (__TEST_HOOK__) {
+    window.__overclock = {
+      getView: () => game.view(),
+      decision: () => game.decision(),
+      dispatch,
+      lastEvents: () => game.lastEvents(),
+      layout: () => board.snapshot(),
+      anims: () => records.map((r) => ({ ...r, box: r.box ? { ...r.box } : undefined })),
+      clearAnims: () => {
+        records.length = 0;
+      },
+      lastInput,
+      endTurn: () => board.endTurnClock(),
+      smallFace: (cardId, width, height) => {
+        const def = getCard(cardId);
+        return def ? smallFaceLayout(def, width, height) : null;
+      },
+    };
+  }
   document.getElementById('boot')?.remove();
   document.body.dataset.ready = 'true';
 }

@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:android": "vite build --mode android",
+    "check:android": "node scripts/check-android-bundle.mjs",
     "preview": "vite preview",
     "test": "vitest run",
     "test:e2e": "playwright test",

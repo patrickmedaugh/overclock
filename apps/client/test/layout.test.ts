@@ -93,6 +93,8 @@ function elements(l: BoardLayout, opts: { fanned?: boolean } = {}): [string, Box
   out.push(['banner', l.banner], ['sub', l.sub], ['endTurn', l.endTurn], ['hand', l.handArea]);
   // Sideways the hint shares the help text's room inside `sub` (checked apart); in the column it has its own slot.
   if (l.mode === 'portrait') out.push(['hintArea', l.hintArea]);
+  // The build date: its own spot sideways; in the column it sits in the hint slot (hidden while a hint shows).
+  else out.push(['buildLabel', l.buildLabel]);
   return out;
 }
 
@@ -119,6 +121,9 @@ function expectClean(l: BoardLayout, w: number, h: number, insets: Insets, opts:
   for (const [n, b] of [['hand', l.handArea], ['endTurn', l.endTurn], ['banner', l.banner], ['hint', l.hintArea]] as const) {
     expect(overlaps(l.corp.band, b), `corp band vs ${n}`).toBe(false);
   }
+  // S-04-1: the build date is inside the safe area, and in the column inside the hint slot.
+  expect(inside(l.buildLabel, safe), 'buildLabel inside safe').toBe(true);
+  if (l.mode === 'portrait') expect(inside(l.buildLabel, l.hintArea), 'buildLabel in the hint slot').toBe(true);
   // The Play button sits inside the help area (it replaces the help text while shown).
   expect(inside(l.action, l.sub)).toBe(true);
   if (l.mode === 'landscape') {

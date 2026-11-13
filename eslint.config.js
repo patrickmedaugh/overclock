@@ -8,6 +8,7 @@ export default tseslint.config(
     ignores: [
       '**/node_modules/**',
       '**/dist/**',
+      '**/dist-android/**',
       '**/dist-types/**',
       '**/coverage/**',
       '**/playwright-report/**',
@@ -29,7 +30,7 @@ export default tseslint.config(
   },
   {
     // Node-run config files at the repo root and in each workspace.
-    files: ['*.{js,ts}', '**/*.config.{js,ts}'],
+    files: ['*.{js,ts}', '**/*.config.{js,ts}', '**/scripts/**/*.mjs'],
     languageOptions: { globals: globals.node },
   },
   {
