@@ -31,11 +31,15 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
       - run: npm ci
       # Vite production build uses base '/overclock/' (apps/client/vite.config.ts).
+      # Sprint 6: "Play online" uses the service at the repo variable OVERCLOCK_SERVER_URL
+      # (unset until the owner's Cloudflare account exists: "Online play isn't set up yet").
       - run: npm run build
+        env:
+          OVERCLOCK_SERVER_URL: ${{ vars.OVERCLOCK_SERVER_URL }}
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

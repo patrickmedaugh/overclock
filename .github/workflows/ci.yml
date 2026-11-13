@@ -21,12 +21,16 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # Sprint 6: wrangler 4 (the online service, run by test:dev and the e2e) needs Node >= 22.12.
+          node-version: 22
           cache: npm
       - run: npm ci
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test
+      # Sprint 6: the real Worker + Durable Object under wrangler dev (offline, no account):
+      # two phones play, a third is refused, the game survives a restart.
+      - run: npm run test:dev --workspace apps/server
       # S-04-1/S-04-2: the Android app's web bundle builds and has no test hook,
       # no rotate prompt and no internet URLs (scripts/check-android-bundle.mjs).
       - run: npm run build:android --workspace apps/client
@@ -45,7 +49,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # Sprint 6: wrangler 4 (the online service, run by test:dev and the e2e) needs Node >= 22.12.
+          node-version: 22
           cache: npm
       - run: npm ci
       - name: Install Playwright browser
@@ -53,6 +58,7 @@ jobs:
         # Ubuntu mirrors are sometimes unreachable from runners; the runner image
         # already has Chromium's system libraries, so fall back to browser-only.
         run: npx playwright install --with-deps chromium || npx playwright install chromium
+      # Also starts the online service (wrangler dev, test mode) for the two-phone specs.
       - run: npm run test:e2e --workspace apps/client -- --shard=${{ matrix.shard }}/4
       - name: Upload Playwright report
         if: failure() && hashFiles('apps/client/playwright-report/**') != ''
@@ -84,7 +90,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # Sprint 6: wrangler 4 (the online service, run by test:dev and the e2e) needs Node >= 22.12.
+          node-version: 22
           cache: npm
       - run: npm ci
       - name: Install Playwright browser

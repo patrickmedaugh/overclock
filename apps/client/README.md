@@ -27,6 +27,12 @@ pass-the-phone game; `?join=K7QF` joins an online game. Test builds only:
 `?cover=off` turns off the "Pass the phone" cover, `?server=ws://…` points
 "Play online" at a local service. The online service address is set at build
 time with `OVERCLOCK_SERVER_URL` (unset: "Online play isn't set up yet").
+`?server=none` (test builds) acts as if none was set. `npm run test:e2e` also
+starts the service under `wrangler dev` (test mode, port `E2E_PORT + 600`) and
+builds the web client against it; `E2E_NO_SERVER=1` leaves it out.
+- `src/online.ts` — `OnlineMatch`: the protocol client (create/join/resume, seat
+  in localStorage, one action in flight until its ack, resync on a seq gap,
+  reconnect with backoff, ping/pong, wake on visibility/network/app resume).
 
 ## Layout of the code
 

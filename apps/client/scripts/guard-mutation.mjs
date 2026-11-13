@@ -66,7 +66,7 @@ function runGuardSpecs() {
   const r = spawnSync(
     'npx',
     ['playwright', 'test', ...SPECS, '-g', GREP, '--retries=0', '--reporter=json', ...PROJECTS.flatMap((p) => ['--project', p])],
-    { cwd: join(tree, 'apps/client'), encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, env: { ...process.env, E2E_PORT: port, PLAYWRIGHT_JSON_OUTPUT_NAME: json } },
+    { cwd: join(tree, 'apps/client'), encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, env: { ...process.env, E2E_PORT: port, E2E_NO_SERVER: '1', PLAYWRIGHT_JSON_OUTPUT_NAME: json } },
   );
   let report;
   try {

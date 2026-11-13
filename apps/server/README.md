@@ -20,7 +20,7 @@ You need a free Cloudflare account. **No card is needed, and nothing costs money
    - **Secrets** tab → **New repository secret**: name `CLOUDFLARE_API_TOKEN`, value = the token from step 4 → **Add secret**.
    - **New repository secret** again: name `CLOUDFLARE_ACCOUNT_ID`, value = the Account ID from step 3 → **Add secret**.
    - **Variables** tab → **New repository variable**: name `OVERCLOCK_SERVER_URL`, value `wss://overclock.<your-subdomain>.workers.dev` (with your name from step 2) → **Add variable**.
-6. **Tell the team** in the sprint PR ("Cloudflare is set up"). From then on every update of the game also updates the online service by itself.
+6. **Tell the team** in the sprint PR ("Cloudflare is set up"). From then on every update of the game also updates the online service by itself. The team then re-runs the latest build once, so the web link and the app learn the service's address (and adds it for the Netlify copy).
 
 **Check it works:** open `https://overclock.<your-subdomain>.workers.dev/health` in a browser. You should see `{"ok":true,…}`.
 

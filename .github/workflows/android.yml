@@ -91,13 +91,21 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       # Android web build + bundle check + cap sync (apps/android/package.json).
+      # Sprint 6: the online service (repo variable; unset = "isn't set up yet") and the
+      # web game's address for Share links sent from the app.
       - run: npm run sync --workspace @overclock/android
+        env:
+          OVERCLOCK_SERVER_URL: ${{ vars.OVERCLOCK_SERVER_URL }}
+          OVERCLOCK_WEB_URL: ${{ vars.OVERCLOCK_WEB_URL || 'https://patrickmedaugh.github.io/overclock/' }}
 
       - name: Build the APK
         working-directory: apps/android/android
         run: ./gradlew assembleRelease --no-daemon --stacktrace
 
       - name: Check the APK
+        env:
+          # The bundle check allows exactly this origin in the app's CSP.
+          OVERCLOCK_SERVER_URL: ${{ vars.OVERCLOCK_SERVER_URL }}
         run: |
           set -euo pipefail
           APK=apps/android/android/app/build/outputs/apk/release/app-release.apk

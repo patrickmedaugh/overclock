@@ -16,6 +16,24 @@ const SERVER_PORT = Number(process.env.E2E_SERVER_PORT ?? PORT + 600);
 const SERVER_URL = `ws://127.0.0.1:${SERVER_PORT}`;
 const SERVER_DIR = join(dirname(fileURLToPath(import.meta.url)), '../server');
 const PERSIST = join(tmpdir(), `overclock-e2e-${SERVER_PORT}`);
+// `E2E_NO_SERVER=1`: no service and a web build without one (runs that need no
+// online play, e.g. the guard-mutation check).
+const WITH_SERVER = process.env.E2E_NO_SERVER !== '1';
+
+/** The online service under `wrangler dev` (test mode, fresh storage). */
+const service = {
+  // Pages are served from http://localhost:<port>, which this allowlist lets in.
+  command: [
+    `rm -rf "${PERSIST}" &&`,
+    `npx wrangler dev --port ${SERVER_PORT} --ip 127.0.0.1 --persist-to "${PERSIST}"`,
+    `--var OVERCLOCK_TEST_MODE:1 --var "ALLOWED_ORIGINS:http://localhost:*,http://127.0.0.1:*"`,
+    '--show-interactive-dev-session=false',
+  ].join(' '),
+  cwd: SERVER_DIR,
+  url: `http://127.0.0.1:${SERVER_PORT}/health`,
+  reuseExistingServer: !process.env.CI,
+  timeout: 120_000,
+};
 
 export default defineConfig({
   testDir: './e2e',
@@ -89,7 +107,7 @@ export default defineConfig({
   webServer: [
     {
       command: `npm run build && npm run preview -- --port ${PORT}`,
-      env: { ...(process.env as Record<string, string>), OVERCLOCK_SERVER_URL: SERVER_URL },
+      env: { ...(process.env as Record<string, string>), OVERCLOCK_SERVER_URL: WITH_SERVER ? SERVER_URL : '' },
       url: `http://localhost:${PORT}/overclock/`,
       reuseExistingServer: !process.env.CI,
       timeout: 120_000,
@@ -100,18 +118,6 @@ export default defineConfig({
       reuseExistingServer: !process.env.CI,
       timeout: 120_000,
     },
-    {
-      // Pages are served from http://localhost:<port>, which this allowlist lets in.
-      command: [
-        `rm -rf "${PERSIST}" &&`,
-        `npx wrangler dev --port ${SERVER_PORT} --ip 127.0.0.1 --persist-to "${PERSIST}"`,
-        `--var OVERCLOCK_TEST_MODE:1 --var "ALLOWED_ORIGINS:http://localhost:*,http://127.0.0.1:*"`,
-        '--show-interactive-dev-session=false',
-      ].join(' '),
-      cwd: SERVER_DIR,
-      url: `http://127.0.0.1:${SERVER_PORT}/health`,
-      reuseExistingServer: !process.env.CI,
-      timeout: 120_000,
-    },
+    ...(WITH_SERVER ? [service] : []),
   ],
 });
