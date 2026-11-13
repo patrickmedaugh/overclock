@@ -143,13 +143,26 @@ export function planBusyBoard(seed: number, goal: BusyBoardGoal = BUSY_BOARD, ma
  *   5 of seeds 1-100 work; e.g. 1, 2, 3, 4, 5, 7, 10, 12, 12345 do).
  * - `runner_one_steal_from_win`: Runner's turn with a click left, a remote with no ICE holding
  *   an agenda that brings the Runner to 7 points if stolen.
+ * Sprint 4 ("when scored" bonuses, bad publicity):
+ * - `corp_score_hostile_takeover`: Corp's action step, an installed Hostile Takeover ready to
+ *   score (scoring it does not win). `info: {uid, cardId, server}`.
+ * - `corp_score_priority_requisition`: Corp's action step, an installed Priority Requisition
+ *   ready to score (scoring it does not win) and at least one face-down ICE installed, so
+ *   scoring opens the free-rez choice. `info: {uid, cardId, server, iceUid}` (iceUid = the
+ *   first offered ICE).
+ * - `runner_run_with_bad_publicity`: Runner's action step with a click left, the Corp has bad
+ *   publicity (Hostile Takeover scored) and cards in HQ, so a run on HQ stops at access with
+ *   the run-only credits shown. `info: {server: 'hq', badPublicity}`.
  */
 export type StepGoal =
   | 'corp_rez_prompt'
   | 'wall_of_static_encounter'
   | 'agenda_one_advance'
   | 'corp_one_score_from_win'
-  | 'runner_one_steal_from_win';
+  | 'runner_one_steal_from_win'
+  | 'corp_score_hostile_takeover'
+  | 'corp_score_priority_requisition'
+  | 'runner_run_with_bad_publicity';
 
 export const STEP_GOALS: readonly StepGoal[] = [
   'corp_rez_prompt',
@@ -157,6 +170,9 @@ export const STEP_GOALS: readonly StepGoal[] = [
   'agenda_one_advance',
   'corp_one_score_from_win',
   'runner_one_steal_from_win',
+  'corp_score_hostile_takeover',
+  'corp_score_priority_requisition',
+  'runner_run_with_bad_publicity',
 ];
 
 export interface StepPlan {
@@ -181,7 +197,7 @@ const WIN = 7;
 const card = (id: string | null | undefined) => (id ? getCard(id) : undefined);
 
 function decider(v: PlayerView): Side {
-  return v.run?.waitingOn ?? v.activePlayer;
+  return v.choice?.waitingOn ?? v.run?.waitingOn ?? v.activePlayer;
 }
 
 /** Corp's installed cards with the server they are in (Corp view: ids visible). */
@@ -241,6 +257,23 @@ function defaultRunMove(v: PlayerView): Action {
   return opts.find((a) => a.type === 'steal') ?? { type: 'pass', player: v.viewer };
 }
 
+/** Face-down ICE installed (Corp view). */
+function faceDownIce(v: PlayerView) {
+  return corpInstalled(v).filter((c) => c.zone === 'ice' && !c.faceUp);
+}
+
+/** Sprint 4 goals: the agenda each one works on. */
+const BONUS_TARGET: Partial<Record<StepGoal, string>> = {
+  corp_score_hostile_takeover: 'c08',
+  corp_score_priority_requisition: 'c10',
+  runner_run_with_bad_publicity: 'c08',
+};
+
+/** An installed `cardId` agenda ready to score whose points do not win yet (Corp view). */
+function readyBonus(v: PlayerView, cardId: string) {
+  return agendas(v).find((a) => a.cardId === cardId && a.advancements >= a.need && v.players.corp.points + a.points < WIN);
+}
+
 /** True when `goal` holds (both seat views). */
 export function stepReached(goal: StepGoal, views: Views): boolean {
   const { corp, runner } = views;
@@ -276,6 +309,23 @@ export function stepReached(goal: StepGoal, views: Views): boolean {
         runner.players.runner.clicks >= 1 &&
         agendas(corp).some((a) => a.iceless && runner.players.runner.points + a.points >= WIN)
       );
+    case 'corp_score_hostile_takeover':
+      return corp.phase === 'action' && corp.activePlayer === 'corp' && readyBonus(corp, 'c08') !== undefined;
+    case 'corp_score_priority_requisition':
+      return (
+        corp.phase === 'action' &&
+        corp.activePlayer === 'corp' &&
+        readyBonus(corp, 'c10') !== undefined &&
+        faceDownIce(corp).length > 0
+      );
+    case 'runner_run_with_bad_publicity':
+      return (
+        runner.phase === 'action' &&
+        runner.activePlayer === 'runner' &&
+        runner.players.runner.clicks >= 1 &&
+        runner.badPublicity >= 1 &&
+        runner.players.corp.handCount > 0
+      );
   }
 }
 
@@ -302,6 +352,16 @@ function stepInfo(goal: StepGoal, views: Views): Record<string, string> {
       const a = agendas(corp).find((x) => x.iceless && runner.players.runner.points + x.points >= WIN)!;
       return { uid: a.uid, cardId: a.cardId!, server: a.server };
     }
+    case 'corp_score_hostile_takeover': {
+      const a = readyBonus(corp, 'c08')!;
+      return { uid: a.uid, cardId: a.cardId!, server: a.server };
+    }
+    case 'corp_score_priority_requisition': {
+      const a = readyBonus(corp, 'c10')!;
+      return { uid: a.uid, cardId: a.cardId!, server: a.server, iceUid: faceDownIce(corp)[0]!.uid };
+    }
+    case 'runner_run_with_bad_publicity':
+      return { server: 'hq', badPublicity: String(runner.badPublicity) };
   }
 }
 
@@ -309,8 +369,47 @@ const isAgendaId = (id: string) => typeOf(id) === 'agenda';
 
 // -- per-goal policies (both seats; may read both views: a test helper, not an AI) --
 
+/**
+ * Sprint 4 goals: work on one agenda (Hostile Takeover or Priority Requisition): install it,
+ * advance it (Hedge Fund for money), make sure face-down ICE is on the table for Priority
+ * Requisition, and for the bad-publicity goal score Hostile Takeover and pass the turn.
+ */
+function corpBonusMove(goal: StepGoal, v: PlayerView, target: string): Action {
+  const me = v.players.corp;
+  if (v.phase === 'discard') {
+    return discardKeeping(v, (id) => (id === target ? 3 : typeOf(id) === 'ice' && goal === 'corp_score_priority_requisition' ? 2 : id === 'c01' ? 1 : 0));
+  }
+  if (me.clicks === 0) return { type: 'end_turn', player: 'corp' };
+  if (goal === 'runner_run_with_bad_publicity') {
+    if (v.badPublicity >= 1) return { type: 'end_turn', player: 'corp' };
+    const ready = readyBonus(v, target);
+    if (ready) return { type: 'score', player: 'corp', uid: ready.uid };
+  }
+  if (goal === 'corp_score_priority_requisition' && faceDownIce(v).length === 0) {
+    const i = handIdx(v, (id) => typeOf(id) === 'ice');
+    const install = i >= 0 ? installNew(v, i) : undefined;
+    if (install) return install;
+  }
+  const fund = handIdx(v, (id) => id === 'c01');
+  if (fund >= 0 && me.credits >= 5 && me.credits < 10) return { type: 'play', player: 'corp', handIndex: fund };
+  const working = agendas(v)
+    .filter((a) => a.cardId === target && a.advancements < a.need)
+    .sort((a, b) => b.advancements - a.advancements)[0];
+  if (working) return me.credits >= 1 ? { type: 'advance', player: 'corp', uid: working.uid } : { type: 'gain_credit', player: 'corp' };
+  if (!readyBonus(v, target)) {
+    const i = handIdx(v, (id) => id === target);
+    const install = i >= 0 ? installNew(v, i) : undefined;
+    if (install) return install;
+  }
+  return basicMove(v, 3);
+}
+
 function corpMoveFor(goal: StepGoal, v: PlayerView): Action {
   const me = v.players.corp;
+  // A free-rez choice the plan did not aim for: Skip (keeps ICE face down).
+  if (v.choice) return { type: 'pass', player: 'corp' };
+  const bonusTarget = BONUS_TARGET[goal];
+  if (bonusTarget && !v.run) return corpBonusMove(goal, v, bonusTarget);
   if (v.run) {
     if (goal === 'corp_rez_prompt') return { type: 'pass', player: 'corp' }; // unreachable: the goal stops here
     const rezIt = v.run.options.find((o) => o.action.type === 'rez' && o.reject === null);

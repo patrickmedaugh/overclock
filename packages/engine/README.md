@@ -342,6 +342,12 @@ Seats receive Sprint 2 events already projected (`card_installed` without `cardI
 - `runner_one_steal_from_win` — Runner's action step with a click, a remote with no ICE holding an agenda that brings the Runner to 7. `info: {uid, cardId, server}`.
 Dispatch `actions` in order, each as its own `action.player` (Corp actions happen during the Runner's turn: the rez decisions). Throws if the goal isn't reached.
 
+**Test-only (Sprint 4):** three more `planToStep` goals:
+- `corp_score_hostile_takeover` — Corp's action step, an installed Hostile Takeover ready to score (scoring does not win). `info: {uid, cardId, server}`. Tapping Score: +7 credits, bad publicity 1.
+- `corp_score_priority_requisition` — Corp's action step, an installed Priority Requisition ready to score (scoring does not win) and ≥ 1 face-down ICE installed, so Score opens the free-rez choice. `info: {uid, cardId, server, iceUid}` (`iceUid` = the first offered ICE). Works unless Priority Requisition is the bottom card of R&D (~94% of seeds 1-100; 1, 2, 3, 7, 42, 99, 12345 pinned in tests).
+- `runner_run_with_bad_publicity` — Runner's action step with a click, the Corp at ≥ 1 bad publicity (Hostile Takeover scored), cards in HQ. A run on HQ then stops at access with `run.tempCredits` > 0; Done ends the run (`temp_credits_lost`). `info: {server: 'hq', badPublicity}`.
+The planner answers a free-rez choice it did not aim for with Skip.
+
 The client and AI may import only the public index of engine/cards/match. The client may not import `apply`, `newGame`, `legalActions`, `viewFor` or `replay` (it goes through the match).
 
 ## Rules for contributors
