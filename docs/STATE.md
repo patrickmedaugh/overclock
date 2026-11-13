@@ -1,6 +1,6 @@
 # Project state
 
-phase: QA
+phase: DEMO
 running_since: 2026-11-13 13:43 UTC
 sprint: 4
 open_pr: (none — PR #11 Sprint 04 proposal merged 2026-11-13 13:44 UTC after owner approval)
@@ -100,5 +100,11 @@ Details: docs/sprints/sprint-00-tech-plan.md, sprint-00-qa.md, sprint-00-demo.md
 - Follow-ups (backlog): android.yml publish can be cut by cancel between delete/create; don't swallow real gh release delete errors; main.ts relayout on <html> style changes; owner real-phone checks (notch/insets, Back).
 - Risks for demo: bad-publicity / run-credit tags are small text (9–12px); Skip label is small; slide outline mostly hidden under the zoomed card.
 
+## Sprint 4 QA — 2026-11-13
+- Report: docs/sprints/sprint-04-qa.md; screenshots docs/sprints/sprint-04-qa/; QA specs e2e/qa-sprint04*.spec.ts, engine qa-sprint04.test.ts (55e503a, report 3c711df).
+- Result: 20 criteria — 13 PASS, 0 FAIL, 7 owner checks (real phone only: install/icon, full screen + notch, stays sideways, update in place, switch away and back, Back button, airplane mode; automated parts pass). CI on 55e503a: 619 pass / 6 skipped / 0 failed / 0 flaky; android build green.
+- QA-S4-1 (low, backlog): at 6× CPU slow-down the first zoom swap to a new card takes 101–128ms in 5/60 runs (normal speed max 42ms). Fix idea: pre-draw zoom images for the hand when a hold starts.
+- Release `app-sprint-04`: overclock-sprint-04-20261113-1556.apk (built from 55e503a). Pages deploy green on 55e503a.
+
 ## Next run
-Phase QA for Sprint 4 on branch sprint-04. Follow docs/TESTING.md when delegating anything that runs tests.
+Phase DEMO for Sprint 4. Follow docs/TESTING.md when delegating anything that runs tests.
