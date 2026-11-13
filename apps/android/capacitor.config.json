@@ -1,0 +1,17 @@
+{
+  "appId": "app.overclock.game",
+  "appName": "OVERCLOCK",
+  "webDir": "../client/dist-android",
+  "android": {
+    "allowMixedContent": false,
+    "webContentsDebuggingEnabled": false
+  },
+  "plugins": {
+    "SystemBars": {
+      "hidden": true,
+      "style": "DARK",
+      "insetsHandling": "css",
+      "initialViewportFitValueHint": "cover"
+    }
+  }
+}

@@ -112,6 +112,9 @@ async function start(): Promise<void> {
   window.addEventListener('orientationchange', relayout);
   // Insets can settle a moment after an orientation change on iOS.
   window.visualViewport?.addEventListener('resize', relayout);
+  // The Android app's SystemBars plugin sets --safe-area-inset-* on <html>
+  // whenever the insets change (after load, on rotation): lay out again then.
+  new MutationObserver(relayout).observe(document.documentElement, { attributes: true, attributeFilter: ['style'] });
 
   // Test hook for Playwright. Left out of the Android app (__TEST_HOOK__ is a
   // compile-time constant, so the bundler drops this whole block there).

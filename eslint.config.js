@@ -9,6 +9,8 @@ export default tseslint.config(
       '**/node_modules/**',
       '**/dist/**',
       '**/dist-android/**',
+      // The Android project: generated files and the web bundle copied in by `cap sync`.
+      'apps/android/android/**',
       '**/dist-types/**',
       '**/coverage/**',
       '**/playwright-report/**',
