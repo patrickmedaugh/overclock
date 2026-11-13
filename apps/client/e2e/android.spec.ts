@@ -1,8 +1,14 @@
 // S-04-1 / S-04-2: the Android app's web bundle (`vite build --mode android`,
 // what goes inside the APK), served from the web root as Capacitor does.
 // Runs only in the `android` Playwright project.
-import { expect, test } from '@playwright/test';
+import { type Page, expect, test } from '@playwright/test';
 import { pixelStats } from './pixels';
+
+/** Sprint 6: the app opens on the start screen; "Play on this phone" starts today's game. */
+async function playHere(page: Page): Promise<void> {
+  await page.getByRole('button', { name: /Play on this phone/ }).tap();
+  await expect(page.locator('#start')).toBeHidden();
+}
 
 const BOARD = { x: 0, y: 0, width: 844, height: 390 };
 
@@ -37,6 +43,7 @@ test.describe('S-04-2 the app bundle', () => {
     expect(csp).not.toContain('unsafe-eval');
 
     // The board is drawn (not a blank screen).
+    await playHere(page);
     await page.waitForTimeout(300);
     const [s] = await pixelStats(page, [BOARD]);
     expect(s!.spread).toBeGreaterThan(10);
@@ -51,6 +58,7 @@ test.describe('S-04-2 the app bundle', () => {
     // app's origin); here the network goes off after boot and the game keeps drawing.
     await page.goto('./');
     await page.waitForFunction(() => document.body.dataset.ready === 'true');
+    await playHere(page);
     await context.setOffline(true);
     // Everything after boot (workers, textures) works with the network off.
     await page.waitForTimeout(300);

@@ -3,15 +3,20 @@
 // (no 'unsafe-eval'; see vite.config.ts) and in locked-down WebViews.
 import 'pixi.js/unsafe-eval';
 import { getCard } from '@overclock/cards';
-import type { Action } from '@overclock/engine';
+import type { Action, GameEvent, Side } from '@overclock/engine';
 import { Application, updateRenderGroupTransforms } from 'pixi.js';
 import { Board } from './board';
 import { setCardRenderer, smallFaceLayout } from './cardFace';
 import { forceFrameSpeed, noteDraw, noteTick } from './frameClock';
-import type { AnimRecord, OverclockTestHook } from './hook-types';
+import type { BackAction } from './back';
+import type { AnimRecord } from './hook-types';
+import { joinCodeFromUrl } from './gameCode';
 import { HotSeat, seedFromUrl } from './hotseat';
 import { lastInput } from './input';
+import { coverFor } from './passCover';
 import { readSafeArea } from './safeArea';
+import type { Session } from './session';
+import { StartScreen } from './startScreen';
 import { theme } from './theme';
 import { Tweens } from './tween';
 
@@ -34,7 +39,15 @@ async function start(): Promise<void> {
   setCardRenderer(app.renderer);
   app.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
-  const game = new HotSeat(seedFromUrl(window.location.search));
+  const params = new URLSearchParams(window.location.search);
+  // Test-only switches (left out of the Android app with the test hook; DECISIONS 2026-11-13):
+  // `cover=off` plays pass-the-phone without the S-06-5 cover (the specs written
+  // before it), `server=` points "Play online" at a local service.
+  const coverOn = !(__TEST_HOOK__ && params.get('cover') === 'off');
+  const serverUrl = (__TEST_HOOK__ ? params.get('server') : null) ?? __SERVER_URL__;
+
+  // The game being played (null on the start screen). The board talks only to the Session interface.
+  let game: Session | null = null;
   // fx: event animations (skippable). ui: feedback, hints, zoom (never skipped).
   const fx = new Tweens();
   const ui = new Tweens();
@@ -59,21 +72,23 @@ async function start(): Promise<void> {
     if (group) updateRenderGroupTransforms(group, true);
   };
 
-  const dispatch: OverclockTestHook['dispatch'] = (action: Action) => {
-    board.show(game.submit(action));
-    invalidate();
+  const dispatch = (action: Action): GameEvent[] => {
+    if (!game) return [];
+    game.submit(action);
     return game.lastEvents();
   };
-  // Taps act for the seat at the bottom (always the active player). It
-  // switches the moment the turn passes, even while the flip still animates.
+  const seat = (): Side => game?.seat ?? 'corp';
+  // Taps act for the seat at the bottom (pass-the-phone: always the active
+  // player). It switches the moment the turn passes, even while the flip still animates.
   const board = new Board(fx, ui, {
-    onDeckTap: () => dispatch({ type: 'draw', player: game.seat }),
-    onCreditsTap: () => dispatch({ type: 'gain_credit', player: game.seat }),
-    onEndTurn: () => dispatch({ type: 'end_turn', player: game.seat }),
-    onDiscard: (handIndices) => dispatch({ type: 'discard', player: game.seat, handIndices }),
+    onDeckTap: () => dispatch({ type: 'draw', player: seat() }),
+    onCreditsTap: () => dispatch({ type: 'gain_credit', player: seat() }),
+    onEndTurn: () => dispatch({ type: 'end_turn', player: seat() }),
+    onDiscard: (handIndices) => dispatch({ type: 'discard', player: seat(), handIndices }),
     // Install / play actions come straight from the view's handOptions.
     onAction: (action) => dispatch(action),
-    onNewGame: () => window.location.assign(window.location.pathname),
+    // A new pass-the-phone game straight away (same test switches).
+    onNewGame: () => window.location.assign(`${window.location.pathname}?play=here${coverOn ? '' : '&cover=off'}`),
     changed: () => invalidate(),
     log,
     buildTime: __BUILD_TIME__,
@@ -110,7 +125,6 @@ async function start(): Promise<void> {
     invalidate();
   };
   relayout();
-  board.render(game.view(), [], game.decision());
   window.addEventListener('resize', relayout);
   window.addEventListener('orientationchange', relayout);
   // Insets can settle a moment after an orientation change on iOS.
@@ -127,7 +141,13 @@ async function start(): Promise<void> {
     exitRequests++;
     if (__NATIVE__) void import('@capacitor/app').then(({ App }) => App.exitApp());
   };
-  const back = () => board.back(exit);
+  const back = (): BackAction => {
+    if (game) return board.back(exit);
+    // The start screen: Back steps back one screen; on the first screen it closes the app.
+    if (start.back()) return 'close_panel';
+    exit();
+    return 'exit';
+  };
   if (__NATIVE__) {
     void import('@capacitor/app').then(({ App }) => {
       void App.addListener('backButton', () => back());
@@ -140,29 +160,70 @@ async function start(): Promise<void> {
   // whenever the insets change (after load, on rotation): lay out again then.
   new MutationObserver(relayout).observe(document.documentElement, { attributes: true, attributeFilter: ['style'] });
 
-  // Test hook for Playwright. Left out of the Android app (__TEST_HOOK__ is a
-  // compile-time constant, so the bundler drops this whole block there).
+  /** Plays `session` on the board (from the start screen, or at once with `?play=here`). */
+  const play = (session: Session): void => {
+    game = session;
+    start.hide();
+    // The other seat's decision the board showed before each change (for the S-06-5 covers).
+    let shownDecision = session.decision()?.seat ?? null;
+    session.onPresent((p) => {
+      board.show(p);
+      if (coverOn && session.kind === 'hotseat') {
+        const cover = coverFor(p, shownDecision);
+        if (cover) board.setCover(cover);
+      }
+      shownDecision = p.kind === 'same' ? (p.decision?.seat ?? null) : null;
+      invalidate();
+    });
+    board.render(session.view(), [], session.decision());
+    invalidate();
+    // Test hook for Playwright. Left out of the Android app (__TEST_HOOK__ is a
+    // compile-time constant, so the bundler drops this whole block there).
+    if (__TEST_HOOK__) {
+      window.__overclock = {
+        getView: () => session.view(),
+        decision: () => session.decision(),
+        dispatch,
+        lastEvents: () => session.lastEvents(),
+        layout: () => board.snapshot(),
+        anims: () => records.map((r) => ({ ...r, box: r.box ? { ...r.box } : undefined })),
+        clearAnims: () => {
+          records.length = 0;
+        },
+        lastInput,
+        endTurn: () => board.endTurnClock(),
+        smallFace: (cardId, width, height) => {
+          const def = getCard(cardId);
+          return def ? smallFaceLayout(def, width, height) : null;
+        },
+        back,
+        exitRequests: () => exitRequests,
+        frameSpeed: (mode) => forceFrameSpeed(mode),
+      };
+    }
+  };
+  const playHere = () => play(new HotSeat(seedFromUrl(window.location.search)));
+
+  // S-06-1: the start screen. Online play itself arrives with U3/U4 (OnlineMatch).
+  const start = new StartScreen(document.body, {
+    playHere,
+    onlineReady: () => serverUrl !== '',
+    startOnline: () => start.show('message', { title: 'Start a game', message: 'Connecting…' }),
+    joinOnline: (code) => start.show('message', { title: `Joining ${code}`, message: 'Connecting…' }),
+  });
+  const joinCode = joinCodeFromUrl(window.location.search);
+  if (joinCode !== null) {
+    // A shared link: join at once (the code leaves the address, so a reload doesn't join again).
+    params.delete('join');
+    const rest = params.toString();
+    window.history.replaceState(null, '', `${window.location.pathname}${rest ? `?${rest}` : ''}${window.location.hash}`);
+    if (serverUrl === '') start.show('not_set_up');
+    else start.show('join', { code: joinCode });
+    if (serverUrl !== '') start.root.querySelector('form')?.requestSubmit();
+  } else if (params.get('play') === 'here') playHere();
+
   if (__TEST_HOOK__) {
-    window.__overclock = {
-      getView: () => game.view(),
-      decision: () => game.decision(),
-      dispatch,
-      lastEvents: () => game.lastEvents(),
-      layout: () => board.snapshot(),
-      anims: () => records.map((r) => ({ ...r, box: r.box ? { ...r.box } : undefined })),
-      clearAnims: () => {
-        records.length = 0;
-      },
-      lastInput,
-      endTurn: () => board.endTurnClock(),
-      smallFace: (cardId, width, height) => {
-        const def = getCard(cardId);
-        return def ? smallFaceLayout(def, width, height) : null;
-      },
-      back,
-      exitRequests: () => exitRequests,
-      frameSpeed: (mode) => forceFrameSpeed(mode),
-    };
+    window.__overclockStart = { screen: () => (start.visible ? start.screen : null), back, exitRequests: () => exitRequests };
   }
   document.getElementById('boot')?.remove();
   document.body.dataset.ready = 'true';

@@ -8,47 +8,18 @@
 // (Rez / Don't rez at approach), the board shows the Corp seat's own run
 // options (`Decision`) on the shared screen (owner answer Q1 A) and submits
 // them as the Corp. The Runner seat's view is never merged with the Corp's.
-import type { Action, GameEvent, PlayerView, RunView, Side } from '@overclock/engine';
+import type { Action, GameEvent, PlayerView, Side } from '@overclock/engine';
 import { LocalMatch } from '@overclock/match';
+import { type Decision, Listeners, type Presentation, type Session, type SessionStatus } from './session';
 
-/** What the board should animate for one submitted action. */
-/**
- * A run decision that belongs to the seat *not* at the bottom (the Corp's rez
- * choice while the Runner is on screen): that seat's own run view, whose
- * `options` the board shows as buttons and submits as `seat`.
- */
-export interface Decision {
-  seat: Side;
-  run: RunView;
-}
+export type { Decision, Presentation } from './session';
 
-export type Presentation =
-  /**
-   * Same seat stays at the bottom: show `view` and animate `events` (the bottom
-   * seat's projection, also when the other seat acted). `decision` is set while
-   * the other seat must decide.
-   */
-  | { kind: 'same'; view: PlayerView; events: GameEvent[]; decision: Decision | null }
-  /**
-   * The turn passed. First the actor's own events up to and including
-   * `turn_ended` animate in the actor's view (e.g. their discards fly to the
-   * pile); then the board flips to `next` and animates `nextEvents` (the new
-   * turn's start, e.g. the Corp's free draw) in the new seat's view.
-   */
-  | {
-      kind: 'handoff';
-      actor: Side;
-      actorView: PlayerView;
-      actorEvents: GameEvent[];
-      next: Side;
-      nextView: PlayerView;
-      nextEvents: GameEvent[];
-    };
-
-export class HotSeat {
+export class HotSeat implements Session {
+  readonly kind = 'hotseat' as const;
   private readonly match: LocalMatch;
   private bottom: Side;
   private last: GameEvent[] = [];
+  private readonly presented = new Listeners<Presentation>();
 
   constructor(seed: number) {
     this.match = new LocalMatch(seed);
@@ -80,8 +51,25 @@ export class HotSeat {
     return this.last.slice();
   }
 
-  /** Submits as seat `action.player` (each seat may only act as itself). */
+  onPresent(cb: (p: Presentation) => void): () => void {
+    return this.presented.add(cb);
+  }
+
+  status(): SessionStatus {
+    return { connection: 'local', opponent: 'here' };
+  }
+
+  /**
+   * Submits as seat `action.player` (each seat may only act as itself). The
+   * presentation goes to `onPresent` listeners at once and is also returned.
+   */
   submit(action: Action): Presentation {
+    const p = this.present(action);
+    this.presented.emit(p);
+    return p;
+  }
+
+  private present(action: Action): Presentation {
     const actor = action.player;
     const update = this.match.submit(actor, action);
     const mine = update[actor];

@@ -25,6 +25,14 @@ export interface OpenOptions {
   insets?: Partial<Insets>;
 }
 
+/**
+ * Sprint 6: skip the start screen (`play=here`: a pass-the-phone game at once)
+ * and the "Pass the phone" cover (`cover=off`, test builds only). The specs
+ * written before Sprint 6 test the board itself; the start screen and the
+ * cover have their own specs (s06-start.spec.ts, s06-cover.spec.ts).
+ */
+export const BOARD_FLAGS = 'play=here&cover=off';
+
 /** Opens the board with a fixed deal and waits until the test hook is live. */
 export async function openBoard(page: Page, opts: OpenOptions | number = {}): Promise<void> {
   const o = typeof opts === 'number' ? { seed: opts } : opts;
@@ -40,7 +48,8 @@ export async function openBoard(page: Page, opts: OpenOptions | number = {}): Pr
     }, `#safe-probe { padding: ${i.top}px ${i.right}px ${i.bottom}px ${i.left}px !important; }`);
   }
   await throttle(page);
-  await page.goto(`./?seed=${o.seed ?? 1}`);
+  // Straight into pass-the-phone without the S-06-5 cover (see BOARD_FLAGS).
+  await page.goto(`./?seed=${o.seed ?? 1}&${BOARD_FLAGS}`);
   await page.waitForFunction(() => document.body.dataset.ready === 'true' && !!window.__overclock);
 }
 

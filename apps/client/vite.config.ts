@@ -86,6 +86,10 @@ export default defineConfig(({ command, isPreview, mode }) => {
       // Native-only code (Back button, app resume) is loaded only in the app.
       __NATIVE__: JSON.stringify(android),
       __BUILD_TIME__: JSON.stringify(buildTime()),
+      // Sprint 6: the online service (wss://...) and the web game's address (for
+      // share links from the app). Unset: "Play online" says it isn't set up yet.
+      __SERVER_URL__: JSON.stringify(process.env['OVERCLOCK_SERVER_URL'] ?? ''),
+      __WEB_URL__: JSON.stringify(process.env['OVERCLOCK_WEB_URL'] ?? ''),
     },
     build: {
       target: 'es2022',
