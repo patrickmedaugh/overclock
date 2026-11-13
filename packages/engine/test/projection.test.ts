@@ -58,12 +58,16 @@ const SAMPLES: Samples = {
   ],
   temp_credits_gained: [{ type: 'temp_credits_gained', amount: 1 }],
   temp_credits_lost: [{ type: 'temp_credits_lost', amount: 1 }],
+  subroutine_resolved: [
+    { type: 'subroutine_resolved', iceUid: 'i1', cardId: 'c06', outcome: { sub: 0, op: 'lose_clicks', amount: 1 } },
+    { type: 'subroutine_resolved', iceUid: 'i1', cardId: 'c07', outcome: { sub: 0, op: 'net_damage', amount: 3 } },
+  ],
 };
 
 /** Sprint 1/2 events have their own projection tests (view.test.ts, install-play.test.ts). */
 const OLDER = new Set(['card_drawn', 'cards_discarded', 'card_installed', 'card_played']);
 
-describe('viewEvents for the Sprint 3 and 4 events', () => {
+describe('viewEvents for the Sprint 3, 4 and 5 events', () => {
   const sides: Side[] = ['corp', 'runner'];
   const sprint3 = (Object.entries(SAMPLES) as [string, GameEvent[]][]).filter(([t]) => !OLDER.has(t));
 

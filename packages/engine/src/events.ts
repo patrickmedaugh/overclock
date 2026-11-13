@@ -1,3 +1,4 @@
+import type { Effect } from '@overclock/cards';
 import type { AccessFrom, ChoiceKind, ServerId, Side, WinReason } from './state';
 
 /** Why an action was refused. Order of checks: see `rules.ts`. */
@@ -26,6 +27,17 @@ export type RejectReason =
 export type RunOutcome = 'accessed' | 'jacked_out' | 'ended_by_ice' | 'flatline';
 
 export type InstallZone = 'ice' | 'content' | 'rig';
+
+/**
+ * Sprint 5: what one fired subroutine actually did. `amount` = the actual size:
+ * clicks really lost ("if able", may be 0), net damage dealt (printed), credits
+ * gained, cards drawn; 0 for `end_run`.
+ */
+export interface SubOutcome {
+  readonly sub: number;
+  readonly op: Effect['op'];
+  readonly amount: number;
+}
 
 /**
  * What happened, in order. Run through `viewEvents(player, events)` before
@@ -86,6 +98,11 @@ export type GameEvent =
   | { readonly type: 'strength_changed'; readonly uid: string; readonly strength: number }
   | { readonly type: 'subroutine_broken'; readonly iceUid: string; readonly sub: number; readonly breakerUid: string }
   | { readonly type: 'subroutine_fired'; readonly iceUid: string; readonly sub: number }
+  /**
+   * Sprint 5: right after a fired subroutine's own effect events (after `clicks_lost` /
+   * `net_damage`, before `run_ended` / `game_over`). Public: the ICE is rezzed.
+   */
+  | { readonly type: 'subroutine_resolved'; readonly iceUid: string; readonly cardId: string; readonly outcome: SubOutcome }
   | { readonly type: 'clicks_lost'; readonly player: Side; readonly amount: number }
   /** The Runner discarded `cardIds` (face up, to the Heap). */
   | { readonly type: 'net_damage'; readonly amount: number; readonly cardIds: readonly string[] }

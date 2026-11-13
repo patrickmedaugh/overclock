@@ -107,8 +107,12 @@ function checkRunnerView(s: GameState, where: string): void {
     ...s.players.corp.scoreArea,
     ...s.players.runner.scoreArea,
   ];
+  // Sprint 5 (engine-dev, spec change): Last run shows the Runner exactly the cards its most recent
+  // run accessed, only between runs (RULES_SPEC § Runs step 4).
+  const last = !s.run && s.lastRun && s.lastRun.cards.length > 0 ? s.lastRun : null;
+  expect(v.lastRun, `${where}: Last run is exactly the recorded accesses`).toEqual(last);
   // Rezzed current ICE / accessed cards appear twice (board + run view); compare as sets.
-  const allowed = new Set([...known, ...(s.run?.access?.cards ?? []).map((c) => c.cardId)]);
+  const allowed = new Set([...known, ...(s.run?.access?.cards ?? []).map((c) => c.cardId), ...(last?.cards ?? []).map((c) => c.cardId)]);
   for (const id of corpIds(v)) expect(allowed.has(id), `${where}: Runner view holds ${id} (${getCard(id)?.name})`).toBe(true);
 }
 
@@ -129,6 +133,12 @@ function checkRunnerEvents(before: GameState, after: GameState, events: readonly
         // Sprint 4 (engine-dev): names the agenda scored by this same action (face up now).
         expect(events.some((x) => x.type === 'agenda_scored' && x.cardId === e.cardId), `${where}: choice names the scored agenda`).toBe(true);
         break;
+      case 'subroutine_resolved': {
+        // Sprint 5 (engine-dev, spec change): names the ICE whose subroutine fired, which is rezzed (face up).
+        const ice = after.servers.flatMap((sv) => sv.ice).find((c) => c.uid === e.iceUid);
+        expect(ice?.rezzed === true && ice.cardId === e.cardId, `${where}: subroutine_resolved names rezzed ICE ${e.iceUid}`).toBe(true);
+        break;
+      }
       case 'card_accessed':
         // Either still on screen, or it was accessed and the run already ended in this same action.
         if (after.run) expect(accessed.has(e.cardId!), `${where}: accessed ${e.cardId} is in the access list`).toBe(true);

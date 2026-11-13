@@ -1,6 +1,6 @@
 import type { Action } from './actions';
-import { choiceOptions, handOptions, installedOptions, legalActions, runStartOptions, runStepOptions } from './apply';
-import type { GameEvent, RejectReason } from './events';
+import { apply, choiceOptions, handOptions, installedOptions, legalActions, runStartOptions, runStepOptions } from './apply';
+import type { GameEvent, RejectReason, SubOutcome } from './events';
 import { getCard } from '@overclock/cards';
 import { breakerCard, breakerStrength, currentIce, discardCount, iceStrength, memoryUsed, waitingOn } from './rules';
 import {
@@ -106,6 +106,27 @@ export interface RunView {
   readonly options: readonly CardOption[];
   /** The Runner's run-only credits left (from bad publicity; both players see it). 0 when none. */
   readonly tempCredits: number;
+  /**
+   * Sprint 5: what `pass` ("let it fire") would do now. Non-null only in the Runner's view at
+   * step `encounter` with rezzed ICE while `pass` is offered. Computed by the real resolution
+   * on a throw-away copy of the state.
+   */
+  readonly letFire: LetFireView | null;
+}
+
+/** Sprint 5: the preview of letting the encountered ICE fire. */
+export interface LetFireView {
+  readonly iceCardId: string;
+  /** What `pass` would resolve, in order, stopping after the one that ends the run/game. */
+  readonly outcomes: readonly SubOutcome[];
+  /** 'run' = ended by the ICE, 'game' = flatline, null = the run goes on (`[]` = all broken). */
+  readonly ends: 'run' | 'game' | null;
+}
+
+/** Sprint 5: the Runner's most recent run, as the Runner sees it. */
+export interface LastRunView {
+  readonly server: ServerId;
+  readonly cards: readonly { readonly cardId: string; readonly from: AccessFrom }[];
 }
 
 /** An open choice (phase 'choice'), as one player sees it. */
@@ -153,6 +174,11 @@ export interface PlayerView {
   readonly choice: ChoiceView | null;
   /** Actions the viewer may take now (so the AI/client never need the full state). */
   readonly legalActions: readonly Action[];
+  /**
+   * Sprint 5: the cards accessed in the Runner's most recent run. Runner's view only, only
+   * when no run is in progress and at least one card was accessed; always null for the Corp.
+   */
+  readonly lastRun: LastRunView | null;
 }
 
 function sideView(p: PlayerState, side: Side, viewer: Side): PlayerSideView {
@@ -178,6 +204,28 @@ function copyResult(r: GameResult | null): PlayerView['result'] {
   return r ? { winner: r.winner, reason: r.reason } : null;
 }
 
+/**
+ * What `pass` ("let it fire") would do now, for the Runner at an encounter with rezzed ICE
+ * while `pass` is offered; else null. Runs the real `pass` on the (immutable) state and keeps
+ * only the public outcome: the result is thrown away, the real state and RNG are untouched.
+ */
+function letFireView(state: GameState, viewer: Side, options: readonly CardOption[]): LetFireView | null {
+  const run = state.run;
+  const ice = currentIce(state);
+  if (viewer !== 'runner' || !run || run.step !== 'encounter' || !ice?.rezzed) return null;
+  const pass = options.find((o) => o.action.type === 'pass' && o.reject === null);
+  if (!pass) return null;
+  const { events } = apply(state, pass.action);
+  const outcomes: SubOutcome[] = [];
+  let ends: LetFireView['ends'] = null;
+  for (const e of events) {
+    if (e.type === 'subroutine_resolved') outcomes.push({ sub: e.outcome.sub, op: e.outcome.op, amount: e.outcome.amount });
+    else if (e.type === 'game_over') ends = 'game';
+    else if (e.type === 'run_ended' && ends === null) ends = 'run';
+  }
+  return { iceCardId: ice.cardId, outcomes, ends };
+}
+
 function runView(state: GameState, viewer: Side): RunView | null {
   const run = state.run;
   if (!run) return null;
@@ -194,6 +242,7 @@ function runView(state: GameState, viewer: Side): RunView | null {
   }
   const breakers: Record<string, number> = {};
   for (const c of state.rig) if (breakerCard(state, c.uid)) breakers[c.uid] = breakerStrength(state, c.uid);
+  const options = runStepOptions(state, viewer);
   return {
     server: run.server,
     position: run.position,
@@ -215,8 +264,9 @@ function runView(state: GameState, viewer: Side): RunView | null {
       : null,
     extraAccess: run.extraAccess,
     bypassPending: run.bypassNext,
-    options: runStepOptions(state, viewer),
+    options,
     tempCredits: run.tempCredits,
+    letFire: letFireView(state, viewer, options),
   };
 }
 
@@ -224,6 +274,13 @@ function choiceView(state: GameState, viewer: Side): ChoiceView | null {
   const c = state.choice;
   if (state.phase !== 'choice' || !c) return null;
   return { kind: c.kind, waitingOn: c.player, cardId: c.cardId, options: choiceOptions(state, viewer) };
+}
+
+/** Runner only, only between runs, only when the most recent run accessed something. */
+function lastRunView(state: GameState, viewer: Side): LastRunView | null {
+  const last = state.lastRun;
+  if (viewer !== 'runner' || state.run || !last || last.cards.length === 0) return null;
+  return { server: last.server, cards: last.cards.map((c) => ({ cardId: c.cardId, from: c.from })) };
 }
 
 export function viewFor(player: Side, state: GameState): PlayerView {
@@ -256,6 +313,7 @@ export function viewFor(player: Side, state: GameState): PlayerView {
     badPublicity: state.badPublicity,
     choice: choiceView(state, player),
     legalActions: legalActions(state, player),
+    lastRun: lastRunView(state, player),
   };
 }
 

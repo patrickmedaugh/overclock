@@ -112,7 +112,11 @@ describe('S-03-1 AC2: a server with no ICE: straight in, access', () => {
     expect(done.state.players.runner.clicks).toBe(3);
     expect(done.state.players.corp.hand).toEqual(['c01', 'c02', 'c04']); // AC5: untouched
     expect(viewFor('runner', done.state).run).toBeNull();
-    expect(JSON.stringify(viewFor('runner', done.state))).not.toMatch(/"c0[124]"/); // hidden again
+    // Hidden again on the board; Sprint 5: only the Runner's Last run still lists it.
+    const after = viewFor('runner', done.state);
+    expect(after.lastRun).toEqual({ server: 'hq', cards: [{ cardId: (accessed as { cardId: string }).cardId, from: 'hq' }] });
+    expect(JSON.stringify({ ...after, lastRun: null })).not.toMatch(/"c0[124]"/);
+    expect(JSON.stringify(viewFor('corp', done.state).lastRun)).toBe('null');
   });
 
   it('same seed and state: the same HQ card (deterministic)', () => {
@@ -347,8 +351,9 @@ describe('S-03-3 AC1-3: approach and rez', () => {
 
   it("S-03-3 AC4 (End the run): Let it through on Ice Wall ends the run, nothing accessed", () => {
     const r = play(board({ servers: { hq: { ice: ['+c05'] } } }), [runOn('hq'), pass('runner')]);
-    expect(r.events.slice(-2)).toEqual([
+    expect(r.events.slice(-3)).toEqual([
       { type: 'subroutine_fired', iceUid: 'i1', sub: 0 },
+      { type: 'subroutine_resolved', iceUid: 'i1', cardId: 'c05', outcome: { sub: 0, op: 'end_run', amount: 0 } },
       { type: 'run_ended', server: 'hq', outcome: 'ended_by_ice' },
     ]);
     expect(r.events.some((e) => e.type === 'card_accessed')).toBe(false);

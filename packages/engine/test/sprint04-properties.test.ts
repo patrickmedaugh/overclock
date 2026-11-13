@@ -88,7 +88,7 @@ function playAndCheck(seed: number, stats: Stats): { actions: Action[]; final: G
     const before = s;
     const res = apply(s, action);
     expect(res.events.some((e) => e.type === 'action_rejected'), `${where}: legal ${action.type} accepted`).toBe(false);
-    expectRunnerEventsClean(res.events, where);
+    expectRunnerEventsClean(res.events, where, res.state);
     countAndCheck(before, res.state, res.events as GameEvent[], stats, where);
     actions.push(action);
     s = res.state;
