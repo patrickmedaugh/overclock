@@ -67,10 +67,11 @@ Details: docs/sprints/sprint-00-tech-plan.md, sprint-00-qa.md, sprint-00-demo.md
 - For demo: Corp 7-point win needs Priority Requisition (~80% of seeds); extra taps (Let it through, Done, Continue after each ICE); Akitaro discount not applied; only agendas can be advanced.
 - Owner chat feedback mid-sprint: hold a card then slide left/right to browse the hand → backlog (P1 hand UI rework), not in Sprint 3.
 
-## Sprint 3 QA — round 1 done, round 2 in progress
-- Two QA passes ran on 73eec24 (docs/sprints/sprint-03-qa.md: bugs QA-S3-1, QA-S3-2; docs/sprints/sprint-03-qa-pass2.md: QA-S3-3..6). Developer fixes for all six are on sprint-03 (024c12f..49cb721).
-- CI on 49cb721 is red: QA's own snappiness test (qa-sprint03-pass2 "every run step answers within 100ms…") now sees the new "Nothing to access" notice toast (1.4s, never blocks input) and applies the 600ms limit to it. Test-side fix (exclude toasts, as the same file already does elsewhere) goes into QA round 2.
-- Round 2 started 2026-11-13 00:10 UTC by the scheduled run (architect review of the fixes + QA re-verification). Another run starting now should not redo it; check the branch log first.
+## Sprint 3 QA — rounds 1 and 2
+- Round 1: two QA passes on 73eec24 (docs/sprints/sprint-03-qa.md: QA-S3-1, QA-S3-2; docs/sprints/sprint-03-qa-pass2.md: QA-S3-3..6). Fixes 024c12f..49cb721.
+- Round 2 (2026-11-13): architect approved all five fix commits (DECISIONS 2026-11-13; follow-ups: Archives >20 cards may go below 44px; runEndText scans the whole event batch). QA re-verified QA-S3-1..6 as FIXED with mutation checks. QA's snappiness test now treats the "Nothing to access" notice as a non-blocking toast (CI red on 49cb721 fixed). A parallel run pushed its own version of that test (8ac971c); merged keeping this run's stricter QA-verified version.
+- Round 2 checks: lint, typecheck, 729 unit tests, build, full e2e 512 pass / 6 skipped / 0 failed (--retries=0).
+- Still failing: S-03-6 AC2 (6× slow-down) — new bug QA-S3-7: a quick tap is read as a "hold" if the page stalls >350ms between finger down and up (hold timer in apps/client/src/input.ts attachPress); 1 run in ~90 at 6×. Fix: judge hold vs tap by event timestamps. Round 3 (last allowed) to fix it.
 
 ## Next run
-Phase QA for Sprint 3: finish round 2 (architect review of fixes, QA re-verifies QA-S3-1..6, CI green), then set DEMO.
+Phase QA for Sprint 3: round 3 — ui-dev fixes QA-S3-7, architect review, QA re-verifies S-03-6 AC2, then set DEMO.
