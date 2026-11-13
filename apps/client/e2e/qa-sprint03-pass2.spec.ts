@@ -71,9 +71,11 @@ const SITUATIONS = {
   /** Runner accesses PAD Campaign in a remote with 4+ credits. */
   padRich: (v: Views) =>
     v.runner.run?.step === 'access' && v.runner.run.access!.cards.some((c) => c.cardId === 'c03' && c.from === 'remote') && v.runner.players.runner.credits >= 4,
-  /** Runner accesses PAD Campaign in a remote with fewer than 4 credits. */
+  /** Runner accesses PAD Campaign in a remote with fewer than 4 credits (Sprint 4: counting run-only credits from bad publicity). */
   padPoor: (v: Views) =>
-    v.runner.run?.step === 'access' && v.runner.run.access!.cards.some((c) => c.cardId === 'c03' && c.from === 'remote') && v.runner.players.runner.credits < 4,
+    v.runner.run?.step === 'access' &&
+    v.runner.run.access!.cards.some((c) => c.cardId === 'c03' && c.from === 'remote') &&
+    v.runner.players.runner.credits + v.runner.run.tempCredits < 4,
   /** Runner's turn (action phase, clicks left); some server's outermost ICE is face down and the Corp can't pay for it. */
   cantAffordRez: (v: Views) =>
     v.runner.activePlayer === 'runner' &&
