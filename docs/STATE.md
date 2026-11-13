@@ -1,6 +1,6 @@
 # Project state
 
-phase: BUILD
+phase: QA
 running_since: 2026-11-13 17:21 UTC
 sprint: 5
 open_pr: (none — PR #13 Sprint 05 proposal merged 2026-11-13 17:21 UTC after owner approval)
@@ -119,5 +119,12 @@ Details: docs/sprints/sprint-00-tech-plan.md, sprint-00-qa.md, sprint-00-demo.md
 ## Sprint 5 approved — 2026-11-13 17:19 UTC
 - Owner "1a 2A 3a approved" on PR #13: carousel (A) for hand browsing, ICE message stays until tapped, Sprint 6 = two-phone play. S-05-3 criteria rewritten for A in the proposal. BUILD on branch sprint-05.
 
+## Sprint 5 BUILD summary (branch `sprint-05`) — code-complete 2026-11-13
+- Tech plan docs/sprints/sprint-05-tech-plan.md (7033caf). Engine E1–E5 (6fdcefc..b0fce45): subroutine_resolved event, RunView.letFire preview, lastRun state/view (Runner only), planToStep goals enigma_encounter / neural_katana_encounter / runner_at_access / runner_after_access. UI U1–U5 (d143e3e..025dd00): hand carousel + pre-drawn zoom textures (QA-S4-1), hold-to-read accessed cards / piles / score pills, Last run button + strip, "Let it fire: …" label + ICE report (stays until tapped), publish-release.mjs + android.yml build/publish split.
+- Architect approved (2a1b9bd, 73984f6): carousel pixel-check fix, pre-draw pauses around the hold, zoom cache 24→12, frameSpeed test hook, removed debug timer. Rulings in DECISIONS.
+- CI green on 73984f6 (checks, guard-mutation, 4 e2e shards, android build+publish, deploy). Publish update path proven live 3×; app-sprint-05 holds overclock-sprint-05-20261113-1924-b13.1.apk, tag at 73984f6.
+- Follow-ups: release target stays at first commit (pass --target on edit); stronger carousel pixel check; slide motion mid-way not checked in CI (owner phone check); frameClock slow flag flips on one slow frame.
+- Owner chat during BUILD → BACKLOG: empty remote lane bug (P1), pass-the-phone cover screen (P1), PAD Campaign answered (by design).
+
 ## Next run
-Phase BUILD for Sprint 5 on branch sprint-05. Follow docs/TESTING.md when delegating anything that runs tests.
+Phase QA for Sprint 5 on branch sprint-05. Follow docs/TESTING.md when delegating anything that runs tests.
