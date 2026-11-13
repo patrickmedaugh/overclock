@@ -6,7 +6,7 @@
 //
 // Env: DEV_PORT (default: a free port). Exits non-zero on the first failed check.
 import { spawn } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -181,6 +181,29 @@ async function main() {
   const e = phone('/v1/games/NOT-A-CODE!');
   await e.opened;
   check((await e.next()).code === 'no_game', 'a malformed code gets "no_game"');
+
+  // The Corp can't pay for the approached ICE: the room passes for it after 1.2–2.4 s (DO alarm).
+  const fixture = JSON.parse(readFileSync(join(serverDir, 'test/fixtures/corp-only-pass.json'), 'utf8'));
+  const corp = phone('/v1/create');
+  await corp.opened;
+  corp.send({ t: 'create', side: 'corp', test: fixture });
+  const seatedCorp = await corp.next();
+  await corp.next(); // lobby
+  const runner = phone(`/v1/games/${seatedCorp.code}`);
+  await runner.opened;
+  runner.send({ t: 'join' });
+  await runner.next(); // seated
+  const deciding = await runner.next();
+  const t0 = Date.now();
+  check(deciding.t === 'sync' && deciding.view.run?.waitingOn === 'corp', 'Runner sees the Corp deciding');
+  await corp.next(); // sync
+  const passed = await runner.next(5000);
+  const waited = Date.now() - t0;
+  check(passed.t === 'update' && passed.events.some((x) => x.type === 'ice_passed') && !('ack' in passed), `the room passed for the Corp after ${waited} ms`);
+  check(waited >= 1000 && waited <= 3500, 'the pause is about 1.2–2.4 s');
+  check((await corp.next()).seq === passed.seq, 'the Corp phone sees the same move');
+  corp.ws.close();
+  runner.ws.close();
 
   // Presence: B drops, A sees "away".
   b.ws.close();
