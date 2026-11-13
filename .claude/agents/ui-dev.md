@@ -13,3 +13,4 @@ You build the game client the owner plays. The target feel is a polished digital
 - Layout targets: 844×390 landscape phone first (640×360 small; upright shows a "turn sideways" prompt), then desktop. Test both with Playwright screenshots.
 - Placeholder art: original, generated (shapes, gradients, icons) — never copied card art.
 - Keep `apps/android` buildable via Capacitor once it exists; document build steps in its README.
+- **Tests: follow `docs/TESTING.md`** — run only the specs your change touches; the full screen-test pass runs in CI (and once per QA round).

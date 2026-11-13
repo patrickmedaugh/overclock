@@ -54,6 +54,7 @@ The lead session orchestrates: it delegates to subagents and never skips QA.
 - `docs/DECISIONS.md` — decision log (date, decision, why, who).
 - `docs/RULES_SPEC.md` — the game rules in our own words; the engine implements this.
 - `docs/GLOSSARY.md` — plain-language terms for the owner.
+- `docs/TESTING.md` — how the team runs tests so runs stay fast (lead: include it in every delegation that runs tests).
 
 ## 6. The sprint loop
 
