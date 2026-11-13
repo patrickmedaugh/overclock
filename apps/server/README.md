@@ -46,7 +46,7 @@ npx wrangler dev --port 8787 --ip 127.0.0.1 --persist-to <fresh empty dir> \
 ```
 Ready when `GET http://127.0.0.1:8787/health` answers `{"ok":true,"build":"dev","protocol":1}` (usually 1–3 s). The client connects to `ws://127.0.0.1:8787`.
 
-**Test mode** (`OVERCLOCK_TEST_MODE=1`, never in production): `create` may carry `test: {seed, actions}`; the game starts from that seed and replays the actions (refused ones are skipped), so a test can start at any board. Without test mode the field is ignored and the seed is random.
+**Test mode** (`OVERCLOCK_TEST_MODE=1` *and* `BUILD=dev`, so never in a deployed build — `src/config.ts`): `create` may carry `test: {seed, actions}`; the game starts from that seed and replays the actions (refused ones are skipped), so a test can start at any board. Without test mode the field is ignored and the seed is random.
 
 **Vars** (`wrangler.jsonc`, override with `--var NAME:value`): `BUILD` (shown by `/health`; CI deploys with `--var BUILD:<commit sha>`), `ALLOWED_ORIGINS` (comma-separated; `*` = one run of letters/digits/dashes, e.g. a port or a preview prefix), `OVERCLOCK_TEST_MODE`.
 

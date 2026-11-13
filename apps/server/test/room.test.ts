@@ -386,12 +386,37 @@ describe('Corp auto-pass (S-06-2 AC4/AC5)', () => {
   });
 
   it('after an eviction mid-wait, the wake-up alarm passes at once', () => {
-    const { h } = atWindow();
+    const { h, host } = atWindow();
     const at = h.room.nextWakeAt()!;
     const woke = harness({ store: h.store, clock: h.clock, testMode: true });
+    // The wrapper reattaches the still-open sockets before the alarm runs.
+    woke.room.reattach(host, { kind: 'seat', seat: 'corp' });
     h.clock.t = at;
     woke.room.alarm();
     expect(accepted(woke).at(-1)).toEqual({ type: 'pass', player: 'corp' });
+  });
+
+  it('never passes for an away Corp (an away Corp who can pay stalls too, so the Runner learns nothing); a fresh pause once it is back', () => {
+    const { h, host, hostToken } = atWindow();
+    h.room.disconnect(host);
+    expect(h.room.nextWakeAt()).toBe(meta(h).lastActive + IDLE_TTL_MS);
+    const seq = h.room.seq();
+    h.clock.t += AUTO_PASS_MAX_MS * 10;
+    h.room.alarm();
+    expect(h.room.seq()).toBe(seq);
+    // Evicted while the Corp is away: the wake-up does not pass either.
+    const woke = harness({ store: h.store, clock: h.clock, testMode: true });
+    woke.room.alarm();
+    expect(woke.room.seq()).toBe(seq);
+    // The Corp comes back: a new random pause, then the pass.
+    const back = player(woke, 'host2');
+    woke.room.message(back, msg({ t: 'resume', token: hostToken, since: seq }));
+    const at = woke.room.nextWakeAt()!;
+    expect(at - h.clock.t).toBeGreaterThanOrEqual(AUTO_PASS_MIN_MS);
+    expect(at - h.clock.t).toBeLessThanOrEqual(AUTO_PASS_MAX_MS);
+    h.clock.t = at;
+    woke.room.alarm();
+    expect(woke.room.seq()).toBe(seq + 1);
   });
 
   it('no auto-pass while a Corp who can pay decides, or before the guest joins', () => {

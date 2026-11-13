@@ -179,6 +179,8 @@ export class Room {
     if (role?.kind !== 'seat' || this.seats[role.seat] !== conn) return;
     delete this.seats[role.seat];
     this.tellPresence(other(role.seat));
+    // An away Corp is never passed for (see corpCanOnlyPass); a fresh pause starts when it is back.
+    this.scheduleAutoPass();
   }
 
   /** The Durable Object alarm fired: clean up an expired game, or answer the Corp's pass. */
@@ -403,9 +405,14 @@ export class Room {
     this.autoPassAt = null;
   }
 
-  /** At an approach the Corp can't pay for, its only legal move is Don't rez (`pass`). */
+  /**
+   * At an approach the Corp can't pay for, its only legal move is Don't rez (`pass`).
+   * Only while the Corp's phone is connected: an away Corp who *could* pay stalls the run,
+   * so passing for an away Corp who can't would tell the Runner the ICE costs more than the
+   * Corp has (architect review, S-06-2 AC5). Both cases now wait for the Corp to come back.
+   */
   private corpCanOnlyPass(): boolean {
-    if (!this.started() || !this.match) return false;
+    if (!this.started() || !this.match || !this.seats.corp) return false;
     const v = this.match.view('corp');
     return v.run?.step === 'approach' && v.legalActions.length === 1 && v.legalActions[0]!.type === 'pass';
   }

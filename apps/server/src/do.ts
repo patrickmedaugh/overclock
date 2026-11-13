@@ -5,6 +5,7 @@
  */
 import { DurableObject } from 'cloudflare:workers';
 import { PING, PONG } from '@overclock/protocol';
+import { testModeOn } from './config';
 import { Room, type Conn, type ConnRole, type RoomDeps, type RoomStore } from './room';
 
 export interface Env {
@@ -13,7 +14,7 @@ export interface Env {
   ALLOWED_ORIGINS: string;
   /** The deployed build id (the git commit in CI; `dev` locally). */
   BUILD: string;
-  /** `'1'` = test mode (`create` may carry a seed and actions). Never set in production. */
+  /** `'1'` = test mode (`create` may carry a seed and actions), honoured only when BUILD is `dev` (config.ts). */
   OVERCLOCK_TEST_MODE?: string;
 }
 
@@ -34,7 +35,7 @@ function deps(env: Env): RoomDeps {
     random: () => crypto.getRandomValues(new Uint32Array(1))[0]! / 0x100000000,
     randomBytes: (n) => crypto.getRandomValues(new Uint8Array(n)),
     build: env.BUILD,
-    testMode: env.OVERCLOCK_TEST_MODE === '1',
+    testMode: testModeOn(env),
   };
 }
 
