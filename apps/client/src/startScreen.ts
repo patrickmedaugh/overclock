@@ -3,7 +3,7 @@
 // -> Start a game (pick Corp or Runner) / Join with code. No game logic: it
 // only asks the handlers to start or join.
 import type { Side } from '@overclock/engine';
-import { CODE_LENGTH, isCode, normalizeCode } from './gameCode';
+import { CODE_LENGTH, isGameCode, normalizeCode } from '@overclock/protocol';
 import './start.css';
 
 export const START_TEXT = {
@@ -160,7 +160,7 @@ export class StartScreen {
         form.addEventListener('submit', (e) => {
           e.preventDefault();
           const code = normalizeCode(input.value);
-          if (!isCode(code)) {
+          if (!isGameCode(code)) {
             error.textContent = START_TEXT.badCode;
             return;
           }

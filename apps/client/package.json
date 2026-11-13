@@ -19,6 +19,7 @@
     "@overclock/cards": "*",
     "@overclock/engine": "*",
     "@overclock/match": "*",
+    "@overclock/protocol": "*",
     "pixi.js": "^8.23.0"
   },
   "devDependencies": {
