@@ -1,6 +1,6 @@
 # Project state
 
-phase: BUILD
+phase: DEMO
 running_since: 2026-11-13 21:46 UTC
 sprint: 6
 open_pr: (none — PR #15 Sprint 06 proposal merged 2026-11-13 after owner approved in chat)
@@ -145,5 +145,17 @@ Details: docs/sprints/sprint-00-tech-plan.md, sprint-00-qa.md, sprint-00-demo.md
 ## Sprint 6 approved — 2026-11-13 ~21:45 UTC
 - Owner "Approved" in chat (recorded on PR #15, merged). Answers: Cloudflare free plan; private games by code only (CLAUDE.md rule 3 updated); starter picks side. Owner must sign up for Cloudflare (no card) — S-06-4 waits on that; team builds/tests locally meanwhile.
 
+## Sprint 6 BUILD summary (branch `sprint-06`) — code-complete 2026-11-13
+- Tech plan docs/sprints/sprint-06-tech-plan.md (9b8d61c). Engine E1–E4 (89efb6e..4e9fe98): packages/protocol v1, rezWindow 'always' for online games, LocalMatch options/restore/snapshot, apps/server (pure room.ts, Durable Object GameRoom, Worker, Origin allowlist, test-mode gate, wrangler 4.162.0, test:dev integration). UI U1–U6 (9fff643..d47e46c): Session interface, start screen, pass-the-phone cover, OnlineMatch (reconnect/backoff/ping), online board + two-phone e2e against wrangler dev, CI on Node 22, server.yml (skips green until Cloudflare secrets exist), build vars + CSP.
+- Architect approved (d2feed1): fixed auto-pass leak when the Corp is away; test mode needs OVERCLOCK_TEST_MODE=1 AND BUILD=dev. CI fully green on d2feed1.
+- Owner must set up Cloudflare (steps sent in chat and in apps/server/README.md "For the owner"); then re-run latest sprint-06 workflows and fill netlify.toml OVERCLOCK_SERVER_URL. Until then online play shows "Online play isn't set up yet".
+- Follow-ups: rate-limit /v1/create and joins; Corp think-time hint (owner question?); cheaper DO storage writes; pin rules version per room; single copy of hidden-info checks.
+
+## Sprint 6 QA — 2026-11-14
+- Report docs/sprints/sprint-06-qa.md (2317975); QA specs qa-sprint06*.spec.ts, apps/server/test/qa-sprint06.test.ts; 51 screenshots docs/sprints/sprint-06-qa/.
+- Result: 22 criteria — 19 PASS, 0 FAIL, 3 BLOCKED on owner Cloudflare setup (S-06-4). CI on be8c8ee: e2e 786 pass / 6 skipped / 0 failed / 0 flaky; all jobs green; server workflow skipped-green.
+- Low bugs → backlog: QA-S6-1 a lobby abandoned with Back stays joinable 2h (joiner waits forever); QA-S6-2 timing hint: broke Corp auto-passes within 1.2–2.4s, so a longer "Corp is deciding…" hints the Corp can pay (owner/architect decision).
+- Owner received a Cloudflare "agent setup" prompt; told him to ignore it and use the README steps (no token in chat).
+
 ## Next run
-Phase BUILD for Sprint 6 on branch sprint-06. Follow docs/TESTING.md when delegating anything that runs tests.
+Phase DEMO for Sprint 6. Follow docs/TESTING.md when delegating anything that runs tests.
