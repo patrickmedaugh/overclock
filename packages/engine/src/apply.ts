@@ -22,7 +22,7 @@ import {
   unstolenAgendaShown,
   waitingOn,
 } from './rules';
-import { doJackOut, doPass, doRez, doRun, doSteal, doTrash, doUseAbility, resolveEffect } from './run';
+import { doJackOut, doPass, doRez, doRun, doSteal, doTrash, doUseAbility, pruneEmptyRemotes, resolveEffect } from './run';
 import {
   checkPointsWin,
   drawTop,
@@ -185,7 +185,8 @@ function doScore(state: GameState, a: ActionOf<'score'>): ApplyResult {
     if (s.phase !== 'action') break; // game over, or a choice opened (free_rez is last)
     s = resolveEffect(s, effect, a.player, events, { cardId: card.cardId });
   }
-  return { state: s, events };
+  // Sprint 7 (S-07-1): a remote left empty by the score goes (not after a winning score: the game is over).
+  return { state: s.phase === 'over' ? s : pruneEmptyRemotes(s, events), events };
 }
 
 /**

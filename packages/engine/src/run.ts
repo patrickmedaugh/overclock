@@ -102,14 +102,27 @@ export function startRun(state: GameState, server: ServerId, opts: RunOptions, e
 
 /**
  * Ends the run: boosts drop back, unspent run-only credits vanish, `run_ended`,
- * back to the action phase (the Runner keeps its clicks).
+ * back to the action phase (the Runner keeps its clicks). Sprint 7: then empty remotes go.
  */
 export function endRun(state: GameState, outcome: RunOutcome, events: Events): GameState {
   const run = theRun(state);
   const s = changeBoosts(state, { encounterBoost: {}, runBoost: {} }, events);
   if (run.tempCredits > 0) events.push({ type: 'temp_credits_lost', amount: run.tempCredits });
   events.push({ type: 'run_ended', server: run.server, outcome });
-  return { ...s, phase: 'action', run: null };
+  return pruneEmptyRemotes({ ...s, phase: 'action', run: null }, events);
+}
+
+/**
+ * Sprint 7 (S-07-1): removes every remote with no ICE and no cards (`server_removed`, servers
+ * order). Ids are never reused: `nextRemote` is unchanged. Centrals always stay.
+ */
+export function pruneEmptyRemotes(state: GameState, events: Events): GameState {
+  const empty = state.servers.filter(
+    (sv) => !(CENTRAL_SERVERS as readonly string[]).includes(sv.id) && sv.ice.length === 0 && sv.content.length === 0,
+  );
+  if (empty.length === 0) return state;
+  for (const sv of empty) events.push({ type: 'server_removed', server: sv.id });
+  return { ...state, servers: state.servers.filter((sv) => !empty.includes(sv)) };
 }
 
 // ---- the walk ---------------------------------------------------------------------

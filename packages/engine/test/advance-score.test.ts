@@ -101,7 +101,7 @@ describe('S-03-2 AC3: score (no click, Corp turn, counters >= requirement)', () 
     // Sprint 4: followed by its "when scored" bonus (when-scored.test.ts).
     expect(r.events[0]).toEqual({ type: 'agenda_scored', uid: 'i1', cardId: 'c08', points: 1 });
     expect(r.state.players.corp).toMatchObject({ clicks: 1, credits: 3 + 7, scoreArea: ['c08'] });
-    expect(r.state.servers.find((sv) => sv.id === 'remote1')!.content).toEqual([]);
+    expect(r.state.servers.find((sv) => sv.id === 'remote1')).toBeUndefined(); // Sprint 7 (S-07-1): the emptied remote goes
     for (const p of ['corp', 'runner'] as const) {
       const v = viewFor(p, r.state);
       expect(v.players.corp).toMatchObject({ scored: ['c08'], points: 1 });

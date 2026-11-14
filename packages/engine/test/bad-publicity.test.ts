@@ -110,7 +110,7 @@ describe('S-04-4 AC2: left-over run-only credits vanish at every run end', () =>
 
   it('accessed with nothing to access (empty remote: the run ends at once)', () => {
     const r = run(withBp({ servers: { remote1: {} } }, 1), [runOn('remote1')]);
-    expect(types(r.events)).toEqual(['run_started', 'temp_credits_gained', 'run_successful', 'temp_credits_lost', 'run_ended']);
+    expect(types(r.events)).toEqual(['run_started', 'temp_credits_gained', 'run_successful', 'temp_credits_lost', 'run_ended', 'server_removed']); // Sprint 7: the empty remote goes
   });
 
   it('jacked out, after spending part of them', () => {
