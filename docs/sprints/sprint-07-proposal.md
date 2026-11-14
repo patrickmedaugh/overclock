@@ -95,6 +95,18 @@ Nearly every card in both decks does what its text says. The Corp can flip **PAD
 - Given any other ICE (Wall of Static, Enigma, Neural Katana), when the Corp taps it, then no Advance button appears. (automated check)
 *Size:* S
 
+### S-07-6: Hand: tap to open, long-press to light places, drag to play (added — owner chose 1B on PR #17, 2026-11-14)
+*Why it matters:* your own design for playing cards (backlog, 2026-11-13).
+*Acceptance criteria:*
+- Given the board, when you tap your hand, then the hand opens big and readable.
+- Given the open hand, when you long-press a card, then every place it can be played lights up on the board.
+- Given a long-pressed card, when you drag it onto a lit place and let go, then it is played there.
+- Given a long-pressed card, when you let go away from a lit place, then nothing is played and the hand view is back.
+- Given the open hand, when you tap outside it, then it closes.
+- Given a drag, when your finger moves, then the card follows it without lag (automated check: under 0.1 seconds per move on a phone-size screen).
+- Given pass-the-phone and online games, when you play a card by dragging, then it works the same in both. (automated check)
+*Size:* L
+
 ## Not in this sprint (and why)
 - **Hand: tap to open, long-press to light places, drag to play** (your design). It's a big screen-only job, about the size of a whole story on its own, and with five card stories the sprint would be bigger than Sprint 6. Recommended for Sprint 8 (question 1).
 - **Private Security Force's ability and Sacrificial Construct.** Nothing in these decks can tag the Runner or trash his cards, so there's nothing for them to react to yet (question 4).
