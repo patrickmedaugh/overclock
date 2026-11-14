@@ -45,7 +45,7 @@ describe('S-03-2 AC1: advance (1 click + 1 credit, own installed agenda)', () =>
       { type: 'card_advanced', uid: 'i1', advancements: 1 },
     ]);
     expect(r.state.players.corp).toMatchObject({ clicks: 2, credits: 4 });
-    expect(installedCard(r.state, 'i1')).toEqual({ uid: 'i1', cardId: 'c08', rezzed: false, advancements: 1 });
+    expect(installedCard(r.state, 'i1')).toEqual({ uid: 'i1', cardId: 'c08', rezzed: false, advancements: 1, hostedCredits: 0 });
     const again = apply(r.state, advance('corp', 'i1'));
     expect(installedCard(again.state, 'i1')?.advancements).toBe(2);
   });
@@ -53,9 +53,9 @@ describe('S-03-2 AC1: advance (1 click + 1 credit, own installed agenda)', () =>
   it('AC2: both players see the counters; the Runner still sees only the card back', () => {
     const s = run(corpInstalled(['c09']), [advance('corp', 'i1'), advance('corp', 'i1')]).state;
     const rv = viewFor('runner', s).corpServers.find((sv) => sv.id === 'remote1')!.content[0];
-    expect(rv).toEqual({ uid: 'i1', cardId: null, faceUp: false, advancements: 2 });
+    expect(rv).toEqual({ uid: 'i1', cardId: null, faceUp: false, advancements: 2, hostedCredits: 0 });
     const cv = viewFor('corp', s).corpServers.find((sv) => sv.id === 'remote1')!.content[0];
-    expect(cv).toEqual({ uid: 'i1', cardId: 'c09', faceUp: false, advancements: 2 });
+    expect(cv).toEqual({ uid: 'i1', cardId: 'c09', faceUp: false, advancements: 2, hostedCredits: 0 });
     // card_advanced is public and names no card.
     expect(viewEvents('runner', apply(s, advance('corp', 'i1')).events)).toEqual([
       { type: 'credits_spent', player: 'corp', amount: 1 },

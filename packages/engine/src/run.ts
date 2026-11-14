@@ -395,6 +395,9 @@ export function resolveEffect(state: GameState, effect: Effect, owner: Side, eve
       events.push({ type: 'choice_opened', kind: 'free_rez', player: owner, cardId });
       return { ...state, phase: 'choice', choice: { kind: 'free_rez', player: owner, cardId } };
     }
+    case 'place_credits':
+    case 'take_credits':
+      return state; // E1 stub: hosted credits come in E4
   }
 }
 

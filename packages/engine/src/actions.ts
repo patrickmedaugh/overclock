@@ -26,7 +26,10 @@ export type Action =
   | { readonly type: 'play'; readonly player: Side; readonly handIndex: number; readonly server?: ServerId }
   /** Runner, 1 click: start a run on `server`. */
   | { readonly type: 'run'; readonly player: Side; readonly server: ServerId }
-  /** Corp, approach step: rez the approached ICE `uid` (pays its cost). */
+  /**
+   * Corp, approach step: rez the approached ICE `uid` (pays its cost). Free-rez choice: any unrezzed ICE.
+   * Sprint 7: also in the Corp's action phase (no click): an unrezzed asset/upgrade in any server.
+   */
   | { readonly type: 'rez'; readonly player: Side; readonly uid: string }
   /**
    * The deciding side takes the default at the current run step: approach = Don't rez;
@@ -44,10 +47,16 @@ export type Action =
   | { readonly type: 'steal'; readonly player: Side; readonly card: number }
   /** Runner, access step: pay the trash cost of the card at `card` (index into `run.access.cards`). */
   | { readonly type: 'trash'; readonly player: Side; readonly card: number }
-  /** Corp, 1 click + 1 credit: put an advancement counter on its installed agenda `uid`. */
+  /** Corp, 1 click + 1 credit: put an advancement counter on its installed agenda (Sprint 7: or advanceable ICE) `uid`. */
   | { readonly type: 'advance'; readonly player: Side; readonly uid: string }
   /** Corp, no click, own turn outside a run: score installed agenda `uid` once it has enough counters. */
-  | { readonly type: 'score'; readonly player: Side; readonly uid: string };
+  | { readonly type: 'score'; readonly player: Side; readonly uid: string }
+  /**
+   * Sprint 7: use ability `ability` (index into `CardDef.cardAbilities`) of the player's own
+   * installed, face-up card `uid`. `click` abilities: own action phase; `successful_run_remote`:
+   * run step `success`. Pays the ability's clicks and credits.
+   */
+  | { readonly type: 'activate'; readonly player: Side; readonly uid: string; readonly ability: number };
 
 export type ActionType = Action['type'];
 

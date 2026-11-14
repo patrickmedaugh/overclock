@@ -392,6 +392,61 @@ Sockets and errors (`apps/server`): every `error` except `bad_message` closes th
 
 **Test-only (Sprint 6):** `@overclock/match/testing` also exports `runnerViewLeaks(state, view?) -> string[]` and `runnerEventLeaks(runnerEvents, after) -> string[]` (empty = clean): the engine's hidden-information checks as pure functions (no Vitest), for the server leak test and Node-side e2e checks of what the Runner phone received.
 
+## Sprint 7 interface (pinned: implement exactly this; changes go through the architect)
+
+Everything in the Sprint 1–6 interfaces still holds unless noted. Tech plan: `docs/sprints/sprint-07-tech-plan.md`. No engine or client code checks a card id: every new behaviour is card data (DSL v2) resolved generically.
+
+### Card DSL v2 (`@overclock/cards`, additive)
+- Effects: `place_credits {amount}` (bank → the source card), `take_credits {amount: number | 'all'}` (source card → its owner, up to what it holds). The source card is `EffectContext.uid`.
+- `CardDef` fields: `onInstall?: Effect[]` · `onTurnStart?: Effect[]` (Corp: only while rezzed) · `cardAbilities?: CardAbility[]` · `recurringCredits?: {amount, for: 'icebreaker'}` · `trashWhenEmpty?: true` · `memoryBonus?: number` · `iceRezDiscount?: number` (rezzed upgrade: ICE protecting its server, min 0) · `advanceable?: true` + `strengthPerAdvancement?: number` (ICE).
+- `CardAbility = {label, when: 'click' | 'successful_run_remote', clicks, credits, requires?: 'hosted_credits', replacesAccess?: true, effects}`. `label` may contain `{gain}`: fill it from `CardOption.gain`.
+- Data: Armitage Codebusting (`onInstall place 12`, `trashWhenEmpty`, click ability "Take {gain} credits": 1 click, `take_credits 2`, requires hosted credits) · Bank Job (`onInstall place 8`, `trashWhenEmpty`, `successful_run_remote` "Take {gain} credits from Bank Job": `take_credits 'all'`, `replacesAccess`) · Cyberfeeder (`recurringCredits {1, icebreaker}`) · Akamatsu Mem Chip (`memoryBonus 1`) · PAD Campaign (`onTurnStart gain_credits 1`) · Akitaro Watanabe (`iceRezDiscount 2`) · Ice Wall (`advanceable`, `strengthPerAdvancement 1`).
+
+### State
+- `Installed.hostedCredits: number` (0 by default; public).
+- `RunStep` += `'success'`; `RunOutcome` += `'access_replaced'`.
+- `RULES_VERSION = 1` (exported): bump when an old action log would replay differently.
+
+### Actions
+- **New** `{type: 'activate', player, uid, ability}` — `ability` indexes `CardDef.cardAbilities` of the player's own installed, face-up card. Rejection order: `invalid_action` (shape) → `game_over` → `not_your_turn` (`waitingOn`) → `bad_target` (not own installed face-up card, or no such ability) → `wrong_phase` (`click`: action phase; `successful_run_remote`: run step `success`) → `no_clicks` → `condition_not_met` (`requires` unmet: no credits on the card) → `no_credits`. Breakers' `use_ability` is unchanged.
+- **`rez`** is also legal in the Corp's **action phase** (no click) on an unrezzed asset/upgrade in any server; ICE there = `bad_target`. Order: `invalid_action` → `game_over` → `not_your_turn` (`waitingOn`) → `wrong_phase` (not action / approach / choice; or an asset/upgrade during a run or choice) → `bad_target` → `no_credits`.
+- **`advance`** targets agendas **or** `advanceable` ICE (face up or down). `score` stays agendas only.
+
+### Events (all public)
+- `card_rezzed {uid, cardId, server}` — asset/upgrade rezzed in the action phase, after `credits_spent`. (ICE keeps `ice_rezzed`.)
+- `ability_triggered {uid, cardId, trigger: 'click' | 'turn_start' | 'successful_run'}` — before the ability's own events. Only for face-up cards.
+- `hosted_credits_changed {uid, credits}` — the card's new total (install, take, spend, refill).
+- `rig_card_trashed {uid, cardId}` — a Runner card leaves the rig for the Heap (face up).
+- `server_removed {server}` — an empty remote (no ICE, no cards) is removed.
+- `credits_spent.hosted?` — the part of `amount` paid from credits on cards (only when > 0).
+
+### Event sequences
+- **Install with hosted credits** (Armitage / Bank Job / Cyberfeeder): `credits_spent` → `card_installed` → `hosted_credits_changed {credits: 12 | 8 | 1}`.
+- **Click ability** (Armitage): `ability_triggered {trigger: 'click'}` → `hosted_credits_changed` → `credit_gained` → (`rig_card_trashed` when it emptied). Clicks/credits paid first (`credits_spent` only when the ability costs credits).
+- **Rez an asset/upgrade** (action phase): `credits_spent` (when cost > 0) → `card_rezzed`.
+- **Turn start**: `turn_started` → per rezzed Corp card with `onTurnStart` (servers order; ICE then content) / per Runner card (rig order): `ability_triggered {trigger: 'turn_start'}` → its effect's events (PAD: `credit_gained`); Runner recurring credits below their amount: `ability_triggered {trigger: 'turn_start'}` → `hosted_credits_changed` → then the Corp's mandatory `card_drawn`. Nothing extra when no such card is in play.
+- **Breaker paid with recurring credits**: `credits_spent {amount, hosted?, temp?}` → `hosted_credits_changed` per paying card (rig order) → the ability's events. Payment order: eligible recurring credits (rig order), then run-only credits (bad publicity), then own credits. "Can afford" counts all three. Recurring credits never pay trash costs or installs.
+- **Successful run on a remote with a usable `replacesAccess` ability** (Bank Job holding credits): `run_successful` → run step `success` (waiting on the Runner; no `card_accessed` yet). Options: one `activate` per usable card, then `pass` (= Access cards). `activate` → `ability_triggered {trigger: 'successful_run'}` → `hosted_credits_changed {credits: 0}` → `credit_gained` → `rig_card_trashed` → (`strength_changed` / `temp_credits_lost` as for any run end) → `run_ended {outcome: 'access_replaced'}`. `pass` → access as usual (`card_accessed` …). No usable ability, or a central server → no `success` step (nothing to decide).
+- **Empty remote**: at the end of a run (after `run_ended`) and at the end of `score` (after its bonus events), every remote with no ICE and no cards is removed → `server_removed {server}`. Ids are never reused (`nextRemote` unchanged).
+
+### Rules helpers
+- `rezCost(state, ice)` = printed cost − every rezzed `iceRezDiscount` in that server's cards, min 0. Used by the approach option's `cost`, the `'affordable'` rez window and `no_credits`.
+- `iceStrength(ice)` = printed + advancements × `strengthPerAdvancement`.
+- `memoryLimit(state)` = 4 + rig `memoryBonus` (install `no_memory` and `PlayerView.memory.limit`).
+- Recurring credits: placed on install, refilled to `amount` at the Runner's turn start (never above).
+
+### View
+- `InstalledView.hostedCredits: number` (public, both sides).
+- `memory.limit` = `memoryLimit(state)`.
+- `installedOptions` covers **both sides**, keyed by uid, listed off-turn with the reason in `reject`: Corp = agenda `advance` / `score`, advanceable ICE `advance`, unrezzed asset/upgrade `rez` (cost = rez cost); Runner = one `activate` per `click` ability. Never lists the other side's cards (the Runner gets no options or ids for unrezzed Corp cards).
+- `CardOption` += `clicks?: number` (click cost, only when > 0: `activate`, `advance`), `gain?: number` (credits the option gives: `activate` with `take_credits`), `hostedPay?: {uid, amount}[]` (breaker options, only when non-empty: which cards pay part of `cost`).
+- `RunView.step` may be `'success'`: `options` = `activate` per usable card (`gain` = credits on it) + `pass`.
+- `legalActions` includes every new option.
+
+### Protocol (additive, still v1)
+- Client `{v: 1, t: 'leave'}`: from a seat in a lobby nobody joined, the room closes (seat sockets closed with 1000 `left`, storage deleted; the code then answers `no_game`). In a started game, or from a socket without a seat: `bad_message` (kept open).
+- Room restore by replay (snapshot from another build): if any logged action is rejected on replay, the game is expired (storage deleted; reattached sockets get `error expired`; `join`/`resume` get `expired` until the room is reused).
+
 ## `@overclock/match` (host; `packages/match`)
 Owns one game's `GameState` and talks to seats only through projections. It is the same contract a network server will expose later.
 

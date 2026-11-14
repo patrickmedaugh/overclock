@@ -383,6 +383,12 @@ const memoryFits = (s: GameState, a: ActionOf<'install'>): RejectReason | null =
   return memoryUsed(s) + (card.memory ?? 0) <= MEMORY_LIMIT ? null : 'no_memory';
 };
 
+const activateShape = (_s: GameState, a: ActionOf<'activate'>): RejectReason | null =>
+  typeof a.uid === 'string' && isInt(a.ability) ? null : 'invalid_action';
+
+/** E1 stub: card abilities are not built yet. */
+const activateStub = (): RejectReason | null => 'wrong_phase';
+
 export const RULES: RuleTable = {
   draw: [playerShape, notOver, yourTurn, inPhase('action'), hasClick, deckNotEmpty],
   gain_credit: [playerShape, notOver, yourTurn, inPhase('action'), hasClick],
@@ -434,6 +440,7 @@ export const RULES: RuleTable = {
   trash: [playerShape, cardShape, notOver, decides, atStep('access'), trashTarget, canAffordTrash],
   advance: [playerShape, uidShape, notOver, yourTurn, inPhase('action'), hasClick, ownAgenda, canAffordAdvance],
   score: [playerShape, uidShape, notOver, yourTurn, inPhase('action'), ownAgenda, enoughCounters],
+  activate: [playerShape, activateShape, notOver, decides, activateStub],
 };
 
 /** Memory used by the Runner's installed programs (card data `memory`). */

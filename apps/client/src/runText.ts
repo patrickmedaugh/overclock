@@ -96,6 +96,9 @@ export function stepLabel(run: RunView, deciding: Side): string {
       return `Encounter: ${ice}`;
     case 'continue':
       return `Passed ${ice}`;
+    case 'success':
+      // Sprint 7 type-only placeholder (engine-dev, E1); ui-dev words it in U5.
+      return `${TERMS.run} on ${serverLabel(run.server)} successful`;
     case 'access': {
       const n = run.access?.cards.length ?? 0;
       return n > 1 ? `${TERMS.access}: ${plural(n, 'card', 'cards')}` : `${TERMS.access} ${serverLabel(run.server)}`;

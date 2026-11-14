@@ -11,8 +11,13 @@ export const STARTING_HAND_SIZE = 5;
 export const MAX_HAND_SIZE = 5;
 export const RUNNER_CLICKS_PER_TURN = 4;
 export const CORP_CLICKS_PER_TURN = 3;
-/** Runner memory limit (programs' `memory` must fit). Memory bonuses from cards are not built yet. */
+/** Base Runner memory limit (programs' `memory` must fit). Sprint 7: `memoryLimit(state)` adds rig `memoryBonus`. */
 export const MEMORY_LIMIT = 4;
+/**
+ * Sprint 7: the rules version. Bump it whenever an old action log would replay
+ * differently (a rules change); the online room expires a game whose log no longer replays.
+ */
+export const RULES_VERSION = 1;
 /** Agenda points that win the game at once (stolen or scored). */
 export const WINNING_POINTS = 7;
 
@@ -24,8 +29,10 @@ export interface Installed {
   readonly cardId: string;
   /** Corp cards: true once rezzed (face up for good). Runner cards are always face up (false here). */
   readonly rezzed: boolean;
-  /** Advancement counters (Corp agendas; 0 otherwise). Public to both players. */
+  /** Advancement counters (Corp agendas and advanceable ICE; 0 otherwise). Public to both players. */
   readonly advancements: number;
+  /** Sprint 7: credits on the card (Armitage Codebusting, Bank Job, recurring credits). Public. 0 by default. */
+  readonly hostedCredits: number;
 }
 
 /** A Corp server. `ice[0]` is innermost; new ICE is pushed (outermost). */
@@ -53,9 +60,11 @@ export type WinReason = 'corp_decked' | 'agenda_points' | 'flatline';
  * Where the run is. `approach`: the Corp may rez the approached ICE.
  * `encounter`: the Runner may break subroutines or let them through.
  * `continue`: the Runner just passed an ICE: continue or jack out.
+ * `success` (Sprint 7): a successful run on a remote, before access, while the Runner has a usable
+ *   `replacesAccess` ability (Bank Job): `activate` it, or `pass` (= Access cards).
  * `access`: the run was successful; the Runner deals with accessed cards.
  */
-export type RunStep = 'approach' | 'encounter' | 'continue' | 'access';
+export type RunStep = 'approach' | 'encounter' | 'continue' | 'success' | 'access';
 
 /** Where an accessed card came from. `remote` covers every remote server. */
 export type AccessFrom = 'hq' | 'rd' | 'archives' | 'remote';

@@ -23,8 +23,11 @@ export type RejectReason =
   | 'no_credits'
   | 'no_memory';
 
-/** How a run ended. */
-export type RunOutcome = 'accessed' | 'jacked_out' | 'ended_by_ice' | 'flatline';
+/** How a run ended. `access_replaced` (Sprint 7): a `replacesAccess` ability (Bank Job) was used instead of access. */
+export type RunOutcome = 'accessed' | 'jacked_out' | 'ended_by_ice' | 'flatline' | 'access_replaced';
+
+/** Sprint 7: what made a card ability happen. */
+export type AbilityTrigger = 'click' | 'turn_start' | 'successful_run';
 
 export type InstallZone = 'ice' | 'content' | 'rig';
 
@@ -63,9 +66,11 @@ export type GameEvent =
   | { readonly type: 'action_rejected'; readonly reason: RejectReason }
   /**
    * Only when amount > 0. `temp` (Sprint 4, only when > 0): the part of `amount` paid from
-   * the Runner's run-only credits; the rest came from `player`'s credits.
+   * the Runner's run-only credits. `hosted` (Sprint 7, only when > 0): the part paid from credits
+   * on cards (recurring credits; each card's new total follows in `hosted_credits_changed`).
+   * The rest came from `player`'s credits.
    */
-  | { readonly type: 'credits_spent'; readonly player: Side; readonly amount: number; readonly temp?: number }
+  | { readonly type: 'credits_spent'; readonly player: Side; readonly amount: number; readonly temp?: number; readonly hosted?: number }
   | { readonly type: 'server_created'; readonly server: ServerId }
   | {
       readonly type: 'card_installed';
@@ -125,4 +130,15 @@ export type GameEvent =
   /** Right after `run_started` (only when > 0): run-only credits from bad publicity. */
   | { readonly type: 'temp_credits_gained'; readonly amount: number }
   /** Right before `run_ended` (only when > 0): the unspent run-only credits vanish. */
-  | { readonly type: 'temp_credits_lost'; readonly amount: number };
+  | { readonly type: 'temp_credits_lost'; readonly amount: number }
+  // ---- Sprint 7: card abilities, hosted credits, rezzing assets/upgrades, empty remotes (all public) ----
+  /** The Corp rezzed an asset/upgrade in its action phase (after `credits_spent`). ICE keeps `ice_rezzed`. */
+  | { readonly type: 'card_rezzed'; readonly uid: string; readonly cardId: string; readonly server: ServerId }
+  /** A card ability happens (before its effect's events). The card is face up. */
+  | { readonly type: 'ability_triggered'; readonly uid: string; readonly cardId: string; readonly trigger: AbilityTrigger }
+  /** Credits on installed card `uid` changed; `credits` = the new total (install, take, spend, refill). */
+  | { readonly type: 'hosted_credits_changed'; readonly uid: string; readonly credits: number }
+  /** A Runner card left the rig for the Heap (face up), e.g. Armitage Codebusting emptied. */
+  | { readonly type: 'rig_card_trashed'; readonly uid: string; readonly cardId: string }
+  /** An empty remote (no ICE, no cards) was removed (after `run_ended`, or at the end of a score). Its id is never reused. */
+  | { readonly type: 'server_removed'; readonly server: ServerId };

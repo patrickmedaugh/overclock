@@ -169,6 +169,9 @@ export class Room {
         if (role.kind === 'seat' && this.started()) this.act(role.seat, msg.action, msg.id);
         else this.send(conn, { v: 1, t: 'error', code: 'bad_message' });
         return;
+      case 'leave':
+        this.send(conn, { v: 1, t: 'error', code: 'bad_message' }); // E1 stub: E2 closes the lobby
+        return;
     }
   }
 

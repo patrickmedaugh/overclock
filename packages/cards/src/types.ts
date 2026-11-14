@@ -29,6 +29,9 @@ export type ServerId = CentralServerId | `remote${number}`;
  * - `free_rez` (Sprint 4): the Corp may rez one installed, unrezzed ICE for
  *   free. Opens a choice (phase `choice`) and must be the card's last effect;
  *   no choice opens when the Corp has no unrezzed installed ICE.
+ * Sprint 7 (DSL v2, hosted credits; need an installed source card):
+ * - `place_credits`: put `amount` credits from the bank on the source card.
+ * - `take_credits`: move up to `amount` (or `'all'`) of the source card's credits to its owner.
  */
 export type Effect =
   | { readonly op: 'gain_credits'; readonly amount: number }
@@ -43,7 +46,14 @@ export type Effect =
       readonly bypassFirst?: boolean;
     }
   | { readonly op: 'bad_publicity'; readonly amount: number }
-  | { readonly op: 'free_rez'; readonly what: 'ice' };
+  | { readonly op: 'free_rez'; readonly what: 'ice' }
+  /** Sprint 7: put `amount` credits from the bank on the source card (`EffectContext.uid`). */
+  | { readonly op: 'place_credits'; readonly amount: number }
+  /**
+   * Sprint 7: move up to `amount` credits (`'all'` = every one) from the source card to its
+   * owner's pool. Stops at what the card holds.
+   */
+  | { readonly op: 'take_credits'; readonly amount: number | 'all' };
 
 /** One ICE subroutine: its printed text (without "Subroutine:") and what it does when it fires. */
 export interface Subroutine {
@@ -61,6 +71,31 @@ export interface Subroutine {
 export type BreakerAbility =
   | { readonly op: 'break'; readonly cost: number; readonly iceType: IceSubtype; readonly count: 1 }
   | { readonly op: 'strength'; readonly cost: number; readonly amount: number; readonly until: 'encounter' | 'run' };
+
+/**
+ * Sprint 7: an ability of an installed card (not an icebreaker's: those are `abilities`).
+ * - `when: 'click'`: in its owner's action phase (costs `clicks` + `credits`).
+ * - `when: 'successful_run_remote'`: after a successful run on a remote server, before access
+ *   (run step `success`); with `replacesAccess` using it ends the run with nothing accessed.
+ * `requires: 'hosted_credits'`: only while the card holds credits (`condition_not_met` otherwise).
+ * `label` is the button text; `{gain}` is filled in by the client from `CardOption.gain`.
+ */
+export interface CardAbility {
+  readonly label: string;
+  readonly when: 'click' | 'successful_run_remote';
+  readonly clicks: number;
+  readonly credits: number;
+  readonly requires?: 'hosted_credits';
+  readonly replacesAccess?: true;
+  readonly effects: readonly Effect[];
+}
+
+/** Sprint 7: recurring credits, placed on install and refilled to `amount` at its owner's turn start. */
+export interface RecurringCredits {
+  readonly amount: number;
+  /** What they may pay for: `'icebreaker'` = icebreaker abilities only. */
+  readonly for: 'icebreaker';
+}
 
 /** A play condition checked before paying (`condition_not_met` when false). */
 export type PlayCondition = 'runner_ran_last_turn';
@@ -109,6 +144,25 @@ export interface CardDef {
   readonly abilities?: readonly BreakerAbility[];
   /** Set when the card cannot be played yet because it needs an unbuilt system. */
   readonly needs?: CardNeeds;
+  // ---- Sprint 7 (DSL v2) ----
+  /** Installed cards: what happens right after it is installed (source = the installed card). */
+  readonly onInstall?: readonly Effect[];
+  /** What happens when its owner's turn begins (Corp cards only while rezzed). */
+  readonly onTurnStart?: readonly Effect[];
+  /** Installed-card abilities (`activate.ability` indexes this). */
+  readonly cardAbilities?: readonly CardAbility[];
+  /** Recurring credits on the card. */
+  readonly recurringCredits?: RecurringCredits;
+  /** Goes to its owner's discard pile when its hosted credits reach 0. */
+  readonly trashWhenEmpty?: true;
+  /** Runner hardware: added to the memory limit while installed. */
+  readonly memoryBonus?: number;
+  /** Rezzed upgrade: rez cost of ICE protecting its server is lowered by this (never below 0). */
+  readonly iceRezDiscount?: number;
+  /** ICE: the Corp may advance it like an agenda. */
+  readonly advanceable?: true;
+  /** ICE: + strength per advancement counter. */
+  readonly strengthPerAdvancement?: number;
 }
 
 /** A deck list is an ordered list of card ids; duplicates mean extra copies. */

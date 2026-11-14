@@ -105,7 +105,7 @@ function doInstall(state: GameState, a: ActionOf<'install'>): ApplyResult {
   const cardId = state.players[a.player].hand[a.handIndex] as string;
   const events: GameEvent[] = [];
   let s = payFromHand(state, a.player, a.handIndex, installCost(state, a), events);
-  const card: Installed = { uid: `i${s.nextUid}`, cardId, rezzed: false, advancements: 0 };
+  const card: Installed = { uid: `i${s.nextUid}`, cardId, rezzed: false, advancements: 0, hostedCredits: 0 };
   s = { ...s, nextUid: s.nextUid + 1 };
 
   if (a.player === 'runner') {
@@ -227,6 +227,8 @@ export function apply(state: GameState, action: Action): ApplyResult {
       return doSteal(state, action);
     case 'trash':
       return doTrash(state, action);
+    case 'activate':
+      return { state, events: [] }; // E1 stub: always rejected (wrong_phase) until E4
   }
 }
 
