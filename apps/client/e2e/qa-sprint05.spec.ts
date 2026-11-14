@@ -179,21 +179,33 @@ test.describe('QA S-05-2 the ICE says what it does', () => {
     expect(l.selected).toBeNull();
     expect(l.targets).toEqual([]);
     expect(await getView(page)).toEqual(before);
-    // The next tap picks the card: handled and lit within 0.1 s of the game seeing it.
-    await page.evaluate(() => {
-      const w = window as unknown as { __sel?: number };
-      w.__sel = undefined;
-      const loop = () => {
-        if (window.__overclock!.layout().selected !== null) w.__sel = performance.now();
-        else requestAnimationFrame(loop);
-      };
-      requestAnimationFrame(loop);
-    });
+    // S-07-6: the next tap opens the hand view on the card, and the tap on its big card picks it:
+    // each handled and on screen within 0.1 s of the game seeing it.
+    const watch = (what: 'view' | 'pick') =>
+      page.evaluate((w0) => {
+        const w = window as unknown as { __sel?: number };
+        w.__sel = undefined;
+        const loop = () => {
+          const lay = window.__overclock!.layout();
+          if (w0 === 'view' ? lay.handView !== null : lay.selected !== null) w.__sel = performance.now();
+          else requestAnimationFrame(loop);
+        };
+        requestAnimationFrame(loop);
+      }, what);
+    const seen = async () => {
+      await page.waitForFunction(() => (window as unknown as { __sel?: number }).__sel !== undefined);
+      return page.evaluate(() => ({ sel: (window as unknown as { __sel: number }).__sel, input: window.__overclock!.lastInput() }));
+    };
+    await watch('view');
     await tap(page, l.hand[i]!.box);
-    await page.waitForFunction(() => (window as unknown as { __sel?: number }).__sel !== undefined);
-    const r = await page.evaluate(() => ({ sel: (window as unknown as { __sel: number }).__sel, input: window.__overclock!.lastInput() }));
+    const r1 = await seen();
+    expect((await layout(page)).handView?.index).toBe(i);
+    await watch('pick');
+    await tap(page, (await layout(page)).handView!.centre);
+    const r = await seen();
     expect((await layout(page)).selected).toBe(i);
-    test.info().annotations.push({ type: 'pick-after-report', description: `handled ${(r.input!.handledAt - r.input!.eventAt).toFixed(1)}ms after the tap; lit on frame ${(r.sel - r.input!.eventAt).toFixed(1)}ms after the tap` });
+    test.info().annotations.push({ type: 'pick-after-report', description: `view: on frame ${(r1.sel - r1.input!.eventAt).toFixed(1)}ms after the tap; pick: handled ${(r.input!.handledAt - r.input!.eventAt).toFixed(1)}ms after the tap; lit on frame ${(r.sel - r.input!.eventAt).toFixed(1)}ms after the tap` });
+    expect(r1.sel - r1.input!.handledAt).toBeLessThan(100);
     expect(r.sel - r.input!.handledAt).toBeLessThan(100);
   });
 
@@ -251,6 +263,9 @@ test.describe('QA S-05-3 carousel', () => {
     expect(after.carousel.find((x) => x.index === 1)!.offset).toBe(-1);
     await shot(page, '12-carousel-after-slide');
     await h.release();
+    // S-07-6: the hold opened the hand view, which stays open after lifting; Back closes it.
+    await page.waitForFunction(() => window.__overclock!.layout().handView?.index === 2);
+    expect(await page.evaluate(() => window.__overclock!.back())).toBe('close_zoom');
     await page.waitForFunction(() => window.__overclock!.layout().zoom === null);
   });
 });
@@ -328,6 +343,9 @@ test.describe('QA timing S-05-3', () => {
     test.info().annotations.push({ type: 'qa-fast-slide-ms', description: res.map((r) => r.ms.toFixed(1)).join(',') });
     for (const r of res) expect(r.ms).toBeLessThan(100);
     await h.release();
+    // S-07-6: the hold opened the hand view, which stays open after lifting; Back closes it.
+    await page.waitForFunction(() => window.__overclock!.layout().handView !== null);
+    expect(await page.evaluate(() => window.__overclock!.back())).toBe('close_zoom');
     await page.waitForFunction(() => window.__overclock!.layout().zoom === null);
     // Nothing played or spent by the whole slide.
     expect((await layout(page)).selected).toBeNull();

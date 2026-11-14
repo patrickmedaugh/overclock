@@ -20,6 +20,8 @@ import {
   targetOf,
   toStep,
   waitIdle,
+  outsideHandView,
+  pickHand,
 } from './helpers';
 import { pixelStats } from './pixels';
 
@@ -97,6 +99,9 @@ test.describe('QA S-04-3 hold and slide', () => {
     await h.move(center(hand[0]!.box).x, center(hand[0]!.box).y);
     await page.waitForFunction(() => window.__overclock!.layout().hand.findIndex((x) => x.outlined) === 0);
     await h.release();
+    // S-07-6: the hold opened the hand view, which stays open on the last card read; Back closes it.
+    await page.waitForFunction(() => window.__overclock!.layout().handView?.index === 0);
+    expect(await page.evaluate(() => window.__overclock!.back())).toBe('close_zoom');
     await page.waitForFunction(() => window.__overclock!.layout().zoom === null);
   });
 
@@ -113,16 +118,22 @@ test.describe('QA S-04-3 hold and slide', () => {
     await h.move(center(hq.box).x, center(hq.box).y);
     if (l.endTurn) await h.move(center(l.endTurn.box).x, center(l.endTurn.box).y);
     await h.release();
-    await page.waitForFunction(() => window.__overclock!.layout().zoom === null);
+    // S-07-6: the hold opened the hand view, which stays open after lifting (nothing lifted out of it),
+    // on the card the slide reached last (the finger kept sliding over HQ and End turn).
+    await page.waitForFunction(() => window.__overclock!.layout().handView?.lifted === false);
     await page.waitForTimeout(400);
     const after = await layout(page);
     expect(after.selected).toBeNull();
     expect(after.targets).toEqual([]);
+    expect(after.drag).toBeNull();
     expect(await getView(page)).toEqual(before);
-    // A quick tap right after still picks a card.
+    // A tap outside the cards closes the view and does nothing else; a pick right after still works.
+    await tap(page, outsideHandView(after));
+    await page.waitForFunction(() => window.__overclock!.layout().handView === null);
+    expect(await getView(page)).toEqual(before);
     const v = await getView(page);
     const i = v.handOptions.findIndex((o) => o.some((x) => x.reject === null));
-    await tap(page, after.hand[i]!.box);
+    await pickHand(page, i);
     await page.waitForFunction((n) => window.__overclock!.layout().selected === n, i);
   });
 

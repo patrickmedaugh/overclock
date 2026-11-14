@@ -1,7 +1,10 @@
 // S-04-3: hold a hand card so it zooms, then slide the finger to read the rest
-// of the hand. Lifting closes the zoom and picks nothing (owner answer A).
+// of the hand (owner answer A). S-07-6 (owner's hand design): the hold opens the
+// hand view on that card, sliding along the hand still browses it, and lifting
+// leaves the hand view open on the card read last; nothing is picked or played.
+// A quick tap opens the hand view; a tap on its big card picks the card.
 import { type Page, expect, test } from '@playwright/test';
-import { type Box, center, getView, layout, openBoard, tap } from './helpers';
+import { type Box, center, getView, layout, openBoard, pickHand, tap } from './helpers';
 
 function isTouch(): boolean {
   return test.info().project.use.hasTouch === true;
@@ -58,13 +61,19 @@ async function holdFirst(page: Page): Promise<{ h: Hold; hand: { cardId: string;
 }
 
 test.describe('S-04-3 hold and slide through the hand', () => {
-  test('a quick tap still picks the card to play', async ({ page }) => {
+  test('a quick tap opens the hand view on the card; a tap on its big card picks it to play', async ({ page }) => {
     await openBoard(page, 1);
     const l = await layout(page);
     const view = await getView(page);
     const i = view.handOptions.findIndex((o) => o.some((x) => x.reject === null));
     expect(i).toBeGreaterThanOrEqual(0);
     await tap(page, l.hand[i]!.box);
+    await page.waitForFunction((n) => window.__overclock!.layout().handView?.index === n, i);
+    expect((await layout(page)).selected).toBeNull();
+    expect(await getView(page)).toEqual(view);
+    // Closed again; then the no-drag pick.
+    expect(await page.evaluate(() => window.__overclock!.back())).toBe('close_zoom');
+    await pickHand(page, i);
     await page.waitForFunction((n) => window.__overclock!.layout().selected === n, i);
     expect((await layout(page)).zoom).toBeNull();
   });
@@ -101,20 +110,27 @@ test.describe('S-04-3 hold and slide through the hand', () => {
     await h.release();
   });
 
-  test('lifting after a slide closes the zoom and picks or spends nothing', async ({ page }) => {
+  test('lifting after a slide leaves the hand view open on that card and picks or spends nothing', async ({ page }) => {
     const { h, hand } = await holdFirst(page);
     const before = await getView(page);
     const c = center(hand[2]!.box);
     await h.move(c.x, c.y);
     await waitZoom(page, hand[2]!.cardId);
     await h.release();
-    await page.waitForFunction(() => window.__overclock!.layout().zoom === null);
     await page.waitForTimeout(300);
     const after = await layout(page);
-    expect(after.zoom).toBeNull();
+    expect(after.handView).toMatchObject({ index: 2, cardId: hand[2]!.cardId, lifted: false });
+    expect(after.zoom!.cardId).toBe(hand[2]!.cardId);
     expect(after.selected).toBeNull();
     expect(after.targets.length).toBe(0);
+    expect(after.drag).toBeNull();
+    // The slide's outline in the strip is gone (the hand view marks the card instead).
     expect(after.hand.some((x) => x.outlined)).toBe(false);
+    expect(await getView(page)).toEqual(before);
+    // Back closes it, still with nothing picked or spent.
+    expect(await page.evaluate(() => window.__overclock!.back())).toBe('close_zoom');
+    await page.waitForFunction(() => window.__overclock!.layout().zoom === null);
+    expect((await layout(page)).selected).toBeNull();
     expect(await getView(page)).toEqual(before);
   });
 

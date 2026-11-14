@@ -14,6 +14,7 @@ import {
   openBoard,
   passTurn,
   pickCard,
+  pickHand,
   runButtonOf,
   tap,
   targetOf,
@@ -241,9 +242,10 @@ test.describe('S-03-5 no "Needs runs (coming soon)"', () => {
         // Picking a card and tapping it again leaves the hand where it was: one read of the boxes.
         const l = await layout(page);
         expect(l.hand.map((h) => h.cardId)).toEqual(openingHands(seed)[side]);
-        for (const h of l.hand) {
-          await tap(page, h.box);
-          await tap(page, h.box); // tap again: cancel
+        for (let k = 0; k < l.hand.length; k++) {
+          // S-07-6: open the hand view on the card and tap its big card (the pick), then tap it again in the hand: cancel.
+          const picked = await pickHand(page, k);
+          if (picked.selected === k) await tap(page, l.hand[k]!.box);
         }
         const after = await layout(page);
         expect(after.selected).toBeNull();

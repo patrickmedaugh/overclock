@@ -19,7 +19,7 @@ import type { Action, Side } from '@overclock/engine';
 import { LocalMatch } from '@overclock/match';
 import { planToStep } from '@overclock/match/testing';
 import { type Page, expect, test } from '@playwright/test';
-import { getView, layout, runButtonOf, tap, waitEndTurnArmed, waitIdle } from './helpers';
+import { getView, layout, pickHand, runButtonOf, tap, waitEndTurnArmed, waitIdle } from './helpers';
 import { type Phone, act, frames, joinGame, layoutOf, loseSignal, openPhone, regainSignal, startTestGame, tapButton, view, waitPlaying, waitView } from './online';
 
 const SHOTS = join(dirname(fileURLToPath(import.meta.url)), '../../../docs/sprints/sprint-06-qa');
@@ -232,12 +232,19 @@ test.describe('QA S-06-2 not your turn', () => {
     const rl = await layoutOf(runner);
     expect(rl.text.help).toMatch(/Corp's turn/);
     const sentBefore = frames(runner.sent).filter((f) => f.t === 'act').length;
-    const boxes = [rl.runner.credits, rl.runner.deck, ...rl.hand.slice(0, 2).map((h) => h.box)];
+    const boxes = [rl.runner.credits, rl.runner.deck];
     if (rl.endTurn) boxes.push(rl.endTurn.box);
     for (const b of boxes) {
       await tap(runner.page, b);
       await runner.page.waitForTimeout(150);
       // Each tap is answered at once with a plain "Not your turn".
+      expect((await layoutOf(runner)).hint?.text).toBe('Not your turn');
+    }
+    // S-07-6: a tap on a hand card opens the hand view (reading is fine on the other turn);
+    // the tap on its big card (the pick) is answered at once with "Not your turn".
+    for (const k of [0, 1]) {
+      await pickHand(runner.page, k);
+      await runner.page.waitForTimeout(150);
       expect((await layoutOf(runner)).hint?.text).toBe('Not your turn');
     }
     const cl = await layoutOf(corp);

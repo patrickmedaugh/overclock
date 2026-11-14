@@ -22,7 +22,7 @@ import { DROP_WAIT_MS, LIFT_MS, RETURN_MS, SWIPE_TOLERANCE, VIEW_FADE_MS, type V
 import type { AnimRecord, Box, EndTurnClock, InstalledSnapshot, Insets, LayoutSnapshot, SideLayout, TargetSnapshot } from './hook-types';
 import type { Decision, Presentation } from './session';
 import { CHOICE_HINT, hintFor } from './hints';
-import { attachPress, inputTime } from './input';
+import { attachPress, inputTime, noteRelease } from './input';
 import type { FederatedPointerEvent } from 'pixi.js';
 import { BUILD_LINE, type BoardLayout, type BoardShape, CARD_RATIO, type SideRow, computeLayout } from './layout';
 import { LEAVE_TEXT, LEAVE_TEXT_ONLINE, LeaveDialog } from './leaveDialog';
@@ -92,6 +92,9 @@ function isUnder(c: Container | null, root: Container | null): boolean {
   for (let n: Container | null = c; n; n = n.parent) if (n === root) return true;
   return false;
 }
+
+/** S-07-6: a lift timer running later than this past its due time means the page stalled. */
+const LATE_LIFT_MS = 50;
 
 /** QA-S4-1 pre-draw: no bake from this long before the hold opens the zoom until it has opened (ms). */
 const PREDRAW_QUIET_MS = 60;
@@ -2526,8 +2529,18 @@ export class Board {
     const stamp = native instanceof Event ? native.timeStamp : now;
     const at = stamp > 0 && stamp <= now && now - stamp < 10_000 ? stamp : now;
     const press = { id: e.pointerId, x, y, lastX: x, lastY: y, at, hit, start: zoom.index, swiped: false, timer: null as ReturnType<typeof setTimeout> | null };
-    // Long-press the big card to lift it (judged by when the finger went down).
-    if (hit.kind === 'centre') press.timer = setTimeout(() => this.liftCentre(), Math.max(0, LIFT_MS - (performance.now() - at)));
+    // Long-press the big card to lift it (judged by when the finger went down). A timer that runs
+    // late (the page stalled) waits one frame, so a release queued meanwhile is handled first (QA-S3-7).
+    if (hit.kind === 'centre') {
+      press.timer = setTimeout(() => {
+        press.timer = null;
+        if (this.viewPress !== press) return;
+        if (performance.now() - press.at < LIFT_MS + LATE_LIFT_MS) this.liftCentre();
+        else requestAnimationFrame(() => {
+          if (this.viewPress === press) this.liftCentre();
+        });
+      }, Math.max(0, LIFT_MS - (performance.now() - at)));
+    }
     this.viewPress = press;
   }
 
@@ -2562,16 +2575,30 @@ export class Board {
   }
 
   private onViewUp(e: FederatedPointerEvent, cancelled: boolean): void {
+    if (!cancelled) {
+      const native: unknown = e.nativeEvent;
+      noteRelease(native instanceof Event ? native.timeStamp : e.timeStamp, performance.now(), 'hand-view');
+    }
     const p = this.viewPress;
     if (!p || p.id !== e.pointerId) return;
     this.endViewPress();
+    const native: unknown = e.nativeEvent;
+    const upAt = native instanceof Event ? native.timeStamp : performance.now();
     if (this.lift) {
+      // The page stalled and lifted the card, but the finger was down for less than the hold time
+      // and never moved away: it was a tap on the big card (QA-S3-7: a tap is judged by its own times).
+      if (!cancelled && !p.swiped && upAt - p.at < LIFT_MS && Math.hypot(e.global.x - p.x, e.global.y - p.y) <= SWIPE_TOLERANCE) {
+        const index = this.lift.index;
+        this.cancelLift(0);
+        this.closeZoom(true);
+        this.pickCard(index);
+        this.callbacks.changed();
+        return;
+      }
       this.dropLift(e.global.x, e.global.y, cancelled);
       return;
     }
     if (cancelled || p.swiped) return;
-    const native: unknown = e.nativeEvent;
-    const upAt = native instanceof Event ? native.timeStamp : performance.now();
     // Held long enough to lift but the page was too busy to show it: a hold is never a tap.
     if (p.hit.kind === 'centre' && upAt - p.at >= LIFT_MS) return;
     const zoom = this.zoom;

@@ -502,6 +502,15 @@ export async function pickHand(page: Page, i: number): Promise<LayoutSnapshot> {
   return layout(page);
 }
 
+/** S-07-6: a spot outside the open hand view's cards (its top-left corner): a tap there closes the view. */
+export function outsideHandView(l: LayoutSnapshot): Box {
+  const safe = safeRect(l);
+  const b = { x: safe.x + 2, y: safe.y + 2, width: 8, height: 8 };
+  const cards = [...(l.zoom ? [l.zoom.box, ...l.zoom.carousel.map((c) => c.box)] : []), ...l.hand.map((h) => h.box)];
+  expect(cards.some((c) => overlaps(c, b)), 'the corner is clear of the hand view').toBe(false);
+  return b;
+}
+
 /** Picks the hand card named `name` (pickHand) and returns the layout with its targets lit. */
 export async function pickCard(page: Page, name: string): Promise<LayoutSnapshot> {
   const l = await layout(page);

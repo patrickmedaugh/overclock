@@ -68,9 +68,9 @@ test.describe('S-07-6 hand: tap to open, long-press to light places, drag to pla
     const z = after.zoom!;
     expect(z.cardId).toBe(l.hand[2]!.cardId);
     expect(after.handView).toMatchObject({ index: 2, cardId: l.hand[2]!.cardId, lifted: false });
-    // Readable: the zoom size (most of the screen's height), every text inside the card.
+    // Readable: the zoom size (most of a phone's height; on desktop at least 3x the hand card), every text inside the card.
     expect(z.box.width).toBeCloseTo(open.handView!.centre.width, 0);
-    expect(z.box.height).toBeGreaterThan(after.viewport.height * 0.8);
+    expect(z.box.height).toBeGreaterThan(Math.min(after.viewport.height * 0.8, l.hand[2]!.box.height * 3));
     expect(z.textOverflow).toBe(false);
     // Two neighbours each side, smaller.
     expect(z.carousel.map((c) => c.index)).toEqual([0, 1, 3, 4]);
