@@ -203,6 +203,18 @@ export interface LayoutSnapshot {
     carousel: { cardId: string; index: number; offset: number; box: Box; full: boolean }[];
   } | null;
   /**
+   * S-07-6: the open hand view (tap the hand): `index` is the hand card in the
+   * middle, drawn big (`zoom` describes it and its neighbours while it shows).
+   * `lifted`: that card was long-pressed out of the view and follows the finger (`drag`).
+   * `centre`: where the big card sits (tap it to pick the card, hold it to lift it).
+   */
+  handView: { index: number; cardId: string; lifted: boolean; centre: Box } | null;
+  /**
+   * S-07-6: a hand card lifted out of the hand view, following the finger.
+   * `box`: where it is drawn now; `hover`: the place under the finger, if any (lit or dimmed).
+   */
+  drag: { index: number; cardId: string; box: Box; hover: { kind: TargetSnapshot['kind']; server?: string; lit: boolean } | null } | null;
+  /**
    * S-05-2: what the ICE just did ("Enigma: you lost 1 click. Enigma ended your run."),
    * shown until the next tap anywhere (that tap only closes it). `box`: the message.
    */
@@ -270,7 +282,13 @@ export type AnimKind =
   /** S-04-4: a status note pops (bad publicity taken, run-only credits gained or spent). */
   | 'tag_pop'
   /** S-04-4: the free-rez choice lights the offered ICE. */
-  | 'choice_open';
+  | 'choice_open'
+  /** S-07-6: the hand view opens (`text`: the card in the middle). */
+  | 'hand_open'
+  /** S-07-6: a card lifts out of the hand view (the view fades out; `text`: its card id). */
+  | 'card_lift'
+  /** S-07-6: a lifted card let go away from a lit place flies back to the hand. */
+  | 'card_return';
 
 /** Logged when an animation or hint starts. */
 export interface AnimRecord {
