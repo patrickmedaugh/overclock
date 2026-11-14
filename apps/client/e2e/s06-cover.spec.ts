@@ -52,7 +52,7 @@ async function expectCovered(page: Page, to: 'corp' | 'runner', title: RegExp): 
   expect(l.cover, 'the cover is up').not.toBeNull();
   expect(l.cover!.to).toBe(to);
   expect(l.cover!.title).toMatch(title);
-  expect(l.cover!.line).toBe('Tap when ready');
+  expect(l.cover!.line).toBe('');
   expect(l.cover!.box).toEqual({ x: 0, y: 0, width: l.viewport.width, height: l.viewport.height });
   // Card places, minus the cover's own picture and words.
   const areas = cardAreas(l).flatMap((b) => outside(b, l.cover!.content));
@@ -111,7 +111,7 @@ test.describe('S-06-5 pass-the-phone cover', () => {
     await dispatch(page, { type: 'discard', player: 'corp', handIndices: [5] });
     const before = await getView(page);
     expect(before.viewer).toBe('runner');
-    const areas = await expectCovered(page, 'runner', /^Pass the phone to the Runner$/);
+    const areas = await expectCovered(page, 'runner', /^Pass to the Runner — tap when ready$/);
     await shot(page, 'cover-to-runner');
 
     await liftCover(page);
@@ -139,7 +139,7 @@ test.describe('S-06-5 pass-the-phone cover', () => {
     const l = await layout(page);
     expect(l.endTurn).not.toBeNull();
     await tap(page, l.endTurn!.box);
-    await expectCovered(page, 'corp', /^Pass the phone to the Corp$/);
+    await expectCovered(page, 'corp', /^Pass to the Corp — tap when ready$/);
     expect((await getView(page)).viewer).toBe('corp');
     await liftCover(page);
     expect((await layout(page)).viewer).toBe('corp');
@@ -150,7 +150,7 @@ test.describe('S-06-5 pass-the-phone cover', () => {
     await toStep(page, 1, 'corp_rez_prompt');
     // The Runner's approach to face-down ICE waits on the Corp: cover for the Corp.
     expect((await getView(page)).viewer).toBe('runner');
-    await expectCovered(page, 'corp', /^Pass the phone to the Corp$/);
+    await expectCovered(page, 'corp', /^Pass to the Corp — tap when ready$/);
     await shot(page, 'cover-to-corp-for-rez');
     await liftCover(page);
     await waitIdle(page);
@@ -161,7 +161,7 @@ test.describe('S-06-5 pass-the-phone cover', () => {
     await shot(page, 'corp-decides');
 
     await tap(page, runButtonOf(l, "Don't rez").box);
-    await expectCovered(page, 'runner', /^Pass the phone back to the Runner$/);
+    await expectCovered(page, 'runner', /^Pass back to the Runner — tap when ready$/);
     await shot(page, 'cover-back-to-runner');
     await liftCover(page);
     await waitIdle(page);

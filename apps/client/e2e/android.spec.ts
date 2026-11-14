@@ -4,9 +4,9 @@
 import { type Page, expect, test } from '@playwright/test';
 import { pixelStats } from './pixels';
 
-/** Sprint 6: the app opens on the start screen; "Play on this phone" starts today's game. */
+/** Sprint 6: the app opens on the start screen; "Play on this device" starts today's game. */
 async function playHere(page: Page): Promise<void> {
-  await page.getByRole('button', { name: /Play on this phone/ }).tap();
+  await page.getByRole('button', { name: /Play on this device/ }).tap();
   await expect(page.locator('#start')).toBeHidden();
 }
 

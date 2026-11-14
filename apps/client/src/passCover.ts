@@ -13,10 +13,14 @@ export interface CoverText {
   line: string;
 }
 
-export const COVER_LINE = 'Tap when ready';
+/**
+ * Owner request (2026-11-14): pass-and-play also runs on a desktop, so the cover
+ * never says "phone": one line, "Pass to the Corp — tap when ready".
+ */
+export const COVER_LINE = '';
 
 export function coverText(to: Side, back = false): CoverText {
-  return { to, title: `Pass the phone ${back ? 'back ' : ''}to the ${SIDE_NAME[to]}`, line: COVER_LINE };
+  return { to, title: `Pass ${back ? 'back ' : ''}to the ${SIDE_NAME[to]} — tap when ready`, line: COVER_LINE };
 }
 
 /**
