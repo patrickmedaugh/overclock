@@ -258,15 +258,21 @@ export function drawTop(state: GameState, side: Side): { state: GameState; cardI
 }
 
 /**
- * Starts `side`'s turn number `turn`: fresh clicks, action phase, then the
- * Corp's mandatory draw. If the Corp must draw from an empty deck, the Runner
- * wins immediately (RULES_SPEC "Winning").
+ * Starts `side`'s turn number `turn`: fresh clicks, action phase, then (Sprint 7) `beforeDraw`
+ * ("when your turn begins" abilities), then the Corp's mandatory draw. If the Corp must draw
+ * from an empty deck, the Runner wins immediately (RULES_SPEC "Winning").
  */
-export function startTurn(state: GameState, side: Side, turn: number): { state: GameState; events: GameEvent[] } {
+export function startTurn(
+  state: GameState,
+  side: Side,
+  turn: number,
+  beforeDraw?: (s: GameState, events: GameEvent[]) => GameState,
+): { state: GameState; events: GameEvent[] } {
   const clicks = clicksPerTurn(side);
   let s: GameState = withPlayer({ ...state, turn, activePlayer: side, phase: 'action' }, side, { clicks });
   const events: GameEvent[] = [{ type: 'turn_started', player: side, turn, clicks }];
-  if (side === 'corp') {
+  if (beforeDraw) s = beforeDraw(s, events);
+  if (side === 'corp' && s.phase !== 'over') {
     if (s.players.corp.deck.length === 0) {
       s = endGame(s, 'runner', 'corp_decked', events);
     } else {

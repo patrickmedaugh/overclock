@@ -22,7 +22,7 @@ import {
   unstolenAgendaShown,
   waitingOn,
 } from './rules';
-import { doJackOut, doPass, doRez, doRun, doSteal, doTrash, doUseAbility, pruneEmptyRemotes, resolveEffect } from './run';
+import { doJackOut, doPass, doRez, doRun, doSteal, doTrash, doUseAbility, pruneEmptyRemotes, resolveEffect, turnStartAbilities } from './run';
 import {
   checkPointsWin,
   drawTop,
@@ -47,7 +47,8 @@ function passTurn(state: GameState, events: GameEvent[]): ApplyResult {
   events.push({ type: 'turn_ended', player: ending });
   // Sprint 5: Last run goes away when the Runner's turn ends.
   const ended = ending === 'runner' ? { ...state, lastRun: null } : state;
-  const started = startTurn(ended, opponentOf(ending), state.turn + 1);
+  // Sprint 7: "when your turn begins" abilities happen before the Corp's draw.
+  const started = startTurn(ended, opponentOf(ending), state.turn + 1, turnStartAbilities);
   events.push(...started.events);
   return { state: started.state, events };
 }
@@ -298,7 +299,7 @@ export function runStepOptions(state: GameState, player: Side): CardOption[] {
   const pass: Action = { type: 'pass', player };
   if (run.step === 'approach') {
     const ice = currentIce(state) as Installed;
-    out.push(option(state, { type: 'rez', player, uid: ice.uid }, rezCost(ice)), option(state, pass, 0));
+    out.push(option(state, { type: 'rez', player, uid: ice.uid }, rezCost(state, ice)), option(state, pass, 0));
   } else if (run.step === 'encounter') {
     const ice = currentIce(state) as Installed;
     const iceCard = getCard(ice.cardId);
@@ -342,24 +343,25 @@ export function choiceOptions(state: GameState, player: Side): CardOption[] {
 }
 
 /**
- * Corp only: per installed agenda uid (servers in order, then install order),
- * `advance` (cost 1) and, once it has enough counters, `score`. Listed off-turn
- * too, with the reason in `reject` (like `handOptions`). Runner: {}.
+ * Per own installed card uid, listed off-turn too with the reason in `reject` (like `handOptions`).
+ * Corp (servers in order; ICE innermost first, then content): agenda `advance` (cost 1) and, once it
+ * has enough counters, `score`; unrezzed asset/upgrade `rez` (cost = rez cost, Sprint 7).
+ * The other side's cards are never listed.
  */
 export function installedOptions(state: GameState, player: Side): Record<string, CardOption[]> {
   const out: Record<string, CardOption[]> = {};
   if (player !== 'corp') return out;
   for (const sv of state.servers) {
-    for (const c of sv.content) {
+    for (const c of [...sv.ice, ...sv.content]) {
       const card = getCard(c.cardId);
-      if (card?.type !== 'agenda') continue;
-      const advance: ActionOf<'advance'> = { type: 'advance', player, uid: c.uid };
-      const opts: CardOption[] = [{ action: advance, cost: ADVANCE_COST, reject: rejectionFor(state, advance) }];
-      if (c.advancements >= (card.advancementRequirement ?? 0)) {
-        const score: ActionOf<'score'> = { type: 'score', player, uid: c.uid };
-        opts.push({ action: score, cost: 0, reject: rejectionFor(state, score) });
+      const opts: CardOption[] = [];
+      if (card?.type === 'agenda') {
+        opts.push(option(state, { type: 'advance', player, uid: c.uid }, ADVANCE_COST));
+        if (c.advancements >= (card.advancementRequirement ?? 0)) opts.push(option(state, { type: 'score', player, uid: c.uid }, 0));
+      } else if ((card?.type === 'asset' || card?.type === 'upgrade') && !c.rezzed) {
+        opts.push(option(state, { type: 'rez', player, uid: c.uid }, rezCost(state, c)));
       }
-      out[c.uid] = opts;
+      if (opts.length > 0) out[c.uid] = opts;
     }
   }
   return out;

@@ -14,6 +14,7 @@ import {
   accessCard,
   breakerCard,
   breakerStrength,
+  corpInstalled,
   currentIce,
   findServer,
   rezCost,
@@ -137,7 +138,7 @@ function approach(state: GameState, events: Events): GameState {
   events.push({ type: 'ice_approached', uid: ice.uid, position: run.position });
   const s = setRun(state, { step: 'approach', broken: [] });
   if (ice.rezzed) return encounter(s, events);
-  if (s.options.rezWindow === 'always' || s.players.corp.credits >= rezCost(ice)) return s;
+  if (s.options.rezWindow === 'always' || s.players.corp.credits >= rezCost(s, ice)) return s;
   return passIce(s, events);
 }
 
@@ -349,6 +350,8 @@ function netDamage(state: GameState, amount: number, events: Events, ctx: Effect
 export interface EffectContext {
   /** The card whose effect this is (run events: `run_started.cardId`). */
   readonly cardId?: string;
+  /** Sprint 7: the installed card whose effect this is (`place_credits` / `take_credits` source). */
+  readonly uid?: string;
   /** The server named in the `play` action (run events with no fixed server). */
   readonly server?: ServerId;
   /**
@@ -414,6 +417,55 @@ export function resolveEffect(state: GameState, effect: Effect, owner: Side, eve
   }
 }
 
+// ---- Sprint 7: turn start -----------------------------------------------------------
+
+/** Replaces installed card `uid` (rig, or any server's ICE / content) with `patch` applied. */
+export function patchCard(state: GameState, uid: string, patch: Partial<Installed>): GameState {
+  const fix = (list: readonly Installed[]) => list.map((c) => (c.uid === uid ? { ...c, ...patch } : c));
+  return { ...state, rig: fix(state.rig), servers: state.servers.map((sv) => ({ ...sv, ice: fix(sv.ice), content: fix(sv.content) })) };
+}
+
+/**
+ * "When your turn begins" for `side`, after `turn_started` and before the Corp's draw: each rezzed
+ * Corp card (servers order, ICE then content) / Runner card (rig order) with `onTurnStart`:
+ * `ability_triggered` then its effects; Runner recurring credits below their amount are refilled
+ * (`ability_triggered`, `hosted_credits_changed`). Nothing happens for cards without these.
+ */
+export function turnStartAbilities(state: GameState, events: Events): GameState {
+  const side = state.activePlayer;
+  const cards = side === 'corp' ? state.servers.flatMap((sv) => [...sv.ice, ...sv.content]).filter((c) => c.rezzed) : state.rig;
+  let s = state;
+  for (const c of cards) {
+    const def = getCard(c.cardId);
+    if (!def) continue;
+    if (def.onTurnStart && def.onTurnStart.length > 0) {
+      events.push({ type: 'ability_triggered', uid: c.uid, cardId: c.cardId, trigger: 'turn_start' });
+      for (const effect of def.onTurnStart) {
+        s = resolveEffect(s, effect, side, events, { cardId: c.cardId, uid: c.uid });
+        if (s.phase === 'over') return s;
+      }
+    }
+    const recurring = def.recurringCredits;
+    const now = installedCard(s, c.uid);
+    if (recurring && now && now.hostedCredits < recurring.amount) {
+      events.push({ type: 'ability_triggered', uid: c.uid, cardId: c.cardId, trigger: 'turn_start' });
+      s = setHosted(s, c.uid, recurring.amount, events);
+    }
+  }
+  return s;
+}
+
+/** Installed card `uid` (rig or servers), or undefined. */
+export function installedCard(state: GameState, uid: string): Installed | undefined {
+  return state.rig.find((c) => c.uid === uid) ?? corpInstalled(state, uid)?.installed;
+}
+
+/** Sets the hosted credits of `uid` and reports the new total. */
+export function setHosted(state: GameState, uid: string, credits: number, events: Events): GameState {
+  events.push({ type: 'hosted_credits_changed', uid, credits });
+  return patchCard(state, uid, { hostedCredits: credits });
+}
+
 // ---- actions (already validated by rules.ts) ----------------------------------------
 
 /**
@@ -435,10 +487,10 @@ export function doRun(state: GameState, a: ActionOf<'run'>): { state: GameState;
   return { state: startRun(s, a.server, {}, events), events };
 }
 
-/** Rezzes installed Corp ICE `uid` (no payment). */
+/** Rezzes installed Corp card `uid` (ICE or content; no payment). */
 function setRezzed(state: GameState, uid: string): GameState {
   const fix = (list: readonly Installed[]) => list.map((c) => (c.uid === uid ? { ...c, rezzed: true } : c));
-  return { ...state, servers: state.servers.map((sv) => ({ ...sv, ice: fix(sv.ice) })) };
+  return { ...state, servers: state.servers.map((sv) => ({ ...sv, ice: fix(sv.ice), content: fix(sv.content) })) };
 }
 
 /** Closes the open choice: back to the action phase (the Corp's turn goes on). */
@@ -457,8 +509,17 @@ export function doRez(state: GameState, a: ActionOf<'rez'>): { state: GameState;
     events.push({ type: 'ice_rezzed', uid: ice.uid, cardId: ice.cardId });
     return { state: closeChoice(s, false, events), events };
   }
+  if (state.phase === 'action') {
+    // Sprint 7: an asset/upgrade on the Corp's own turn (no click).
+    const where = corpInstalled(state, a.uid)!;
+    const cost = rezCost(state, where.installed);
+    if (cost > 0) events.push({ type: 'credits_spent', player: 'corp', amount: cost });
+    const s = setRezzed(withPlayer(state, 'corp', { credits: state.players.corp.credits - cost }), a.uid);
+    events.push({ type: 'card_rezzed', uid: a.uid, cardId: where.installed.cardId, server: where.server.id });
+    return { state: s, events };
+  }
   const ice = currentIce(state) as Installed;
-  const cost = rezCost(ice);
+  const cost = rezCost(state, ice);
   if (cost > 0) events.push({ type: 'credits_spent', player: 'corp', amount: cost });
   const s = setRezzed(withPlayer(state, 'corp', { credits: state.players.corp.credits - cost }), a.uid);
   events.push({ type: 'ice_rezzed', uid: ice.uid, cardId: ice.cardId });

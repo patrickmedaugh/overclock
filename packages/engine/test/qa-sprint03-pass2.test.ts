@@ -11,6 +11,7 @@
 // - S-03-2 AC4: points equal the agendas in the score areas, and 7 ends the game at once.
 import { getCard } from '@overclock/cards';
 import { describe, expect, it } from 'vitest';
+import { rezCost } from '../src/rules';
 import {
   WINNING_POINTS,
   apply,
@@ -139,6 +140,14 @@ function checkRunnerEvents(before: GameState, after: GameState, events: readonly
         expect(ice?.rezzed === true && ice.cardId === e.cardId, `${where}: subroutine_resolved names rezzed ICE ${e.iceUid}`).toBe(true);
         break;
       }
+      case 'card_rezzed':
+      case 'ability_triggered': {
+        // Sprint 7 (engine-dev, spec change; QA reviews): names a Corp card only once it is face up:
+        // the uid is an installed, rezzed card with that id after the action.
+        const c = after.servers.flatMap((sv) => [...sv.ice, ...sv.content]).find((x) => x.uid === e.uid);
+        expect(c?.rezzed === true && c.cardId === e.cardId, `${where}: ${e.type} names face-up ${e.uid}`).toBe(true);
+        break;
+      }
       case 'card_accessed':
         // Either still on screen, or it was accessed and the run already ended in this same action.
         if (after.run) expect(accessed.has(e.cardId!), `${where}: accessed ${e.cardId} is in the access list`).toBe(true);
@@ -159,7 +168,11 @@ function checkWindows(s: GameState, where: string): void {
   if (run.step === 'approach') {
     expect(who, `${where}: approach waits on the Corp`).toBe('corp');
     expect(ice && !ice.rezzed, `${where}: approach only stops for face-down ICE`).toBe(true);
-    expect(s.players.corp.credits, `${where}: approach only stops when the Corp can pay`).toBeGreaterThanOrEqual(getCard(ice!.cardId)!.cost);
+    expect(s.players.corp.credits, `${where}: approach only stops when the Corp can pay`).toBeGreaterThanOrEqual(
+      // Sprint 7 (engine-dev, spec change; QA reviews): the discounted price (Akitaro Watanabe) is what counts.
+      rezCost(s, ice!),
+    );
+    expect(rezCost(s, ice!)).toBeLessThanOrEqual(getCard(ice!.cardId)!.cost);
     const types = legalActions(s, 'corp').map((a) => a.type).sort();
     expect(types, `${where}: Rez and Don't rez`).toEqual(['pass', 'rez']);
   }

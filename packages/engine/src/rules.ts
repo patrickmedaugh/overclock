@@ -228,9 +228,28 @@ const runTarget = (s: GameState, a: ActionOf<'run'>): RejectReason | null =>
 const rezUidShape = (_s: GameState, a: ActionOf<'rez'>): RejectReason | null =>
   typeof a.uid === 'string' ? null : 'invalid_action';
 
-/** The approached ICE's rez cost (its card cost; discounts are not built yet). */
-export function rezCost(ice: Installed): number {
-  return getCard(ice.cardId)?.cost ?? 0;
+/** Sprint 7: an installed Corp card with its server and zone, or undefined. */
+export function corpInstalled(s: GameState, uid: unknown): { installed: Installed; server: Server; zone: 'ice' | 'content' } | undefined {
+  for (const server of s.servers) {
+    const ice = server.ice.find((c) => c.uid === uid);
+    if (ice) return { installed: ice, server, zone: 'ice' };
+    const content = server.content.find((c) => c.uid === uid);
+    if (content) return { installed: content, server, zone: 'content' };
+  }
+  return undefined;
+}
+
+/**
+ * Sprint 7: an installed Corp card's rez cost. ICE: printed cost minus every rezzed
+ * `iceRezDiscount` among the cards of the server it protects (Akitaro Watanabe), never below 0.
+ * Other cards: printed cost. The only price used by options, the rez window and `no_credits`.
+ */
+export function rezCost(s: GameState, card: Installed): number {
+  const cost = getCard(card.cardId)?.cost ?? 0;
+  const where = corpInstalled(s, card.uid);
+  if (!where || where.zone !== 'ice') return cost;
+  const discount = where.server.content.reduce((sum, c) => sum + (c.rezzed ? (getCard(c.cardId)?.iceRezDiscount ?? 0) : 0), 0);
+  return Math.max(0, cost - discount);
 }
 
 /** Every unrezzed installed Corp ICE: servers in order, then ICE index order (innermost first). */
@@ -238,16 +257,43 @@ export function unrezzedIce(s: GameState): Installed[] {
   return s.servers.flatMap((sv) => sv.ice.filter((c) => !c.rezzed));
 }
 
-/** `free_rez` choice: any unrezzed installed ICE. Run: the approached ICE, still unrezzed. */
-const rezTarget = (s: GameState, a: ActionOf<'rez'>): RejectReason | null => {
-  if (s.phase === 'choice') return unrezzedIce(s).some((c) => c.uid === a.uid) ? null : 'bad_target';
-  const ice = currentIce(s);
-  return ice && ice.uid === a.uid && !ice.rezzed ? null : 'bad_target';
+/** Sprint 7: the Corp's unrezzed asset/upgrade `uid` (rezzable in its action phase), or undefined. */
+export function rezzableCard(s: GameState, uid: unknown): Installed | undefined {
+  const where = corpInstalled(s, uid);
+  if (!where || where.zone !== 'content' || where.installed.rezzed) return undefined;
+  const type = getCard(where.installed.cardId)?.type;
+  return type === 'asset' || type === 'upgrade' ? where.installed : undefined;
+}
+
+/** `rez` is answered in the approach step, an open choice, or (Sprint 7) the Corp's action phase. */
+const rezPhase = (s: GameState): RejectReason | null => {
+  if (s.phase === 'choice' || s.phase === 'action') return null;
+  return s.phase === 'run' && s.run?.step === 'approach' ? null : 'wrong_phase';
 };
 
-/** The free-rez choice costs nothing. */
-const canAffordRez = (s: GameState): RejectReason | null =>
-  s.phase === 'choice' || s.players.corp.credits >= rezCost(currentIce(s) as Installed) ? null : 'no_credits';
+/**
+ * `free_rez` choice: any unrezzed installed ICE. Run: the approached ICE, still unrezzed.
+ * Action phase (Sprint 7): the Corp's unrezzed asset/upgrade (ICE: bad_target). An asset/upgrade
+ * named during a run or a choice is `wrong_phase` (it can be rezzed, just not now).
+ */
+const rezTarget = (s: GameState, a: ActionOf<'rez'>): RejectReason | null => {
+  if (s.phase === 'action') return a.player === 'corp' && rezzableCard(s, a.uid) ? null : 'bad_target';
+  let ok: boolean;
+  if (s.phase === 'choice') ok = unrezzedIce(s).some((c) => c.uid === a.uid);
+  else {
+    const ice = currentIce(s);
+    ok = !!ice && ice.uid === a.uid && !ice.rezzed;
+  }
+  if (ok) return null;
+  return rezzableCard(s, a.uid) ? 'wrong_phase' : 'bad_target';
+};
+
+/** The free-rez choice costs nothing; otherwise the card's `rezCost`. */
+const canAffordRez = (s: GameState, a: ActionOf<'rez'>): RejectReason | null => {
+  if (s.phase === 'choice') return null;
+  const card = s.phase === 'action' ? (rezzableCard(s, a.uid) as Installed) : (currentIce(s) as Installed);
+  return s.players.corp.credits >= rezCost(s, card) ? null : 'no_credits';
+};
 
 /** `rez`/`pass` also answer an open choice (Priority Requisition: rez one ICE for free, or Skip). */
 const atStepOrChoice =
@@ -423,7 +469,7 @@ export const RULES: RuleTable = {
     canAffordPlay,
   ],
   run: [playerShape, runServerShape, notOver, yourTurn, inPhase('action'), hasClick, runTarget],
-  rez: [playerShape, rezUidShape, notOver, decides, atStepOrChoice('approach'), rezTarget, canAffordRez],
+  rez: [playerShape, rezUidShape, notOver, decides, rezPhase, rezTarget, canAffordRez],
   pass: [playerShape, notOver, decides, atStepOrChoice(...ALL_STEPS), passAllowed],
   jack_out: [playerShape, notOver, decides, atStep('continue')],
   use_ability: [

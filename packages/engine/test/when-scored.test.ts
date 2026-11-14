@@ -257,9 +257,9 @@ describe('S-04-4 AC3: Priority Requisition — rez one face-down ICE for free, o
     expect(rejection(apply(over, rez('i1')).events)).toBe('game_over');
   });
 
-  it('outside a choice, rez of a non-approached ICE is still wrong_phase (no run)', () => {
+  it('outside a choice, rez of ICE in the action phase is bad_target (Sprint 7: only assets/upgrades rez there)', () => {
     const s = prReady();
-    expect(rejection(apply(s, rez('i1')).events)).toBe('wrong_phase');
+    expect(rejection(apply(s, rez('i1')).events)).toBe('bad_target');
     expect(rejection(apply(s, pass()).events)).toBe('wrong_phase');
   });
 

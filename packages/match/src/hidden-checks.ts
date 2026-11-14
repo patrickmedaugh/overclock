@@ -33,6 +33,13 @@ export function runnerEventLeaks(events: readonly GameEvent[], after: GameState)
   const out: string[] = [];
   for (const e of events) {
     if (REVEALING.has(e.type)) continue;
+    if (e.type === 'card_rezzed' || e.type === 'ability_triggered') {
+      // Sprint 7: may name a Corp card only once it is face up (installed, rezzed, same id).
+      const corp = after.servers.flatMap((sv) => [...sv.ice, ...sv.content]).find((c) => c.uid === e.uid);
+      if (corp && !(corp.rezzed && corp.cardId === e.cardId)) out.push(`${e.type} names ${e.cardId}, not face-up ${e.uid}`);
+      if (!corp && CORP_ID.test(JSON.stringify(e))) out.push(`${e.type} names a Corp card not installed: ${JSON.stringify(e)}`);
+      continue;
+    }
     if (e.type === 'subroutine_resolved') {
       const ice = after.servers.flatMap((sv) => sv.ice).find((c) => c.uid === e.iceUid);
       if (!(ice?.rezzed && ice.cardId === e.cardId)) out.push(`subroutine_resolved names ${e.cardId}, not rezzed ICE ${e.iceUid}`);

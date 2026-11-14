@@ -421,7 +421,9 @@ describe('run decisions: rejection reasons and precedence', () => {
     ['Runner pass at approach', 'not_your_turn', () => ({ state: approach(), action: pass('runner') })],
     ['Corp pass at access', 'not_your_turn', () => ({ state: access(), action: pass('corp') })],
     ['Corp steal', 'not_your_turn', () => ({ state: access(), action: { type: 'steal', player: 'corp', card: 0 } })],
-    ['rez outside a run (Corp turn)', 'wrong_phase', () => ({ state: { ...board({}), activePlayer: 'corp' }, action: rez('i1') })],
+    // Sprint 7: rez is legal in the Corp's action phase for assets/upgrades; an unknown uid there is bad_target.
+    ['rez outside a run (Corp turn), unknown uid', 'bad_target', () => ({ state: { ...board({}), activePlayer: 'corp' }, action: rez('i1') })],
+    ['rez outside a run (discard step)', 'wrong_phase', () => ({ state: { ...board({ servers: { remote1: { content: ['c03'] } } }), activePlayer: 'corp', phase: 'discard' }, action: rez('i1') })],
     ['Corp rez on the Runner turn, no run', 'not_your_turn', () => ({ state: board({ servers: { hq: { ice: ['c04'] } } }), action: rez('i1') })],
     ['pass outside a run', 'wrong_phase', () => ({ state: board({}), action: pass('runner') })],
     ['steal at encounter', 'wrong_phase', () => ({ state: act(board({ servers: { hq: { ice: ['+c04'] } } }), runOn('hq')).state, action: steal(0) })],

@@ -27,6 +27,14 @@ const REVEALING: ReadonlySet<GameEvent['type']> = new Set([
 export function expectRunnerEventsClean(events: readonly GameEvent[], where: string, after: GameState): void {
   for (const e of viewEvents('runner', events)) {
     if (REVEALING.has(e.type)) continue;
+    if (e.type === 'card_rezzed' || e.type === 'ability_triggered') {
+      // Sprint 7 (spec change): may name a Corp card only once it is face up: the uid is an
+      // installed Corp card with that id, rezzed, after the action. Otherwise (a rig card) no Corp id.
+      const corp = after.servers.flatMap((sv) => [...sv.ice, ...sv.content]).find((c) => c.uid === e.uid);
+      if (corp) expect(corp.rezzed && corp.cardId === e.cardId, `${where}: ${e.type} names face-up ${e.uid}`).toBe(true);
+      else expect(JSON.stringify(e), where).not.toMatch(CORP_ID);
+      continue;
+    }
     if (e.type === 'subroutine_resolved') {
       // Sprint 5 (spec change): names the ICE whose subroutine fired; it must be installed and rezzed (face up).
       const ice = after.servers.flatMap((sv) => sv.ice).find((c) => c.uid === e.iceUid);

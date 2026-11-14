@@ -172,10 +172,12 @@ describe('S-03-2 AC4: 7 agenda points win at once', () => {
 });
 
 describe('installedOptions (Corp: advance, then score once ready)', () => {
-  it('advance per installed agenda; score appears with enough counters; ICE and assets are not listed', () => {
-    let s = corpInstalled(['c08', 'c05', 'c03', 'c09'], 3, 5);
+  it('advance per installed agenda; score appears with enough counters; non-advanceable ICE is not listed', () => {
+    let s = corpInstalled(['c08', 'c04', 'c03', 'c09'], 3, 5);
     expect(viewFor('corp', s).installedOptions).toEqual({
       i1: [{ action: advance('corp', 'i1'), cost: 1, reject: null }],
+      // Sprint 7: an unrezzed asset offers Rez (PAD Campaign: 2 credits).
+      i3: [{ action: { type: 'rez', player: 'corp', uid: 'i3' }, cost: 2, reject: null }],
       i4: [{ action: advance('corp', 'i4'), cost: 1, reject: null }],
     });
     s = run(s, [advance('corp', 'i1'), advance('corp', 'i1')]).state;
@@ -185,7 +187,12 @@ describe('installedOptions (Corp: advance, then score once ready)', () => {
     ]);
     expect(viewFor('runner', s).installedOptions).toEqual({});
     // Advance and score are in legalActions, after installs/plays.
-    expect(legalActions(s, 'corp').slice(-3)).toEqual([advance('corp', 'i1'), score('corp', 'i1'), advance('corp', 'i4')]);
+    expect(legalActions(s, 'corp').slice(-4)).toEqual([
+      advance('corp', 'i1'),
+      score('corp', 'i1'),
+      { type: 'rez', player: 'corp', uid: 'i3' },
+      advance('corp', 'i4'),
+    ]);
   });
 
   it('reject equals apply: no credits, no clicks, off turn', () => {
