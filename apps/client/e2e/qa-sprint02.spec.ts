@@ -48,6 +48,8 @@ async function shot(page: Page, name: string): Promise<void> {
 
 test.describe('QA S-02-1 / S-02-2 targets', () => {
   test('an asset can go into a remote that holds only an upgrade; after that the remote is closed to agendas but open to upgrades', async ({ page }) => {
+    // Sprint 7: each pick is three taps through the hand view; same limit as the other long tests here.
+    test.setTimeout(90_000);
     // Find a seed whose Corp opens with Akitaro Watanabe, PAD Campaign and an agenda.
     let seed = 0;
     for (let s = 1; s <= 40; s++) {
@@ -407,6 +409,8 @@ test.describe('QA-S2-2 upgrade in HQ', () => {
 // Round 2 (after the QA-S2-1..3 fixes): edge cases beyond the developers' own checks.
 test.describe('QA round 2: fixes hold in harder cases', () => {
   test('an upgrade in R&D and in Archives never covers the R&D / Archives pile either', async ({ page }) => {
+    // Sprint 7: each pick is three taps through the hand view; same limit as the other long tests here.
+    test.setTimeout(90_000);
     // Two upgrades needed: find a seed whose Corp opens with Akitaro and draws a second soon; else use one per game.
     for (const server of ['rd', 'archives'] as const) {
       await openBoard(page, 332);
