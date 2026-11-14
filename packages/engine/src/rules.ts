@@ -15,7 +15,7 @@
  */
 import type { ActionOf, ActionType, Action } from './actions';
 import type { RejectReason } from './events';
-import { getCard, type BreakerAbility, type CardDef, type CardType, type Effect, type PlayCondition } from '@overclock/cards';
+import { getCard, type BreakerAbility, type CardAbility, type CardDef, type CardType, type Effect, type PlayCondition } from '@overclock/cards';
 import {
   CENTRAL_SERVERS,
   MAX_HAND_SIZE,
@@ -426,14 +426,69 @@ const enoughCounters = (s: GameState, a: ActionOf<'score'>): RejectReason | null
 const memoryFits = (s: GameState, a: ActionOf<'install'>): RejectReason | null => {
   const card = handCard(s, a.player, a.handIndex);
   if (!card || card.type !== 'program') return null;
-  return memoryUsed(s) + (card.memory ?? 0) <= MEMORY_LIMIT ? null : 'no_memory';
+  return memoryUsed(s) + (card.memory ?? 0) <= memoryLimit(s) ? null : 'no_memory';
 };
+
+/** Sprint 7: the Runner's memory limit: 4 + every rig card's `memoryBonus` (Akamatsu Mem Chip). */
+export function memoryLimit(state: GameState): number {
+  return state.rig.reduce((sum, c) => sum + (getCard(c.cardId)?.memoryBonus ?? 0), MEMORY_LIMIT);
+}
 
 const activateShape = (_s: GameState, a: ActionOf<'activate'>): RejectReason | null =>
   typeof a.uid === 'string' && isInt(a.ability) ? null : 'invalid_action';
 
-/** E1 stub: card abilities are not built yet. */
-const activateStub = (): RejectReason | null => 'wrong_phase';
+/** Sprint 7: `player`'s own installed, face-up card `uid` (Runner: rig; Corp: rezzed), or undefined. */
+export function ownFaceUpCard(s: GameState, player: Side, uid: unknown): Installed | undefined {
+  if (player === 'runner') return s.rig.find((c) => c.uid === uid);
+  const c = corpInstalled(s, uid)?.installed;
+  return c?.rezzed ? c : undefined;
+}
+
+/** Sprint 7: the card and ability an `activate` names, when both exist (own face-up card). */
+export function activateTarget(s: GameState, a: ActionOf<'activate'>): { installed: Installed; card: CardDef; ability: CardAbility } | undefined {
+  const installed = ownFaceUpCard(s, a.player, a.uid);
+  const card = installed && getCard(installed.cardId);
+  const ability = card?.cardAbilities?.[a.ability];
+  return installed && card && ability ? { installed, card, ability } : undefined;
+}
+
+const activateTargetCheck = (s: GameState, a: ActionOf<'activate'>): RejectReason | null => (activateTarget(s, a) ? null : 'bad_target');
+
+/** `click`: the player's own action phase; `successful_run_remote`: run step `success`. */
+const activatePhase = (s: GameState, a: ActionOf<'activate'>): RejectReason | null => {
+  const when = activateTarget(s, a)!.ability.when;
+  if (when === 'click') return s.phase === 'action' && s.activePlayer === a.player ? null : 'wrong_phase';
+  return s.phase === 'run' && s.run?.step === 'success' ? null : 'wrong_phase';
+};
+
+const activateClicks = (s: GameState, a: ActionOf<'activate'>): RejectReason | null =>
+  s.players[a.player].clicks >= activateTarget(s, a)!.ability.clicks ? null : 'no_clicks';
+
+/** `requires: 'hosted_credits'`: only while the card holds credits. */
+export function abilityUsable(installed: Installed, ability: CardAbility): boolean {
+  return ability.requires !== 'hosted_credits' || installed.hostedCredits > 0;
+}
+
+const activateCondition = (s: GameState, a: ActionOf<'activate'>): RejectReason | null => {
+  const t = activateTarget(s, a)!;
+  return abilityUsable(t.installed, t.ability) ? null : 'condition_not_met';
+};
+
+const activateCredits = (s: GameState, a: ActionOf<'activate'>): RejectReason | null =>
+  s.players[a.player].credits >= activateTarget(s, a)!.ability.credits ? null : 'no_credits';
+
+/** Sprint 7: credits an ability's `take_credits` effects give from `installed` now (undefined: none). */
+export function abilityGain(installed: Installed, ability: CardAbility): number | undefined {
+  let gain: number | undefined;
+  let left = installed.hostedCredits;
+  for (const e of ability.effects) {
+    if (e.op !== 'take_credits') continue;
+    const n = e.amount === 'all' ? left : Math.min(e.amount, left);
+    left -= n;
+    gain = (gain ?? 0) + n;
+  }
+  return gain;
+}
 
 export const RULES: RuleTable = {
   draw: [playerShape, notOver, yourTurn, inPhase('action'), hasClick, deckNotEmpty],
@@ -486,7 +541,7 @@ export const RULES: RuleTable = {
   trash: [playerShape, cardShape, notOver, decides, atStep('access'), trashTarget, canAffordTrash],
   advance: [playerShape, uidShape, notOver, yourTurn, inPhase('action'), hasClick, ownAgenda, canAffordAdvance],
   score: [playerShape, uidShape, notOver, yourTurn, inPhase('action'), ownAgenda, enoughCounters],
-  activate: [playerShape, activateShape, notOver, decides, activateStub],
+  activate: [playerShape, activateShape, notOver, decides, activateTargetCheck, activatePhase, activateClicks, activateCondition, activateCredits],
 };
 
 /** Memory used by the Runner's installed programs (card data `memory`). */

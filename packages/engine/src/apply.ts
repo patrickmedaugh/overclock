@@ -1,8 +1,9 @@
 import type { Action, ActionOf } from './actions';
 import type { GameEvent } from './events';
 import type { CardOption } from './view';
-import { getCard } from '@overclock/cards';
+import { getCard, type CardAbility } from '@overclock/cards';
 import {
+  abilityGain,
   ADVANCE_COST,
   breakerCard,
   breakerIceType,
@@ -22,7 +23,20 @@ import {
   unstolenAgendaShown,
   waitingOn,
 } from './rules';
-import { doJackOut, doPass, doRez, doRun, doSteal, doTrash, doUseAbility, pruneEmptyRemotes, resolveEffect, turnStartAbilities } from './run';
+import {
+  afterInstall,
+  doActivate,
+  doJackOut,
+  doPass,
+  doRez,
+  doRun,
+  doSteal,
+  doTrash,
+  doUseAbility,
+  pruneEmptyRemotes,
+  resolveEffect,
+  turnStartAbilities,
+} from './run';
 import {
   checkPointsWin,
   drawTop,
@@ -112,7 +126,7 @@ function doInstall(state: GameState, a: ActionOf<'install'>): ApplyResult {
   if (a.player === 'runner') {
     s = { ...s, rig: [...s.rig, card] };
     events.push({ type: 'card_installed', player: a.player, uid: card.uid, zone: 'rig', handIndex: a.handIndex, cardId });
-    return { state: s, events };
+    return { state: afterInstall(s, card.uid, a.player, events), events };
   }
 
   let serverId = a.server as ServerId | 'new';
@@ -129,7 +143,7 @@ function doInstall(state: GameState, a: ActionOf<'install'>): ApplyResult {
     servers: s.servers.map((sv) => (sv.id === target ? { ...sv, [zone]: [...sv[zone], card] } : sv)),
   };
   events.push({ type: 'card_installed', player: a.player, uid: card.uid, zone, server: target, handIndex: a.handIndex, cardId });
-  return { state: s, events };
+  return { state: afterInstall(s, card.uid, a.player, events), events };
 }
 
 function doPlay(state: GameState, a: ActionOf<'play'>): ApplyResult {
@@ -230,7 +244,7 @@ export function apply(state: GameState, action: Action): ApplyResult {
     case 'trash':
       return doTrash(state, action);
     case 'activate':
-      return { state, events: [] }; // E1 stub: always rejected (wrong_phase) until E4
+      return doActivate(state, action);
   }
 }
 
@@ -342,14 +356,42 @@ export function choiceOptions(state: GameState, player: Side): CardOption[] {
   return [...rezzes, option(state, { type: 'pass', player }, 0)];
 }
 
+/** Sprint 7: one `activate` option per `click` ability of an own face-up card (price, clicks, gain). */
+function clickAbilityOptions(state: GameState, player: Side, c: Installed): CardOption[] {
+  const out: CardOption[] = [];
+  (getCard(c.cardId)?.cardAbilities ?? []).forEach((ab, ability) => {
+    if (ab.when !== 'click') return;
+    out.push(abilityOption(state, { type: 'activate', player, uid: c.uid, ability }, c, ab));
+  });
+  return out;
+}
+
+/** An `activate` option: `cost` = credits, `clicks` when > 0, `gain` when it takes credits. */
+function abilityOption(state: GameState, action: ActionOf<'activate'>, c: Installed, ab: CardAbility): CardOption {
+  const gain = abilityGain(c, ab);
+  return {
+    ...option(state, action, ab.credits),
+    ...(ab.clicks > 0 ? { clicks: ab.clicks } : {}),
+    ...(gain !== undefined ? { gain } : {}),
+  };
+}
+
 /**
  * Per own installed card uid, listed off-turn too with the reason in `reject` (like `handOptions`).
  * Corp (servers in order; ICE innermost first, then content): agenda `advance` (cost 1) and, once it
- * has enough counters, `score`; unrezzed asset/upgrade `rez` (cost = rez cost, Sprint 7).
+ * has enough counters, `score`; unrezzed asset/upgrade `rez` (cost = rez cost, Sprint 7); click
+ * abilities of rezzed cards. Runner (Sprint 7, rig order): one `activate` per `click` ability.
  * The other side's cards are never listed.
  */
 export function installedOptions(state: GameState, player: Side): Record<string, CardOption[]> {
   const out: Record<string, CardOption[]> = {};
+  if (player === 'runner') {
+    for (const c of state.rig) {
+      const opts = clickAbilityOptions(state, player, c);
+      if (opts.length > 0) out[c.uid] = opts;
+    }
+    return out;
+  }
   if (player !== 'corp') return out;
   for (const sv of state.servers) {
     for (const c of [...sv.ice, ...sv.content]) {
@@ -361,6 +403,7 @@ export function installedOptions(state: GameState, player: Side): Record<string,
       } else if ((card?.type === 'asset' || card?.type === 'upgrade') && !c.rezzed) {
         opts.push(option(state, { type: 'rez', player, uid: c.uid }, rezCost(state, c)));
       }
+      if (c.rezzed) opts.push(...clickAbilityOptions(state, player, c));
       if (opts.length > 0) out[c.uid] = opts;
     }
   }

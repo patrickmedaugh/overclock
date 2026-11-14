@@ -2,9 +2,8 @@ import type { Action } from './actions';
 import { apply, choiceOptions, handOptions, installedOptions, legalActions, runStartOptions, runStepOptions } from './apply';
 import type { GameEvent, RejectReason, SubOutcome } from './events';
 import { getCard } from '@overclock/cards';
-import { breakerCard, breakerStrength, currentIce, discardCount, iceStrength, memoryUsed, waitingOn } from './rules';
+import { breakerCard, breakerStrength, currentIce, discardCount, iceStrength, memoryLimit, memoryUsed, waitingOn } from './rules';
 import {
-  MEMORY_LIMIT,
   pointsOf,
   type AccessFrom,
   type ChoiceKind,
@@ -325,7 +324,7 @@ export function viewFor(player: Side, state: GameState): PlayerView {
       content: s.content.map((c) => corpCardView(c, player)),
     })),
     rig: state.rig.map((c) => ({ uid: c.uid, cardId: c.cardId, faceUp: true, advancements: c.advancements, hostedCredits: c.hostedCredits })),
-    memory: { used: memoryUsed(state), limit: MEMORY_LIMIT },
+    memory: { used: memoryUsed(state), limit: memoryLimit(state) },
     handOptions: handOptions(state, player),
     runOptions: runStartOptions(state, player),
     installedOptions: installedOptions(state, player),

@@ -218,7 +218,7 @@ describe('S-02-3: Runner installs', () => {
     s = withPlayer(s, 'runner', { clicks: 3 });
     expectRejected(s, install('runner', 0), 'no_memory');
     s = run(s, [install('runner', 1), install('runner', 1)]).state; // Akamatsu Mem Chip, Sacrificial Construct
-    expect(viewFor('corp', s).memory).toEqual({ used: 4, limit: 4 }); // memory bonuses not built yet
+    expect(viewFor('corp', s).memory).toEqual({ used: 4, limit: 5 }); // Sprint 7: Akamatsu Mem Chip +1
     expect(s.rig).toHaveLength(6);
   });
 });

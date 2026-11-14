@@ -12,6 +12,7 @@ import { nextInt } from './rng';
 import {
   abilityTarget,
   accessCard,
+  activateTarget,
   breakerCard,
   breakerStrength,
   corpInstalled,
@@ -411,9 +412,20 @@ export function resolveEffect(state: GameState, effect: Effect, owner: Side, eve
       events.push({ type: 'choice_opened', kind: 'free_rez', player: owner, cardId });
       return { ...state, phase: 'choice', choice: { kind: 'free_rez', player: owner, cardId } };
     }
-    case 'place_credits':
-    case 'take_credits':
-      return state; // E1 stub: hosted credits come in E4
+    case 'place_credits': {
+      const card = ctx.uid !== undefined ? installedCard(state, ctx.uid) : undefined;
+      if (!card) return state;
+      return setHosted(state, card.uid, card.hostedCredits + effect.amount, events);
+    }
+    case 'take_credits': {
+      const card = ctx.uid !== undefined ? installedCard(state, ctx.uid) : undefined;
+      if (!card) return state;
+      const n = effect.amount === 'all' ? card.hostedCredits : Math.min(effect.amount, card.hostedCredits);
+      if (n <= 0) return state;
+      const s = setHosted(state, card.uid, card.hostedCredits - n, events);
+      events.push({ type: 'credit_gained', player: owner, amount: n });
+      return withPlayer(s, owner, { credits: s.players[owner].credits + n });
+    }
   }
 }
 
@@ -452,6 +464,29 @@ export function turnStartAbilities(state: GameState, events: Events): GameState 
       s = setHosted(s, c.uid, recurring.amount, events);
     }
   }
+  return s;
+}
+
+/**
+ * A `trashWhenEmpty` rig card with no credits left goes face up to the Heap (`rig_card_trashed`).
+ * (No Corp card has the flag yet.)
+ */
+export function trashIfEmpty(state: GameState, uid: string, events: Events): GameState {
+  const card = state.rig.find((c) => c.uid === uid);
+  if (!card || card.hostedCredits > 0 || !getCard(card.cardId)?.trashWhenEmpty) return state;
+  events.push({ type: 'rig_card_trashed', uid, cardId: card.cardId });
+  const s: GameState = { ...state, rig: state.rig.filter((c) => c.uid !== uid) };
+  return withPlayer(s, 'runner', { discard: [...s.players.runner.discard, { cardId: card.cardId, faceUp: true }] });
+}
+
+/** Sprint 7: what happens right after a card is installed: `onInstall` effects, then recurring credits placed. */
+export function afterInstall(state: GameState, uid: string, owner: Side, events: Events): GameState {
+  const card = installedCard(state, uid);
+  const def = card && getCard(card.cardId);
+  if (!card || !def) return state;
+  let s = state;
+  for (const effect of def.onInstall ?? []) s = resolveEffect(s, effect, owner, events, { cardId: card.cardId, uid });
+  if (def.recurringCredits) s = setHosted(s, uid, def.recurringCredits.amount, events);
   return s;
 }
 
@@ -535,6 +570,29 @@ export function doPass(state: GameState): { state: GameState; events: GameEvent[
   else if (step === 'encounter') s = letThrough(state, events);
   else if (step === 'continue') s = continueRun(state, events);
   else s = finishGroup(state, events); // Leave it / Done
+  return { state: s, events };
+}
+
+/**
+ * Sprint 7: uses a card ability (validated): pays clicks/credits, `ability_triggered`, its effects,
+ * an emptied `trashWhenEmpty` card goes to the Heap, and a `replacesAccess` ability ends the run
+ * (`access_replaced`).
+ */
+export function doActivate(state: GameState, a: ActionOf<'activate'>): { state: GameState; events: GameEvent[] } {
+  const events: Events = [];
+  const t = activateTarget(state, a);
+  if (!t) return { state, events }; // unreachable: validated
+  const { installed, ability } = t;
+  const me = state.players[a.player];
+  let s = withPlayer(state, a.player, { clicks: me.clicks - ability.clicks, credits: me.credits - ability.credits });
+  if (ability.credits > 0) events.push({ type: 'credits_spent', player: a.player, amount: ability.credits });
+  events.push({ type: 'ability_triggered', uid: installed.uid, cardId: installed.cardId, trigger: ability.when === 'click' ? 'click' : 'successful_run' });
+  for (const effect of ability.effects) {
+    s = resolveEffect(s, effect, a.player, events, { cardId: installed.cardId, uid: installed.uid });
+    if (s.phase === 'over') return { state: s, events };
+  }
+  s = trashIfEmpty(s, installed.uid, events);
+  if (ability.replacesAccess && s.phase === 'run') s = endRun(s, 'access_replaced', events);
   return { state: s, events };
 }
 
