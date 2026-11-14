@@ -216,7 +216,7 @@ test.describe('S-03-5 run cards', () => {
 // S-03-5 AC4: no card says "Needs runs (coming soon)" any more. Seeds 1, 89, 59 and 8 together
 // deal every card of both starter decks into an opening hand (checked below without a browser),
 // so tapping each hand card in those four games shows every card's pick in the UI. One test per
-// seed: each one is ~22 taps, well inside the 30s limit on a GPU-less CI runner.
+// seed (~35 taps since the S-07-6 hand view; 90 s limit for a GPU-less CI runner).
 const NEEDS_RUNS_SEEDS = [1, 89, 59, 8];
 
 /** Opening hands (Corp's, then the Runner's after the Corp discards its 6th card) for a seed. */
@@ -238,6 +238,8 @@ test.describe('S-03-5 no "Needs runs (coming soon)"', () => {
 
   for (const seed of NEEDS_RUNS_SEEDS) {
     test(`seed ${seed}: picking each card in both opening hands never says "Needs runs"`, async ({ page }) => {
+      // S-07-6: each pick is three taps now (open the hand view, tap the big card, tap again to cancel): ~35 taps.
+      test.setTimeout(90_000);
       await openBoard(page, seed);
       for (const side of ['corp', 'runner'] as const) {
         if (side === 'runner') await toRunnerTurn(page);
