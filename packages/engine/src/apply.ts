@@ -5,6 +5,7 @@ import { getCard, type CardAbility } from '@overclock/cards';
 import {
   abilityGain,
   ADVANCE_COST,
+  breakerPayment,
   breakerCard,
   breakerIceType,
   currentIce,
@@ -24,6 +25,7 @@ import {
   waitingOn,
 } from './rules';
 import {
+  accessReplacements,
   afterInstall,
   doActivate,
   doJackOut,
@@ -296,6 +298,12 @@ const option = (state: GameState, action: Action, cost: number): CardOption => (
   reject: rejectionFor(state, action),
 });
 
+/** Sprint 7: a breaker option, with `hostedPay` when recurring credits (Cyberfeeder) pay part of it. */
+function breakerOption(state: GameState, action: ActionOf<'use_ability'>, cost: number): CardOption {
+  const hosted = breakerPayment(state, cost).hosted;
+  return { ...option(state, action, cost), ...(hosted.length > 0 ? { hostedPay: hosted.map((h) => ({ uid: h.uid, amount: h.amount })) } : {}) };
+}
+
 /** Runner only: one `run` per server (corpServers order), listed off-turn too with its reason. Corp: []. */
 export function runStartOptions(state: GameState, player: Side): CardOption[] {
   if (player !== 'runner') return [];
@@ -322,17 +330,25 @@ export function runStepOptions(state: GameState, player: Side): CardOption[] {
       if (!b || breakerIceType(b.card) !== iceCard?.subtype) continue;
       (b.card.abilities ?? []).forEach((ab, ability) => {
         if (ab.op === 'strength') {
-          out.push(option(state, { type: 'use_ability', player, uid: c.uid, ability }, ab.cost));
+          out.push(breakerOption(state, { type: 'use_ability', player, uid: c.uid, ability }, ab.cost));
           return;
         }
         (iceCard?.subroutines ?? []).forEach((_, sub) => {
-          if (!run.broken.includes(sub)) out.push(option(state, { type: 'use_ability', player, uid: c.uid, ability, sub }, ab.cost));
+          if (!run.broken.includes(sub)) out.push(breakerOption(state, { type: 'use_ability', player, uid: c.uid, ability, sub }, ab.cost));
         });
       });
     }
     out.push(option(state, pass, 0));
   } else if (run.step === 'continue') {
     out.push(option(state, pass, 0), option(state, { type: 'jack_out', player }, 0));
+  } else if (run.step === 'success') {
+    // Sprint 7: take credits from Bank Job (one option per usable card), or pass = Access cards.
+    for (const { uid, ability } of accessReplacements(state)) {
+      const c = state.rig.find((x) => x.uid === uid) as Installed;
+      const ab = getCard(c.cardId)?.cardAbilities?.[ability] as CardAbility;
+      out.push(abilityOption(state, { type: 'activate', player, uid, ability }, c, ab));
+    }
+    out.push(option(state, pass, 0));
   } else {
     (run.access?.cards ?? []).forEach((c, card) => {
       if (c.stolen || c.trashed) return;

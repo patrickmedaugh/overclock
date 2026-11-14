@@ -215,7 +215,7 @@ const atStep =
   (s: GameState): RejectReason | null =>
     s.phase === 'run' && s.run && steps.includes(s.run.step) ? null : 'wrong_phase';
 
-const ALL_STEPS: RunStep[] = ['approach', 'encounter', 'continue', 'access'];
+const ALL_STEPS: RunStep[] = ['approach', 'encounter', 'continue', 'success', 'access'];
 
 const isInt = (x: unknown) => Number.isInteger(x);
 
@@ -347,8 +347,36 @@ export function runnerSpendable(s: GameState): number {
   return s.players.runner.credits + (s.run?.tempCredits ?? 0);
 }
 
+/** Sprint 7: who pays `amount` for an icebreaker ability. `own` may exceed the Runner's credits (then unaffordable). */
+export interface BreakerPayment {
+  /** Recurring credits usable for icebreakers, rig order. */
+  readonly hosted: readonly { readonly uid: string; readonly amount: number }[];
+  /** Run-only credits (bad publicity). */
+  readonly temp: number;
+  /** The Runner's own credits. */
+  readonly own: number;
+}
+
+/**
+ * Sprint 7: an icebreaker ability is paid from recurring credits for icebreakers first (rig
+ * order, Cyberfeeder), then run-only credits, then the Runner's own credits.
+ */
+export function breakerPayment(s: GameState, amount: number): BreakerPayment {
+  let left = Math.max(0, amount);
+  const hosted: { uid: string; amount: number }[] = [];
+  for (const c of s.rig) {
+    if (left === 0) break;
+    if (getCard(c.cardId)?.recurringCredits?.for !== 'icebreaker' || c.hostedCredits <= 0) continue;
+    const n = Math.min(left, c.hostedCredits);
+    hosted.push({ uid: c.uid, amount: n });
+    left -= n;
+  }
+  const temp = Math.min(left, s.run?.tempCredits ?? 0);
+  return { hosted, temp, own: left - temp };
+}
+
 const canAffordAbility = (s: GameState, a: ActionOf<'use_ability'>): RejectReason | null =>
-  runnerSpendable(s) >= (abilityTarget(s, a)?.cost ?? 0) ? null : 'no_credits';
+  breakerPayment(s, abilityTarget(s, a)?.cost ?? 0).own <= s.players.runner.credits ? null : 'no_credits';
 
 const cardShape = (_s: GameState, a: ActionOf<'steal' | 'trash'>): RejectReason | null =>
   isInt(a.card) ? null : 'invalid_action';

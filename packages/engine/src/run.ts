@@ -11,8 +11,10 @@ import type { GameEvent, RunOutcome, SubOutcome } from './events';
 import { nextInt } from './rng';
 import {
   abilityTarget,
+  abilityUsable,
   accessCard,
   activateTarget,
+  breakerPayment,
   breakerCard,
   breakerStrength,
   corpInstalled,
@@ -223,10 +225,36 @@ function letThrough(state: GameState, events: Events): GameState {
 const fromOf = (server: ServerId): AccessFrom =>
   (CENTRAL_SERVERS as readonly string[]).includes(server) ? (server as AccessFrom) : 'remote';
 
-/** The run is successful: build the access queue and show the first group. */
+/**
+ * Sprint 7: the Runner's usable `replacesAccess` abilities after a successful run on a remote
+ * (Bank Job holding credits): rig order, then ability order.
+ */
+export function accessReplacements(state: GameState): { uid: string; ability: number }[] {
+  const out: { uid: string; ability: number }[] = [];
+  for (const c of state.rig) {
+    (getCard(c.cardId)?.cardAbilities ?? []).forEach((ab, ability) => {
+      if (ab.when === 'successful_run_remote' && ab.replacesAccess && abilityUsable(c, ab)) out.push({ uid: c.uid, ability });
+    });
+  }
+  return out;
+}
+
+/**
+ * The run is successful. Sprint 7: on a remote with a usable `replacesAccess` ability the run
+ * stops at step `success` (the Runner picks it or Access cards); otherwise access starts.
+ */
 function succeed(state: GameState, events: Events): GameState {
   const run = theRun(state);
   events.push({ type: 'run_successful', server: run.server });
+  if (fromOf(run.server) === 'remote' && accessReplacements(state).length > 0) {
+    return setRun(state, { position: -1, step: 'success' });
+  }
+  return beginAccess(state, events);
+}
+
+/** Build the access queue and show the first group. */
+function beginAccess(state: GameState, events: Events): GameState {
+  const run = theRun(state);
   const server = findServer(state, run.server);
   const installed: AccessNext[] = (server?.content ?? []).map((c) => ({ kind: 'installed', uid: c.uid }));
   let queue: AccessNext[];
@@ -506,13 +534,24 @@ export function setHosted(state: GameState, uid: string, credits: number, events
 /**
  * The Runner pays `amount` during the run: run-only credits first, then its own
  * credits (`credits_spent.temp` = the run-only part). Caller checked affordability.
+ * Sprint 7: `breaker` payments use recurring credits for icebreakers before both
+ * (`credits_spent.hosted`, then `hosted_credits_changed` per paying card).
  */
-function payRunner(state: GameState, amount: number, events: Events): GameState {
+function payRunner(state: GameState, amount: number, events: Events, breaker = false): GameState {
   if (amount <= 0) return state;
   const run = theRun(state);
-  const temp = Math.min(amount, run.tempCredits);
-  events.push(temp > 0 ? { type: 'credits_spent', player: 'runner', amount, temp } : { type: 'credits_spent', player: 'runner', amount });
-  const s = withPlayer(state, 'runner', { credits: state.players.runner.credits - (amount - temp) });
+  const plan = breaker ? breakerPayment(state, amount) : { hosted: [], temp: Math.min(amount, run.tempCredits), own: 0 };
+  const hosted = plan.hosted.reduce((sum, h) => sum + h.amount, 0);
+  const temp = plan.temp;
+  events.push({
+    type: 'credits_spent',
+    player: 'runner',
+    amount,
+    ...(temp > 0 ? { temp } : {}),
+    ...(hosted > 0 ? { hosted } : {}),
+  });
+  let s = withPlayer(state, 'runner', { credits: state.players.runner.credits - (amount - temp - hosted) });
+  for (const h of plan.hosted) s = setHosted(s, h.uid, (installedCard(s, h.uid)?.hostedCredits ?? 0) - h.amount, events);
   return setRun(s, { tempCredits: run.tempCredits - temp });
 }
 
@@ -569,6 +608,7 @@ export function doPass(state: GameState): { state: GameState; events: GameEvent[
   if (step === 'approach') s = passIce(state, events); // Don't rez: passed face down
   else if (step === 'encounter') s = letThrough(state, events);
   else if (step === 'continue') s = continueRun(state, events);
+  else if (step === 'success') s = beginAccess(state, events); // Sprint 7: Access cards
   else s = finishGroup(state, events); // Leave it / Done
   return { state: s, events };
 }
@@ -605,7 +645,7 @@ export function doUseAbility(state: GameState, a: ActionOf<'use_ability'>): { st
   const events: Events = [];
   const ability = abilityTarget(state, a);
   if (!ability) return { state, events }; // unreachable: validated
-  let s = payRunner(state, ability.cost, events);
+  let s = payRunner(state, ability.cost, events, true);
   const run = theRun(s);
   if (ability.op === 'strength') {
     const key = ability.until === 'run' ? 'runBoost' : 'encounterBoost';
