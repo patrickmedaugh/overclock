@@ -1,6 +1,6 @@
 # Project state
 
-phase: QA
+phase: DEMO
 running_since: 2026-11-14 16:47 UTC
 sprint: 7
 open_pr: (none — PR #17 Sprint 07 proposal merged 2026-11-14 16:47 UTC after owner approval)
@@ -185,5 +185,11 @@ Details: docs/sprints/sprint-00-tech-plan.md, sprint-00-qa.md, sprint-00-demo.md
 - Architect approved (a9364a1): RULES_VERSION stored per room and enforced on replay (bump it for any rules/card change); leak.test timeout 60s. CI fully green on a9364a1 incl. live server deploy + /health. External "Workers Builds: overclock" check red = owner's Cloudflare git integration (asked him to disconnect).
 - Follow-ups: Corp cards with onInstall/recurring/click abilities must not trigger face-down; specific refusal reasons instead of condition_not_met; QA spec 'c05' → advanceable; keep games on their starting build.
 
+## Sprint 7 QA — 2026-11-14
+- Report docs/sprints/sprint-07-qa.md (3475984); QA tests 0865b64. 36/36 criteria PASS, 0 fail. CI on 0865b64: 1425 unit, e2e 933 pass / 6 skipped / 0 flaky; server deploy /health = 0865b64.
+- Low findings → backlog: QA-S7-1 credits pill hides card type line at 640×360 ("…URCE"), Armitage name cut; QA-S7-2 credits pill and advancement counters look the same (yellow disc).
+- Sprint 6 S-06-4 addendum: auto-deploy criterion now PASS; live two-device play and "nothing charged" remain owner checks.
+- Owner checks: two real devices on the live service; drag on a real Android phone; pill readability; no Cloudflare charges.
+
 ## Next run
-Phase QA for Sprint 7 on branch sprint-07. Follow docs/TESTING.md when delegating anything that runs tests.
+Phase DEMO for Sprint 7. Follow docs/TESTING.md when delegating anything that runs tests.
