@@ -5,6 +5,7 @@ import { getCard, type CardAbility } from '@overclock/cards';
 import {
   abilityGain,
   ADVANCE_COST,
+  advanceTarget,
   breakerPayment,
   breakerCard,
   breakerIceType,
@@ -174,7 +175,7 @@ function patchInstalled(state: GameState, uid: string, patch: Partial<Installed>
 
 function doAdvance(state: GameState, a: ActionOf<'advance'>): ApplyResult {
   const me = state.players[a.player];
-  const card = installedAgenda(state, a.uid) as Installed;
+  const card = advanceTarget(state, a.uid) as Installed;
   const advancements = card.advancements + 1;
   let s = withPlayer(state, a.player, { clicks: me.clicks - 1, credits: me.credits - ADVANCE_COST });
   s = patchInstalled(s, a.uid, { advancements });
@@ -416,6 +417,9 @@ export function installedOptions(state: GameState, player: Side): Record<string,
       if (card?.type === 'agenda') {
         opts.push(option(state, { type: 'advance', player, uid: c.uid }, ADVANCE_COST));
         if (c.advancements >= (card.advancementRequirement ?? 0)) opts.push(option(state, { type: 'score', player, uid: c.uid }, 0));
+      } else if (card?.type === 'ice' && card.advanceable) {
+        // Sprint 7: advanceable ICE (Ice Wall), face up or down.
+        opts.push(option(state, { type: 'advance', player, uid: c.uid }, ADVANCE_COST));
       } else if ((card?.type === 'asset' || card?.type === 'upgrade') && !c.rezzed) {
         opts.push(option(state, { type: 'rez', player, uid: c.uid }, rezCost(state, c)));
       }

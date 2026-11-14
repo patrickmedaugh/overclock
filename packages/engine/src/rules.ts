@@ -332,9 +332,10 @@ export function abilityTarget(s: GameState, a: ActionOf<'use_ability'>): Breaker
 const abilityTargetCheck = (s: GameState, a: ActionOf<'use_ability'>): RejectReason | null =>
   abilityTarget(s, a) ? null : 'bad_target';
 
-/** The ICE's strength (printed; advancement bonuses are not built yet). */
+/** The ICE's strength: printed + advancements × `strengthPerAdvancement` (Sprint 7: Ice Wall). */
 export function iceStrength(ice: Installed): number {
-  return getCard(ice.cardId)?.strength ?? 0;
+  const card = getCard(ice.cardId);
+  return (card?.strength ?? 0) + ice.advancements * (card?.strengthPerAdvancement ?? 0);
 }
 
 const strongEnough = (s: GameState, a: ActionOf<'use_ability'>): RejectReason | null => {
@@ -436,11 +437,22 @@ export function installedAgenda(s: GameState, uid: unknown): Installed | undefin
   return undefined;
 }
 
+/** Sprint 7: what `advance` may target: the Corp's installed agenda, or its `advanceable` ICE (face up or down). */
+export function advanceTarget(s: GameState, uid: unknown): Installed | undefined {
+  const agenda = installedAgenda(s, uid);
+  if (agenda) return agenda;
+  const where = corpInstalled(s, uid);
+  return where?.zone === 'ice' && getCard(where.installed.cardId)?.advanceable ? where.installed : undefined;
+}
+
 /** Credits an advance costs. */
 export const ADVANCE_COST = 1;
 
-const ownAgenda = (s: GameState, a: ActionOf<'advance' | 'score'>): RejectReason | null =>
+const ownAgenda = (s: GameState, a: ActionOf<'score'>): RejectReason | null =>
   a.player === 'corp' && installedAgenda(s, a.uid) ? null : 'bad_target';
+
+const ownAdvanceable = (s: GameState, a: ActionOf<'advance'>): RejectReason | null =>
+  a.player === 'corp' && advanceTarget(s, a.uid) ? null : 'bad_target';
 
 const canAffordAdvance = (s: GameState, a: ActionOf<'advance'>): RejectReason | null =>
   s.players[a.player].credits >= ADVANCE_COST ? null : 'no_credits';
@@ -567,7 +579,7 @@ export const RULES: RuleTable = {
   ],
   steal: [playerShape, cardShape, notOver, decides, atStep('access'), stealTarget],
   trash: [playerShape, cardShape, notOver, decides, atStep('access'), trashTarget, canAffordTrash],
-  advance: [playerShape, uidShape, notOver, yourTurn, inPhase('action'), hasClick, ownAgenda, canAffordAdvance],
+  advance: [playerShape, uidShape, notOver, yourTurn, inPhase('action'), hasClick, ownAdvanceable, canAffordAdvance],
   score: [playerShape, uidShape, notOver, yourTurn, inPhase('action'), ownAgenda, enoughCounters],
   activate: [playerShape, activateShape, notOver, decides, activateTargetCheck, activatePhase, activateClicks, activateCondition, activateCredits],
 };

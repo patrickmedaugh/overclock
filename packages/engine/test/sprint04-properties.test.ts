@@ -21,12 +21,13 @@ function prng(seed: number): (n: number) => number {
 }
 
 /** Corp-favoured play so agendas get scored (and bonuses fire) often. */
-function weight(a: Action): number {
+function weight(s: GameState, a: Action): number {
   switch (a.type) {
     case 'score':
       return 40;
     case 'advance':
-      return 30;
+      // Sprint 7: Ice Wall can be advanced too; keep the weight on agendas so they still get scored.
+      return s.servers.some((sv) => sv.ice.some((c) => c.uid === a.uid)) ? 2 : 30;
     case 'install':
       return 4;
     case 'run':
@@ -80,7 +81,7 @@ function playAndCheck(seed: number, stats: Stats): { actions: Action[]; final: G
 
     const me = waitingOn(s)!;
     const legal = legalActions(s, me);
-    const w = legal.map(weight);
+    const w = legal.map((a) => weight(s, a));
     let r = pick(w.reduce((x, y) => x + y, 0));
     let i = 0;
     while (r >= w[i]!) r -= w[i++]!;

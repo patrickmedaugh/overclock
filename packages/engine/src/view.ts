@@ -62,7 +62,7 @@ export interface CardOption {
   /** Credits it costs. */
   readonly cost: number;
   readonly reject: RejectReason | null;
-  /** Sprint 7: clicks it costs, only when > 0 (`activate` abilities, `advance`). */
+  /** Sprint 7: clicks an `activate` option costs, only when > 0 (other actions' click cost is implied by their type). */
   readonly clicks?: number;
   /** Sprint 7: credits it gives the player (`activate` of a `take_credits` ability), only when set. */
   readonly gain?: number;

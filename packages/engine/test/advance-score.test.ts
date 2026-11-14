@@ -73,7 +73,7 @@ describe('S-03-2 AC1: advance (1 click + 1 credit, own installed agenda)', () =>
     ['wrong_phase', () => ({ state: discardStep(), action: advance('corp', 'i1') })],
     ['no_clicks', () => ({ state: corpInstalled(['c08'], 0), action: advance('corp', 'i1') })],
     ['bad_target', () => ({ state: corpInstalled(['c08']), action: advance('corp', 'i9') })], // unknown uid
-    ['bad_target', () => ({ state: corpInstalled(['c05']), action: advance('corp', 'i1') })], // Ice Wall: not advanceable this sprint
+    ['bad_target', () => ({ state: corpInstalled(['c04']), action: advance('corp', 'i1') })], // Wall of Static: not advanceable (Sprint 7: Ice Wall is)
     ['bad_target', () => ({ state: corpInstalled(['c03']), action: advance('corp', 'i1') })], // an asset
     ['no_credits', () => ({ state: corpInstalled(['c08'], 3, 0), action: advance('corp', 'i1') })],
   ];
@@ -89,7 +89,7 @@ describe('S-03-2 AC1: advance (1 click + 1 credit, own installed agenda)', () =>
 
   it('precedence: no_clicks beats bad_target; bad_target beats no_credits', () => {
     expect(rejection(apply(corpInstalled(['c05'], 0), advance('corp', 'i1')).events)).toBe('no_clicks');
-    expect(rejection(apply(corpInstalled(['c05'], 3, 0), advance('corp', 'i1')).events)).toBe('bad_target');
+    expect(rejection(apply(corpInstalled(['c04'], 3, 0), advance('corp', 'i1')).events)).toBe('bad_target');
   });
 });
 

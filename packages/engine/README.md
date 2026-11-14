@@ -439,7 +439,7 @@ Everything in the Sprint 1–6 interfaces still holds unless noted. Tech plan: `
 - `InstalledView.hostedCredits: number` (public, both sides).
 - `memory.limit` = `memoryLimit(state)`.
 - `installedOptions` covers **both sides**, keyed by uid, listed off-turn with the reason in `reject`: Corp = agenda `advance` / `score`, advanceable ICE `advance`, unrezzed asset/upgrade `rez` (cost = rez cost); Runner = one `activate` per `click` ability. Never lists the other side's cards (the Runner gets no options or ids for unrezzed Corp cards).
-- `CardOption` += `clicks?: number` (click cost, only when > 0: `activate`, `advance`), `gain?: number` (credits the option gives: `activate` with `take_credits`), `hostedPay?: {uid, amount}[]` (breaker options, only when non-empty: which cards pay part of `cost`).
+- `CardOption` += `clicks?: number` (click cost of an `activate` option, only when > 0; other actions' click cost is implied by their type), `gain?: number` (credits the option gives: `activate` with `take_credits`), `hostedPay?: {uid, amount}[]` (breaker options, only when non-empty: which cards pay part of `cost`).
 - `RunView.step` may be `'success'`: `options` = `activate` per usable card (`gain` = credits on it) + `pass`.
 - `legalActions` includes every new option.
 
