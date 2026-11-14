@@ -39,7 +39,7 @@ jobs:
       # (unset until the owner's Cloudflare account exists: "Online play isn't set up yet").
       - run: npm run build
         env:
-          OVERCLOCK_SERVER_URL: ${{ vars.OVERCLOCK_SERVER_URL }}
+          OVERCLOCK_SERVER_URL: ${{ vars.OVERCLOCK_SERVER_URL || 'wss://overclock.patrickmedaugh.workers.dev' }}
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

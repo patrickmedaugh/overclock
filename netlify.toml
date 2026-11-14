@@ -12,4 +12,4 @@
   # repository variables, so the team writes the service address here once the
   # owner's Cloudflare account exists (same value as the OVERCLOCK_SERVER_URL
   # variable, e.g. "wss://overclock.<subdomain>.workers.dev"). Empty = not set up.
-  OVERCLOCK_SERVER_URL = ""
+  OVERCLOCK_SERVER_URL = "wss://overclock.patrickmedaugh.workers.dev"

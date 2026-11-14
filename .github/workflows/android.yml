@@ -95,7 +95,7 @@ jobs:
       # web game's address for Share links sent from the app.
       - run: npm run sync --workspace @overclock/android
         env:
-          OVERCLOCK_SERVER_URL: ${{ vars.OVERCLOCK_SERVER_URL }}
+          OVERCLOCK_SERVER_URL: ${{ vars.OVERCLOCK_SERVER_URL || 'wss://overclock.patrickmedaugh.workers.dev' }}
           OVERCLOCK_WEB_URL: ${{ vars.OVERCLOCK_WEB_URL || 'https://patrickmedaugh.github.io/overclock/' }}
 
       - name: Build the APK
@@ -105,7 +105,7 @@ jobs:
       - name: Check the APK
         env:
           # The bundle check allows exactly this origin in the app's CSP.
-          OVERCLOCK_SERVER_URL: ${{ vars.OVERCLOCK_SERVER_URL }}
+          OVERCLOCK_SERVER_URL: ${{ vars.OVERCLOCK_SERVER_URL || 'wss://overclock.patrickmedaugh.workers.dev' }}
         run: |
           set -euo pipefail
           APK=apps/android/android/app/build/outputs/apk/release/app-release.apk
