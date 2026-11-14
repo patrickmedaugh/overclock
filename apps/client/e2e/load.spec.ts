@@ -1,10 +1,11 @@
 // S-00-2: the demo loads in under 5 seconds. S-01-6 / U3: it runs under a
 // strict CSP and can be added to the home screen as a full-screen app.
 import { expect, test } from '@playwright/test';
+import { BOARD_FLAGS } from './helpers';
 
 test('first load is interactive in under 5 seconds', async ({ page }) => {
   const start = Date.now();
-  await page.goto('./');
+  await page.goto(`./?${BOARD_FLAGS}`);
   await page.waitForFunction(() => document.body.dataset.ready === 'true' && !!window.__overclock);
   const ms = Date.now() - start;
   test.info().annotations.push({ type: 'load-ms', description: String(ms) });
@@ -24,7 +25,7 @@ test('no console errors or CSP violations on load and during a turn', async ({ p
       console.error(`CSP violation: ${e.violatedDirective} ${e.blockedURI}`);
     });
   });
-  await page.goto('./?seed=3');
+  await page.goto(`./?seed=3&${BOARD_FLAGS}`);
   await page.waitForFunction(() => document.body.dataset.ready === 'true');
   await page.evaluate(() => {
     const h = window.__overclock!;

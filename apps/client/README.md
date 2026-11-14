@@ -22,9 +22,22 @@ flying to the pile) play first, then the board fades in for the new seat.
 | `npm run test:e2e` | Playwright: builds, previews, runs `e2e/` on `phone` (844x390 touch), `phone-small` (640x360 touch) and `desktop` (1280x800); `portrait` (390x844 touch) runs only `rotate.spec.ts`. `E2E_PORT=4391` picks another port when 4173 is taken (an already running preview on that port is reused: rebuild first). |
 
 Add `?seed=123` to the URL to get the same deal every time.
+The game opens on the start screen (Sprint 6). `?play=here` skips it and starts a
+pass-the-phone game; `?join=K7QF` joins an online game. Test builds only:
+`?cover=off` turns off the "Pass the phone" cover, `?server=ws://…` points
+"Play online" at a local service. The online service address is set at build
+time with `OVERCLOCK_SERVER_URL` (unset: "Online play isn't set up yet").
+`?server=none` (test builds) acts as if none was set. `npm run test:e2e` also
+starts the service under `wrangler dev` (test mode, port `E2E_PORT + 600`) and
+builds the web client against it; `E2E_NO_SERVER=1` leaves it out.
+- `src/online.ts` — `OnlineMatch`: the protocol client (create/join/resume, seat
+  in localStorage, one action in flight until its ack, resync on a seq gap,
+  reconnect with backoff, ping/pong, wake on visibility/network/app resume).
 
 ## Layout of the code
 
+- `src/session.ts` — the `Session` interface the board talks to (`HotSeat` now, `OnlineMatch` next).
+- `src/startScreen.ts` / `start.css` — the DOM start screen; `src/cover.ts` / `passCover.ts` — the pass-the-phone cover.
 - `src/main.ts` — boots Pixi (`pixi.js/unsafe-eval` first), render-on-demand loop, resize/safe-area, test hook.
 - `src/hotseat.ts` — `HotSeat`: wraps `LocalMatch`, bottom seat = active player, splits a turn change into actor part + new-seat part.
 - `src/safeArea.ts` — reads the notch / gesture-bar insets from the hidden `#safe-probe` (`env(safe-area-inset-*)`).

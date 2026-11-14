@@ -1,0 +1,12 @@
+{
+  "//": "Pure room logic and its Node tests. The Worker/Durable Object wrapper (Cloudflare types) is in tsconfig.worker.json.",
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "outDir": "dist",
+    "tsBuildInfoFile": "dist/.tsbuildinfo",
+    "types": ["node"]
+  },
+  "include": ["src/room.ts", "src/hash.ts", "src/origin.ts", "src/config.ts", "test", "vitest.config.ts"],
+  "references": [{ "path": "../../packages/engine" }, { "path": "../../packages/match" }, { "path": "../../packages/protocol" }]
+}

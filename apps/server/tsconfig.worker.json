@@ -1,0 +1,13 @@
+{
+  "//": "The Cloudflare Worker + Durable Object wrapper (workerd types). Room logic comes from tsconfig.json.",
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "outDir": "dist-worker",
+    "tsBuildInfoFile": "dist-worker/.tsbuildinfo",
+    "lib": ["ES2023"],
+    "types": ["@cloudflare/workers-types"]
+  },
+  "include": ["src/worker.ts", "src/do.ts"],
+  "references": [{ "path": "./tsconfig.json" }, { "path": "../../packages/protocol" }]
+}

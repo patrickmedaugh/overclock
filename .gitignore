@@ -13,3 +13,5 @@ blob-report/
 .env.*
 .claude/worktrees/
 dist-android/
+.wrangler/
+dist-worker/

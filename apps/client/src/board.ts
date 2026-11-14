@@ -15,14 +15,16 @@ import { type BackAction, backAction } from './back';
 import { CAROUSEL_SLIDE_MS, Carousel, type CarouselFace, listIndex } from './carousel';
 import { createCardBack, createCardFace, createZoomFace, dropCardTextures, flushZoomFaces, glowRoundRect, hasZoomFace, retireCardTextures, textOverflows, textsOf } from './cardFace';
 import { framesAreSlow } from './frameClock';
+import { Cover } from './cover';
 import { centeredBox } from './geometry';
 import { Hand, type HandCard } from './hand';
 import type { AnimRecord, Box, EndTurnClock, InstalledSnapshot, Insets, LayoutSnapshot, SideLayout, TargetSnapshot } from './hook-types';
-import type { Decision, Presentation } from './hotseat';
+import type { Decision, Presentation } from './session';
 import { CHOICE_HINT, hintFor } from './hints';
 import { attachPress, inputTime } from './input';
 import { BUILD_LINE, type BoardLayout, type BoardShape, CARD_RATIO, type SideRow, computeLayout } from './layout';
-import { LeaveDialog } from './leaveDialog';
+import { LEAVE_TEXT, LEAVE_TEXT_ONLINE, LeaveDialog } from './leaveDialog';
+import type { CoverText } from './passCover';
 import { RunDisplay } from './runDisplay';
 import { IceReport, LastRunStrip } from './panels';
 import { RUN_END, iceReport, nameOf, runEndText } from './runText';
@@ -209,6 +211,14 @@ export class Board {
   private lastChoiceCard: string | null = null;
   /** "Leave the game?" over everything (S-04-2). */
   private readonly dialogLayer = new Container();
+  /** S-06-5: the "Pass the phone" cover, over the board (under the leave question). */
+  private readonly coverLayer = new Container();
+  private cover: Cover | null = null;
+  /** Sprint 6: an online game (this phone plays one seat): "Back to start", Rejoin wording. */
+  private online = false;
+  /** Sprint 6: a non-blocking line over the board ("Waiting for the other player to come back…"). */
+  private status: { text: string; root: Container; box: Box } | null = null;
+  private readonly statusLayer = new Container();
   private leave: { dialog: LeaveDialog; onLeave: () => void } | null = null;
   /** One hand per seat, kept between turns. */
   private readonly hands: Record<Side, Hand>;
@@ -218,7 +228,7 @@ export class Board {
   private layout: BoardLayout | null = null;
   private view: PlayerView | null = null;
   private gen: Generation | null = null;
-  private gameOver: { text: string; title: string; reason: string; root: Container } | null = null;
+  private gameOver: { text: string; title: string; reason: string; root: Container; button: Box } | null = null;
   /** The other seat's run decision shown on this board (the Corp's rez choice), or null. */
   private decision: Decision | null = null;
   /** True while servers are lit after tapping Run (UI state only). */
@@ -303,7 +313,8 @@ export class Board {
     this.buildText.eventMode = 'none';
     this.buildText.alpha = 0.85;
     this.table.addChild(this.catcher, this.bgLayer, this.boardLayer, this.installedLayer, this.runLayer, this.centerLayer, this.accessLayer, this.targetLayer, this.handLayer, this.buildText);
-    this.stage.addChild(this.table, this.fxLayer, this.hintLayer, this.panelLayer, this.zoomLayer, this.dialogLayer);
+    this.stage.addChild(this.table, this.fxLayer, this.hintLayer, this.statusLayer, this.panelLayer, this.zoomLayer, this.coverLayer, this.dialogLayer);
+    this.statusLayer.eventMode = 'none';
     // S-05-1: a tap anywhere outside the Last run strip (and its button) closes it; the tap still acts.
     this.stage.eventMode = 'static';
     this.stage.on('pointerdown', (e) => {
@@ -327,6 +338,71 @@ export class Board {
     if (this.report && this.layout) this.openReport(this.report.text, this.layout);
     // The question stays open across a rotation / inset change, laid out anew.
     if (this.leave) this.openLeave(this.leave.onLeave);
+    if (this.cover) this.setCover(this.cover.text);
+    if (this.status) this.setStatus(this.status.text);
+  }
+
+  /** Sprint 6: this board plays one seat of an online game. */
+  setOnline(on: boolean): void {
+    this.online = on;
+  }
+
+  /**
+   * Sprint 6: a status line over the top of the board (never takes taps), or
+   * null to remove it: "Reconnecting…", "Waiting for the other player to come back…".
+   */
+  setStatus(text: string | null): void {
+    if (this.status) {
+      this.status.root.destroy({ children: true });
+      this.status = null;
+    }
+    const layout = this.layout;
+    if (text && layout) {
+      const s = Math.min(Math.max(layout.scale, 0.8), 1.2);
+      const root = new Container();
+      root.label = 'status';
+      const t = new Text({ text, style: { fontFamily: theme.fontFamily, fontSize: Math.max(13, Math.round(15 * s)), fontWeight: '700', fill: theme.warn } });
+      t.anchor.set(0.5);
+      fitText(t, layout.board.width - 40);
+      const w = Math.round(t.width + 28 * s);
+      const h = Math.max(30, Math.round(t.height + 12 * s));
+      const g = new Graphics();
+      g.roundRect(-w / 2, -h / 2, w, h, h / 2).fill({ color: 0x05040a, alpha: 0.92 });
+      g.roundRect(-w / 2, -h / 2, w, h, h / 2).stroke({ color: theme.warn, width: 1.5, alpha: 0.8 });
+      root.addChild(g, t);
+      const cx = layout.board.x + layout.board.width / 2;
+      const cy = layout.board.y + layout.board.height / 2;
+      root.position.set(Math.round(cx), Math.round(cy));
+      this.statusLayer.addChild(root);
+      this.status = { text, root, box: { x: Math.round(cx - w / 2), y: Math.round(cy - h / 2), width: w, height: h } };
+    }
+    this.callbacks.changed();
+  }
+
+  /**
+   * S-06-5: puts the opaque "Pass the phone" cover up (`text`) or takes it
+   * away (null). Going up, every running animation is finished first, so the
+   * board behind it is already the next player's: lifting it shows that board
+   * on the next frame. A tap on the cover lifts it.
+   */
+  setCover(text: CoverText | null): void {
+    this.cover?.destroy();
+    this.cover = null;
+    if (text) {
+      this.closeZoom(true);
+      this.stopPredraw();
+      this.closeLastRun();
+      this.fx.finishAll();
+      const layout = this.layout;
+      if (layout) {
+        this.cover = new Cover(layout, text, () => {
+          this.setCover(null);
+          this.callbacks.log({ kind: 'cover_lifted', scheduledMs: 0 });
+        });
+        this.coverLayer.addChild(this.cover.root);
+      }
+    }
+    this.callbacks.changed();
   }
 
   /**
@@ -335,8 +411,10 @@ export class Board {
    * "Leave the game?" (Leave calls `exit`). Returns what it did.
    */
   back(exit: () => void): BackAction {
-    const panelOpen = this.report !== null || this.lastRunStrip !== null;
-    const action = backAction({ dialogOpen: this.leave !== null, zoomOpen: this.zoom !== null, panelOpen, gameOver: !!this.view?.result && !this.report });
+    // Under the "Pass the phone" cover nothing of the board is on screen: Back asks to leave.
+    const covered = this.cover !== null;
+    const panelOpen = !covered && (this.report !== null || this.lastRunStrip !== null);
+    const action = backAction({ dialogOpen: this.leave !== null, zoomOpen: !covered && this.zoom !== null, panelOpen, gameOver: !!this.view?.result && !this.report });
     if (action === 'close_dialog') this.closeLeave();
     else if (action === 'close_zoom') this.closeZoom();
     else if (action === 'close_panel') {
@@ -364,6 +442,7 @@ export class Board {
         this.callbacks.changed();
         onLeave();
       },
+      this.online ? LEAVE_TEXT_ONLINE : LEAVE_TEXT,
     );
     this.dialogLayer.addChild(dialog.root);
     this.leave = { dialog, onLeave };
@@ -390,6 +469,7 @@ export class Board {
     dropCardTextures();
     if (this.view) this.fullRender();
     if (this.leave) this.openLeave(this.leave.onLeave);
+    if (this.cover) this.setCover(this.cover.text);
     this.callbacks.changed();
   }
 
@@ -576,7 +656,8 @@ export class Board {
         button && button.root.visible && button.mode === 'confirm' && pending > 0
           ? { remaining: pending - this.marked.size, label: gen?.subMain.text ?? '', confirm: { box: button.box(), enabled: button.enabled } }
           : null,
-      gameOver: this.gameOver && layout ? { text: this.gameOver.text, title: this.gameOver.title, reason: this.gameOver.reason, box: layout.gameOver } : null,
+      gameOver: this.gameOver && layout ? { text: this.gameOver.text, title: this.gameOver.title, reason: this.gameOver.reason, box: layout.gameOver, button: this.online ? 'Back to start' : 'New game', buttonBox: { ...this.gameOver.button } } : null,
+      status: this.status ? { text: this.status.text, box: { ...this.status.box } } : null,
       run: gen?.run.snapshot ?? null,
       runButton:
         gen && gen.runButton.root.visible
@@ -589,6 +670,7 @@ export class Board {
       selectedInstalled: this.pickedInstalled,
       hint: this.hint && this.hint.root.alpha > 0.05 ? { text: this.hint.text, box: this.hint.box } : null,
       dialog: this.leave ? this.leave.dialog.snapshot() : null,
+      cover: this.cover ? this.cover.snapshot() : null,
       report: this.report ? { text: this.report.text, box: { ...this.report.box } } : null,
       lastRun: {
         button: gen && gen.lastRunButton.root.visible ? { box: { ...gen.lastRunButton.box }, label: gen.lastRunButton.text } : null,
@@ -1183,6 +1265,9 @@ export class Board {
       helpText = `${SIDE_NAME[view.choice.waitingOn]} is choosing (${choiceCard})…`;
     } else if (view.run) {
       helpText = 'Tap a button to decide.\nHold a card to read it.';
+    } else if (view.activePlayer !== viewer && pending === 0) {
+      // Online: the other phone's turn. Their moves show up here.
+      helpText = `${SIDE_NAME[view.activePlayer]}'s turn.\nTheir moves show up here.`;
     } else if (this.runPicking) {
       helpText = `Tap a lit server to run on it.\nTap ${TERMS.run} again to cancel.`;
     } else if (this.pickedInstalled !== null) {
@@ -1989,7 +2074,7 @@ export class Board {
     bg.roundRect(-btnW / 2, -btnH / 2, btnW, btnH, Math.min(14 * s, btnH / 2)).fill({ color: 0x000000, alpha: 0.6 });
     glowRoundRect(bg, -btnW / 2, -btnH / 2, btnW, btnH, Math.min(14 * s, btnH / 2), theme.text, 1.5, 0.5);
     const bl = new Text({
-      text: 'New game',
+      text: this.online ? 'Back to start' : 'New game',
       style: { fontFamily: theme.fontFamily, fontSize: Math.max(13, Math.round(16 * s)), fontWeight: '800', fill: theme.text },
     });
     bl.anchor.set(0.5);
@@ -1997,7 +2082,8 @@ export class Board {
     this.gen?.detachers.push(this.pressFeedback(btn, () => this.callbacks.onNewGame()));
     root.addChild(g, heading, btn);
     this.centerLayer.addChild(root);
-    this.gameOver = { text: `${lines.title}: ${lines.reason}`, title: lines.title, reason: lines.reason, root };
+    const button = { x: root.x - btnW / 2, y: root.y + btn.y - btnH / 2, width: btnW, height: btnH };
+    this.gameOver = { text: `${lines.title}: ${lines.reason}`, title: lines.title, reason: lines.reason, root, button };
     if (animate) {
       root.scale.set(0.6);
       root.alpha = 0;

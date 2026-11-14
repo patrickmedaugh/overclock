@@ -8,3 +8,8 @@
 [build.environment]
   NODE_VERSION = "22"
   BASE_PATH = "/"
+  # Sprint 6: "Play online" on the Netlify copy. Netlify can't read GitHub's
+  # repository variables, so the team writes the service address here once the
+  # owner's Cloudflare account exists (same value as the OVERCLOCK_SERVER_URL
+  # variable, e.g. "wss://overclock.<subdomain>.workers.dev"). Empty = not set up.
+  OVERCLOCK_SERVER_URL = "wss://overclock.patrickmedaugh.workers.dev"

@@ -1,0 +1,70 @@
+/* S-06-1: the start screen (DOM, over the canvas; under the rotate prompt).
+   Sized for sideways phones first: 844x390 and 640x360 fit without scrolling. */
+#start {
+  position: fixed; inset: 0; z-index: 5;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  box-sizing: border-box;
+  padding: max(12px, env(safe-area-inset-top, 0px), var(--safe-area-inset-top, 0px))
+    max(16px, env(safe-area-inset-right, 0px), var(--safe-area-inset-right, 0px))
+    max(12px, env(safe-area-inset-bottom, 0px), var(--safe-area-inset-bottom, 0px))
+    max(16px, env(safe-area-inset-left, 0px), var(--safe-area-inset-left, 0px));
+  background: radial-gradient(circle at 50% 35%, #120a1f 0%, #07060d 72%);
+  color: #e8f6ff;
+  font: 600 16px "Segoe UI", Roboto, "Helvetica Neue", Arial, system-ui, sans-serif;
+  text-align: center;
+}
+#start[hidden] { display: none; }
+#start .screen { width: min(620px, 100%); display: flex; flex-direction: column; align-items: center; gap: clamp(10px, 3.5vh, 22px); }
+#start .screen.top { align-self: center; margin-top: 0; }
+#start h1 {
+  margin: 0; font-size: clamp(30px, 11vh, 52px); font-weight: 900; letter-spacing: 6px; line-height: 1;
+  color: #19e6ff; text-shadow: 0 0 14px rgba(25, 230, 255, 0.55), 3px 0 0 rgba(255, 43, 214, 0.55);
+}
+#start h2 { margin: 0; font-size: clamp(19px, 6vh, 26px); font-weight: 800; line-height: 1.15; }
+#start p { margin: 0; color: #9fb0c8; font-size: clamp(14px, 4.2vh, 17px); line-height: 1.3; }
+#start .choices { display: flex; gap: 12px; width: 100%; }
+#start button {
+  font: inherit; color: inherit; cursor: pointer; touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+#start .choice {
+  flex: 1 1 0; min-height: 64px; padding: 10px 14px; border-radius: 14px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+  background: #0d0f1a; border: 2px solid #19e6ff;
+  box-shadow: 0 0 12px rgba(25, 230, 255, 0.35), inset 0 0 10px rgba(25, 230, 255, 0.12);
+  transition: transform 60ms ease-out, background 60ms ease-out;
+}
+#start .choice b { font-size: clamp(17px, 5.4vh, 22px); font-weight: 800; }
+#start .choice small { font-size: clamp(12px, 3.6vh, 14px); color: #9fb0c8; font-weight: 600; }
+#start .choice.corp { border-color: #ff2bd6; box-shadow: 0 0 12px rgba(255, 43, 214, 0.35), inset 0 0 10px rgba(255, 43, 214, 0.12); }
+#start .choice.corp b { color: #ff2bd6; }
+#start .choice.runner b { color: #19e6ff; }
+#start .choice.plain { border-color: #3a4a62; box-shadow: none; }
+#start .choice:active, #start .choice.pressed { transform: scale(0.96); background: #16192a; }
+#start .back {
+  position: absolute; left: max(8px, env(safe-area-inset-left, 0px), var(--safe-area-inset-left, 0px));
+  top: max(8px, env(safe-area-inset-top, 0px), var(--safe-area-inset-top, 0px));
+  min-width: 88px; min-height: 44px; padding: 0 14px; border-radius: 22px;
+  background: transparent; border: 2px solid #3a4a62; color: #c7d3e6; font-size: 16px; font-weight: 700;
+}
+#start .back:active { background: #16192a; }
+#start form.code { display: flex; gap: 12px; width: min(420px, 100%); }
+#start input {
+  flex: 1 1 auto; min-width: 0; height: 56px; box-sizing: border-box; padding: 0 14px;
+  border-radius: 12px; border: 2px solid #19e6ff; background: #05060b; color: #e8f6ff;
+  font: 800 28px ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; letter-spacing: 8px;
+  text-align: center; text-transform: uppercase; text-indent: 8px; /* balances the letter-spacing after the last letter */
+  user-select: text; -webkit-user-select: text; outline: none;
+}
+#start input::placeholder { color: #2d3b52; }
+#start input:focus { box-shadow: 0 0 12px rgba(25, 230, 255, 0.45); }
+#start form.code .choice { flex: 0 0 auto; min-width: 110px; min-height: 56px; }
+#start .error { color: #ffc04a; min-height: 1.3em; }
+#start .busy { color: #c7d3e6; }
+#start .code-big {
+  font: 900 clamp(40px, 15vh, 64px) ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  letter-spacing: 0.35em; text-indent: 0.35em; line-height: 1;
+  color: #ff2bd6; text-shadow: 0 0 16px rgba(255, 43, 214, 0.6);
+  user-select: text; -webkit-user-select: text;
+}
+#start .screen.dense { gap: clamp(6px, 2.2vh, 14px); }
