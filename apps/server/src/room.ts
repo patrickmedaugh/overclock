@@ -10,7 +10,7 @@
  * All handlers are synchronous: the Durable Object runs one event at a time, so a
  * handler can't interleave with another socket's message.
  */
-import type { Action, GameOptions, GameState, PlayerView, Side } from '@overclock/engine';
+import { RULES_VERSION, type Action, type GameOptions, type GameState, type PlayerView, type Side } from '@overclock/engine';
 import { LocalMatch, type MatchUpdate } from '@overclock/match';
 import { encodeMsg, parseClientMsg, PROTOCOL_VERSION, type ClientMsg, type ErrorCode, type Presence, type ServerMsg } from '@overclock/protocol';
 import { base64url, sha256Hex } from './hash';
@@ -79,6 +79,11 @@ export interface RoomMeta {
   lastActive: number;
   /** The build that wrote the `state` snapshot. */
   build: string;
+  /**
+   * The engine's `RULES_VERSION` the game was created under (architect, Sprint 7 review). Absent
+   * in rooms created before it was stored: those were all created under version 1.
+   */
+  rulesVersion?: number;
 }
 
 const actionKey = (seq: number) => `a:${String(seq).padStart(6, '0')}`;
@@ -236,6 +241,7 @@ export class Room {
       createdAt: now,
       lastActive: now,
       build: this.deps.build,
+      rulesVersion: RULES_VERSION,
     };
     this.match = match;
     this.accepted = accepted;
@@ -331,10 +337,13 @@ export class Room {
       this.match = LocalMatch.fromSnapshot(meta.seed, snapshot, actions);
     } else {
       // Another build wrote the snapshot (a deploy mid-game): rebuild under this build's rules.
-      // Sprint 7: the log holds accepted actions only, so a rejection on replay means the rules
-      // changed under this game: expire it rather than show both phones a different game.
+      // Sprint 7: a game made under another RULES_VERSION is expired (its log could replay into a
+      // different game without any rejection). Backstop: the log holds accepted actions only, so a
+      // rejection on replay means the rules changed under this game without a version bump.
+      // Either way: expire it rather than show both phones a different game.
       const match = new LocalMatch(meta.seed, meta.options);
-      if (actions.some((a) => isRejected(match.submit(a.player, a), a.player))) {
+      const sameRules = (meta.rulesVersion ?? 1) === RULES_VERSION;
+      if (!sameRules || actions.some((a) => isRejected(match.submit(a.player, a), a.player))) {
         this.store.deleteAll();
         this.divergedOnRestore = true;
         return;

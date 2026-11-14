@@ -405,7 +405,7 @@ Everything in the Sprint 1–6 interfaces still holds unless noted. Tech plan: `
 ### State
 - `Installed.hostedCredits: number` (0 by default; public).
 - `RunStep` += `'success'`; `RunOutcome` += `'access_replaced'`.
-- `RULES_VERSION = 1` (exported): bump when an old action log would replay differently.
+- `RULES_VERSION = 1` (exported): bump when an old action log would replay differently — any rules change **or card-data behaviour change** (costs, strengths, effects). The online room stores it with each game and expires a stored game made under another version when a new build restores it (the replay-rejection check stays as a backstop). Leave it alone for client-only or text-only changes, so live games survive those deploys.
 
 ### Actions
 - **New** `{type: 'activate', player, uid, ability}` — `ability` indexes `CardDef.cardAbilities` of the player's own installed, face-up card. Rejection order: `invalid_action` (shape) → `game_over` → `not_your_turn` (`waitingOn`) → `bad_target` (not own installed face-up card, or no such ability) → `wrong_phase` (`click`: action phase; `successful_run_remote`: run step `success`) → `no_clicks` → `condition_not_met` (`requires` unmet: no credits on the card) → `no_credits`. Breakers' `use_ability` is unchanged.

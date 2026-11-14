@@ -170,4 +170,31 @@ describe('restore by replay that diverges (rules changed under a stored game)', 
     expect(woke.seq()).toBe(2);
     expect(h.store.get<RoomMeta>('meta')!.build).toBe('b2');
   });
+
+  it('a game created under another RULES_VERSION is expired on restore by replay, even when its log replays', () => {
+    const h = harness({ testMode: true });
+    const host = creator(h);
+    h.room.message(host, msg({ t: 'create', side: 'corp', test: { seed: 9, actions: [{ type: 'gain_credit', player: 'corp' }] } }));
+    expect(h.store.get<RoomMeta>('meta')!.rulesVersion).toBe(RULES_VERSION);
+    // Same build: the snapshot is trusted, nothing is replayed.
+    expect(new Room(h.store, h.deps).seq()).toBe(1);
+    // Another build: a game whose stored version differs is expired.
+    h.store.put('meta', { ...h.store.get<RoomMeta>('meta')!, rulesVersion: RULES_VERSION + 1 });
+    const woke = new Room(h.store, { ...h.deps, build: 'b2' });
+    expect(h.store.data.size).toBe(0);
+    expect(woke.seq()).toBe(0);
+    const back = player(h, woke, 'back');
+    woke.message(back, msg({ t: 'resume', token: tokenOf(host), since: 0 }));
+    expect(back.take()).toEqual([{ v: 1, t: 'error', code: 'expired' }]);
+  });
+
+  it('a room stored without a version (made before it was stored) counts as version 1', () => {
+    const h = harness({ testMode: true });
+    const host = creator(h);
+    h.room.message(host, msg({ t: 'create', side: 'corp', test: { seed: 9, actions: [{ type: 'gain_credit', player: 'corp' }] } }));
+    const { rulesVersion: _drop, ...old } = h.store.get<RoomMeta>('meta')!;
+    h.store.put('meta', old);
+    const woke = new Room(h.store, { ...h.deps, build: 'b2' });
+    expect(woke.seq()).toBe(RULES_VERSION === 1 ? 1 : 0);
+  });
 });

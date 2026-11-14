@@ -122,5 +122,5 @@ describe('leak test: random online games through the room', () => {
     expect(autoPasses).toBeGreaterThan(3);
     expect(unaffordableWindows).toBeGreaterThan(5);
     expect(rejections).toBeGreaterThan(50);
-  });
+  }, 60_000); // ~2 s locally, past the 5 s default on a busy CI runner (52d38aa); assertions unchanged (architect, Sprint 7 review).
 });
