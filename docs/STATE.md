@@ -174,5 +174,12 @@ Details: docs/sprints/sprint-00-tech-plan.md, sprint-00-qa.md, sprint-00-demo.md
 ## Sprint 7 approved — 2026-11-14 16:46 UTC
 - Owner "1B 2a 3A 4A approved" on PR #17: card abilities S-07-1..5 PLUS the drag-to-play hand (S-07-6 added from his backlog design). Bigger sprint; if it runs long, S-07-5 (Ice Wall) drops first.
 
+## Online service live — 2026-11-14 ~19:15 UTC
+- Owner added the Cloudflare secrets. server.yml on sprint-07 f0c03c5 deployed; /health = {"ok":true,"build":"f0c03c5…","protocol":1} at wss://overclock.patrickmedaugh.workers.dev. Owner also connected Cloudflare "Workers Builds" (failing external check) — asked him to disconnect it.
+- Owner: no house rule for combining Inside Job + The Maker's Eye (real rules). Owner request: pass-and-play wording says "device" not "phone" (done in Sprint 7, 0ee767a).
+
+## Sprint 7 BUILD progress
+- Engine E1–E7 merged (b91e07f..d99bada); UI U1–U2 merged (563234c, 1c4e68d) → 52d38aa; U3–U6 + wording (0ee767a, 8295307, f0c03c5). CI green on f0c03c5 (all jobs). Next: architect review, then QA.
+
 ## Next run
 Phase BUILD for Sprint 7 on branch sprint-07. Follow docs/TESTING.md when delegating anything that runs tests.
