@@ -11,6 +11,7 @@ import {
   openBoard,
   passTurn,
   pickCard,
+  pickHand,
   tap,
   targetOf,
   toRunnerTurn,
@@ -188,8 +189,9 @@ test.describe('S-02-4 play money and draw cards', () => {
     for (let i = 0; i < 3; i++) await dispatch(page, { type: 'gain_credit', player: 'corp' });
     const l0 = await waitIdle(page);
     await page.evaluate(() => window.__overclock!.clearAnims());
-    await tap(page, l0.hand[0]!.box);
-    const l = await layout(page);
+    // S-07-6: the tap opens the hand view; the pick (a tap on its big card) says so.
+    void l0;
+    const l = await pickHand(page, 0);
     expect(l.selected).toBeNull();
     expect(l.targets).toEqual([]);
     expect((await anims(page)).find((a) => a.kind === 'hint')?.text).toBe('No clicks left');

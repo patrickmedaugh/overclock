@@ -19,7 +19,9 @@ import {
   measureTap,
   openBoard,
   passTurn,
+  openHand,
   pickCard,
+  pickHand,
   pressAndHold,
   tap,
   targetOf,
@@ -147,6 +149,8 @@ test.describe('QA snappiness: picking a card', () => {
       if (side === 'runner') await toRunnerTurn(page);
       const l = await waitIdle(page);
       for (let i = 0; i < l.hand.length; i++) {
+        // S-07-6: the hand view opens on the card first; the tap on its big card is the pick measured here.
+        const open = await openHand(page, i);
         await page.evaluate(() => {
           const w = window as unknown as { __p?: unknown };
           w.__p = undefined;
@@ -161,7 +165,7 @@ test.describe('QA snappiness: picking a card', () => {
             { once: true },
           );
         });
-        await tap(page, l.hand[i]!.box);
+        await tap(page, open.handView!.centre);
         await page.waitForFunction(() => (window as unknown as { __p?: unknown }).__p !== undefined);
         const p = await page.evaluate(() => (window as unknown as { __p: { at: number; handled: number; targets: number; selected: number | null } }).__p);
         const card = getCard(l.hand[i]!.cardId)!;
@@ -215,7 +219,7 @@ test.describe('QA Sprint 2 playthrough (screenshots)', () => {
     await shot(page, '07-hedge-fund-played-archives-face-up');
 
     await page.evaluate(() => window.__overclock!.clearAnims());
-    await tap(page, l.hand[0]!.box);
+    await pickHand(page, 0);
     expect((await anims(page)).find((a) => a.kind === 'hint')?.text).toBe('No clicks left');
     await shot(page, '08-no-clicks-left');
 
@@ -265,9 +269,7 @@ test.describe('QA Sprint 2 playthrough (screenshots)', () => {
     const v = await getView(page);
     const poor = v.handOptions.findIndex((opts) => opts.some((o) => o.reject === 'no_credits'));
     if (poor >= 0) {
-      l = await layout(page);
-      await tap(page, l.hand[poor]!.box);
-      l = await layout(page);
+      l = await pickHand(page, poor);
       const t = l.targets.find((x) => x.reject === 'no_credits')!;
       await page.evaluate(() => window.__overclock!.clearAnims());
       await tap(page, t.box);

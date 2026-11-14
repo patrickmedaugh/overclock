@@ -6,6 +6,8 @@ that come back. No rules live here.
 
 Playing a card (Sprint 2): tap a hand card and the places it can go light up with their price (a server column, New server, the Runner's Install slot, or the Play button), all taken from `view.handOptions`. Tap one to do it; tap the card again or empty board to cancel. Refusals come back from the engine and show a hint (Not enough credits, Needs runs (coming soon), ...).
 
+The hand (Sprint 7, S-07-6): tap (or hold) the hand strip and the **hand view** opens on that card, drawn big with two neighbours each side; swipe or tap a neighbour to browse, tap outside or Back to close. Hold the big card (350 ms) and it lifts out: the view fades, the card follows the finger and its places light up (from `view.handOptions`; dimmed ones say why). Let go on a lit place to play it there; anywhere else and it flies home and the view is back. A tap on the big card is the no-drag path (the pick above). The discard picker keeps the plain strip (tap to mark, hold to read). Gesture maths: `src/handGesture.ts` (unit tested).
+
 Hot-seat (Sprint 1): one device plays both seats. The active player's side is
 always drawn at the bottom with their hand face up; the opponent is on top as
 counts only. When the turn passes, the actor's own events (e.g. discards
@@ -50,6 +52,7 @@ builds the web client against it; `E2E_NO_SERVER=1` leaves it out.
 - `src/cardFace.ts` — generated placeholder card art (shapes seeded by the card's `art` key).
 - `src/tween.ts` — tiny tween engine; `finishAll()` = tap-to-skip, so animations never lock input.
 - `src/input.ts` — tap / long-press gestures for mouse and touch.
+- `src/handGesture.ts` — the hand view's pure gesture maths: what a press is on, swipe to browse, the place under a dragged card, where the lifted card is drawn.
 - `src/hook-types.ts` — `window.__overclock` test hook types (shared with e2e).
 
 ## Test hook
@@ -57,7 +60,7 @@ builds the web client against it; `E2E_NO_SERVER=1` leaves it out.
 `window.__overclock = { getView(), dispatch(action), lastEvents(), layout(), anims(), clearAnims(), lastInput(), endTurn() }`.
 
 - `dispatch(action)` submits as seat `action.player`; `getView()` is the bottom (active) seat's view.
-- `layout()` returns CSS-pixel boxes for each side's deck/credits/clicks/discard/label (keyed `corp`/`runner` wherever they are drawn), `mode` (`landscape`/`portrait`), `viewer`, `safeArea` insets, hand cards (with `marked`, `selected`), `servers` (`{id, label, box, labelBox, root, ice[], content[]}` with each installed card's `{uid, cardId, faceUp, box}`), `rig`, `memory`, `targets` (`{kind, server?, box, label, lit, reject}` while a card is picked), `selected`, `labels` (every board text on screen), `endTurn`, `picker`, `gameOver`, hint, zoom (`cardId` null for a face-down card; `textOverflow`), the on-screen texts and an `animating` flag.
+- `layout()` returns CSS-pixel boxes for each side's deck/credits/clicks/discard/label (keyed `corp`/`runner` wherever they are drawn), `mode` (`landscape`/`portrait`), `viewer`, `safeArea` insets, hand cards (with `marked`, `selected`), `servers` (`{id, label, box, labelBox, root, ice[], content[]}` with each installed card's `{uid, cardId, faceUp, box}`), `rig`, `memory`, `targets` (`{kind, server?, box, label, lit, reject}` while a card is picked), `selected`, `labels` (every board text on screen), `endTurn`, `picker`, `gameOver`, hint, zoom (`cardId` null for a face-down card; `textOverflow`), `handView` (`{index, cardId, lifted, centre}` while the hand view is open) and `drag` (`{index, cardId, box, hover}` while a card is lifted), the on-screen texts and an `animating` flag.
 - `anims()` lists `{kind, startedAt, scheduledMs, text?, box?}` for every animation or hint when it *starts* (`draw_flight`, `credit_pop`, `discard_flight`, `turn_change`, `hint`, `install_flight`, `play_flight`, `server_open`). Specs assert the tap budget from these (start < 100ms after the tap, scheduled <= 600ms) and read hints from them instead of polling a 1.1s on-screen state.
 
 - `lastInput()` is `{eventAt, handledAt, target}` for the last pointer release a game target handled: the DOM event's timestamp, when `src/input.ts` started on it, and the label of the object that took it (e.g. `target:install:`, `board:empty`). Tap budgets (state and animation start < 100ms) count from `handledAt`; `handledAt - eventAt` is the browser's input-queue delay (the page was busy drawing a frame), recorded as an annotation only.

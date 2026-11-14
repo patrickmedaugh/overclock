@@ -502,8 +502,14 @@ export class TargetMarker {
     return this.label.text;
   }
 
+  /** S-07-6: a dragged card is over this place: it swells a little. */
+  setHover(on: boolean): void {
+    this.root.scale.set(on ? 1.05 : 1);
+  }
+
   /** `at` is where the price pill goes, relative to the box: 'top' | 'bottom' | 'center'. */
   set(b: Box, text: string, lit: boolean, at: 'top' | 'bottom' | 'center'): void {
+    this.setHover(false);
     this.box = { ...b };
     this.root.position.set(b.x + b.width / 2, b.y + b.height / 2);
     this.root.hitArea = new Rectangle(-b.width / 2, -b.height / 2, b.width, b.height);

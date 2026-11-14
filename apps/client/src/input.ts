@@ -15,6 +15,14 @@ export function lastInput(): InputStamp | null {
   return last ? { ...last } : null;
 }
 
+/**
+ * Records a pointer release handled outside attachPress (the S-07-6 hand view
+ * takes its own presses), so lastInput() covers every game tap.
+ */
+export function noteRelease(eventAt: number, handledAt: number, target: string): void {
+  last = { eventAt, handledAt, target };
+}
+
 /** Event time of the pointer release being handled right now (null outside a release). */
 let current: number | null = null;
 

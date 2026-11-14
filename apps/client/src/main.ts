@@ -101,6 +101,10 @@ async function start(): Promise<void> {
     // Pass-the-phone: a new game straight away (same test switches). Online: Back to start.
     onNewGame: () => newGame(),
     changed: () => invalidate(),
+    // S-07-6: a dragged card moved: drawn on the next frame (no hit-test refresh per move).
+    redraw: () => {
+      dirty = true;
+    },
     log,
     buildTime: __BUILD_TIME__,
   });

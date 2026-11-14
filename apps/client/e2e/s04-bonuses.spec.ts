@@ -3,7 +3,7 @@
 // AC4 (a stolen agenda gives no bonus) is an engine rule, tested in packages/engine;
 // here: no bad-publicity mark shows before the Corp scores Hostile Takeover.
 import { type Page, expect, test } from '@playwright/test';
-import { type LayoutSnapshot, anims, dispatch, expectCleanLayout, getView, layout, openBoard, runButtonOf, startRun, tap, targetOf, toStep, waitIdle } from './helpers';
+import { type LayoutSnapshot, anims, dispatch, expectCleanLayout, getView, layout, openBoard, pickHand, runButtonOf, startRun, tap, targetOf, toStep, waitIdle } from './helpers';
 
 const SEED = 1;
 
@@ -152,7 +152,10 @@ test.describe('S-04-4 Priority Requisition: rez one ICE for free, or Skip', () =
 
     // A hand card or R&D does nothing but say what to do.
     await page.evaluate(() => window.__overclock!.clearAnims());
-    await tap(page, l.hand[0]!.box);
+    // S-07-6: the hand opens for reading; picking its card (a tap on the big card) says what to do.
+    await pickHand(page, 0);
+    expect((await anims(page)).filter((r) => r.kind === 'hint').map((r) => r.text)).toContain('Rez one ICE for free, or tap Skip');
+    await page.evaluate(() => window.__overclock!.clearAnims());
     await tap(page, l.corp.deck);
     await page.waitForTimeout(150);
     expect(await getView(page)).toEqual(v);
