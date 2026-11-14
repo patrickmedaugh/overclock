@@ -162,3 +162,44 @@ describe('card pool', () => {
     expect(getCard('nope')).toBeUndefined();
   });
 });
+
+describe('Sprint 7 card data (DSL v2)', () => {
+  const card = (id: string) => ALL_CARDS.find((c) => c.id === id)!;
+  it('matches the tech plan', () => {
+    expect(card('r02')).toMatchObject({
+      name: 'Armitage Codebusting',
+      onInstall: [{ op: 'place_credits', amount: 12 }],
+      trashWhenEmpty: true,
+      cardAbilities: [{ label: 'Take {gain} credits', when: 'click', clicks: 1, credits: 0, requires: 'hosted_credits', effects: [{ op: 'take_credits', amount: 2 }] }],
+    });
+    expect(card('r10')).toMatchObject({
+      name: 'Bank Job',
+      onInstall: [{ op: 'place_credits', amount: 8 }],
+      trashWhenEmpty: true,
+      cardAbilities: [
+        {
+          label: 'Take {gain} credits from Bank Job',
+          when: 'successful_run_remote',
+          clicks: 0,
+          credits: 0,
+          requires: 'hosted_credits',
+          replacesAccess: true,
+          effects: [{ op: 'take_credits', amount: 'all' }],
+        },
+      ],
+    });
+    expect(card('r08')).toMatchObject({ name: 'Cyberfeeder', recurringCredits: { amount: 1, for: 'icebreaker' } });
+    expect(card('r09')).toMatchObject({ name: 'Akamatsu Mem Chip', memoryBonus: 1 });
+    expect(card('c03')).toMatchObject({ name: 'PAD Campaign', onTurnStart: [{ op: 'gain_credits', amount: 1 }] });
+    expect(card('c11')).toMatchObject({ name: 'Akitaro Watanabe', iceRezDiscount: 2 });
+    expect(card('c05')).toMatchObject({ name: 'Ice Wall', advanceable: true, strengthPerAdvancement: 1 });
+  });
+
+  it('only ICE is advanceable; only cards holding credits trash when empty; abilities have a label', () => {
+    for (const c of ALL_CARDS) {
+      if (c.advanceable || c.strengthPerAdvancement) expect(c.type).toBe('ice');
+      if (c.trashWhenEmpty) expect(c.onInstall?.some((e) => e.op === 'place_credits')).toBe(true);
+      for (const ab of c.cardAbilities ?? []) expect(ab.label.length).toBeGreaterThan(0);
+    }
+  });
+});

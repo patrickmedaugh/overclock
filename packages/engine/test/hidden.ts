@@ -72,6 +72,9 @@ export function expectRunnerViewClean(s: GameState, where: string): void {
   // Sprint 5 (spec change): Last run = exactly the cards the most recent run accessed, only between runs.
   const last = !s.run && s.lastRun && s.lastRun.cards.length > 0 ? s.lastRun : null;
   expect(v.lastRun, where).toEqual(last);
+  // Sprint 7: the Runner's installed-card options are for its own rig cards only (never a Corp uid).
+  const rigUids = new Set(s.rig.map((c) => c.uid));
+  for (const uid of Object.keys(v.installedOptions)) expect(rigUids.has(uid), `${where}: Runner option on ${uid}`).toBe(true);
   // An open choice names the agenda that opened it, which is face up in the score area.
   if (v.choice) expect(s.players.corp.scoreArea, where).toContain(v.choice.cardId);
   // Nothing else names a Corp card.

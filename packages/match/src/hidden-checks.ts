@@ -77,6 +77,9 @@ export function runnerViewLeaks(s: GameState, v: PlayerView = viewFor('runner', 
   const last = !s.run && s.lastRun && s.lastRun.cards.length > 0 ? s.lastRun : null;
   check(same(v.lastRun, last), 'lastRun differs from the recorded accesses');
   if (v.choice) check(s.players.corp.scoreArea.includes(v.choice.cardId), 'choice names a card not in the score area');
+  // Sprint 7: installed-card options only for the Runner's own rig cards.
+  const rigUids = new Set(s.rig.map((c) => c.uid));
+  for (const uid of Object.keys(v.installedOptions)) check(rigUids.has(uid), `Runner option on non-rig card ${uid}`);
   const rest = {
     ...v,
     players: {

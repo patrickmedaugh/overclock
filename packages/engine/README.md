@@ -489,6 +489,15 @@ The planner answers a free-rez choice it did not aim for with Skip.
 - `runner_at_access` — the access step of a run on Archives showing ≥ 2 cards at once (no ICE on Archives). `info: {server: 'archives', count}`.
 - `runner_after_access` — the same run finished (agendas stolen, Done): Runner's action step, `lastRun` lists ≥ 2 cards, ≥ 1 click left. `info: {server: 'archives', count}`.
 
+**Test-only (Sprint 7):** seven more `planToStep` goals (all work for seeds 1-100 and 12345, pass-the-phone and online; `planToStep(seed, goal, maxActions?, options?)` takes the game options, e.g. `{rezWindow: 'always'}` for an online prelude — pass the same options to the game). `SPRINT7_GOALS` lists them.
+- `corp_rez_asset` — Corp's action step, a face-down PAD Campaign with Rez legal (≥ 2 credits). `info: {uid, cardId: 'c03', server, cost: '2'}`. Rez → `credits_spent 2`, `card_rezzed`; at the next Corp turn start `ability_triggered` + `credit_gained 1`.
+- `runner_approach_akitaro` — a run waits on the Corp at a face-down Wall of Static protecting a server with a face-up Akitaro Watanabe; the Corp has exactly 1 credit and the Rez option costs 1 (S-07-2 AC4 + AC5). `info: {server, iceUid, akitaroUid, cost: '1', corpCredits: '1'}`.
+- `runner_armitage` — Runner's action step, ≥ 1 click, Armitage Codebusting installed with 12 credits. `info: {uid, credits: '12'}`. Its `installedOptions[uid]` = `[{activate, cost 0, clicks 1, gain 2}]`.
+- `runner_cyberfeeder_ice_wall` — the Runner encounters a rezzed Ice Wall (no counters) with Corroder and Cyberfeeder (1 credit on it) installed and 0 own credits. `info: {server, iceUid, breakerUid, cyberfeederUid}`. The break option has `hostedPay: [{uid: cyberfeederUid, amount: 1}]`.
+- `runner_bank_job_remote` — Runner's action step, ≥ 1 click, Bank Job with 8 credits, a remote with no ICE holding a card. `info: {bankJobUid, server, credits: '8'}`. A run there stops at step `success`.
+- `corp_ice_wall` — Corp's action step, ≥ 2 clicks and ≥ 3 credits, a face-down Ice Wall (no counters) alone on a remote, the Runner has Corroder and ≥ 2 credits (S-07-5 AC1 + AC2: advance twice, end turn, the Runner runs, the Corp rezzes, strength 3). `info: {uid, server, breakerUid}`.
+- `remote_last_card` — Runner's action step, ≥ 1 click, ≥ 2 remotes, one with no ICE holding exactly one agenda whose steal does not win (S-07-1). `info: {server, uid, cardId, otherServer}`. Stealing it → `run_ended`, `server_removed {server}`.
+
 The client and AI may import only the public index of engine/cards/match. The client may not import `apply`, `newGame`, `legalActions`, `viewFor` or `replay` (it goes through the match).
 
 ## Rules for contributors
