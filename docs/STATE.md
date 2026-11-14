@@ -1,6 +1,6 @@
 # Project state
 
-phase: BUILD
+phase: DEMO
 running_since: 2026-11-14 16:47 UTC
 sprint: 7
 open_pr: (none — PR #17 Sprint 07 proposal merged 2026-11-14 16:47 UTC after owner approval)
@@ -174,5 +174,22 @@ Details: docs/sprints/sprint-00-tech-plan.md, sprint-00-qa.md, sprint-00-demo.md
 ## Sprint 7 approved — 2026-11-14 16:46 UTC
 - Owner "1B 2a 3A 4A approved" on PR #17: card abilities S-07-1..5 PLUS the drag-to-play hand (S-07-6 added from his backlog design). Bigger sprint; if it runs long, S-07-5 (Ice Wall) drops first.
 
+## Online service live — 2026-11-14 ~19:15 UTC
+- Owner added the Cloudflare secrets. server.yml on sprint-07 f0c03c5 deployed; /health = {"ok":true,"build":"f0c03c5…","protocol":1} at wss://overclock.patrickmedaugh.workers.dev. Owner also connected Cloudflare "Workers Builds" (failing external check) — asked him to disconnect it.
+- Owner: no house rule for combining Inside Job + The Maker's Eye (real rules). Owner request: pass-and-play wording says "device" not "phone" (done in Sprint 7, 0ee767a).
+
+## Sprint 7 BUILD progress
+- Engine E1–E7 merged (b91e07f..d99bada); UI U1–U2 merged (563234c, 1c4e68d) → 52d38aa; U3–U6 + wording (0ee767a, 8295307, f0c03c5). CI green on f0c03c5 (all jobs). Next: architect review, then QA.
+
+## Sprint 7 BUILD done — 2026-11-14
+- Architect approved (a9364a1): RULES_VERSION stored per room and enforced on replay (bump it for any rules/card change); leak.test timeout 60s. CI fully green on a9364a1 incl. live server deploy + /health. External "Workers Builds: overclock" check red = owner's Cloudflare git integration (asked him to disconnect).
+- Follow-ups: Corp cards with onInstall/recurring/click abilities must not trigger face-down; specific refusal reasons instead of condition_not_met; QA spec 'c05' → advanceable; keep games on their starting build.
+
+## Sprint 7 QA — 2026-11-14
+- Report docs/sprints/sprint-07-qa.md (3475984); QA tests 0865b64. 36/36 criteria PASS, 0 fail. CI on 0865b64: 1425 unit, e2e 933 pass / 6 skipped / 0 flaky; server deploy /health = 0865b64.
+- Low findings → backlog: QA-S7-1 credits pill hides card type line at 640×360 ("…URCE"), Armitage name cut; QA-S7-2 credits pill and advancement counters look the same (yellow disc).
+- Sprint 6 S-06-4 addendum: auto-deploy criterion now PASS; live two-device play and "nothing charged" remain owner checks.
+- Owner checks: two real devices on the live service; drag on a real Android phone; pill readability; no Cloudflare charges.
+
 ## Next run
-Phase BUILD for Sprint 7 on branch sprint-07. Follow docs/TESTING.md when delegating anything that runs tests.
+Phase DEMO for Sprint 7. Follow docs/TESTING.md when delegating anything that runs tests.
