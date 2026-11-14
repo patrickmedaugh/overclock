@@ -1,6 +1,6 @@
 # Project state
 
-phase: BUILD
+phase: QA
 running_since: 2026-11-14 16:47 UTC
 sprint: 7
 open_pr: (none — PR #17 Sprint 07 proposal merged 2026-11-14 16:47 UTC after owner approval)
@@ -181,5 +181,9 @@ Details: docs/sprints/sprint-00-tech-plan.md, sprint-00-qa.md, sprint-00-demo.md
 ## Sprint 7 BUILD progress
 - Engine E1–E7 merged (b91e07f..d99bada); UI U1–U2 merged (563234c, 1c4e68d) → 52d38aa; U3–U6 + wording (0ee767a, 8295307, f0c03c5). CI green on f0c03c5 (all jobs). Next: architect review, then QA.
 
+## Sprint 7 BUILD done — 2026-11-14
+- Architect approved (a9364a1): RULES_VERSION stored per room and enforced on replay (bump it for any rules/card change); leak.test timeout 60s. CI fully green on a9364a1 incl. live server deploy + /health. External "Workers Builds: overclock" check red = owner's Cloudflare git integration (asked him to disconnect).
+- Follow-ups: Corp cards with onInstall/recurring/click abilities must not trigger face-down; specific refusal reasons instead of condition_not_met; QA spec 'c05' → advanceable; keep games on their starting build.
+
 ## Next run
-Phase BUILD for Sprint 7 on branch sprint-07. Follow docs/TESTING.md when delegating anything that runs tests.
+Phase QA for Sprint 7 on branch sprint-07. Follow docs/TESTING.md when delegating anything that runs tests.
