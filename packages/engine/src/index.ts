@@ -1,5 +1,5 @@
 export type { Action, ActionType } from './actions';
-export type { GameEvent, InstallZone, RejectReason, RunOutcome, SubOutcome } from './events';
+export type { AbilityTrigger, GameEvent, InstallZone, RejectReason, RunOutcome, SubOutcome } from './events';
 export type {
   AccessFrom,
   CentralServerId,
@@ -21,7 +21,7 @@ export type {
   Side,
   WinReason,
 } from './state';
-export { DEFAULT_OPTIONS, MEMORY_LIMIT, WINNING_POINTS } from './state';
+export { DEFAULT_OPTIONS, MEMORY_LIMIT, RULES_VERSION, WINNING_POINTS } from './state';
 export type { ApplyResult } from './apply';
 export type {
   AccessCardView,

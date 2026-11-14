@@ -22,20 +22,31 @@ The engine implements this document. It is a simplified, genre-standard ruleset;
   - ICE: in front of any server, or a new remote server. It goes on the outside (outermost). It costs 1 credit for each ICE already protecting that server.
   - Agendas, assets and upgrades cost no credits to install (their cost is a rez cost, paid later).
   - New remote servers are numbered Server 1, Server 2, ... in the order they are made; numbers are never reused.
-- **Install** (1 click), Runner: programs, hardware and resources go face up into the Runner's area (the rig). Pay the card's cost. Programs use memory: installed programs' memory must stay at or under 4. *(Cards that raise memory, such as Akamatsu Mem Chip, do not work yet: the limit stays 4.)*
+- **Install** (1 click), Runner: programs, hardware and resources go face up into the Runner's area (the rig). Pay the card's cost. Programs use memory: installed programs' memory must stay at or under the memory limit: 4, plus 1 for each installed card that raises it (Akamatsu Mem Chip: +1, Sprint 7).
 - **Play** (1 click): an operation (Corp) or event (Runner). Pay its cost, the card goes face up on top of your discard pile (Archives / Heap), then its effect happens. Card draws from an effect stop when the deck is empty; nothing is lost (only the Corp's mandatory draw can lose the game).
-- *(Sprint 2: cards whose effect needs runs could not be played yet. From Sprint 3 they work; see Runs.)* Installed cards' abilities do not work yet, except icebreakers' abilities during a run; their text says what they will do later.
+- *(Sprint 2: cards whose effect needs runs could not be played yet. From Sprint 3 they work; see Runs.)* From Sprint 7 installed cards' abilities work (see "Card abilities and credits on cards"); only Private Security Force and Sacrificial Construct still have nothing to react to.
 - If several things stop an install or play, the reason given follows this order: not your turn, wrong step, no clicks, wrong card, wrong place, needs a system not built yet, its play condition is not met (e.g. Neural EMP without a run last turn), not enough credits, not enough memory.
 
 ## Corp cards
-- Installed face down. **Rez** = pay the card's rez cost to turn it face up; it stays face up for the rest of the game. *(Sprint 3: only ICE can be rezzed, and only when the Runner approaches it during a run, or (Sprint 4) for free when Priority Requisition is scored. Rez-cost discounts such as Akitaro Watanabe's are not applied yet.)*
+- Installed face down. **Rez** = pay the card's rez cost to turn it face up; it stays face up for the rest of the game.
+  - **ICE** is rezzed only when the Runner approaches it during a run, or (Sprint 4) for free when Priority Requisition is scored.
+  - **Assets and upgrades** (Sprint 7, owner Q3 A): on the Corp's own turn, outside a run, at any time it may act; no click, just the rez cost. *(The real game also allows other moments, e.g. the end of the Runner's turn; not in this game yet.)*
+- **Rez-cost discounts** (Sprint 7): a face-up Akitaro Watanabe lowers the rez cost of ICE protecting its server by 2 (never below 0). The lowered price is what the Corp pays and what decides whether the Corp can pay (so, in pass-the-phone games, whether it is asked Rez / Don't rez at all).
+- **"When your turn begins"** (Sprint 7): a face-up PAD Campaign gives the Corp 1 credit when its turn begins, before the mandatory draw. A face-down one gives nothing.
 
 ## Advancing and scoring (Sprint 3)
-- **Advance** (Corp, 1 click + 1 credit): put 1 advancement counter on one of your installed agendas. *(Only agendas can be advanced this sprint; Ice Wall's advancing comes later.)* The Runner sees how many counters a card has, but not the face-down card.
+- **Advance** (Corp, 1 click + 1 credit): put 1 advancement counter on one of your installed agendas, or (Sprint 7) on an ICE whose text says it can be advanced (Ice Wall), face up or face down. The Runner sees how many counters a card has, but not the face-down card. Ice Wall has +1 strength per counter.
 - **Score** (Corp, no click): on your turn, outside a run, when an installed agenda has at least as many counters as its advancement requirement, move it face up to your score area; you gain its agenda points.
 - **"When scored" bonuses (Sprint 4).** Some agendas do something when the **Corp scores** them. A **stolen** agenda never does: the bonus is for the Corp scoring only. The bonus happens right after the agenda reaches the score area, in the order its text says. If the agenda's points bring the Corp to 7, the Corp wins at once and the bonus does not happen.
   - **Hostile Takeover:** the Corp gains 7 credits, then takes 1 bad publicity (see below).
   - **Priority Requisition:** the Corp *may* rez one of its installed, face-down ICE (on any server) for free. The game waits for the Corp to pick one, or **Skip**. Nothing else can happen until it decides. If the Corp has no face-down ICE installed, nothing happens and there is no question. Rezzing this way costs nothing and the ICE stays face up for the rest of the game, as usual.
+
+## Card abilities and credits on cards (Sprint 7)
+- **Credits on cards.** Some cards hold credits (both players see how many). Armitage Codebusting gets 12 and Bank Job 8 from the bank when installed. When a card that says "when there are no credits left, trash it" is emptied, it goes face up to the Heap.
+- **Click abilities.** On his own turn, outside a run, the Runner may use a card's "Click: …" ability by paying its cost (Armitage Codebusting: 1 click, take 2 credits from it).
+- **Recurring credits.** Cyberfeeder holds 1 credit that may only pay for icebreaker abilities (raising strength, breaking). It is placed when Cyberfeeder is installed and refilled to 1 when the Runner's turn begins (never more). When the Runner uses an icebreaker, the game pays from Cyberfeeder first, then the run-only credits (bad publicity), then his own. Cyberfeeder never pays trash costs or installs. *(Its "or installing virus programs" does nothing: no virus programs in these decks.)*
+- **Bank Job.** When a run on a **remote** server is successful and Bank Job holds credits, the Runner chooses before access: **take all its credits** (nothing is accessed and the run ends) or **access cards** as usual. *(The card allows any number; taking all is always best with these decks, owner-accepted simplification.)* On HQ, R&D and Archives there is no choice.
+- **Memory.** Akamatsu Mem Chip adds 1 to the Runner's memory limit while installed.
 
 ## Bad publicity (Sprint 4)
 - **Bad publicity** is a counter the Corp collects (it starts at 0 and never goes down in this card pool). Both players see it.
@@ -57,7 +68,7 @@ The engine implements this document. It is a simplified, genre-standard ruleset;
    - An **agenda** must be stolen: it goes face up to the Runner's score area and the Runner gains its points.
    - A card with a **trash cost** (assets, upgrades) may be trashed by paying that cost: it goes face up to Archives. Otherwise the Runner leaves it where it was. Cards in Archives cannot be trashed again.
    - Other cards (operations, ICE) are looked at and stay where they were.
-4. **End.** The run ends; the Runner continues its turn with the clicks it had left. Cards the Runner accessed but did not take become hidden again. *(Sprint 5)* The Runner may look back at them (**Last run**) until his turn ends; the Corp is shown nothing new.
+4. **End.** The run ends; the Runner continues its turn with the clicks it had left. *(Sprint 7)* A remote server left with no ICE and no cards disappears when the run ends (or when the Corp scores the last card in it); the other servers keep their names, and the next new server gets a new number (numbers are never reused). Cards the Runner accessed but did not take become hidden again. *(Sprint 5)* The Runner may look back at them (**Last run**) until his turn ends; the Corp is shown nothing new.
 - **Inside Job:** the first piece of ICE the Runner *encounters* in the run (so the first rezzed one) is bypassed: passed without breaking, its subroutines do not happen.
 - **Neural EMP** can be played only if the Runner started a run during its previous turn.
 

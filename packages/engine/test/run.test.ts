@@ -184,6 +184,8 @@ describe('S-03-1 AC2: a server with no ICE: straight in, access', () => {
       { type: 'run_started', server: 'remote1' },
       { type: 'run_successful', server: 'remote1' },
       { type: 'run_ended', server: 'remote1', outcome: 'accessed' },
+      // Sprint 7 (S-07-1): an empty remote goes at the run's end (only a hand-built board has one).
+      { type: 'server_removed', server: 'remote1' },
     ]);
     expect(r.state.phase).toBe('action');
   });
@@ -202,7 +204,7 @@ describe('S-03-1 AC3: steal agendas', () => {
     const s = board({ servers: { remote1: { content: ['c09'] } } });
     const r = play(s, [runOn('remote1'), steal(0)]);
     expect(r.state.players.runner.scoreArea).toEqual(['c09']);
-    expect(r.state.servers.find((sv) => sv.id === 'remote1')!.content).toEqual([]);
+    expect(r.state.servers.find((sv) => sv.id === 'remote1')).toBeUndefined(); // Sprint 7 (S-07-1): the emptied remote goes
     expect(r.state.phase).toBe('action'); // last card taken: the run ended by itself
     for (const p of ['corp', 'runner'] as const) expect(viewFor(p, r.state).players.runner).toMatchObject({ scored: ['c09'], points: 2 });
     expect(viewEvents('runner', r.events)).toContainEqual({ type: 'agenda_stolen', cardId: 'c09', points: 2 });
@@ -239,6 +241,7 @@ describe('S-03-1 AC3: steal agendas', () => {
     expect(r.events).toEqual([
       { type: 'agenda_stolen', cardId: 'c10', points: 3 },
       { type: 'run_ended', server: 'remote1', outcome: 'accessed' },
+      { type: 'server_removed', server: 'remote1' }, // Sprint 7 (S-07-1)
       { type: 'game_over', winner: 'runner', reason: 'agenda_points' },
     ]);
     expect(r.state).toMatchObject({ phase: 'over', result: { winner: 'runner', reason: 'agenda_points' }, run: null });
@@ -259,10 +262,11 @@ describe('S-03-1 AC4: trash assets/upgrades, or Leave it', () => {
       { type: 'credits_spent', player: 'runner', amount: 4 },
       { type: 'card_trashed', cardId: 'c03', from: 'remote', uid: 'i1' },
       { type: 'run_ended', server: 'remote1', outcome: 'accessed' },
+      { type: 'server_removed', server: 'remote1' }, // Sprint 7 (S-07-1)
     ]);
     expect(t.state.players.runner.credits).toBe(1);
     expect(t.state.players.corp.discard.at(-1)).toEqual({ cardId: 'c03', faceUp: true });
-    expect(t.state.servers.find((sv) => sv.id === 'remote1')!.content).toEqual([]);
+    expect(t.state.servers.find((sv) => sv.id === 'remote1')).toBeUndefined();
   });
 
   it('not enough credits: offered with no_credits; apply refuses, nothing changes', () => {
@@ -328,7 +332,7 @@ describe('S-03-3 AC1-3: approach and rez', () => {
     expect(viewEvents('runner', r.events)).toContainEqual({ type: 'ice_rezzed', uid: 'i1', cardId: 'c05' });
     expect(r.state.players.corp.credits).toBe(4);
     const rv = viewFor('runner', r.state);
-    expect(rv.corpServers[0]!.ice[0]).toEqual({ uid: 'i1', cardId: 'c05', faceUp: true, advancements: 0 });
+    expect(rv.corpServers[0]!.ice[0]).toEqual({ uid: 'i1', cardId: 'c05', faceUp: true, advancements: 0, hostedCredits: 0 });
     expect(rv.run).toMatchObject({ step: 'encounter', waitingOn: 'runner', ice: { cardId: 'c05', strength: 1, subroutines: [{ text: 'End the run', broken: false }] } });
     // Stays rezzed after the run.
     const after = play(r.state, [pass('runner')]).state;
@@ -417,7 +421,9 @@ describe('run decisions: rejection reasons and precedence', () => {
     ['Runner pass at approach', 'not_your_turn', () => ({ state: approach(), action: pass('runner') })],
     ['Corp pass at access', 'not_your_turn', () => ({ state: access(), action: pass('corp') })],
     ['Corp steal', 'not_your_turn', () => ({ state: access(), action: { type: 'steal', player: 'corp', card: 0 } })],
-    ['rez outside a run (Corp turn)', 'wrong_phase', () => ({ state: { ...board({}), activePlayer: 'corp' }, action: rez('i1') })],
+    // Sprint 7: rez is legal in the Corp's action phase for assets/upgrades; an unknown uid there is bad_target.
+    ['rez outside a run (Corp turn), unknown uid', 'bad_target', () => ({ state: { ...board({}), activePlayer: 'corp' }, action: rez('i1') })],
+    ['rez outside a run (discard step)', 'wrong_phase', () => ({ state: { ...board({ servers: { remote1: { content: ['c03'] } } }), activePlayer: 'corp', phase: 'discard' }, action: rez('i1') })],
     ['Corp rez on the Runner turn, no run', 'not_your_turn', () => ({ state: board({ servers: { hq: { ice: ['c04'] } } }), action: rez('i1') })],
     ['pass outside a run', 'wrong_phase', () => ({ state: board({}), action: pass('runner') })],
     ['steal at encounter', 'wrong_phase', () => ({ state: act(board({ servers: { hq: { ice: ['+c04'] } } }), runOn('hq')).state, action: steal(0) })],

@@ -20,6 +20,7 @@ const SAMPLES: Samples = {
   credits_spent: [
     { type: 'credits_spent', player: 'corp', amount: 3 },
     { type: 'credits_spent', player: 'runner', amount: 2, temp: 1 },
+    { type: 'credits_spent', player: 'runner', amount: 2, temp: 1, hosted: 1 },
   ],
   server_created: [{ type: 'server_created', server: 'remote1' }],
   card_installed: [{ type: 'card_installed', player: 'corp', uid: 'i1', zone: 'ice', server: 'hq', handIndex: 0, cardId: 'c04' }],
@@ -47,7 +48,10 @@ const SAMPLES: Samples = {
   ],
   agenda_stolen: [{ type: 'agenda_stolen', cardId: 'c09', points: 2 }],
   card_trashed: [{ type: 'card_trashed', cardId: 'c03', from: 'remote', uid: 'i4' }],
-  run_ended: [{ type: 'run_ended', server: 'hq', outcome: 'ended_by_ice' }],
+  run_ended: [
+    { type: 'run_ended', server: 'hq', outcome: 'ended_by_ice' },
+    { type: 'run_ended', server: 'remote1', outcome: 'access_replaced' },
+  ],
   card_advanced: [{ type: 'card_advanced', uid: 'i5', advancements: 2 }],
   agenda_scored: [{ type: 'agenda_scored', uid: 'i5', cardId: 'c08', points: 1 }],
   bad_publicity_gained: [{ type: 'bad_publicity_gained', amount: 1, total: 2 }],
@@ -62,12 +66,22 @@ const SAMPLES: Samples = {
     { type: 'subroutine_resolved', iceUid: 'i1', cardId: 'c06', outcome: { sub: 0, op: 'lose_clicks', amount: 1 } },
     { type: 'subroutine_resolved', iceUid: 'i1', cardId: 'c07', outcome: { sub: 0, op: 'net_damage', amount: 3 } },
   ],
+  // Sprint 7: all public.
+  card_rezzed: [{ type: 'card_rezzed', uid: 'i3', cardId: 'c03', server: 'remote1' }],
+  ability_triggered: [
+    { type: 'ability_triggered', uid: 'i3', cardId: 'c03', trigger: 'turn_start' },
+    { type: 'ability_triggered', uid: 'i7', cardId: 'r02', trigger: 'click' },
+    { type: 'ability_triggered', uid: 'i8', cardId: 'r10', trigger: 'successful_run' },
+  ],
+  hosted_credits_changed: [{ type: 'hosted_credits_changed', uid: 'i7', credits: 10 }],
+  rig_card_trashed: [{ type: 'rig_card_trashed', uid: 'i7', cardId: 'r02' }],
+  server_removed: [{ type: 'server_removed', server: 'remote2' }],
 };
 
 /** Sprint 1/2 events have their own projection tests (view.test.ts, install-play.test.ts). */
 const OLDER = new Set(['card_drawn', 'cards_discarded', 'card_installed', 'card_played']);
 
-describe('viewEvents for the Sprint 3, 4 and 5 events', () => {
+describe('viewEvents for the Sprint 3, 4, 5 and 7 events', () => {
   const sides: Side[] = ['corp', 'runner'];
   const sprint3 = (Object.entries(SAMPLES) as [string, GameEvent[]][]).filter(([t]) => !OLDER.has(t));
 

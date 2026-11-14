@@ -37,6 +37,7 @@ export const CORP_CARDS: readonly CardDef[] = [
     trashCost: 4,
     text: 'Gain 1 credit when your turn begins.',
     art: 'glyph:kiosk',
+    onTurnStart: [{ op: 'gain_credits', amount: 1 }],
   },
   {
     id: 'c04',
@@ -60,6 +61,8 @@ export const CORP_CARDS: readonly CardDef[] = [
     strength: 1,
     text: 'Ice Wall can be advanced and has +1 strength for each advancement token on it.\nSubroutine: End the run.',
     art: 'glyph:fence',
+    advanceable: true,
+    strengthPerAdvancement: 1,
     subroutines: [{ text: 'End the run', effect: { op: 'end_run' } }],
   },
   {
@@ -136,6 +139,7 @@ export const CORP_CARDS: readonly CardDef[] = [
     trashCost: 3,
     text: 'The rez cost of ICE protecting this server is lowered by 2.',
     art: 'glyph:eye-shield',
+    iceRezDiscount: 2,
   },
   {
     id: 'c12',

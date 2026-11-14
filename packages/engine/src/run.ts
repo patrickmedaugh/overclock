@@ -11,9 +11,13 @@ import type { GameEvent, RunOutcome, SubOutcome } from './events';
 import { nextInt } from './rng';
 import {
   abilityTarget,
+  abilityUsable,
   accessCard,
+  activateTarget,
+  breakerPayment,
   breakerCard,
   breakerStrength,
+  corpInstalled,
   currentIce,
   findServer,
   rezCost,
@@ -102,14 +106,27 @@ export function startRun(state: GameState, server: ServerId, opts: RunOptions, e
 
 /**
  * Ends the run: boosts drop back, unspent run-only credits vanish, `run_ended`,
- * back to the action phase (the Runner keeps its clicks).
+ * back to the action phase (the Runner keeps its clicks). Sprint 7: then empty remotes go.
  */
 export function endRun(state: GameState, outcome: RunOutcome, events: Events): GameState {
   const run = theRun(state);
   const s = changeBoosts(state, { encounterBoost: {}, runBoost: {} }, events);
   if (run.tempCredits > 0) events.push({ type: 'temp_credits_lost', amount: run.tempCredits });
   events.push({ type: 'run_ended', server: run.server, outcome });
-  return { ...s, phase: 'action', run: null };
+  return pruneEmptyRemotes({ ...s, phase: 'action', run: null }, events);
+}
+
+/**
+ * Sprint 7 (S-07-1): removes every remote with no ICE and no cards (`server_removed`, servers
+ * order). Ids are never reused: `nextRemote` is unchanged. Centrals always stay.
+ */
+export function pruneEmptyRemotes(state: GameState, events: Events): GameState {
+  const empty = state.servers.filter(
+    (sv) => !(CENTRAL_SERVERS as readonly string[]).includes(sv.id) && sv.ice.length === 0 && sv.content.length === 0,
+  );
+  if (empty.length === 0) return state;
+  for (const sv of empty) events.push({ type: 'server_removed', server: sv.id });
+  return { ...state, servers: state.servers.filter((sv) => !empty.includes(sv)) };
 }
 
 // ---- the walk ---------------------------------------------------------------------
@@ -124,7 +141,7 @@ function approach(state: GameState, events: Events): GameState {
   events.push({ type: 'ice_approached', uid: ice.uid, position: run.position });
   const s = setRun(state, { step: 'approach', broken: [] });
   if (ice.rezzed) return encounter(s, events);
-  if (s.options.rezWindow === 'always' || s.players.corp.credits >= rezCost(ice)) return s;
+  if (s.options.rezWindow === 'always' || s.players.corp.credits >= rezCost(s, ice)) return s;
   return passIce(s, events);
 }
 
@@ -208,10 +225,36 @@ function letThrough(state: GameState, events: Events): GameState {
 const fromOf = (server: ServerId): AccessFrom =>
   (CENTRAL_SERVERS as readonly string[]).includes(server) ? (server as AccessFrom) : 'remote';
 
-/** The run is successful: build the access queue and show the first group. */
+/**
+ * Sprint 7: the Runner's usable `replacesAccess` abilities after a successful run on a remote
+ * (Bank Job holding credits): rig order, then ability order.
+ */
+export function accessReplacements(state: GameState): { uid: string; ability: number }[] {
+  const out: { uid: string; ability: number }[] = [];
+  for (const c of state.rig) {
+    (getCard(c.cardId)?.cardAbilities ?? []).forEach((ab, ability) => {
+      if (ab.when === 'successful_run_remote' && ab.replacesAccess && abilityUsable(c, ab)) out.push({ uid: c.uid, ability });
+    });
+  }
+  return out;
+}
+
+/**
+ * The run is successful. Sprint 7: on a remote with a usable `replacesAccess` ability the run
+ * stops at step `success` (the Runner picks it or Access cards); otherwise access starts.
+ */
 function succeed(state: GameState, events: Events): GameState {
   const run = theRun(state);
   events.push({ type: 'run_successful', server: run.server });
+  if (fromOf(run.server) === 'remote' && accessReplacements(state).length > 0) {
+    return setRun(state, { position: -1, step: 'success' });
+  }
+  return beginAccess(state, events);
+}
+
+/** Build the access queue and show the first group. */
+function beginAccess(state: GameState, events: Events): GameState {
+  const run = theRun(state);
   const server = findServer(state, run.server);
   const installed: AccessNext[] = (server?.content ?? []).map((c) => ({ kind: 'installed', uid: c.uid }));
   let queue: AccessNext[];
@@ -336,6 +379,8 @@ function netDamage(state: GameState, amount: number, events: Events, ctx: Effect
 export interface EffectContext {
   /** The card whose effect this is (run events: `run_started.cardId`). */
   readonly cardId?: string;
+  /** Sprint 7: the installed card whose effect this is (`place_credits` / `take_credits` source). */
+  readonly uid?: string;
   /** The server named in the `play` action (run events with no fixed server). */
   readonly server?: ServerId;
   /**
@@ -395,7 +440,93 @@ export function resolveEffect(state: GameState, effect: Effect, owner: Side, eve
       events.push({ type: 'choice_opened', kind: 'free_rez', player: owner, cardId });
       return { ...state, phase: 'choice', choice: { kind: 'free_rez', player: owner, cardId } };
     }
+    case 'place_credits': {
+      const card = ctx.uid !== undefined ? installedCard(state, ctx.uid) : undefined;
+      if (!card) return state;
+      return setHosted(state, card.uid, card.hostedCredits + effect.amount, events);
+    }
+    case 'take_credits': {
+      const card = ctx.uid !== undefined ? installedCard(state, ctx.uid) : undefined;
+      if (!card) return state;
+      const n = effect.amount === 'all' ? card.hostedCredits : Math.min(effect.amount, card.hostedCredits);
+      if (n <= 0) return state;
+      const s = setHosted(state, card.uid, card.hostedCredits - n, events);
+      events.push({ type: 'credit_gained', player: owner, amount: n });
+      return withPlayer(s, owner, { credits: s.players[owner].credits + n });
+    }
   }
+}
+
+// ---- Sprint 7: turn start -----------------------------------------------------------
+
+/** Replaces installed card `uid` (rig, or any server's ICE / content) with `patch` applied. */
+export function patchCard(state: GameState, uid: string, patch: Partial<Installed>): GameState {
+  const fix = (list: readonly Installed[]) => list.map((c) => (c.uid === uid ? { ...c, ...patch } : c));
+  return { ...state, rig: fix(state.rig), servers: state.servers.map((sv) => ({ ...sv, ice: fix(sv.ice), content: fix(sv.content) })) };
+}
+
+/**
+ * "When your turn begins" for `side`, after `turn_started` and before the Corp's draw: each rezzed
+ * Corp card (servers order, ICE then content) / Runner card (rig order) with `onTurnStart`:
+ * `ability_triggered` then its effects; Runner recurring credits below their amount are refilled
+ * (`ability_triggered`, `hosted_credits_changed`). Nothing happens for cards without these.
+ */
+export function turnStartAbilities(state: GameState, events: Events): GameState {
+  const side = state.activePlayer;
+  const cards = side === 'corp' ? state.servers.flatMap((sv) => [...sv.ice, ...sv.content]).filter((c) => c.rezzed) : state.rig;
+  let s = state;
+  for (const c of cards) {
+    const def = getCard(c.cardId);
+    if (!def) continue;
+    if (def.onTurnStart && def.onTurnStart.length > 0) {
+      events.push({ type: 'ability_triggered', uid: c.uid, cardId: c.cardId, trigger: 'turn_start' });
+      for (const effect of def.onTurnStart) {
+        s = resolveEffect(s, effect, side, events, { cardId: c.cardId, uid: c.uid });
+        if (s.phase === 'over') return s;
+      }
+    }
+    const recurring = def.recurringCredits;
+    const now = installedCard(s, c.uid);
+    if (recurring && now && now.hostedCredits < recurring.amount) {
+      events.push({ type: 'ability_triggered', uid: c.uid, cardId: c.cardId, trigger: 'turn_start' });
+      s = setHosted(s, c.uid, recurring.amount, events);
+    }
+  }
+  return s;
+}
+
+/**
+ * A `trashWhenEmpty` rig card with no credits left goes face up to the Heap (`rig_card_trashed`).
+ * (No Corp card has the flag yet.)
+ */
+export function trashIfEmpty(state: GameState, uid: string, events: Events): GameState {
+  const card = state.rig.find((c) => c.uid === uid);
+  if (!card || card.hostedCredits > 0 || !getCard(card.cardId)?.trashWhenEmpty) return state;
+  events.push({ type: 'rig_card_trashed', uid, cardId: card.cardId });
+  const s: GameState = { ...state, rig: state.rig.filter((c) => c.uid !== uid) };
+  return withPlayer(s, 'runner', { discard: [...s.players.runner.discard, { cardId: card.cardId, faceUp: true }] });
+}
+
+/** Sprint 7: what happens right after a card is installed: `onInstall` effects, then recurring credits placed. */
+export function afterInstall(state: GameState, uid: string, owner: Side, events: Events): GameState {
+  const card = installedCard(state, uid);
+  const def = card && getCard(card.cardId);
+  if (!card || !def) return state;
+  let s = state;
+  for (const effect of def.onInstall ?? []) s = resolveEffect(s, effect, owner, events, { cardId: card.cardId, uid });
+  if (def.recurringCredits) s = setHosted(s, uid, def.recurringCredits.amount, events);
+  return s;
+}
+
+/** Installed card `uid` (rig or servers), or undefined. */
+export function installedCard(state: GameState, uid: string): Installed | undefined {
+  return state.rig.find((c) => c.uid === uid) ?? corpInstalled(state, uid)?.installed;
+}
+
+/** Sets the hosted credits of `uid` and reports the new total. */
+export function setHosted(state: GameState, uid: string, credits: number, events: Events): GameState {
+  events.push({ type: 'hosted_credits_changed', uid, credits });
+  return patchCard(state, uid, { hostedCredits: credits });
 }
 
 // ---- actions (already validated by rules.ts) ----------------------------------------
@@ -403,13 +534,24 @@ export function resolveEffect(state: GameState, effect: Effect, owner: Side, eve
 /**
  * The Runner pays `amount` during the run: run-only credits first, then its own
  * credits (`credits_spent.temp` = the run-only part). Caller checked affordability.
+ * Sprint 7: `breaker` payments use recurring credits for icebreakers before both
+ * (`credits_spent.hosted`, then `hosted_credits_changed` per paying card).
  */
-function payRunner(state: GameState, amount: number, events: Events): GameState {
+function payRunner(state: GameState, amount: number, events: Events, breaker = false): GameState {
   if (amount <= 0) return state;
   const run = theRun(state);
-  const temp = Math.min(amount, run.tempCredits);
-  events.push(temp > 0 ? { type: 'credits_spent', player: 'runner', amount, temp } : { type: 'credits_spent', player: 'runner', amount });
-  const s = withPlayer(state, 'runner', { credits: state.players.runner.credits - (amount - temp) });
+  const plan = breaker ? breakerPayment(state, amount) : { hosted: [], temp: Math.min(amount, run.tempCredits), own: 0 };
+  const hosted = plan.hosted.reduce((sum, h) => sum + h.amount, 0);
+  const temp = plan.temp;
+  events.push({
+    type: 'credits_spent',
+    player: 'runner',
+    amount,
+    ...(temp > 0 ? { temp } : {}),
+    ...(hosted > 0 ? { hosted } : {}),
+  });
+  let s = withPlayer(state, 'runner', { credits: state.players.runner.credits - (amount - temp - hosted) });
+  for (const h of plan.hosted) s = setHosted(s, h.uid, (installedCard(s, h.uid)?.hostedCredits ?? 0) - h.amount, events);
   return setRun(s, { tempCredits: run.tempCredits - temp });
 }
 
@@ -419,10 +561,10 @@ export function doRun(state: GameState, a: ActionOf<'run'>): { state: GameState;
   return { state: startRun(s, a.server, {}, events), events };
 }
 
-/** Rezzes installed Corp ICE `uid` (no payment). */
+/** Rezzes installed Corp card `uid` (ICE or content; no payment). */
 function setRezzed(state: GameState, uid: string): GameState {
   const fix = (list: readonly Installed[]) => list.map((c) => (c.uid === uid ? { ...c, rezzed: true } : c));
-  return { ...state, servers: state.servers.map((sv) => ({ ...sv, ice: fix(sv.ice) })) };
+  return { ...state, servers: state.servers.map((sv) => ({ ...sv, ice: fix(sv.ice), content: fix(sv.content) })) };
 }
 
 /** Closes the open choice: back to the action phase (the Corp's turn goes on). */
@@ -441,8 +583,17 @@ export function doRez(state: GameState, a: ActionOf<'rez'>): { state: GameState;
     events.push({ type: 'ice_rezzed', uid: ice.uid, cardId: ice.cardId });
     return { state: closeChoice(s, false, events), events };
   }
+  if (state.phase === 'action') {
+    // Sprint 7: an asset/upgrade on the Corp's own turn (no click).
+    const where = corpInstalled(state, a.uid)!;
+    const cost = rezCost(state, where.installed);
+    if (cost > 0) events.push({ type: 'credits_spent', player: 'corp', amount: cost });
+    const s = setRezzed(withPlayer(state, 'corp', { credits: state.players.corp.credits - cost }), a.uid);
+    events.push({ type: 'card_rezzed', uid: a.uid, cardId: where.installed.cardId, server: where.server.id });
+    return { state: s, events };
+  }
   const ice = currentIce(state) as Installed;
-  const cost = rezCost(ice);
+  const cost = rezCost(state, ice);
   if (cost > 0) events.push({ type: 'credits_spent', player: 'corp', amount: cost });
   const s = setRezzed(withPlayer(state, 'corp', { credits: state.players.corp.credits - cost }), a.uid);
   events.push({ type: 'ice_rezzed', uid: ice.uid, cardId: ice.cardId });
@@ -457,7 +608,31 @@ export function doPass(state: GameState): { state: GameState; events: GameEvent[
   if (step === 'approach') s = passIce(state, events); // Don't rez: passed face down
   else if (step === 'encounter') s = letThrough(state, events);
   else if (step === 'continue') s = continueRun(state, events);
+  else if (step === 'success') s = beginAccess(state, events); // Sprint 7: Access cards
   else s = finishGroup(state, events); // Leave it / Done
+  return { state: s, events };
+}
+
+/**
+ * Sprint 7: uses a card ability (validated): pays clicks/credits, `ability_triggered`, its effects,
+ * an emptied `trashWhenEmpty` card goes to the Heap, and a `replacesAccess` ability ends the run
+ * (`access_replaced`).
+ */
+export function doActivate(state: GameState, a: ActionOf<'activate'>): { state: GameState; events: GameEvent[] } {
+  const events: Events = [];
+  const t = activateTarget(state, a);
+  if (!t) return { state, events }; // unreachable: validated
+  const { installed, ability } = t;
+  const me = state.players[a.player];
+  let s = withPlayer(state, a.player, { clicks: me.clicks - ability.clicks, credits: me.credits - ability.credits });
+  if (ability.credits > 0) events.push({ type: 'credits_spent', player: a.player, amount: ability.credits });
+  events.push({ type: 'ability_triggered', uid: installed.uid, cardId: installed.cardId, trigger: ability.when === 'click' ? 'click' : 'successful_run' });
+  for (const effect of ability.effects) {
+    s = resolveEffect(s, effect, a.player, events, { cardId: installed.cardId, uid: installed.uid });
+    if (s.phase === 'over') return { state: s, events };
+  }
+  s = trashIfEmpty(s, installed.uid, events);
+  if (ability.replacesAccess && s.phase === 'run') s = endRun(s, 'access_replaced', events);
   return { state: s, events };
 }
 
@@ -470,7 +645,7 @@ export function doUseAbility(state: GameState, a: ActionOf<'use_ability'>): { st
   const events: Events = [];
   const ability = abilityTarget(state, a);
   if (!ability) return { state, events }; // unreachable: validated
-  let s = payRunner(state, ability.cost, events);
+  let s = payRunner(state, ability.cost, events, true);
   const run = theRun(s);
   if (ability.op === 'strength') {
     const key = ability.until === 'run' ? 'runBoost' : 'encounterBoost';

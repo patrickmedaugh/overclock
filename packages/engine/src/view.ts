@@ -2,9 +2,8 @@ import type { Action } from './actions';
 import { apply, choiceOptions, handOptions, installedOptions, legalActions, runStartOptions, runStepOptions } from './apply';
 import type { GameEvent, RejectReason, SubOutcome } from './events';
 import { getCard } from '@overclock/cards';
-import { breakerCard, breakerStrength, currentIce, discardCount, iceStrength, memoryUsed, waitingOn } from './rules';
+import { breakerCard, breakerStrength, currentIce, discardCount, iceStrength, memoryLimit, memoryUsed, waitingOn } from './rules';
 import {
-  MEMORY_LIMIT,
   pointsOf,
   type AccessFrom,
   type ChoiceKind,
@@ -43,6 +42,8 @@ export interface InstalledView {
   readonly faceUp: boolean;
   /** Advancement counters (both players see the number, even on a face-down card). */
   readonly advancements: number;
+  /** Sprint 7: credits on the card (Armitage Codebusting, Bank Job, Cyberfeeder). Public. */
+  readonly hostedCredits: number;
 }
 
 export interface ServerView {
@@ -58,8 +59,15 @@ export interface ServerView {
  */
 export interface CardOption {
   readonly action: Action;
+  /** Credits it costs. */
   readonly cost: number;
   readonly reject: RejectReason | null;
+  /** Sprint 7: clicks an `activate` option costs, only when > 0 (other actions' click cost is implied by their type). */
+  readonly clicks?: number;
+  /** Sprint 7: credits it gives the player (`activate` of a `take_credits` ability), only when set. */
+  readonly gain?: number;
+  /** Sprint 7: breaker options only, only when non-empty: the cards whose credits pay part of `cost` (e.g. Cyberfeeder). */
+  readonly hostedPay?: readonly { readonly uid: string; readonly amount: number }[];
 }
 
 /** The current ICE during a run, as the viewer sees it. */
@@ -158,13 +166,18 @@ export interface PlayerView {
   readonly corpServers: readonly ServerView[];
   /** Runner's installed cards (face up to both), install order. */
   readonly rig: readonly InstalledView[];
-  /** Runner memory used by installed programs, and the limit. */
+  /** Runner memory used by installed programs, and the limit (Sprint 7: 4 + rig `memoryBonus`). */
   readonly memory: { readonly used: number; readonly limit: number };
   /** Per viewer hand index: every offered action for that card (bad_card/bad_target never listed). */
   readonly handOptions: readonly (readonly CardOption[])[];
   /** Runner only: one `run` option per server (Corp: empty). */
   readonly runOptions: readonly CardOption[];
-  /** Corp only: per installed agenda uid, `advance` and (once it has enough counters) `score` (Runner: empty). */
+  /**
+   * Per own installed card uid, listed off-turn too with the reason in `reject`. Corp: agenda `advance`
+   * and (once it has enough counters) `score`; advanceable ICE `advance` (Sprint 7); unrezzed
+   * asset/upgrade `rez` (Sprint 7). Runner (Sprint 7): `activate` per `click` ability.
+   * Never lists anything for the other side's cards.
+   */
   readonly installedOptions: Readonly<Record<string, readonly CardOption[]>>;
   /** The run in progress, or null. */
   readonly run: RunView | null;
@@ -197,7 +210,13 @@ function sideView(p: PlayerState, side: Side, viewer: Side): PlayerSideView {
 }
 
 function corpCardView(c: Installed, viewer: Side): InstalledView {
-  return { uid: c.uid, cardId: viewer === 'corp' || c.rezzed ? c.cardId : null, faceUp: c.rezzed, advancements: c.advancements };
+  return {
+    uid: c.uid,
+    cardId: viewer === 'corp' || c.rezzed ? c.cardId : null,
+    faceUp: c.rezzed,
+    advancements: c.advancements,
+    hostedCredits: c.hostedCredits,
+  };
 }
 
 function copyResult(r: GameResult | null): PlayerView['result'] {
@@ -304,8 +323,8 @@ export function viewFor(player: Side, state: GameState): PlayerView {
       ice: s.ice.map((c) => corpCardView(c, player)),
       content: s.content.map((c) => corpCardView(c, player)),
     })),
-    rig: state.rig.map((c) => ({ uid: c.uid, cardId: c.cardId, faceUp: true, advancements: c.advancements })),
-    memory: { used: memoryUsed(state), limit: MEMORY_LIMIT },
+    rig: state.rig.map((c) => ({ uid: c.uid, cardId: c.cardId, faceUp: true, advancements: c.advancements, hostedCredits: c.hostedCredits })),
+    memory: { used: memoryUsed(state), limit: memoryLimit(state) },
     handOptions: handOptions(state, player),
     runOptions: runStartOptions(state, player),
     installedOptions: installedOptions(state, player),
