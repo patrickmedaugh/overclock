@@ -71,8 +71,12 @@ test.describe('S-03-2 advance and score', () => {
     const name = getCard(plan.info.cardId!)!.name;
     const types = s.events.map((e) => e.type);
     expect(types[0]).toBe('agenda_scored');
-    if (name === 'Priority Requisition') expect(types.slice(1).every((t) => t === 'choice_opened')).toBe(true);
-    else expect(types.slice(1)).toEqual(bonus[name] ?? []);
+    // S-07-1: a remote left with no ICE and no cards is removed, last (after the bonus).
+    const emptied = (before.corpServers.find((x) => x.id === plan.info.server)?.ice.length ?? 0) === 0 && !s.view.result;
+    const gone = emptied ? ['server_removed'] : [];
+    if (name === 'Priority Requisition') expect(types.slice(1).every((t) => t === 'choice_opened' || t === 'server_removed')).toBe(true);
+    else expect(types.slice(1)).toEqual([...(bonus[name] ?? []), ...gone]);
+    expect(s.events.find((e) => e.type === 'server_removed')).toEqual(emptied ? { type: 'server_removed', server: plan.info.server } : undefined);
     expect(s.view.players.corp.points).toBe(before.players.corp.points + pts);
     expect(s.view.players.corp.clicks).toBe(clicks); // no click needed
     expectSnappy(s, ['score_flight']);
@@ -122,7 +126,8 @@ test.describe('S-03-2 advance and score', () => {
     l = await waitIdle(page);
     expect(l.run!.access!.cards.map((c) => c.cardId)).toEqual([plan.info.cardId]);
     const m = await measureTap(page, runButtonOf(l, 'Steal').box);
-    expect(m.events.map((e) => e.type)).toEqual(['agenda_stolen', 'run_ended', 'game_over']);
+    // S-07-1: the steal emptied the remote (no ICE in front: the planner's goal), so it is removed before the game ends.
+    expect(m.events.map((e) => e.type)).toEqual(['agenda_stolen', 'run_ended', 'server_removed', 'game_over']);
     l = await waitIdle(page);
     expect(l.gameOver).toMatchObject({ title: 'Runner wins', reason: '7 agenda points' });
     expect(l.run).toBeNull();

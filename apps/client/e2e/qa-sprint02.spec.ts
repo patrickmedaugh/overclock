@@ -143,6 +143,8 @@ test.describe('QA S-02-4 needs runs (Sprint 3: the cards work now)', () => {
 
 test.describe('QA snappiness: picking a card', () => {
   test('tapping a hand card lights its targets inside the same tap (< 100ms), on both sides', async ({ page }) => {
+    // S-07-6: each pick is now three taps (open the hand view, tap the big card); a GPU-less CI desktop needs longer than 30 s.
+    test.setTimeout(90_000);
     await openBoard(page, 2);
     const samples: number[] = [];
     for (const side of ['corp', 'runner'] as const) {
@@ -345,6 +347,8 @@ test.describe('QA Sprint 2 playthrough (screenshots)', () => {
 // least 80 square CSS px of toast per character (about a 10px font).
 test.describe('QA-S2-1 hints are readable', () => {
   test('"Only after the Runner made a run", "Not enough credits", "No clicks left" and "Not your turn" are drawn big enough to read', async ({ page }) => {
+    // S-07-6: each pick is now three taps (open the hand view, tap the big card); a GPU-less CI desktop needs longer than 30 s.
+    test.setTimeout(90_000);
     const seen: Record<string, { width: number; height: number; perChar: number }> = {};
     const record = async (): Promise<void> => {
       const h = (await anims(page)).filter((a) => a.kind === 'hint').pop()!;

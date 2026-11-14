@@ -148,9 +148,13 @@ test.describe('S-07-6 hand: tap to open, long-press to light places, drag to pla
     const from = center(lifted.handView!.centre);
     const to = center(target.box);
     await dragTo(hold, from, to, 8);
-    await page.waitForFunction(() => window.__overclock!.layout().drag?.hover?.kind === 'new_server');
+    // The card is drawn under the finger (just above it), over the place, once the last move is handled
+    // (a busy CI page may still be working through the queued moves).
+    await page.waitForFunction((x) => {
+      const d = window.__overclock!.layout().drag;
+      return d?.hover?.kind === 'new_server' && Math.abs(d.box.x + d.box.width / 2 - x) < 2;
+    }, to.x);
     const over = await layout(page);
-    // The card is drawn under the finger (just above it), over the place.
     expect(over.drag!.hover).toEqual({ kind: 'new_server', server: 'new', lit: true });
     expect(Math.abs(center(over.drag!.box).x - to.x)).toBeLessThan(2);
     await page.evaluate(() => window.__overclock!.clearAnims());

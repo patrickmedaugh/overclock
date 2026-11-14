@@ -2,9 +2,9 @@ import { type CDPSession, type Page, expect, test } from '@playwright/test';
 import type { Action, GameEvent, PlayerView } from '@overclock/engine';
 import { getCard } from '@overclock/cards';
 import { type StepGoal, type StepPlan, planBusyBoard, planToStep } from '@overclock/match/testing';
-import type { AnimRecord, Box, EndTurnClock, InputStamp, Insets, LayoutSnapshot, TargetSnapshot } from '../src/hook-types';
+import type { AnimRecord, Box, EndTurnClock, InputStamp, Insets, InstalledSnapshot, LayoutSnapshot, TargetSnapshot } from '../src/hook-types';
 
-export type { AnimRecord, Box, EndTurnClock, InputStamp, Insets, LayoutSnapshot, TargetSnapshot };
+export type { AnimRecord, Box, EndTurnClock, InputStamp, Insets, InstalledSnapshot, LayoutSnapshot, TargetSnapshot };
 
 /**
  * `E2E_CPU_THROTTLE=6` slows the page's CPU 6x (Chrome DevTools

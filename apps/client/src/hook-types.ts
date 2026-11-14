@@ -37,6 +37,8 @@ export interface InstalledSnapshot {
   box: Box;
   /** The advancement counter drawn on it ("2"), or null when none is shown. */
   counter: string | null;
+  /** S-07-3/4: the credits disc on it ("12"), or null when none is shown; `box` where it is drawn, `fontPx` its digits' size. */
+  hosted: { text: string; box: Box; fontPx: number } | null;
 }
 
 export interface ServerSnapshot {
@@ -62,7 +64,7 @@ export interface TargetSnapshot {
    * free_rez / skip (S-04-4): the Corp's free-rez choice after scoring Priority Requisition
    * (each offered ICE, with `uid`; Skip in the Play slot).
    */
-  kind: 'server' | 'new_server' | 'install' | 'play' | 'run' | 'advance' | 'score' | 'free_rez' | 'skip';
+  kind: 'server' | 'new_server' | 'install' | 'play' | 'run' | 'advance' | 'score' | 'free_rez' | 'skip' | 'rez' | 'activate';
   /** For server targets (and run / server-named play targets). */
   server?: string;
   /** For advance / score: the installed card. */
@@ -70,6 +72,8 @@ export interface TargetSnapshot {
   box: Box;
   /** The price label, e.g. "Install · 1 credit". */
   label: string;
+  /** S-07: a dimmed installed-card button's reason, drawn under the label ("Not enough credits"). */
+  note?: string;
   /** Bright (the engine would accept it) vs dim (shown with its price, refused with a hint). */
   lit: boolean;
   /** The engine's reason it would be refused (from view.handOptions). */
@@ -251,8 +255,16 @@ export type AnimKind =
   | 'play_flight'
   /** A new remote server's column appears. */
   | 'server_open'
+  /** S-07-1: an empty remote server's column folds away. */
+  | 'server_close'
   /** The ICE flips face up. */
   | 'ice_rez'
+  /** S-07-2: an asset or upgrade flips face up (rezzed in the Corp's turn). */
+  | 'card_rez'
+  /** S-07-3/4: credits on a card change (the disc pops). */
+  | 'hosted_pop'
+  /** S-07-3/4: a Runner card goes from the rig to the Heap. */
+  | 'rig_trash_flight'
   /** A run step moves the tracker (approach, encounter, pass, access). */
   | 'run_step'
   /** A subroutine is crossed out. */
