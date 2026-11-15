@@ -127,9 +127,19 @@ Each side now plays as a real Core Set character, called an **identity**: the Co
 - Given an advanced Ice Wall and an Armitage Codebusting holding credits are both on the table, when you look at them, then you can tell at a glance which number is advancement counters and which is credits (different colour and a small icon).
 *Size:* S
 
+### S-08-7: Rototurret, and Sacrificial Construct works (added — owner chose 4B on PR #19)
+*Why it matters:* the Corp can finally destroy Runner cards, and Sacrificial Construct gets its job.
+*Acceptance criteria:*
+- Given the Corp has Rototurret (Haas-Bioroid ICE, real Core Set card) in its deck, when the Runner lets its "Trash 1 program" subroutine fire, then the Runner loses a program of the Corp's choice (or none if he has none) and it goes to his Heap.
+- Given Rototurret's "End the run" subroutine fires, when it resolves, then the run ends.
+- Given the Runner has Sacrificial Construct installed, when one of his programs or hardware would be trashed, then he gets a short "Save it? Trash Sacrificial Construct instead" choice; choosing it trashes Sacrificial Construct and keeps the other card.
+- Given the Runner declines (or has no Sacrificial Construct), when the trash resolves, then the card goes to the Heap as normal.
+- Given pass-and-play and online games, when this happens, then both work the same. (automated check)
+*Size:* M
+
 ## Not in this sprint (and why)
 - **Traces and tags.** A trace is a bidding contest between Corp and Runner. Tags are what the Runner gets when he loses one. This is the biggest rule left in the Core Set. Private Security Force, Hunter, Ash 2X3ZB9CY, Ichi 1.0 and all of NBN need it, and it gets its own sprint.
-- **Rototurret ("Trash 1 program") and Sacrificial Construct.** This is the first time the Corp would destroy Runner cards, which needs a "save it?" moment for Sacrificial Construct. One more medium story, so it's question 4.
+- ~~Rototurret and Sacrificial Construct~~ — added as S-08-7 (owner 4B).
 - **The rest of Haas-Bioroid's Core Set cards:** Accelerated Beta Test, Aggressive Secretary, Archived Memories, Corporate Troubleshooter, Experiential Data, Ash 2X3ZB9CY, Ichi 1.0. Each needs a new rule (looking at R&D, effects when accessed, picking from Archives, changing ICE strength, traces).
 - **The rest of Kate's Shaper cards:** Modded, Net Shield, Rabbit Hole, The Personal Touch, The Toolbox, Tinkering, and the neutral Crypsis, Infiltration and Access to Globalsec. Same reason: hosting cards on cards, preventing damage, link, virus counters.
 - **Full 45-card decks.** 45 is the real minimum for both identities. A legal Haas-Bioroid deck that size needs 20 agenda points, and that needs Accelerated Beta Test. So 30 cards this sprint (question 2).
