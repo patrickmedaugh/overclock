@@ -49,6 +49,7 @@ import {
 import {
   checkPointsWin,
   drawTop,
+  endGame,
   maxHandSize,
   opponentOf,
   startTurn,
@@ -92,6 +93,11 @@ function doGainCredit(state: GameState, a: ActionOf<'gain_credit'>): ApplyResult
 function doEndTurn(state: GameState, a: ActionOf<'end_turn'>): ApplyResult {
   // Leftover clicks are lost (house rule: ending early is allowed).
   const s = withPlayer(state, a.player, { clicks: 0 });
+  // Sprint 8: a Runner whose maximum hand size is below 0 is flatlined at the end of his turn (real rule).
+  if (a.player === 'runner' && maxHandSize(s, 'runner') < 0) {
+    const events: GameEvent[] = [];
+    return { state: endGame(s, 'corp', 'flatline', events), events };
+  }
   const count = discardCount(s.players[a.player].hand.length, maxHandSize(s, a.player));
   if (count > 0) {
     return { state: { ...s, phase: 'discard' }, events: [{ type: 'discard_required', player: a.player, count }] };

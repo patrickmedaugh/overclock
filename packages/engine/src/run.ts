@@ -29,6 +29,7 @@ import {
   WINNING_POINTS,
   drawTop,
   endGame,
+  maxHandSize,
   pointsOf,
   withPlayer,
   type AccessCard,
@@ -186,8 +187,10 @@ function outcomeAmount(state: GameState, effect: Effect, owner: Side): number {
     case 'draw':
       return Math.min(effect.count, state.players[owner].deck.length);
     case 'net_damage':
+    case 'brain_damage':
     case 'gain_credits':
     case 'bad_publicity':
+    case 'gain_clicks':
       return effect.amount;
     default:
       return 0;
@@ -348,21 +351,28 @@ const groupDone = (s: GameState) => (theRun(s).access as AccessState).cards.ever
 
 // ---- effects ----------------------------------------------------------------------
 
-/** Net damage to the Runner: random cards from the Grip to the Heap; more than the Grip holds flatlines it. */
-function netDamage(state: GameState, amount: number, events: Events, ctx: EffectContext): GameState {
-  const runner = state.players.runner;
+/**
+ * Net damage (Sprint 8: and brain damage) to the Runner: random cards from the Grip to the Heap;
+ * more than the Grip holds flatlines it. Brain damage first lowers the maximum hand size by `amount`
+ * for good (`brain_damage.maxHandSize` = the new maximum).
+ */
+function damage(state: GameState, kind: 'net' | 'brain', amount: number, events: Events, ctx: EffectContext): GameState {
+  const base = kind === 'brain' ? withPlayer(state, 'runner', { brainDamage: state.players.runner.brainDamage + amount }) : state;
+  const runner = base.players.runner;
+  const report = (cardIds: string[]) =>
+    events.push(kind === 'brain' ? { type: 'brain_damage', amount, cardIds, maxHandSize: maxHandSize(base, 'runner') } : { type: 'net_damage', amount, cardIds });
   if (amount > runner.hand.length) {
-    let s = withPlayer(state, 'runner', {
+    let s = withPlayer(base, 'runner', {
       hand: [],
       discard: [...runner.discard, ...runner.hand.map((cardId) => ({ cardId, faceUp: true }))],
     });
-    events.push({ type: 'net_damage', amount, cardIds: runner.hand.slice() });
+    report(runner.hand.slice());
     ctx.beforeEnd?.();
     if (s.phase === 'run') s = endRun(s, 'flatline', events);
     return endGame(s, 'corp', 'flatline', events);
   }
   let hand = runner.hand.slice();
-  let rng = state.rng;
+  let rng = base.rng;
   const cardIds: string[] = [];
   for (let k = 0; k < amount; k++) {
     const pick = nextInt(rng, hand.length);
@@ -370,8 +380,8 @@ function netDamage(state: GameState, amount: number, events: Events, ctx: Effect
     cardIds.push(hand[pick.value] as string);
     hand = hand.filter((_, i) => i !== pick.value);
   }
-  events.push({ type: 'net_damage', amount, cardIds });
-  return withPlayer({ ...state, rng }, 'runner', {
+  report(cardIds);
+  return withPlayer({ ...base, rng }, 'runner', {
     hand,
     discard: [...runner.discard, ...cardIds.map((cardId) => ({ cardId, faceUp: true }))],
   });
@@ -408,7 +418,9 @@ export function resolveEffect(state: GameState, effect: Effect, owner: Side, eve
       return s;
     }
     case 'net_damage':
-      return netDamage(state, effect.amount, events, ctx);
+      return damage(state, 'net', effect.amount, events, ctx);
+    case 'brain_damage':
+      return damage(state, 'brain', effect.amount, events, ctx);
     case 'lose_clicks': {
       const lost = Math.min(effect.amount, state.players.runner.clicks);
       if (lost === 0) return state;
@@ -460,9 +472,8 @@ export function resolveEffect(state: GameState, effect: Effect, owner: Side, eve
       events.push({ type: 'clicks_gained', player: owner, amount: effect.amount });
       return withPlayer(state, owner, { clicks: state.players[owner].clicks + effect.amount });
     }
-    case 'brain_damage':
     case 'trash_installed':
-      // Sprint 8 (E1 interface stub): resolved in E5 / E7.
+      // Sprint 8 (E1 interface stub): resolved in E7.
       return state;
   }
 }

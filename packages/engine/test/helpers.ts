@@ -118,11 +118,11 @@ export interface BoardSpec {
 }
 
 /**
- * A Runner turn (turn 2) on a hand-built board. Installed uids are i1, i2, ...
+ * A Runner turn (turn 2) on a hand-built board (Sprint 8: `options`, e.g. `{deckSet: 'core'}` for identities). Installed uids are i1, i2, ...
  * in order: rig first, then servers in key order (ICE innermost first, then content).
  */
-export function board(spec: BoardSpec, seed = 77): GameState {
-  const base = finishTurn(newGame(seed)).state;
+export function board(spec: BoardSpec, seed = 77, options?: Partial<GameOptions>): GameState {
+  const base = finishTurn(newGame(seed, options)).state;
   let uid = 1;
   const inst = (id: string) => {
     const rezzed = id.startsWith('+');
