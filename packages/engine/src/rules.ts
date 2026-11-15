@@ -18,6 +18,7 @@ import type { RejectReason } from './events';
 import { getCard, type BreakerAbility, type CardAbility, type CardDef, type CardType, type Effect, type PlayCondition } from '@overclock/cards';
 import {
   CENTRAL_SERVERS,
+  IDENTITY_UID,
   MAX_HAND_SIZE,
   MEMORY_LIMIT,
   maxHandSize,
@@ -437,15 +438,68 @@ const canAffordTrash = (s: GameState, a: ActionOf<'trash'>): RejectReason | null
   runnerSpendable(s) >= trashCost(accessCard(s, a.card) as AccessCard) ? null : 'no_credits';
 
 /**
- * Credits an install costs. Corp ICE: 1 per ICE already on the server ('new' = 0);
+ * Credits an install costs before discounts. Corp ICE: 1 per ICE already on the server ('new' = 0);
  * other Corp installs: 0. Runner: the card's cost. Assumes card and target are valid.
  */
-export function installCost(s: GameState, a: ActionOf<'install'>): number {
+export function installBaseCost(s: GameState, a: ActionOf<'install'>): number {
   const card = handCard(s, a.player, a.handIndex);
   if (!card) return 0;
   if (a.player === 'runner') return card.cost;
   if (card.type !== 'ice' || a.server === 'new') return 0;
   return findServer(s, a.server)?.ice.length ?? 0;
+}
+
+/** Sprint 8: an active source of `side`: its identity, or one of its face-up installed cards. */
+export interface ActiveSource {
+  readonly uid: string;
+  readonly cardId: string;
+  readonly card: CardDef;
+}
+
+/**
+ * Sprint 8: `side`'s active sources, in order: the identity, then face-up installed cards (Corp:
+ * rezzed cards, servers order, ICE then content; Runner: rig order). A face-down Corp card never is one (P1).
+ */
+export function activeSources(s: GameState, side: Side): ActiveSource[] {
+  const out: ActiveSource[] = [];
+  const id = s.players[side].identity;
+  const idCard = id !== null ? getCard(id) : undefined;
+  if (id !== null && idCard) out.push({ uid: IDENTITY_UID[side], cardId: id, card: idCard });
+  const installed = side === 'corp' ? s.servers.flatMap((sv) => [...sv.ice, ...sv.content]).filter((c) => c.rezzed) : s.rig;
+  for (const c of installed) {
+    const card = getCard(c.cardId);
+    if (card) out.push({ uid: c.uid, cardId: c.cardId, card });
+  }
+  return out;
+}
+
+/** Sprint 8: "first … each turn" holds for `types` (absent = any type): `side` installed nothing of them this turn. */
+export function firstInstallOf(s: GameState, side: Side, types: readonly CardType[] | undefined): boolean {
+  const done = s.players[side].installedThisTurn;
+  return types === undefined ? done.length === 0 : !done.some((t) => types.includes(t));
+}
+
+/** Sprint 8: the install discounts that apply to installing `card` for `side` now (sources in order, amounts > 0). */
+export function installDiscounts(s: GameState, side: Side, card: CardDef): { source: ActiveSource; amount: number }[] {
+  const out: { source: ActiveSource; amount: number }[] = [];
+  for (const source of activeSources(s, side)) {
+    const d = source.card.installDiscount;
+    if (!d || d.amount <= 0 || !d.types.includes(card.type) || !firstInstallOf(s, side, d.types)) continue;
+    out.push({ source, amount: d.amount });
+  }
+  return out;
+}
+
+/**
+ * Credits an install costs: `installBaseCost` minus every applying install discount (Sprint 8:
+ * Kate), never below 0. The only price used by options, `no_credits` and the payment.
+ */
+export function installCost(s: GameState, a: ActionOf<'install'>): number {
+  const base = installBaseCost(s, a);
+  const card = handCard(s, a.player, a.handIndex);
+  if (!card) return base;
+  const off = installDiscounts(s, a.player, card).reduce((sum, d) => sum + d.amount, 0);
+  return Math.max(0, base - off);
 }
 
 /** Credits a play costs: the card's cost. */
