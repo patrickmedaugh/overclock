@@ -38,7 +38,11 @@ export interface InstalledSnapshot {
   /** The advancement counter drawn on it ("2"), or null when none is shown. */
   counter: string | null;
   /** S-07-3/4: the credits disc on it ("12"), or null when none is shown; `box` where it is drawn, `fontPx` its digits' size. */
-  hosted: { text: string; box: Box; fontPx: number } | null;
+  hosted: { text: string; box: Box; fontPx: number; color: number; icon: 'coin' } | null;
+  /** QA-S7-2: the advancement tag as drawn (a different colour and icon from `hosted`), or null. */
+  counterBadge: { text: string; box: Box; fontPx: number; color: number; icon: 'chevron' } | null;
+  /** Face up: where the face's name, type label and cost bubble are drawn (screen boxes) and the drawn name. */
+  face: { name: Box; type: Box; cost: Box; nameText: string } | null;
 }
 
 export interface ServerSnapshot {
