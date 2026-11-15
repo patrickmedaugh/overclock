@@ -52,7 +52,7 @@ describe('S-08-4 AC2: Magnum Opus — Click: gain 2 credits, never runs out', ()
 
 describe('S-08-4 AC3: Pipeline (strength 1) vs Neural Katana (strength 3)', () => {
   it('2 credits twice → strength 3 for the rest of the run, then 1 credit breaks the subroutine', () => {
-    let s = atHq(['+c19', '+c07'], { rig: ['r16'], runnerCredits: 5 }); // Rototurret inner, Katana outer
+    let s = atHq(['+c05', '+c07'], { rig: ['r16'], runnerCredits: 5 }); // Ice Wall inner, Katana outer
     expect(s.run?.step).toBe('encounter');
     const pump = use('i1', 1);
     expect(viewFor('runner', s).run!.options.find((o) => o.action.type === 'use_ability' && o.action.ability === 1)).toMatchObject({ cost: 2, reject: null });
@@ -62,7 +62,7 @@ describe('S-08-4 AC3: Pipeline (strength 1) vs Neural Katana (strength 3)', () =
     const r = act(s, use('i1', 0, { sub: 0 }));
     expect(types(r.events)).toEqual(['credits_spent', 'subroutine_broken', 'ice_passed']);
     expect(r.state.players.runner.credits).toBe(0);
-    // The extra strength stays for the rest of the run (next ICE, Rototurret).
+    // The extra strength stays for the rest of the run (next ICE, Ice Wall).
     s = act(r.state, { type: 'pass', player: 'runner' }).state;
     expect(s.run?.step).toBe('encounter');
     expect(viewFor('runner', s).run!.breakerStrength['i1']).toBe(3);

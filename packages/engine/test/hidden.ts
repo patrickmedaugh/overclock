@@ -97,8 +97,13 @@ export function expectRunnerViewClean(s: GameState, where: string): void {
   // Sprint 7: the Runner's installed-card options are for its own rig cards only (never a Corp uid).
   const rigUids = new Set(s.rig.map((c) => c.uid));
   for (const uid of Object.keys(v.installedOptions)) expect(rigUids.has(uid), `${where}: Runner option on ${uid}`).toBe(true);
-  // An open choice names the agenda that opened it, which is face up in the score area.
-  if (v.choice) expect(s.players.corp.scoreArea, where).toContain(v.choice.cardId);
+  // An open choice names the agenda that opened it, which is face up in the score area; Sprint 8
+  // (spec change): an in-run choice names the rezzed ICE whose subroutine opened it.
+  if (v.choice) {
+    const ice = s.run ? s.servers.find((sv) => sv.id === s.run!.server)?.ice[s.run.position] : undefined;
+    const ok = s.players.corp.scoreArea.includes(v.choice.cardId) || (ice?.rezzed === true && ice.cardId === v.choice.cardId);
+    expect(ok, `${where}: choice names ${v.choice.cardId}`).toBe(true);
+  }
   // Nothing else names a Corp card.
   const rest = {
     ...v,

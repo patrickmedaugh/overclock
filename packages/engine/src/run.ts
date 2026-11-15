@@ -22,7 +22,9 @@ import {
   currentIce,
   findServer,
   rezCost,
+  trashCandidates,
   trashCost,
+  trashPreventers,
   unrezzedIce,
 } from './rules';
 import {
@@ -193,21 +195,26 @@ function outcomeAmount(state: GameState, effect: Effect, owner: Side): number {
     case 'bad_publicity':
     case 'gain_clicks':
       return effect.amount;
+    case 'trash_installed':
+      // Only used when no choice opens: 0 candidates → 0, one unprotected candidate → 1.
+      return trashCandidates(state, effect).length > 0 ? 1 : 0;
     default:
       return 0;
   }
 }
 
 /**
- * Let it through: every unbroken subroutine fires in order until one ends the run (or the game).
- * Each fired subroutine: `subroutine_fired`, its effect's own events, `subroutine_resolved`, then
- * whatever ends the run / game (Sprint 5).
+ * Let it through: every unbroken subroutine from `from` on fires in order until one ends the run
+ * (or the game). Each fired subroutine: `subroutine_fired`, its effect's own events,
+ * `subroutine_resolved`, then whatever ends the run / game (Sprint 5). Sprint 8: a subroutine
+ * whose effect opens a choice (`trash_target` / `prevent_trash`) stops here with `run.firing` set;
+ * `finishFiring` reports it and goes on with the next one when the choice closes.
  */
-function letThrough(state: GameState, events: Events): GameState {
+function letThrough(state: GameState, events: Events, from = 0): GameState {
   const ice = currentIce(state) as Installed;
   const subs = getCard(ice.cardId)?.subroutines ?? [];
   let s = state;
-  for (let i = 0; i < subs.length; i++) {
+  for (let i = from; i < subs.length; i++) {
     if (theRun(s).broken.includes(i)) continue;
     const effect = (subs[i] as { effect: Effect }).effect;
     const outcome: SubOutcome = { sub: i, op: effect.op, amount: outcomeAmount(s, effect, 'corp') };
@@ -218,11 +225,40 @@ function letThrough(state: GameState, events: Events): GameState {
       events.push({ type: 'subroutine_resolved', iceUid: ice.uid, cardId: ice.cardId, outcome });
     };
     events.push({ type: 'subroutine_fired', iceUid: ice.uid, sub: i });
-    s = resolveEffect(s, effect, 'corp', events, { beforeEnd: report });
+    s = resolveEffect(setRun(s, { firing: i }), effect, 'corp', events, { cardId: ice.cardId, beforeEnd: report });
+    if (s.phase === 'choice') return s; // Sprint 8: waits on a choice; reported when it closes
+    if (s.run) s = setRun(s, { firing: null });
     report();
     if (s.phase !== 'run') return s; // the run (or the game) ended
   }
   return passIce(s, events);
+}
+
+/**
+ * Sprint 8: the subroutine an in-run choice was resolving (`run.firing`) is done: `subroutine_resolved`
+ * (`amount` = cards trashed, 0 when saved), then the remaining subroutines fire.
+ */
+function finishFiring(state: GameState, amount: number, events: Events): GameState {
+  const run = theRun(state);
+  const ice = currentIce(state) as Installed;
+  const sub = run.firing as number;
+  const op = getCard(ice.cardId)?.subroutines?.[sub]?.effect.op ?? 'trash_installed';
+  events.push({ type: 'subroutine_resolved', iceUid: ice.uid, cardId: ice.cardId, outcome: { sub, op, amount } });
+  return letThrough(setRun(state, { firing: null }), events, sub + 1);
+}
+
+/**
+ * Sprint 8: rig card `target` is about to be trashed by the Corp's effect (opened by `cardId`). With a
+ * preventer in the rig (Sacrificial Construct) the Runner is asked first (`prevent_trash`);
+ * otherwise it goes to the Heap. Returns whether it was trashed now.
+ */
+function trashOrAsk(state: GameState, target: string, cardId: string, events: Events): { state: GameState; trashed: boolean } {
+  if (trashPreventers(state, target).length > 0) {
+    events.push({ type: 'choice_opened', kind: 'prevent_trash', player: 'runner', cardId, target });
+    const resume = state.run ? 'run' : 'action';
+    return { state: { ...state, phase: 'choice', choice: { kind: 'prevent_trash', player: 'runner', cardId, target, resume } }, trashed: false };
+  }
+  return { state: trashRigCard(state, target, events), trashed: true };
 }
 
 // ---- access -----------------------------------------------------------------------
@@ -473,9 +509,15 @@ export function resolveEffect(state: GameState, effect: Effect, owner: Side, eve
       events.push({ type: 'clicks_gained', player: owner, amount: effect.amount });
       return withPlayer(state, owner, { clicks: state.players[owner].clicks + effect.amount });
     }
-    case 'trash_installed':
-      // Sprint 8 (E1 interface stub): resolved in E7.
-      return state;
+    case 'trash_installed': {
+      // Sprint 8 (Rototurret): 0 candidates = nothing; 1 = that card (no window); 2+ = the Corp picks.
+      const candidates = trashCandidates(state, effect);
+      const cardId = ctx.cardId as string;
+      if (candidates.length === 0) return state;
+      if (candidates.length === 1) return trashOrAsk(state, (candidates[0] as Installed).uid, cardId, events).state;
+      events.push({ type: 'choice_opened', kind: 'trash_target', player: 'corp', cardId });
+      return { ...state, phase: 'choice', choice: { kind: 'trash_target', player: 'corp', cardId, resume: state.run ? 'run' : 'action' } };
+    }
   }
 }
 
@@ -619,9 +661,37 @@ function closeChoice(state: GameState, skipped: boolean, events: Events): GameSt
   return { ...state, phase: choice.resume === 'run' ? 'run' : 'action', choice: null };
 }
 
-/** Sprint 8: answers an in-run `trash_target` / `prevent_trash` choice (validated). E1 interface stub; E7 resolves it. */
-export function doChoose(state: GameState, _a: ActionOf<'choose'>): { state: GameState; events: GameEvent[] } {
-  return { state, events: [] };
+/** Sprint 8: after an in-run choice settled the trash: report the subroutine and fire the rest (outside a run: nothing more). */
+function afterTrashChoice(state: GameState, trashed: boolean, events: Events): GameState {
+  if (state.phase === 'choice') return state; // another choice opened (prevent_trash)
+  return state.run && state.run.firing !== null ? finishFiring(state, trashed ? 1 : 0, events) : state;
+}
+
+/**
+ * Sprint 8: answers an open `trash_target` (Corp names the card) or `prevent_trash` (Runner names the
+ * preventer to trash instead) choice (validated). Events: `choice_closed`, then (`choice_opened`
+ * prevent_trash) or `rig_card_trashed` [+ `trash_prevented`], `subroutine_resolved`, the next subs.
+ */
+export function doChoose(state: GameState, a: ActionOf<'choose'>): { state: GameState; events: GameEvent[] } {
+  const events: Events = [];
+  const choice = state.choice as ChoiceState;
+  let s = closeChoice(state, false, events);
+  if (choice.kind === 'trash_target') {
+    const r = trashOrAsk(s, a.uid, choice.cardId, events);
+    return { state: afterTrashChoice(r.state, r.trashed, events), events };
+  }
+  const target = s.rig.find((c) => c.uid === choice.target) as Installed;
+  const by = s.rig.find((c) => c.uid === a.uid) as Installed;
+  s = trashRigCard(s, by.uid, events);
+  events.push({ type: 'trash_prevented', uid: target.uid, cardId: target.cardId, byUid: by.uid, byCardId: by.cardId });
+  return { state: afterTrashChoice(s, false, events), events };
+}
+
+/** Sprint 8: `pass` in `prevent_trash` = let it be trashed. */
+function letItBeTrashed(state: GameState, events: Events): GameState {
+  const target = (state.choice as ChoiceState).target as string;
+  const s = trashRigCard(closeChoice(state, true, events), target, events);
+  return afterTrashChoice(s, true, events);
 }
 
 export function doRez(state: GameState, a: ActionOf<'rez'>): { state: GameState; events: GameEvent[] } {
@@ -668,7 +738,10 @@ function afterRez(state: GameState, uid: string, events: Events): GameState {
 
 export function doPass(state: GameState): { state: GameState; events: GameEvent[] } {
   const events: Events = [];
-  if (state.phase === 'choice') return { state: closeChoice(state, true, events), events }; // Skip
+  if (state.phase === 'choice') {
+    if (state.choice?.kind === 'prevent_trash') return { state: letItBeTrashed(state, events), events };
+    return { state: closeChoice(state, true, events), events }; // Skip
+  }
   const step = theRun(state).step;
   let s: GameState;
   if (step === 'approach') s = passIce(state, events); // Don't rez: passed face down

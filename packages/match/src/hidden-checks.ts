@@ -93,7 +93,12 @@ export function runnerViewLeaks(s: GameState, v: PlayerView = viewFor('runner', 
   }
   const last = !s.run && s.lastRun && s.lastRun.cards.length > 0 ? s.lastRun : null;
   check(same(v.lastRun, last), 'lastRun differs from the recorded accesses');
-  if (v.choice) check(s.players.corp.scoreArea.includes(v.choice.cardId), 'choice names a card not in the score area');
+  if (v.choice) {
+    // Sprint 8 (spec change): an in-run choice names the rezzed ICE whose subroutine opened it.
+    const ice = s.run ? s.servers.find((sv) => sv.id === s.run!.server)?.ice[s.run.position] : undefined;
+    const ok = s.players.corp.scoreArea.includes(v.choice.cardId) || (ice?.rezzed === true && ice.cardId === v.choice.cardId);
+    check(ok, 'choice names a card neither in the score area nor the rezzed current ICE');
+  }
   // Sprint 7: installed-card options only for the Runner's own rig cards.
   const rigUids = new Set(s.rig.map((c) => c.uid));
   for (const uid of Object.keys(v.installedOptions)) check(rigUids.has(uid), `Runner option on non-rig card ${uid}`);
