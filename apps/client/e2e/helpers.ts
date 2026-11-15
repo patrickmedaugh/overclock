@@ -23,6 +23,8 @@ export interface OpenOptions {
   seed?: number;
   /** Simulated notch / gesture bar: overrides #safe-probe's env() padding. */
   insets?: Partial<Insets>;
+  /** Sprint 8: which decks (default `'starter'`: the Sprint 1-7 deals; `'core'`: 30-card decks + identities, as players get). */
+  decks?: 'core' | 'starter';
 }
 
 /**
@@ -30,8 +32,11 @@ export interface OpenOptions {
  * and the "Pass the phone" cover (`cover=off`, test builds only). The specs
  * written before Sprint 6 test the board itself; the start screen and the
  * cover have their own specs (s06-start.spec.ts, s06-cover.spec.ts).
+ * Sprint 8: `decks=starter` keeps the Sprint 1-7 decks (no identities) for the
+ * specs written before the core decks; `openBoard(page, {decks: 'core'})` drops it.
  */
-export const BOARD_FLAGS = 'play=here&cover=off';
+export const BOARD_FLAGS = 'play=here&cover=off&decks=starter';
+export const CORE_BOARD_FLAGS = 'play=here&cover=off';
 
 /** Opens the board with a fixed deal and waits until the test hook is live. */
 export async function openBoard(page: Page, opts: OpenOptions | number = {}): Promise<void> {
@@ -49,7 +54,7 @@ export async function openBoard(page: Page, opts: OpenOptions | number = {}): Pr
   }
   await throttle(page);
   // Straight into pass-the-phone without the S-06-5 cover (see BOARD_FLAGS).
-  await page.goto(`./?seed=${o.seed ?? 1}&${BOARD_FLAGS}`);
+  await page.goto(`./?seed=${o.seed ?? 1}&${o.decks === 'core' ? CORE_BOARD_FLAGS : BOARD_FLAGS}`);
   await page.waitForFunction(() => document.body.dataset.ready === 'true' && !!window.__overclock);
 }
 
@@ -603,6 +608,8 @@ export async function toStep(page: Page, seed: number, goal: StepGoal): Promise<
   await waitIdle(page);
   const v = await getView(page);
   expect(v.activePlayer).toBe(plan.activePlayer);
+  // The page's game must use the plan's decks (core decks have identities).
+  expect(v.players.corp.identity !== null, `page decks match plan.deckSet ${plan.deckSet}`).toBe(plan.deckSet === 'core');
   return plan;
 }
 

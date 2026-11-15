@@ -5,6 +5,13 @@ import { TERMS } from './terms';
 
 /** S-04-4: what to do while the Corp's free-rez choice is open. */
 export const CHOICE_HINT = 'Rez one ICE for free, or tap Skip';
+/** S-08-7: what to do while a choice inside a run (Rototurret) is open. */
+export const RUN_CHOICE_HINT = 'Tap one of the lit buttons first';
+
+/** The hint for an open choice (free rez, or one inside a run). */
+export function choiceHint(choice: PlayerView['choice'] | undefined): string {
+  return choice && choice.kind !== 'free_rez' ? RUN_CHOICE_HINT : CHOICE_HINT;
+}
 
 export function hintFor(reason: RejectReason, view: (Pick<PlayerView, 'viewer' | 'pendingDiscard'> & { choice?: PlayerView['choice'] }) | null): string {
   switch (reason) {
@@ -18,7 +25,7 @@ export function hintFor(reason: RejectReason, view: (Pick<PlayerView, 'viewer' |
       return 'The game is over';
     case 'wrong_phase':
       if (view?.pendingDiscard) return 'Pick your discards first';
-      return view?.choice ? CHOICE_HINT : "You can't do that right now";
+      return view?.choice ? choiceHint(view.choice) : "You can't do that right now";
     case 'bad_discard':
       return 'Pick exactly the cards asked for';
     case 'invalid_action':

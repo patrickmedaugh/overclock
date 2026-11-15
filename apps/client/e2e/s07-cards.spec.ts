@@ -143,7 +143,7 @@ test.describe('S-07-2 PAD Campaign and Akitaro Watanabe', () => {
     await ok(page, { type: 'rez', player: 'corp', uid: plan.info['uid']! });
     // The same game from here with the S-06-5 cover on: replay to this point.
     const actions = [...plan.actions, { type: 'rez', player: 'corp', uid: plan.info['uid']! } as Action];
-    await page.goto(`./?seed=1&play=here`);
+    await page.goto(`./?seed=1&play=here&decks=starter`);
     await page.waitForFunction(() => document.body.dataset.ready === 'true' && !!window.__overclock);
     await page.evaluate((as) => {
       for (const a of as) window.__overclock!.dispatch(a);

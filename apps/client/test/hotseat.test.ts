@@ -5,7 +5,7 @@ import { HotSeat, seedFromUrl } from '../src/hotseat';
 /** A HotSeat played to `goal` with the planned actions (each submitted as its own player). */
 function hotSeatAt(seed: number, goal: Parameters<typeof planToStep>[1]) {
   const plan = planToStep(seed, goal);
-  const h = new HotSeat(seed, { deckSet: 'starter' });
+  const h = new HotSeat(seed, { deckSet: plan.deckSet });
   for (const a of plan.actions) {
     const p = h.submit(a);
     const events = p.kind === 'same' ? p.events : p.actorEvents;
@@ -138,5 +138,30 @@ describe('seedFromUrl', () => {
   it('reads ?seed=', () => {
     expect(seedFromUrl('?seed=123')).toBe(123);
     expect(Number.isInteger(seedFromUrl(''))).toBe(true);
+  });
+
+  it("S-08-7: Rototurret mid-run: the Corp's pick shows as its decision (with options), then the Runner may save with Sacrificial Construct", () => {
+    // Seed 2: two programs and Sacrificial Construct installed.
+    const { h, plan } = hotSeatAt(2, 'rototurret_two_programs');
+    expect(plan.deckSet).toBe('core');
+    expect(h.seat).toBe('runner');
+    expect(plan.info['construct']).not.toBe('');
+    let p = h.submit({ type: 'pass', player: 'runner' });
+    expect(p.kind).toBe('same');
+    const d = h.decision();
+    expect(d?.seat).toBe('corp');
+    expect(d?.choice?.kind).toBe('trash_target');
+    expect(d!.choice!.options.length).toBeGreaterThanOrEqual(2);
+    // The Runner's own view: the run is still on, the choice has no options for him.
+    expect(h.view().run).not.toBeNull();
+    expect(h.view().choice?.options).toEqual([]);
+    // The Corp picks the program the Construct can save.
+    const programs = plan.info['programs']!.split(',');
+    const pick = d!.choice!.options.find((o) => o.action.type === 'choose' && programs.includes(o.action.uid))!;
+    p = h.submit(pick.action);
+    expect(h.decision()).toBeNull();
+    const v = h.view();
+    expect(v.choice?.kind).toBe('prevent_trash');
+    expect(v.choice!.options.map((o) => o.action.type)).toEqual(['choose', 'pass']);
   });
 });

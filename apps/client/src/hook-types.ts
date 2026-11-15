@@ -95,6 +95,14 @@ export interface PanelButtonSnapshot {
   action: Action;
   /** The label's text size as drawn, after any shrink to fit (px; QA-S3-4). */
   fontPx: number;
+  /**
+   * S-08-4 Battering Ram (break up to 2): `multi` opens the pick, `toggle` picks a
+   * subroutine (`sub`, `picked`), `confirm` breaks the picked ones, `back` closes the pick.
+   * Absent for a plain option.
+   */
+  role?: 'multi' | 'toggle' | 'confirm' | 'back';
+  sub?: number;
+  picked?: boolean;
 }
 
 /** The run tracker and its decision panel. */
@@ -103,6 +111,8 @@ export interface RunSnapshot {
   step: RunStep;
   /** The seat the buttons act for (the Corp at approach, otherwise the Runner). */
   deciding: Side;
+  /** S-08-7: an open in-run choice: its kind, the lit (choosable) rig uids, and the card about to be trashed. */
+  choice: { kind: 'trash_target' | 'prevent_trash' | 'free_rez'; lit: string[]; target: string | null } | null;
   /** Panel title, e.g. "Run on Server 1", and the step line, e.g. "Rez Wall of Static?". */
   title: string;
   stepLabel: string;
@@ -281,6 +291,12 @@ export type AnimKind =
   | 'strength_pop'
   /** Net damage: Grip cards fly to the Heap. */
   | 'net_damage'
+  /** S-08-3: brain damage cards fly to the Heap (as net damage). */
+  | 'brain_damage'
+  /** S-08-2: Biotic Labor's extra clicks. */
+  | 'clicks_gained'
+  /** S-08-2: an emptied Corp card (Adonis) flies to Archives. */
+  | 'corp_trash_flight'
   /** The Runner loses clicks. */
   | 'clicks_lost'
   /** A stolen or scored agenda flies to its score. */
@@ -383,8 +399,6 @@ export interface OverclockTestHook {
   } | null;
   /** S-05-3: pins whether drawn frames count as slow (slow: the carousel jumps instead of sliding). */
   frameSpeed(mode: 'fast' | 'slow' | 'measured'): void;
-  /** U2 test-only: draw these card ids as identities while the view has none (null: off). Removed once E1's view carries identities. */
-  stubIdentities(ids: Partial<Record<Side, string>> | null): void;
 }
 
 export interface SmallFaceSnapshot {
@@ -404,7 +418,7 @@ declare global {
       back(): 'close_dialog' | 'close_zoom' | 'close_panel' | 'exit' | 'ask_leave';
       exitRequests(): number;
       /** Starts an online game as `side`; `test` (seed + prelude) only works against a service in test mode. */
-      startOnline(side: Side, test?: { seed: number; actions: Action[] }): void;
+      startOnline(side: Side, test?: { seed: number; actions: Action[]; deckSet?: 'core' | 'starter' }): void;
     };
   }
 }

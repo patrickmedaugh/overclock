@@ -4,7 +4,7 @@
 // strengths come from `run.ice` / `run.breakerStrength`. Card data is read only
 // for names and for an ability's printed "+N strength".
 import { getCard } from '@overclock/cards';
-import type { Action, CardOption, GameEvent, LetFireView, RunView, Side, SubOutcome } from '@overclock/engine';
+import type { Action, CardOption, ChoiceView, GameEvent, LetFireView, RunView, Side, SubOutcome } from '@overclock/engine';
 import { SIDE_NAME, TERMS, plural, priceText, serverLabel } from './terms';
 
 /** A card's name, or `fallback` for a card the viewer can't see. */
@@ -67,7 +67,7 @@ export function optionLabel(o: CardOption, run: RunView, options: readonly CardO
         case 'approach':
           return "Don't rez";
         case 'encounter':
-          return letFireLabel(run.letFire) ?? 'Let it through';
+          return letFireLabel(run.letFire, run.ice?.subroutines) ?? 'Let it through';
         case 'continue':
           return 'Continue';
         case 'access':
@@ -122,6 +122,41 @@ export function decidingText(deciding: Side): string {
   return `${SIDE_NAME[deciding]} is deciding…`;
 }
 
+/** S-08-7: the choice kinds that open in the middle of a run (the run panel shows them). */
+export function isRunChoice(c: ChoiceView | null | undefined): c is ChoiceView & { readonly kind: 'trash_target' | 'prevent_trash' } {
+  return !!c && (c.kind === 'trash_target' || c.kind === 'prevent_trash');
+}
+
+/** What the ICE's choosing subroutine may trash ("program"), from card data. */
+function trashWhat(iceId: string): string {
+  for (const sub of getCard(iceId)?.subroutines ?? []) {
+    if (sub.effect.op === 'trash_installed') return sub.effect.types.join(' or ');
+  }
+  return 'card';
+}
+
+/**
+ * S-08-7: the run panel's step line during an in-run choice. Deciding seat: "Rototurret:
+ * pick a program to trash" / "Rototurret: trash Corroder?"; the other seat (online):
+ * "Corp is choosing…".
+ */
+export function choiceStepLabel(c: ChoiceView, rig: RigIds, mine: boolean): string {
+  if (!mine) return `${SIDE_NAME[c.waitingOn]} is choosing…`;
+  if (c.kind === 'trash_target') return `${nameOf(c.cardId)}: pick a ${trashWhat(c.cardId)} to trash`;
+  return `${nameOf(c.cardId)}: trash ${nameOf(c.target ? (rig[c.target] ?? null) : null, 'a card')}?`;
+}
+
+/** S-08-7: a choice button: "Trash Corroder", "Trash Sacrificial Construct instead", "Let it be trashed". */
+export function choiceOptionLabel(o: CardOption, c: ChoiceView, rig: RigIds): string {
+  const a = o.action;
+  if (a.type === 'choose') {
+    const name = nameOf(rig[a.uid] ?? null, 'card');
+    return c.kind === 'prevent_trash' ? `${TERMS.trash} ${name} instead` : `${TERMS.trash} ${name}`;
+  }
+  if (a.type === 'pass') return c.kind === 'prevent_trash' ? 'Let it be trashed' : TERMS.skip;
+  return a.type;
+}
+
 /** What is happening now, for the deciding seat: "Corp: rez Wall of Static?", "Encounter: Enigma", ... */
 export function stepLabel(run: RunView, deciding: Side): string {
   const ice = nameOf(run.ice?.cardId);
@@ -163,21 +198,58 @@ export function infoLines(run: RunView, rig: RigIds): string[] {
 
 /**
  * S-07-2: what cards did by themselves at a turn's start, one line each:
- * "PAD Campaign: +1 credit". A refill of a card's own credits (Cyberfeeder)
+ * "PAD Campaign: +1 credit", "Adonis Campaign: +3 credits", "Adonis Campaign: empty,
+ * to Archives" (S-08-2). A refill of a card's own credits (Cyberfeeder)
  * says nothing (its disc shows it).
  */
 export function turnStartNotices(batch: readonly GameEvent[]): string[] {
   const out: string[] = [];
   for (let i = 0; i < batch.length; i++) {
     const e = batch[i]!;
+    // S-08-2: an emptied card (Adonis Campaign) goes to Archives face up.
+    if (e.type === 'corp_card_trashed') out.push(`${nameOf(e.cardId, 'Card')}: empty, to ${TERMS.archives}`);
     if (e.type !== 'ability_triggered' || e.trigger !== 'turn_start') continue;
     let gained = 0;
     for (let k = i + 1; k < batch.length; k++) {
       const n = batch[k]!;
+      // Adonis: its own credits go down first (the disc shows it), then the Corp gains them.
       if (n.type === 'credit_gained') gained += n.amount;
-      else break;
+      else if (n.type !== 'hosted_credits_changed') break;
     }
     if (gained > 0) out.push(`${nameOf(e.cardId, 'Card')}: +${plural(gained, 'credit', 'credits')}`);
+  }
+  return out;
+}
+
+/** "Haas-Bioroid: Engineering the Future" -> "Engineering the Future" (an identity's own title). */
+export function shortName(cardId: string): string {
+  const name = nameOf(cardId, 'Card');
+  const i = name.lastIndexOf(': ');
+  return i >= 0 ? name.slice(i + 2) : name;
+}
+
+/**
+ * S-08-1: what a card did when its side installed (Haas-Bioroid "Engineering the
+ * Future: +1 credit"; Kate "Digital Tinker: 1 credit off"). The discount's size is
+ * the card's printed amount (the engine reports it only when it lowered the price).
+ */
+export function installNotices(batch: readonly GameEvent[]): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < batch.length; i++) {
+    const e = batch[i]!;
+    if (e.type !== 'ability_triggered') continue;
+    if (e.trigger === 'install') {
+      let gained = 0;
+      for (let k = i + 1; k < batch.length; k++) {
+        const n = batch[k]!;
+        if (n.type === 'credit_gained') gained += n.amount;
+        else break;
+      }
+      if (gained > 0) out.push(`${shortName(e.cardId)}: +${plural(gained, 'credit', 'credits')}`);
+    } else if (e.trigger === 'install_discount') {
+      const amount = getCard(e.cardId)?.installDiscount?.amount ?? 1;
+      out.push(`${shortName(e.cardId)}: ${plural(amount, 'credit', 'credits')} off`);
+    }
   }
   return out;
 }
@@ -237,6 +309,11 @@ export function outcomeText(o: SubOutcome, tense: 'will' | 'did'): string | null
       return `${SIDE_NAME.corp} ${will ? 'gains' : 'gained'} ${plural(n, 'credit', 'credits')}`;
     case 'draw':
       return `${SIDE_NAME.corp} ${will ? 'draws' : 'drew'} ${plural(n, 'card', 'cards')}`;
+    case 'brain_damage':
+      return `${will ? 'take' : 'you took'} ${n} brain damage`;
+    case 'trash_installed':
+      // S-08-7: the Corp picks which program (amount 1 = one was trashed; 0 = none, or saved).
+      return will ? 'a program is trashed' : 'a program was trashed';
     default:
       return null;
   }
@@ -248,10 +325,15 @@ export function outcomeText(o: SubOutcome, tense: 'will' | 'did'): string | null
  * "Let it fire: take 3 damage", "Let it fire: take 3 damage, you flatline
  * (Corp wins)"; "Continue" when every subroutine is broken. Null: no preview.
  */
-export function letFireLabel(p: LetFireView | null | undefined): string | null {
+export function letFireLabel(p: LetFireView | null | undefined, subs?: readonly { readonly text: string; readonly broken: boolean }[]): string | null {
   if (!p) return null;
-  if (p.outcomes.length === 0 && p.ends === null) return 'Continue';
+  // S-08-7: the preview stops where a choice opens (Rototurret with 2+ programs): an unbroken
+  // subroutine it does not cover is the one waiting on that choice; say what it does.
+  const covered = new Set(p.outcomes.map((o) => o.sub));
+  const waiting = p.ends === null ? (subs ?? []).findIndex((x, i) => !x.broken && !covered.has(i)) : -1;
+  if (p.outcomes.length === 0 && p.ends === null && waiting < 0) return 'Continue';
   const parts = p.outcomes.map((o) => outcomeText(o, 'will')).filter((t): t is string => t !== null);
+  if (waiting >= 0) parts.push(`${subs![waiting]!.text.replace(/\.$/, '').replace(/^./, (c) => c.toLowerCase())}…`);
   if (p.ends === 'run') parts.push('run ends');
   if (p.ends === 'game') parts.push(`you flatline (${SIDE_NAME.corp} wins)`);
   return `Let it fire: ${parts.length > 0 ? parts.join(', ') : 'nothing happens'}`;

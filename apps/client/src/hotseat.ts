@@ -43,8 +43,8 @@ export class HotSeat implements Session {
   decision(): Decision | null {
     const waiting = this.match.view(this.bottom).run?.waitingOn;
     if (!waiting || waiting === this.bottom) return null;
-    const run = this.match.view(waiting).run;
-    return run ? { seat: waiting, run } : null;
+    const theirs = this.match.view(waiting);
+    return theirs.run ? { seat: waiting, run: theirs.run, choice: theirs.choice } : null;
   }
 
   /** The events of the last submit, as the submitting seat saw them. */

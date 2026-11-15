@@ -8,7 +8,7 @@ import type { Presentation } from '../src/session';
 /** Plays `seed` to `goal`, collecting every presentation with the decision shown before it. */
 function play(seed: number, goal: Parameters<typeof planToStep>[1]) {
   const plan = planToStep(seed, goal);
-  const h = new HotSeat(seed, { deckSet: 'starter' });
+  const h = new HotSeat(seed, { deckSet: plan.deckSet });
   const seen: { p: Presentation; before: 'corp' | 'runner' | null }[] = [];
   let shown = h.decision()?.seat ?? null;
   h.onPresent((p) => {
@@ -16,7 +16,7 @@ function play(seed: number, goal: Parameters<typeof planToStep>[1]) {
     shown = p.kind === 'same' ? (p.decision?.seat ?? null) : null;
   });
   for (const a of plan.actions) h.submit(a);
-  return { h, seen };
+  return { h, seen, plan };
 }
 
 describe('coverFor', () => {
@@ -69,5 +69,19 @@ describe('HotSeat as a Session', () => {
     expect(got).toHaveLength(1);
     expect(h.kind).toBe('hotseat');
     expect(h.status()).toEqual({ connection: 'local', opponent: 'here' });
+  });
+
+  it('S-08-7 Rototurret: to the Corp for its pick, back to the Runner to save or let it go', () => {
+    const { h, plan } = play(2, 'rototurret_two_programs');
+    let shown = h.decision()?.seat ?? null;
+    const p1 = h.submit({ type: 'pass', player: 'runner' });
+    expect(coverFor(p1, shown)).toEqual({ to: 'corp', title: 'Pass to the Corp — tap when ready', line: COVER_LINE });
+    shown = p1.kind === 'same' ? (p1.decision?.seat ?? null) : null;
+    const programs = plan.info['programs']!.split(',');
+    const pick = h.decision()!.choice!.options.find((o) => o.action.type === 'choose' && programs.includes(o.action.uid))!;
+    const p2 = h.submit(pick.action);
+    expect(coverFor(p2, shown)).toEqual({ to: 'runner', title: 'Pass back to the Runner — tap when ready', line: COVER_LINE });
+    // The Runner answers on his own seat: no cover.
+    expect(coverFor(h.submit({ type: 'pass', player: 'runner' }), null)).toBeNull();
   });
 });

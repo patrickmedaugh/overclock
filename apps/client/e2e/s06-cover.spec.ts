@@ -7,7 +7,7 @@ import { pixelStats } from './pixels';
 
 /** Pass-the-phone straight away, with the cover (no `cover=off`). */
 async function openCovered(page: Page, seed: number): Promise<void> {
-  await page.goto(`./?seed=${seed}&play=here`);
+  await page.goto(`./?seed=${seed}&play=here&decks=starter`);
   await page.waitForFunction(() => document.body.dataset.ready === 'true' && !!window.__overclock);
 }
 

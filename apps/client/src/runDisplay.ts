@@ -12,8 +12,8 @@ import { createCardBack, createCardFace, glowRoundRect } from './cardFace';
 import type { Box, RunSnapshot } from './hook-types';
 import type { Decision } from './session';
 import { type BoardLayout, accessSlots, buttonGrid } from './layout';
-import { type RigIds, decidingText, infoLines, optionLabel, runTitle, stepLabel } from './runText';
-import { serverLabel } from './terms';
+import { type RigIds, choiceOptionLabel, choiceStepLabel, decidingText, infoLines, isRunChoice, optionLabel, runTitle, stepLabel } from './runText';
+import { TERMS, priceText, serverLabel } from './terms';
 import { sideColor, theme } from './theme';
 import type { Tweens } from './tween';
 import { PanelButton, fitText } from './widgets';
@@ -33,6 +33,25 @@ export interface TableBoxes {
   column(server: string): Box | null;
 }
 
+/** One button as shown: an engine option, or a step of a "break up to 2" pick (S-08-4). */
+interface Shown {
+  option: CardOption;
+  label: string;
+  role?: 'multi' | 'toggle' | 'confirm' | 'back';
+  key?: string;
+  sub?: number;
+  picked?: boolean;
+  lit?: boolean;
+}
+
+/** "uid:ability" of a breaker ability whose options pick subroutines (`subs`). */
+function multiKey(o: CardOption): string | null {
+  const a = o.action;
+  return a.type === 'use_ability' && a.subs !== undefined ? `${a.uid}:${a.ability}` : null;
+}
+
+const sameSubs = (a: readonly number[], b: readonly number[]) => a.length === b.length && a.every((x, i) => x === b[i]);
+
 const FROM: Record<string, string> = { hq: 'From HQ', rd: 'From R&D', archives: 'From Archives' };
 
 export class RunDisplay {
@@ -49,7 +68,9 @@ export class RunDisplay {
   private infoKey = '';
   private accessKey = '';
   private stepKey = '';
-  private shown: { option: CardOption; label: string }[] = [];
+  private shown: Shown[] = [];
+  /** S-08-4: the open "break up to 2" pick (which breaker ability, which subroutines picked). */
+  private multi: { key: string; picked: number[] } | null = null;
   /** Strike lines of the listed subroutines (for the break animation). */
   private strikes: Graphics[] = [];
   private accessBoxes: { cardId: string | null; box: Box }[] = [];
@@ -86,6 +107,85 @@ export class RunDisplay {
   /** The options the buttons show, in button order. */
   option(index: number): CardOption | null {
     return this.shown[index]?.option ?? null;
+  }
+
+  /**
+   * A tap on button `index`: the action to send, or null when the tap only changed
+   * the "break up to 2" pick (the board redraws). A dim button still returns its
+   * action, so the engine's refusal shows its hint.
+   */
+  tap(index: number): CardOption['action'] | null {
+    const b = this.shown[index];
+    if (!b) return null;
+    switch (b.role) {
+      case 'multi':
+        if (b.option.reject !== null) return b.option.action;
+        this.multi = { key: b.key!, picked: [] };
+        return null;
+      case 'toggle': {
+        const m = this.multi;
+        if (!m) return null;
+        const sub = b.sub!;
+        if (m.picked.includes(sub)) m.picked = m.picked.filter((x) => x !== sub);
+        else m.picked = [...m.picked, sub].sort((x, y) => x - y).slice(-2);
+        return null;
+      }
+      case 'back':
+        this.multi = null;
+        return null;
+      case 'confirm':
+        if (!b.lit) return null;
+        this.multi = null;
+        return b.option.action;
+      default:
+        return b.option.action;
+    }
+  }
+
+  /**
+   * S-08-4: Battering Ram's options (one per set of 1-2 subroutines) shown as one
+   * "Break up to 2" button; once tapped, one toggle per subroutine, "Break N" and "Back".
+   */
+  private arrange(options: readonly CardOption[], labels: readonly string[], panel: RunView): Shown[] {
+    const groups = new Map<string, CardOption[]>();
+    for (const o of options) {
+      const k = multiKey(o);
+      if (k) groups.set(k, [...(groups.get(k) ?? []), o]);
+    }
+    if (this.multi && !groups.has(this.multi.key)) this.multi = null;
+    const m = this.multi;
+    if (m) {
+      const group = groups.get(m.key)!;
+      const subs = [...new Set(group.flatMap((o) => (o.action.type === 'use_ability' ? (o.action.subs ?? []) : [])))].sort((a, b) => a - b);
+      const out: Shown[] = subs.map((sub) => {
+        const picked = m.picked.includes(sub);
+        const text = panel.ice?.subroutines[sub]?.text ?? `Subroutine ${sub + 1}`;
+        return { option: group[0]!, label: `${picked ? '✓ ' : ''}"${text}"`, role: 'toggle', sub, picked, lit: true };
+      });
+      const exact = group.find((o) => o.action.type === 'use_ability' && sameSubs(o.action.subs ?? [], m.picked));
+      const n = m.picked.length;
+      out.push({ option: exact ?? group[0]!, label: n > 0 ? `${TERMS.break} ${n} · ${priceText((exact ?? group[0]!).cost)}` : 'Pick 1 or 2', role: 'confirm', lit: !!exact && exact.reject === null });
+      out.push({ option: group[0]!, label: 'Back', role: 'back', lit: true });
+      return out;
+    }
+    const out: Shown[] = [];
+    const done = new Set<string>();
+    options.forEach((o, i) => {
+      const k = multiKey(o);
+      if (!k) {
+        out.push({ option: o, label: labels[i]! });
+        return;
+      }
+      if (done.has(k)) return;
+      done.add(k);
+      const group = groups.get(k)!;
+      const best = group.find((x) => x.reject === null) ?? group[0]!;
+      const most = Math.max(...group.map((x) => (x.action.type === 'use_ability' ? (x.action.subs?.length ?? 1) : 1)));
+      // The single-sub option's label names the breaker when several can act ("Battering Ram: Break ... · 2 credits").
+      const who = labels[i]!.includes(': Break') ? `${labels[i]!.split(': ')[0]}: ` : '';
+      out.push({ option: best, label: `${who}${TERMS.break} up to ${most} · ${priceText(best.cost)}`, role: 'multi', key: k });
+    });
+    return out;
   }
 
   /** The strike line under subroutine `sub` of the listed ICE. */
@@ -133,16 +233,19 @@ export class RunDisplay {
     }
     // While the other seat decides, its own run view supplies the ICE and the options.
     const panel: RunView = decision?.run ?? run;
-    const deciding: Side = decision?.seat ?? run.waitingOn;
+    // S-08-7: a choice inside the run (Rototurret): its options are the buttons, the run's own are none.
+    const choiceSrc = decision ? decision.choice : view.choice;
+    const choice = isRunChoice(choiceSrc) ? choiceSrc : null;
+    const deciding: Side = choice?.waitingOn ?? decision?.seat ?? run.waitingOn;
     const rig: RigIds = Object.fromEntries(view.rig.map((c) => [c.uid, c.cardId]));
     const layout = this.layout;
-    const options = panel.options;
+    const options = choice ? choice.options : panel.options;
 
     // Info panel.
     const title = runTitle(run);
     // Online, the other phone decides: its choice is not on this board ("Corp is deciding…").
     const elsewhere = decision === null && deciding !== view.viewer && options.length === 0;
-    const step = elsewhere ? decidingText(deciding) : stepLabel(panel, deciding);
+    const step = choice ? choiceStepLabel(choice, rig, !elsewhere) : elsewhere ? decidingText(deciding) : stepLabel(panel, deciding);
     const lines = infoLines(panel, rig);
     // The passed ICE keeps its list at Continue, so a just-broken subroutine is seen crossed out.
     const showSubs = panel.step !== 'access';
@@ -155,26 +258,27 @@ export class RunDisplay {
     this.info.visible = true;
 
     // Buttons.
-    const labels = options.map((o) => optionLabel(o, panel, options, rig));
-    this.shown = options.map((option, i) => ({ option, label: labels[i]! }));
+    const labels = options.map((o) => (choice ? choiceOptionLabel(o, choice, rig) : optionLabel(o, panel, options, rig)));
+    this.shown = choice ? options.map((option, i) => ({ option, label: labels[i]! })) : this.arrange(options, labels, panel);
     const s = layout.scale;
-    const boxes = buttonGrid(layout.runButtons, options.length, {
+    const boxes = buttonGrid(layout.runButtons, this.shown.length, {
       gap: Math.max(4, Math.round(6 * s)),
       minW: Math.max(76, Math.round(84 * Math.min(s, 1.2))),
       maxW: Math.round(200 * Math.min(s, 1.3)),
       maxH: Math.max(44, Math.round(64 * Math.min(s, 1.2))),
     });
-    const stepKey = `${run.step}:${run.position}:${run.iceUid}:${deciding}:${run.access?.cards.length ?? 0}`;
+    const stepKey = `${run.step}:${run.position}:${run.iceUid}:${deciding}:${run.access?.cards.length ?? 0}:${choice?.kind ?? ''}`;
     const newStep = stepKey !== this.stepKey;
+    if (newStep) this.multi = null;
     this.stepKey = stepKey;
     const color = sideColor(deciding);
-    options.forEach((o, i) => {
+    this.shown.forEach((x, i) => {
       const b = this.button(i);
       b.root.visible = true;
-      b.set(boxes[i]!, labels[i]!, o.reject === null, color);
+      b.set(boxes[i]!, x.label, x.lit ?? x.option.reject === null, color);
       if (animate && newStep) b.pop(this.ui);
     });
-    for (let i = options.length; i < this.pool.length; i++) this.pool[i]!.root.visible = false;
+    for (let i = this.shown.length; i < this.pool.length; i++) this.pool[i]!.root.visible = false;
     this.buttons.visible = true;
 
     // Tracker: the server's column outlined, the current ICE (or the server at access) highlighted.
@@ -185,6 +289,19 @@ export class RunDisplay {
     m.clear();
     if (col) m.roundRect(col.x - 2, col.y - 2, col.width + 4, col.height + 4, 7).stroke({ width: 2, color: theme.runner, alpha: 0.75 });
     if (highlight && highlight !== col) glowRoundRect(m, highlight.x - 3, highlight.y - 3, highlight.width + 6, highlight.height + 6, 5, color, 3, 1.4);
+    // S-08-7: the programs the Corp may pick are lit; the card about to be trashed is outlined.
+    const lit: string[] = [];
+    if (choice) {
+      for (const o of options) if (o.action.type === 'choose') lit.push(o.action.uid);
+      if (choice.kind === 'prevent_trash' && choice.target) {
+        const t = table.installed(choice.target);
+        if (t) m.roundRect(t.x - 4, t.y - 4, t.width + 8, t.height + 8, 6).stroke({ width: 3, color: theme.warn });
+      }
+      for (const uid of lit) {
+        const b = table.installed(uid);
+        if (b) glowRoundRect(m, b.x - 3, b.y - 3, b.width + 6, b.height + 6, 5, color, 2.5, 1.2);
+      }
+    }
     m.visible = true;
 
     // Access: the cards, large.
@@ -200,6 +317,7 @@ export class RunDisplay {
       server: run.server,
       step: run.step,
       deciding,
+      choice: choice ? { kind: choice.kind, lit, target: choice.target ?? null } : null,
       title,
       stepLabel: step,
       lines,
@@ -209,7 +327,16 @@ export class RunDisplay {
       serverBox: col ? { ...col } : { x: 0, y: 0, width: 0, height: 0 },
       infoBox: { ...layout.runInfo },
       infoFontPx: this.infoFontPx,
-      buttons: this.shown.map((x, i) => ({ label: x.label, lit: x.option.reject === null, reject: x.option.reject, box: { ...boxes[i]! }, action: x.option.action, fontPx: this.pool[i]!.fontPx })),
+      buttons: this.shown.map((x, i) => ({
+        label: x.label,
+        lit: x.lit ?? x.option.reject === null,
+        reject: x.role === 'toggle' || x.role === 'back' ? null : x.option.reject,
+        box: { ...boxes[i]! },
+        action: x.option.action,
+        fontPx: this.pool[i]!.fontPx,
+        ...(x.role ? { role: x.role } : {}),
+        ...(x.sub !== undefined ? { sub: x.sub, picked: !!x.picked } : {}),
+      })),
       access: cards.length > 0 ? { cards: cards.map((c, i) => ({ cardId: c.cardId, stolen: c.stolen, box: { ...this.accessBoxes[i]!.box } })) } : null,
     };
     return newStep;

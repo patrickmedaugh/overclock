@@ -48,6 +48,9 @@ async function start(): Promise<void> {
   // `server=none`: as if no online service was set up.
   const serverParam = __TEST_HOOK__ ? params.get('server') : null;
   const serverUrl = serverParam === 'none' ? '' : (serverParam ?? __SERVER_URL__);
+  // `decks=starter`: pass-the-phone with the Sprint 7 15/17-card decks and no identities
+  // (the specs written before Sprint 8 keep their deals). Production always plays the core decks.
+  const deckSet = __TEST_HOOK__ && params.get('decks') === 'starter' ? ('starter' as const) : null;
   /** The start screen's address (a reload there forgets the board; test switches for the service stay). */
   const startUrl = () => `${window.location.pathname}${serverParam !== null ? `?server=${encodeURIComponent(serverParam)}` : ''}`;
   let storage: StoreLike | null = null;
@@ -245,10 +248,6 @@ async function start(): Promise<void> {
         back,
         exitRequests: () => exitRequests,
         frameSpeed: (mode) => forceFrameSpeed(mode),
-        stubIdentities: (ids) => {
-          board.stubIdentities(ids);
-          app.render();
-        },
         online: () =>
           online && game === online
             ? { code: online.gameCode, seat: online.seat, phase: online.phase.kind, ...online.status(), busy: online.busy }
@@ -256,7 +255,7 @@ async function start(): Promise<void> {
       };
     }
   };
-  const playHere = () => play(new HotSeat(seedFromUrl(window.location.search)));
+  const playHere = () => play(new HotSeat(seedFromUrl(window.location.search), deckSet ? { deckSet } : undefined));
 
   /**
    * Runs an online game from the start screen: the lobby while waiting, the

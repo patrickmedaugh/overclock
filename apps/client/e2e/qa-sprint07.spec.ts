@@ -52,7 +52,7 @@ import {
 import { type Phone, act, frames, joinGame, layoutOf, openPhone, startTestGame, tapButton, view, waitPlaying, waitView } from './online';
 
 const SHOTS = join(dirname(fileURLToPath(import.meta.url)), '../../../docs/sprints/sprint-07-qa');
-const ONLINE = { rezWindow: 'always' } as const;
+const ONLINE = { rezWindow: 'always', deckSet: 'starter' } as const;
 
 async function shot(page: Page, name: string): Promise<void> {
   mkdirSync(SHOTS, { recursive: true });
@@ -510,7 +510,7 @@ test.describe('QA S-07-6 hand view and drag', () => {
 
 test.describe('QA owner request: pass-and-play says "device", never "phone"', () => {
   test('start screen pages and the pass cover', async ({ page }) => {
-    await page.goto('./?seed=3');
+    await page.goto('./?seed=3&decks=starter');
     await page.waitForFunction(() => document.body.dataset.ready === 'true' && !!window.__overclockStart);
     const start = page.locator('#start');
     await expect(start).toContainText('Play on this device');

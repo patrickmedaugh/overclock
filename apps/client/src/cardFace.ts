@@ -477,8 +477,8 @@ function drawCardFace(
   const cr = w * (detail === 'full' ? 0.075 : 0.13);
   const ccx = left + cr + w * 0.04;
   const ccy = top + cr + w * 0.04;
-  // U2: an identity has no cost (it is never played), so no cost bubble. (`as string` until E1 adds 'identity' to CardType.)
-  const hasCost = (card.type as string) !== 'identity';
+  // U2: an identity has no cost (it is never played), so no cost bubble.
+  const hasCost = card.type !== 'identity';
   if (hasCost) g.circle(ccx, ccy, cr).fill({ color: 0x000000, alpha: 0.85 }).stroke({ width: Math.max(1, cr * 0.15), color: theme.credit });
   c.addChild(g);
 

@@ -38,12 +38,18 @@ export const TERMS = {
   advance: 'Advance',
   score: 'Score',
   netDamage: 'Net damage',
+  brainDamage: 'Brain damage',
   flatline: 'Flatline',
   // Sprint 4: "when scored" bonuses.
   badPublicity: 'Bad publicity',
   forThisRun: 'for this run',
   skip: 'Skip',
 } as const;
+
+/** S-08-3: the Runner's hand size after brain damage: "Hand max 4". */
+export function handMaxText(n: number): string {
+  return `Hand max ${n}`;
+}
 
 /** The Corp's black mark: "Bad publicity 2". */
 export function badPublicityText(n: number): string {

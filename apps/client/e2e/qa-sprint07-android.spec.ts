@@ -36,7 +36,7 @@ for (const vp of [
     // 1) The web build (hook) tells where things are, and what the screen looks like after.
     const web = await context.newPage();
     await web.setViewportSize(vp);
-    await web.goto(`${WEB}?seed=1&play=here&cover=off`);
+    await web.goto(`${WEB}?seed=1&play=here&cover=off&decks=starter`);
     await web.waitForFunction(() => document.body.dataset.ready === 'true' && !!window.__overclock);
     await web.waitForTimeout(400);
     const v = await web.evaluate(() => window.__overclock!.getView());
@@ -75,7 +75,7 @@ for (const vp of [
     // 2) The app bundle, same seed, real touches only.
     const errors: string[] = [];
     page.on('pageerror', (e) => errors.push(e.message));
-    await page.goto('./?seed=1');
+    await page.goto('./?seed=1&decks=starter');
     await page.waitForFunction(() => document.body.dataset.ready === 'true');
     expect(await page.evaluate(() => typeof window.__overclock)).toBe('undefined');
     await page.getByRole('button', { name: /Play on this device/ }).tap();

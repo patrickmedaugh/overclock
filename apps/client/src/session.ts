@@ -2,7 +2,7 @@
 // pass-the-phone game (`HotSeat`) and an online game (`OnlineMatch`, U3) both
 // implement it. Neither holds rules: both only forward the engine's projected
 // views and events (from the local match host or the server).
-import type { Action, GameEvent, PlayerView, RunView, Side } from '@overclock/engine';
+import type { Action, ChoiceView, GameEvent, PlayerView, RunView, Side } from '@overclock/engine';
 
 /**
  * A run decision that belongs to the seat *not* at the bottom (the Corp's rez
@@ -12,6 +12,8 @@ import type { Action, GameEvent, PlayerView, RunView, Side } from '@overclock/en
 export interface Decision {
   seat: Side;
   run: RunView;
+  /** S-08-7: that seat's open in-run choice (Rototurret's "pick a program"), with its options; else null. */
+  choice: ChoiceView | null;
 }
 
 /** What the board should animate for one change of the game. */

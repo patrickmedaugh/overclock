@@ -95,8 +95,10 @@ export async function startGame(phone: Phone, side: Side): Promise<string> {
 }
 
 /** Starts a game with a fixed deal and a prelude of actions (service test mode); returns the code. */
-export async function startTestGame(phone: Phone, side: Side, test: { seed: number; actions: Action[] }): Promise<string> {
-  await phone.page.evaluate(({ side, test }) => window.__overclockStart!.startOnline(side, test), { side, test });
+export async function startTestGame(phone: Phone, side: Side, test: { seed: number; actions: Action[]; deckSet?: 'core' | 'starter' }): Promise<string> {
+  // Sprint 8: the Sprint 6/7 specs keep the starter decks unless a test asks for the core decks (e.g. `deckSet: plan.deckSet`).
+  const setup = { deckSet: 'starter' as const, ...test };
+  await phone.page.evaluate(({ side, setup }) => window.__overclockStart!.startOnline(side, setup), { side, setup });
   return lobbyCode(phone);
 }
 
