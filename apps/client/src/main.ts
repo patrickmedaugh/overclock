@@ -245,6 +245,10 @@ async function start(): Promise<void> {
         back,
         exitRequests: () => exitRequests,
         frameSpeed: (mode) => forceFrameSpeed(mode),
+        stubIdentities: (ids) => {
+          board.stubIdentities(ids);
+          app.render();
+        },
         online: () =>
           online && game === online
             ? { code: online.gameCode, seat: online.seat, phase: online.phase.kind, ...online.status(), busy: online.busy }

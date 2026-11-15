@@ -105,11 +105,39 @@ const LATE_LIFT_MS = 50;
 /** QA-S4-1 pre-draw: no bake from this long before the hold opens the zoom until it has opened (ms). */
 const PREDRAW_QUIET_MS = 60;
 
-function shapeOf(view: PlayerView): BoardShape {
+/** An identity card on the table (U2, S-08-1). */
+export interface IdentityRef {
+  uid: string;
+  cardId: string;
+}
+
+/**
+ * The side's identity card from the view. E1 adds `PlayerSideView.identity`; until it
+ * lands (and for the starter decks) it is absent. `stub` is a test-only stand-in
+ * (`window.__overclock.stubIdentities`) used only while the view has none.
+ */
+function identityOf(view: PlayerView, side: Side, stub: Partial<Record<Side, string>> | null): IdentityRef | null {
+  const real = (view.players[side] as { identity?: IdentityRef | null }).identity;
+  if (real) return real;
+  const id = stub?.[side];
+  return id ? { uid: `id:${side}`, cardId: id } : null;
+}
+
+function shapeOf(view: PlayerView, stub: Partial<Record<Side, string>> | null): BoardShape {
   return {
     servers: view.corpServers.map((s) => ({ id: s.id, ice: s.ice.length, content: s.content.length })),
     rig: view.rig.length,
+    identities: { corp: identityOf(view, 'corp', stub) !== null, runner: identityOf(view, 'runner', stub) !== null },
   };
+}
+
+/** A side's identity card drawn in its slot (hold to read). */
+interface IdentityWidget {
+  uid: string;
+  cardId: string;
+  root: Container;
+  box: Box;
+  detach: () => void;
 }
 
 /** One side's name, hand count, credits and clicks, for one position (top / bottom). */
@@ -173,6 +201,8 @@ interface Generation {
   decks: Record<Side, DeckPile>;
   discards: Record<Side, DiscardPile>;
   hq: DeckPile;
+  /** U2: identity cards (the Corp's in the HQ slot, the Runner's left of the Stack). */
+  identities: Partial<Record<Side, IdentityWidget>>;
   memory: MemoryCounter;
   columns: Map<string, ColumnWidgets>;
   installed: Map<string, InstalledCard>;
@@ -247,6 +277,8 @@ export class Board {
   /** Catches taps on empty board (cancels a picked card). */
   private readonly catcher = new Container();
   private viewport: { width: number; height: number; insets: Partial<Insets> } | null = null;
+  /** Test-only identity stand-ins (until the engine's view carries identities; see identityOf). */
+  private identityStub: Partial<Record<Side, string>> | null = null;
   private layout: BoardLayout | null = null;
   private view: PlayerView | null = null;
   private gen: Generation | null = null;
@@ -626,6 +658,12 @@ export class Board {
     if (shown.length > 0 && !events.some((e) => e.type === 'action_rejected')) this.showHint(shown.join('\n'), 'notice');
   }
 
+  /** Test hook: draw these card ids as identities while the view has none (null: off). */
+  stubIdentities(ids: Partial<Record<Side, string>> | null): void {
+    this.identityStub = ids;
+    this.fullRender();
+  }
+
   /** The End turn guard and flip timestamps (test hook). */
   endTurnClock(): EndTurnClock {
     return { armedAt: this.endTurnArmedAt, flipDueAt: this.flipDueAt };
@@ -701,6 +739,12 @@ export class Board {
             })
           : [],
       rig: view ? view.rig.map(inst) : [],
+      identities: Object.fromEntries(
+        SIDES.map((sd) => {
+          const w = gen?.identities[sd];
+          return [sd, w && w.root.visible ? { uid: w.uid, cardId: w.cardId, box: centeredBox(w.root, w.box.width, w.box.height) } : null];
+        }),
+      ) as LayoutSnapshot['identities'],
       memory: {
         used: view?.memory.used ?? 0,
         limit: view?.memory.limit ?? 0,
@@ -929,7 +973,7 @@ export class Board {
   private sync(view: PlayerView, animate: boolean): BoardLayout | null {
     const vp = this.viewport;
     if (!vp) return null;
-    const layout = computeLayout(vp.width, vp.height, vp.insets, { viewer: view.viewer, shape: shapeOf(view) });
+    const layout = computeLayout(vp.width, vp.height, vp.insets, { viewer: view.viewer, shape: shapeOf(view, this.identityStub) });
     if (!this.gen || this.gen.sizeKey !== layout.sizeKey) this.newGeneration(layout);
     this.layout = layout;
     this.placeBuildLabel(layout);
@@ -955,6 +999,9 @@ export class Board {
     }
     const hqRoot = layout.corp.servers[0]?.root;
     if (hqRoot) placeAt(gen.hq.root, hqRoot);
+    for (const s of SIDES) this.placeIdentity(gen, layout, s, identityOf(view, s, this.identityStub), rowOf(s).identity);
+    // The Corp's identity stands for HQ: it takes the HQ marker's slot (the hand count is in the Corp's name row).
+    gen.hq.root.visible = !gen.identities.corp?.root.visible;
 
     for (const slots of [...layout.corp.servers, layout.corp.newServer]) {
       let col = gen.columns.get(slots.id);
@@ -1139,6 +1186,7 @@ export class Board {
       decks,
       discards,
       hq,
+      identities: {},
       memory,
       columns: new Map(),
       installed: new Map(),
@@ -1163,6 +1211,7 @@ export class Board {
     this.closeLastRun();
     for (const d of gen.detachers) d();
     for (const c of gen.installed.values()) c.detach();
+    for (const w of Object.values(gen.identities)) w.detach();
     gen.run.detach();
     for (const layer of [this.bgLayer, this.boardLayer, this.installedLayer, this.runLayer, this.centerLayer, this.accessLayer, this.targetLayer]) {
       for (const c of layer.removeChildren()) c.destroy({ children: true });
@@ -1283,6 +1332,36 @@ export class Board {
       card.visual.addChild(def ? createCardFace(def, u, uh, 'small') : createCardBack(owner, u, uh));
     }
     this.setHosted(card, v.hostedCredits ?? 0, u, uh);
+  }
+
+  /** U2: draws (or hides) `side`'s identity card in its slot; hold it to read it. */
+  private placeIdentity(gen: Generation, layout: BoardLayout, side: Side, ref: IdentityRef | null, slot: Box | null): void {
+    let w = gen.identities[side];
+    if (w && (!ref || w.cardId !== ref.cardId)) {
+      w.detach();
+      w.root.destroy({ children: true });
+      delete gen.identities[side];
+      w = undefined;
+    }
+    const def = ref ? getCard(ref.cardId) : undefined;
+    if (!ref || !slot || !def) return;
+    if (!w) {
+      const u = layout.unit.width;
+      const uh = layout.unit.height;
+      const root = new Container();
+      root.label = `identity:${side}`;
+      root.hitArea = new Rectangle(-u / 2, -uh / 2, u, uh);
+      root.addChild(createCardFace(def, u, uh, 'small'));
+      const cardId = ref.cardId;
+      const widget: IdentityWidget = { uid: ref.uid, cardId, root, box: slot, detach: () => {} };
+      widget.detach = this.attachHoldZoom(root, () => ({ ids: [cardId], side, from: widget.box }));
+      this.boardLayer.addChild(root);
+      gen.identities[side] = widget;
+      w = widget;
+    }
+    w.uid = ref.uid;
+    w.box = slot;
+    placeAt(w.root, slot);
   }
 
   /** QA-S7-2: the advancement tag (green, chevron, dark digits) in the card's top-right corner. */

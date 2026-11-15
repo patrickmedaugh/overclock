@@ -324,6 +324,7 @@ function buildCardBack(side: Side, w: number, h: number): Container {
 
 const TYPE_LABEL: Record<string, string> = {
   event: 'EVENT',
+  identity: 'IDENTITY',
   program: 'PROGRAM',
   hardware: 'HARDWARE',
   resource: 'RESOURCE',
@@ -476,16 +477,20 @@ function drawCardFace(
   const cr = w * (detail === 'full' ? 0.075 : 0.13);
   const ccx = left + cr + w * 0.04;
   const ccy = top + cr + w * 0.04;
-  g.circle(ccx, ccy, cr).fill({ color: 0x000000, alpha: 0.85 }).stroke({ width: Math.max(1, cr * 0.15), color: theme.credit });
+  // U2: an identity has no cost (it is never played), so no cost bubble. (`as string` until E1 adds 'identity' to CardType.)
+  const hasCost = (card.type as string) !== 'identity';
+  if (hasCost) g.circle(ccx, ccy, cr).fill({ color: 0x000000, alpha: 0.85 }).stroke({ width: Math.max(1, cr * 0.15), color: theme.credit });
   c.addChild(g);
 
-  const cost = new Text({
-    text: String(card.cost),
-    style: { fontFamily: theme.monoFamily, fontSize: cr * 1.2, fontWeight: '700', fill: theme.credit },
-  });
-  cost.anchor.set(0.5);
-  cost.position.set(ccx, ccy);
-  c.addChild(cost);
+  if (hasCost) {
+    const cost = new Text({
+      text: String(card.cost),
+      style: { fontFamily: theme.monoFamily, fontSize: cr * 1.2, fontWeight: '700', fill: theme.credit },
+    });
+    cost.anchor.set(0.5);
+    cost.position.set(ccx, ccy);
+    c.addChild(cost);
+  }
 
   const nameSize = detail === 'full' ? w * 0.068 : Math.max(7, w * 0.125) * nameK;
   const nameX = detail === 'full' ? ccx + cr + w * 0.04 : left + w * 0.06;
@@ -539,7 +544,7 @@ function drawCardFace(
       nameFontPx: nameSize,
       nameText: name.text,
       art: { x: artX, y: artY, width: artW, height: artH },
-      cost: { x: ccx - cr, y: ccy - cr, width: cr * 2, height: cr * 2 },
+      cost: hasCost ? { x: ccx - cr, y: ccy - cr, width: cr * 2, height: cr * 2 } : { x: ccx, y: ccy, width: 0, height: 0 },
     };
   }
   if (detail === 'full') {

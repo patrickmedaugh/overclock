@@ -89,6 +89,7 @@ function elements(l: BoardLayout, opts: { fanned?: boolean } = {}): [string, Box
   }
   out.push(['newServer.label', l.corp.newServer.label]);
   out.push(['rig.stack', l.rig.stack], ['rig.heap', l.rig.heap], ['rig.install', l.rig.install], ['rig.memory', l.rig.memory]);
+  if (l.rig.identity) out.push(['rig.identity', l.rig.identity]);
   l.rig.cards.forEach((b, i) => out.push([`rig.card${i}`, b]));
   out.push(['banner', l.banner], ['sub', l.sub], ['endTurn', l.endTurn], ['hand', l.handArea]);
   // Sideways the hint shares the help text's room inside `sub` (checked apart); in the column it has its own slot.
@@ -302,6 +303,45 @@ describe('computeLayout: other screen shapes', () => {
       expect(bottomBand.y + bottomBand.height).toBeLessThanOrEqual(l.bottom.label.y);
       expect(l.bottom.credits.y + l.bottom.credits.height).toBeLessThanOrEqual(l.handArea.y);
     }
+  });
+});
+
+describe('identity cards on the table (U2, S-08-1)', () => {
+  const IDS = { corp: true, runner: true } as const;
+  const withIds = (shape: BoardShape): BoardShape => ({ ...shape, identities: IDS });
+
+  it.each(MAIN_CASES)('%ix%i, insets %s, %s viewing: both identities fit (empty, busy, past busy), nothing overlaps', (w, h, _n, viewer, insets) => {
+    for (const shape of [EMPTY_SHAPE, BUSY]) expectClean(computeLayout(w, h, insets, { viewer, shape: withIds(shape) }), w, h, insets);
+    expectClean(computeLayout(w, h, insets, { viewer, shape: withIds(OVERFLOW) }), w, h, insets);
+  });
+
+  it.each(MAIN_CASES)('%ix%i, insets %s, %s viewing: each identity is a full card slot (>= 44 px), the Corp\'s in the HQ slot, the Runner\'s left of the Stack', (w, h, _n, viewer, insets) => {
+    const l = computeLayout(w, h, insets, { viewer, shape: withIds(BUSY) });
+    const corpRow = viewer === 'corp' ? l.bottom : l.top;
+    const runnerRow = viewer === 'runner' ? l.bottom : l.top;
+    expect(corpRow.identity).toEqual(l.corp.servers.find((s) => s.id === 'hq')!.root);
+    expect(runnerRow.identity).toEqual(l.rig.identity);
+    for (const b of [corpRow.identity!, runnerRow.identity!]) {
+      expect(b).toMatchObject({ width: l.unit.width, height: l.unit.height });
+      expect(b.width).toBeGreaterThanOrEqual(MIN_TOUCH);
+    }
+    expect(l.rig.identity!.x + l.rig.identity!.width).toBeLessThanOrEqual(l.rig.stack.x);
+  });
+
+  it.each(MAIN)('%ix%i: identities cost no card size on the busy board (640x360 included)', (w, h) => {
+    for (const viewer of SIDES) {
+      const plain = computeLayout(w, h, {}, { viewer, shape: BUSY });
+      const ids = computeLayout(w, h, {}, { viewer, shape: withIds(BUSY) });
+      expect(ids.unit).toEqual(plain.unit);
+    }
+  });
+
+  it('without identities (starter decks) the board is laid out exactly as before', () => {
+    const l = computeLayout(844, 390, {}, { viewer: 'runner', shape: BUSY });
+    expect(l.rig.identity).toBeNull();
+    expect(l.top.identity).toBeNull();
+    expect(l.bottom.identity).toBeNull();
+    expect(computeLayout(844, 390, {}, { viewer: 'runner', shape: { ...BUSY, identities: { corp: false, runner: false } } })).toEqual(l);
   });
 });
 

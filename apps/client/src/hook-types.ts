@@ -141,6 +141,8 @@ export interface LayoutSnapshot {
   viewer: Side;
   corp: SideLayout;
   runner: SideLayout;
+  /** U2 (S-08-1): each side's identity card as drawn (Corp: the HQ slot; Runner: left of the Stack), or null. */
+  identities: Record<Side, { uid: string; cardId: string; box: Box } | null>;
   /** The area reserved for the viewer's hand. */
   handArea: Box;
   /** Rendered hand cards (the viewer's), in hand order. `marked` = picked for discard, `selected` = picked to play. */
@@ -381,6 +383,8 @@ export interface OverclockTestHook {
   } | null;
   /** S-05-3: pins whether drawn frames count as slow (slow: the carousel jumps instead of sliding). */
   frameSpeed(mode: 'fast' | 'slow' | 'measured'): void;
+  /** U2 test-only: draw these card ids as identities while the view has none (null: off). Removed once E1's view carries identities. */
+  stubIdentities(ids: Partial<Record<Side, string>> | null): void;
 }
 
 export interface SmallFaceSnapshot {

@@ -48,6 +48,11 @@ export interface SideRow {
   discard: Box;
   /** R&D (in its column) / the Stack. */
   deck: Box;
+  /**
+   * U2 (S-08-1): the side's identity card, or null when the side has none (starter decks).
+   * Corp: the HQ root slot (the identity stands for HQ, as on a real table). Runner: left of the Stack.
+   */
+  identity: Box | null;
 }
 
 export interface ServerSlots {
@@ -75,6 +80,8 @@ export interface CorpBand {
 
 export interface RigBand {
   band: Box;
+  /** U2: the Runner's identity, left of the Stack (null without one). */
+  identity: Box | null;
   stack: Box;
   heap: Box;
   /** Installed Runner cards, install order. */
@@ -161,6 +168,8 @@ export interface BoardShape {
   /** hq, rd, archives, then remotes (view.corpServers order). */
   readonly servers: readonly ServerShape[];
   readonly rig: number;
+  /** U2: which sides have an identity card on the table (absent: none, as with the starter decks). */
+  readonly identities?: { readonly corp: boolean; readonly runner: boolean };
 }
 
 export interface LayoutOptions {
@@ -261,9 +270,9 @@ function memoryWidth(u: number): number {
   return Math.max(56, Math.round(u * 1.15));
 }
 
-function rigWidth(n: number, u: number, k: Gaps): number {
-  // Stack, Heap | n cards, Install slot | memory counter.
-  return 2 * u + k.g + 2 * k.gc + (n + 1) * u + n * k.g + k.gc + memoryWidth(u);
+function rigWidth(n: number, u: number, k: Gaps, identity = false): number {
+  // [Identity] Stack, Heap | n cards, Install slot | memory counter.
+  return (identity ? u + k.g : 0) + 2 * u + k.g + 2 * k.gc + (n + 1) * u + n * k.g + k.gc + memoryWidth(u);
 }
 
 function layoutCorpBand(x: number, y: number, width: number, height: number, u: number, k: Gaps, outward: 'up' | 'down', shape: BoardShape): CorpBand {
@@ -306,10 +315,11 @@ function layoutCorpBand(x: number, y: number, width: number, height: number, u: 
   return { band, outward, servers, newServer };
 }
 
-function layoutRigBand(x: number, y: number, width: number, u: number, k: Gaps, n: number): RigBand {
+function layoutRigBand(x: number, y: number, width: number, u: number, k: Gaps, n: number, withIdentity = false): RigBand {
   const uh = cardH(u);
-  const stack = box(x, y, u, uh);
-  const heap = box(x + u + k.g, y, u, uh);
+  const identity = withIdentity ? box(x, y, u, uh) : null;
+  const stack = box(x + (withIdentity ? u + k.g : 0), y, u, uh);
+  const heap = box(stack.x + u + k.g, y, u, uh);
   const memW = memoryWidth(u);
   const memory = box(x + width - memW, y, memW, uh);
   const start = heap.x + u + 2 * k.gc;
@@ -318,7 +328,7 @@ function layoutRigBand(x: number, y: number, width: number, u: number, k: Gaps, 
   const step = n === 0 ? u + k.g : Math.min(u + k.g, (room - u) / n);
   const cards = Array.from({ length: n }, (_, i) => box(start + i * step, y, u, uh));
   const install = box(start + n * step, y, u, uh);
-  return { band: box(x, y, width, uh), stack, heap, cards, install, memory };
+  return { band: box(x, y, width, uh), identity, stack, heap, cards, install, memory };
 }
 
 /**
@@ -376,10 +386,16 @@ function union(a: Box, b: Box): Box {
   return box(x, y, Math.max(a.x + a.width, b.x + b.width) - x, Math.max(a.y + a.height, b.y + b.height) - y);
 }
 
-function sideRows(viewer: Side, corp: CorpBand, rig: RigBand, top: Omit<SideRow, 'deck' | 'discard'>, bottom: Omit<SideRow, 'deck' | 'discard'>): { top: SideRow; bottom: SideRow } {
+type RowParts = Omit<SideRow, 'deck' | 'discard' | 'identity'>;
+
+function sideRows(viewer: Side, corp: CorpBand, rig: RigBand, shape: BoardShape, top: RowParts, bottom: RowParts): { top: SideRow; bottom: SideRow } {
   const rd = corp.servers.find((s) => s.id === 'rd')!.root!;
   const archives = corp.servers.find((s) => s.id === 'archives')!.root!;
-  const piles = (side: Side) => (side === 'corp' ? { deck: rd, discard: archives } : { deck: rig.stack, discard: rig.heap });
+  const hq = corp.servers.find((s) => s.id === 'hq')!.root!;
+  const piles = (side: Side) =>
+    side === 'corp'
+      ? { deck: rd, discard: archives, identity: shape.identities?.corp ? hq : null }
+      : { deck: rig.stack, discard: rig.heap, identity: rig.identity };
   const opponent: Side = viewer === 'corp' ? 'runner' : 'corp';
   return { top: { ...top, ...piles(opponent) }, bottom: { ...bottom, ...piles(viewer) } };
 }
@@ -422,6 +438,7 @@ function landscapeLayout(vw: number, vh: number, insets: Insets, safe: Box, view
   const ice = iceCap(shape);
   const sizing = sizingServers(shape);
   const rigN = Math.max(RESERVED.rig, shape.rig);
+  const runnerId = shape.identities?.runner ?? false;
 
   // Unit: header + corp band + rig band + hand (hand cards at least the unit) fit the height,
   // and both bands fit the width.
@@ -431,8 +448,8 @@ function landscapeLayout(vw: number, vh: number, insets: Insets, safe: Box, view
   const fit = fitTable(
     72,
     k,
-    (u, kk) => heightOk(u, ice) && corpWidth(sizing, u, kk) <= bw && rigWidth(rigN, u, kk) <= bw,
-    (u) => heightOk(u, RESERVED.icePerServer) && corpWidth(busy, u, k) <= bw && rigWidth(RESERVED.rig, u, k) <= bw,
+    (u, kk) => heightOk(u, ice) && corpWidth(sizing, u, kk) <= bw && rigWidth(rigN, u, kk, runnerId) <= bw,
+    (u) => heightOk(u, RESERVED.icePerServer) && corpWidth(busy, u, k) <= bw && rigWidth(RESERVED.rig, u, k, runnerId) <= bw,
   );
   const u = fit.u;
   k.gc = fit.k.gc;
@@ -451,7 +468,7 @@ function landscapeLayout(vw: number, vh: number, insets: Insets, safe: Box, view
   const bottomBandH = corpTop ? uh : corpH;
   const bottomBandY = handArea.y - vgap - bottomBandH;
   const corp = layoutCorpBand(bx, corpTop ? topBandY : bottomBandY, bw, corpH, u, k, corpTop ? 'down' : 'up', shape);
-  const rig = layoutRigBand(bx, corpTop ? bottomBandY : topBandY, bw, u, k, shape.rig);
+  const rig = layoutRigBand(bx, corpTop ? bottomBandY : topBandY, bw, u, k, shape.rig, runnerId);
 
   // Opponent header: name + hand count on the left, credits / clicks chips on the right.
   const chipW = Math.max(52, Math.round(60 * s));
@@ -496,6 +513,7 @@ function landscapeLayout(vw: number, vh: number, insets: Insets, safe: Box, view
     viewer,
     corp,
     rig,
+    shape,
     { row: topRegion, label: oppLabel, credits: oppCredits, clicks: oppClicks, tag: oppTag },
     { row: box(bx, bottomBandY, bw, bottomBandH), label: railLabel, credits, clicks, tag: railTag },
   );
@@ -582,6 +600,7 @@ function portraitLayout(vw: number, vh: number, insets: Insets, safe: Box, viewe
   const ice = iceCap(shape);
   const sizing = sizingServers(shape);
   const rigN = Math.max(RESERVED.rig, shape.rig);
+  const runnerId = shape.identities?.runner ?? false;
   // Up to 7 hand cards side by side; more overlap (44px of each still showing).
   const maxCardW = Math.max(MIN_TOUCH, Math.floor((avail - 6 * gap) / 7));
   const handFixed = 2 * pad + 2 * rowH + 3 * gap + controlH + 2 * gap;
@@ -594,8 +613,11 @@ function portraitLayout(vw: number, vh: number, insets: Insets, safe: Box, viewe
   const fit = fitTable(
     Math.round(72 * s),
     k,
-    (u, kk) => bandsFit(u, cardW0) && corpWidth(sizing, u, kk) <= avail && rigWidth(rigN, u, kk) <= avail,
-    (u) => handFixed + Math.floor(cardW0 * CARD_RATIO) + corpHeight(u, RESERVED.icePerServer, k) + cardH(u) <= safe.height && corpWidth(busy, u, k) <= avail && rigWidth(RESERVED.rig, u, k) <= avail,
+    (u, kk) => bandsFit(u, cardW0) && corpWidth(sizing, u, kk) <= avail && rigWidth(rigN, u, kk, runnerId) <= avail,
+    (u) =>
+      handFixed + Math.floor(cardW0 * CARD_RATIO) + corpHeight(u, RESERVED.icePerServer, k) + cardH(u) <= safe.height &&
+      corpWidth(busy, u, k) <= avail &&
+      rigWidth(RESERVED.rig, u, k, runnerId) <= avail,
   );
   const u = fit.u;
   k.gc = fit.k.gc;
@@ -621,7 +643,7 @@ function portraitLayout(vw: number, vh: number, insets: Insets, safe: Box, viewe
   const topBandY = center.y;
   const bottomBandY = center.y + center.height - bottomBandH;
   const corp = layoutCorpBand(left, corpTop ? topBandY : bottomBandY, avail, corpH, u, k, corpTop ? 'down' : 'up', shape);
-  const rig = layoutRigBand(left, corpTop ? bottomBandY : topBandY, avail, u, k, shape.rig);
+  const rig = layoutRigBand(left, corpTop ? bottomBandY : topBandY, avail, u, k, shape.rig, runnerId);
 
   // Control strip, centered between the bands.
   const midTop = topBandY + topBandH + gap;
@@ -649,6 +671,7 @@ function portraitLayout(vw: number, vh: number, insets: Insets, safe: Box, viewe
     viewer,
     corp,
     rig,
+    shape,
     { ...topRow, row: union(topRow.row, box(boardX, topBandY, boardW, topBandH)) },
     { ...bottomRow, row: union(bottomRow.row, box(boardX, bottomBandY, boardW, bottomBandH)) },
   );
