@@ -5,20 +5,8 @@
 // - Liveness: outside 'over', exactly one side has legal actions, the one waitingOn names.
 // - Replay determinism: (seed, actions) rebuilds the same game, JSON round trip included.
 import { describe, expect, it } from 'vitest';
-import {
-  apply,
-  hasMeaningfulResponse,
-  legalActions,
-  newGame,
-  replay,
-  viewEvents,
-  viewFor,
-  waitingOn,
-  type Action,
-  type GameEvent,
-  type GameState,
-} from '../src/index';
-import { liveness } from './helpers';
+import { apply, hasMeaningfulResponse, legalActions, viewEvents, viewFor, waitingOn, type Action, type GameEvent, type GameState } from '../src/index';
+import { liveness, newGame, replay } from './helpers';
 import { expectRunnerEventsClean, expectRunnerViewClean } from './hidden';
 
 function picker(seed: number): (n: number) => number {

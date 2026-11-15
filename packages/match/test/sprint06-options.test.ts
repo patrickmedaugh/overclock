@@ -1,19 +1,20 @@
 // Sprint 6 E1/E2: LocalMatch options, restore (by replay) and snapshot resume (server persistence).
-import { newGame, replay, type Action } from '@overclock/engine';
+import { type Action } from '@overclock/engine';
 import { describe, expect, it } from 'vitest';
-import { LocalMatch } from '../src/index';
+import { newGame, replay, LocalMatch } from './legacy';
+
 import { planBusyBoard } from '../src/testing';
 
 describe('Sprint 6: LocalMatch options', () => {
   it('default options are affordable; the state stores them; the shuffle does not depend on them', () => {
     const a = new LocalMatch(5);
     const b = new LocalMatch(5, { rezWindow: 'always' });
-    expect(a.options).toEqual({ rezWindow: 'affordable' });
-    expect(b.options).toEqual({ rezWindow: 'always' });
-    expect(a.snapshot().options).toEqual({ rezWindow: 'affordable' });
-    expect(b.snapshot().options).toEqual({ rezWindow: 'always' });
+    expect(a.options).toEqual({ rezWindow: 'affordable', deckSet: 'starter' });
+    expect(b.options).toEqual({ rezWindow: 'always', deckSet: 'starter' });
+    expect(a.snapshot().options).toEqual({ rezWindow: 'affordable', deckSet: 'starter' });
+    expect(b.snapshot().options).toEqual({ rezWindow: 'always', deckSet: 'starter' });
     expect(a.view('corp')).toEqual(b.view('corp'));
-    expect(newGame(5).options).toEqual({ rezWindow: 'affordable' });
+    expect(newGame(5).options).toEqual({ rezWindow: 'affordable', deckSet: 'starter' });
   });
 
   it('restore(seed, actions, options) rebuilds the same game and log', () => {
@@ -23,7 +24,7 @@ describe('Sprint 6: LocalMatch options', () => {
     const back = LocalMatch.restore(plan.seed, live.actions(), { rezWindow: 'always' });
     expect(back.snapshot()).toEqual(live.snapshot());
     expect(back.actions()).toEqual(live.actions());
-    expect(back.options).toEqual({ rezWindow: 'always' });
+    expect(back.options).toEqual({ rezWindow: 'always', deckSet: 'starter' });
     expect(back.snapshot()).toEqual(replay(plan.seed, plan.actions, { rezWindow: 'always' }).state);
     // And it keeps playing like the original.
     const next: Action = { type: 'gain_credit', player: plan.activePlayer };
@@ -37,7 +38,7 @@ describe('Sprint 6: LocalMatch options', () => {
     const back = LocalMatch.fromSnapshot(plan.seed, snap, live.actions());
     (snap as { turn: number }).turn = 999; // mutating the snapshot does not reach either match
     expect(back.snapshot()).toEqual(live.snapshot());
-    expect(back.options).toEqual({ rezWindow: 'always' });
+    expect(back.options).toEqual({ rezWindow: 'always', deckSet: 'starter' });
     expect(back.view('runner')).toEqual(live.view('runner'));
     expect(back.actions()).toEqual(live.actions());
   });

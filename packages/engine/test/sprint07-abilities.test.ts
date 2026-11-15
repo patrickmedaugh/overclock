@@ -2,8 +2,8 @@
 // abilities, trash-when-empty, and Akamatsu Mem Chip's memory. Reached by real play (the Runner's
 // hand and credits are set before the first action).
 import { describe, expect, it } from 'vitest';
-import { apply, legalActions, newGame, viewEvents, viewFor, type Action, type GameState } from '../src/index';
-import { finishTurn, rejection, run, withHand, withPlayer } from './helpers';
+import { apply, legalActions, viewEvents, viewFor, type Action, type GameState } from '../src/index';
+import { finishTurn, rejection, run, withHand, withPlayer, newGame } from './helpers';
 
 const install = (handIndex: number): Action => ({ type: 'install', player: 'runner', handIndex });
 const activate = (uid: string, ability = 0, player: 'corp' | 'runner' = 'runner'): Action => ({ type: 'activate', player, uid, ability });

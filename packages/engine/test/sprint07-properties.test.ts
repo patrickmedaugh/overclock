@@ -6,9 +6,9 @@
 // limit, and determinism (replay).
 import { getCard } from '@overclock/cards';
 import { describe, expect, it } from 'vitest';
-import { apply, legalActions, newGame, replay, viewFor, waitingOn, type Action, type GameEvent, type GameState } from '../src/index';
+import { apply, legalActions, viewFor, waitingOn, type Action, type GameEvent, type GameState } from '../src/index';
 import { memoryLimit, memoryUsed } from '../src/rules';
-import { liveness } from './helpers';
+import { liveness, newGame, replay } from './helpers';
 import { expectRunnerEventsClean, expectRunnerViewClean } from './hidden';
 
 function prng(seed: number): (n: number) => number {

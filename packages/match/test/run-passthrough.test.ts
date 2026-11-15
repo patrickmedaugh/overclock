@@ -1,9 +1,10 @@
 // Sprint 3 E6: LocalMatch passes runs through: the Corp seat answers the rez
 // question during the Runner's turn, each seat gets only its own projection,
 // rejections go to the submitting seat, and the log replays.
-import { replay, viewFor, type Action } from '@overclock/engine';
+import { viewFor, type Action } from '@overclock/engine';
 import { describe, expect, it } from 'vitest';
-import { LocalMatch } from '../src/index';
+import { replay, LocalMatch } from './legacy';
+
 import { planToStep } from '../src/testing';
 
 function toStep(seed: number, goal: Parameters<typeof planToStep>[1]) {

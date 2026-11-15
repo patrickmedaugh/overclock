@@ -1,4 +1,15 @@
-import { CORP_STARTER_DECK, RUNNER_STARTER_DECK, getCard, type CentralServerId, type ServerId, type Side } from '@overclock/cards';
+import {
+  CORP_CORE_DECK,
+  CORP_STARTER_DECK,
+  RUNNER_CORE_DECK,
+  RUNNER_STARTER_DECK,
+  getCard,
+  type CardType,
+  type CentralServerId,
+  type DeckList,
+  type ServerId,
+  type Side,
+} from '@overclock/cards';
 import type { GameEvent } from './events';
 import { seedToRng, shuffle } from './rng';
 
@@ -14,10 +25,10 @@ export const CORP_CLICKS_PER_TURN = 3;
 /** Base Runner memory limit (programs' `memory` must fit). Sprint 7: `memoryLimit(state)` adds rig `memoryBonus`. */
 export const MEMORY_LIMIT = 4;
 /**
- * Sprint 7: the rules version. Bump it whenever an old action log would replay
+ * Sprint 7: the rules version (Sprint 8: 2 — identities, core decks, DSL v3). Bump it whenever an old action log would replay
  * differently (a rules change); the online room expires a game whose log no longer replays.
  */
-export const RULES_VERSION = 1;
+export const RULES_VERSION: number = 2;
 /** Agenda points that win the game at once (stolen or scored). */
 export const WINNING_POINTS = 7;
 
@@ -124,17 +135,31 @@ export interface RunState {
    * costs during the run are paid from these first; left-overs vanish when the run ends.
    */
   readonly tempCredits: number;
+  /**
+   * Sprint 8: the subroutine of the current ICE being resolved while an in-run choice is open
+   * (`trash_target` / `prevent_trash`); null otherwise. On close it is reported and the rest fire.
+   */
+  readonly firing: number | null;
 }
 
-/** What a choice is about. `free_rez`: Priority Requisition, rez one unrezzed installed ICE for free, or Skip. */
-export type ChoiceKind = 'free_rez';
+/**
+ * What a choice is about. `free_rez`: Priority Requisition, rez one unrezzed installed ICE for free, or Skip.
+ * Sprint 8 (inside a run, `resume: 'run'`): `trash_target` = the Corp picks which Runner card a
+ * `trash_installed` subroutine trashes (mandatory); `prevent_trash` = the Runner may trash a preventer
+ * (Sacrificial Construct) instead of `target`, or `pass` (let it be trashed).
+ */
+export type ChoiceKind = 'free_rez' | 'trash_target' | 'prevent_trash';
 
 /** An open choice (`phase === 'choice'`): `player` must decide before anything else happens. */
 export interface ChoiceState {
   readonly kind: ChoiceKind;
   readonly player: Side;
-  /** The card whose effect opened it (the scored agenda). */
+  /** The card whose effect opened it (the scored agenda; Sprint 8: the ICE whose subroutine fired). */
   readonly cardId: string;
+  /** Sprint 8, `prevent_trash`: the rig card that would be trashed. */
+  readonly target?: string;
+  /** Sprint 8: where the game goes on when it closes: the action phase, or the run it opened in. */
+  readonly resume: 'action' | 'run';
 }
 
 export interface GameResult {
@@ -166,7 +191,31 @@ export interface PlayerState {
   readonly clicks: number;
   /** Agendas scored (Corp) or stolen (Runner), face up: card ids in order. */
   readonly scoreArea: readonly string[];
+  /** Sprint 8: the identity card id (public; uid `id:corp` / `id:runner`), or null (starter decks). */
+  readonly identity: string | null;
+  /** Sprint 8: brain damage taken (Runner; always 0 for the Corp). Max hand size = 5 − this. */
+  readonly brainDamage: number;
+  /**
+   * Sprint 8: the types of the cards this side installed this turn (reset for both sides at every
+   * turn start). Drives "first time each turn" rules. Never in any view (it would reveal the types
+   * of face-down Corp cards).
+   */
+  readonly installedThisTurn: readonly CardType[];
 }
+
+/** Sprint 8: the fixed uid of each side's identity card (events, views). */
+export const IDENTITY_UID: Readonly<Record<Side, string>> = { corp: 'id:corp', runner: 'id:runner' };
+
+/** Sprint 8: `side`'s maximum hand size: 5 − brain damage (may go below 0: the Runner is flatlined at end of turn). */
+export function maxHandSize(state: GameState, side: Side): number {
+  return MAX_HAND_SIZE - state.players[side].brainDamage;
+}
+
+/**
+ * Sprint 8: which decks a game uses. `'core'` (default): the 30-card Haas-Bioroid and Kate decks
+ * with their identities. `'starter'`: the Sprint 7 15/17-card decks, no identities (a frozen test fixture).
+ */
+export type DeckSet = 'core' | 'starter';
 
 /**
  * Sprint 6: per-game rule options, fixed at `newGame` and stored in the state.
@@ -174,16 +223,21 @@ export interface PlayerState {
  * - `'affordable'` (default, hot-seat): only when the Corp can pay the rez cost; otherwise the ICE is passed face down at once.
  * - `'always'` (online): always, so the Runner cannot tell an unaffordable ICE from a cheap one;
  *   `rez` is then rejected `no_credits` when unaffordable and the Corp's only legal move is `pass`.
+ * `deckSet` (Sprint 8): see `DeckSet`.
  */
 export interface GameOptions {
   readonly rezWindow: 'affordable' | 'always';
+  readonly deckSet: DeckSet;
 }
 
-export const DEFAULT_OPTIONS: GameOptions = { rezWindow: 'affordable' };
+export const DEFAULT_OPTIONS: GameOptions = { rezWindow: 'affordable', deckSet: 'core' };
 
 /** `options` with every missing field set to its default (a detached copy). */
 export function resolveOptions(options?: Partial<GameOptions>): GameOptions {
-  return { rezWindow: options?.rezWindow === 'always' ? 'always' : 'affordable' };
+  return {
+    rezWindow: options?.rezWindow === 'always' ? 'always' : 'affordable',
+    deckSet: options?.deckSet === 'starter' ? 'starter' : 'core',
+  };
 }
 
 /** Full game state. Plain JSON: serializable and structurally clonable. */
@@ -271,6 +325,8 @@ export function startTurn(
   const clicks = clicksPerTurn(side);
   let s: GameState = withPlayer({ ...state, turn, activePlayer: side, phase: 'action' }, side, { clicks });
   const events: GameEvent[] = [{ type: 'turn_started', player: side, turn, clicks }];
+  // Sprint 8: "first time each turn" counts start afresh for both sides.
+  s = withPlayer(withPlayer(s, 'corp', { installedThisTurn: [] }), 'runner', { installedThisTurn: [] });
   if (beforeDraw) s = beforeDraw(s, events);
   if (side === 'corp' && s.phase !== 'over') {
     if (s.players.corp.deck.length === 0) {
@@ -284,7 +340,7 @@ export function startTurn(
   return { state: s, events };
 }
 
-function setupPlayer(deckList: readonly string[], rng: number): { player: PlayerState; rng: number } {
+function setupPlayer(deckList: DeckList, identity: string | null, rng: number): { player: PlayerState; rng: number } {
   const shuffled = shuffle(deckList, rng);
   return {
     player: {
@@ -294,6 +350,9 @@ function setupPlayer(deckList: readonly string[], rng: number): { player: Player
       credits: STARTING_CREDITS,
       clicks: 0,
       scoreArea: [],
+      identity,
+      brainDamage: 0,
+      installedThisTurn: [],
     },
     rng: shuffled.rng,
   };
@@ -303,12 +362,15 @@ function setupPlayer(deckList: readonly string[], rng: number): { player: Player
  * Creates a new game. Same seed => identical decks and opening hands.
  * Starts on turn 1, the Corp's turn, with its start-of-turn draw already
  * taken (3 clicks, 6 cards in hand); the Runner has 0 clicks.
- * `options` (Sprint 6) default to DEFAULT_OPTIONS; they never change the shuffle.
+ * `options` (Sprint 6) default to DEFAULT_OPTIONS; `rezWindow` never changes the shuffle.
+ * Sprint 8: `deckSet` picks the decks (default `'core'`: 30 cards each plus identities).
  */
 export function newGame(seed: number, options?: Partial<GameOptions>): GameState {
+  const opts = resolveOptions(options);
   const rng0 = seedToRng(seed);
-  const corp = setupPlayer(CORP_STARTER_DECK, rng0);
-  const runner = setupPlayer(RUNNER_STARTER_DECK, corp.rng);
+  const core = opts.deckSet === 'core';
+  const corp = setupPlayer(core ? CORP_CORE_DECK.cards : CORP_STARTER_DECK, core ? CORP_CORE_DECK.identity : null, rng0);
+  const runner = setupPlayer(core ? RUNNER_CORE_DECK.cards : RUNNER_STARTER_DECK, core ? RUNNER_CORE_DECK.identity : null, corp.rng);
   const base: GameState = {
     seed: rng0,
     rng: runner.rng,
@@ -326,7 +388,7 @@ export function newGame(seed: number, options?: Partial<GameOptions>): GameState
     badPublicity: 0,
     choice: null,
     lastRun: null,
-    options: resolveOptions(options),
+    options: opts,
   };
   return startTurn(base, 'corp', 1).state;
 }

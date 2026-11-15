@@ -10,7 +10,7 @@
  * views, like a player would.
  */
 import { getCard } from '@overclock/cards';
-import type { Action, GameOptions, PlayerView, Side } from '@overclock/engine';
+import type { Action, DeckSet, GameOptions, PlayerView, Side } from '@overclock/engine';
 import { LocalMatch } from './local-match';
 
 /** Sprint 6: pure hidden-information checks (server leak test, Node-side e2e). */
@@ -29,6 +29,8 @@ export const BUSY_BOARD: BusyBoardGoal = { remotes: 3, icePerRemote: 2, rig: 4 }
 
 export interface BusyBoardPlan {
   readonly seed: number;
+  /** Sprint 8: the deck set the plan was made with (create the game with the same one). */
+  readonly deckSet: DeckSet;
   /** Every action, in order, for `submit(action.player, action)`. All are accepted. */
   readonly actions: Action[];
   /** Whose turn it is after the last action. */
@@ -110,14 +112,15 @@ function runnerMove(v: PlayerView, goal: BusyBoardGoal): Action {
 
 /**
  * Plans the busy board for `seed`. Throws if the goal is not reached within
- * `maxActions` (e.g. the Corp would run out of cards first).
+ * `maxActions` (e.g. the Corp would run out of cards first). Sprint 8: `deckSet`
+ * defaults to `'starter'` (the Sprint 2–7 fixture decks).
  */
-export function planBusyBoard(seed: number, goal: BusyBoardGoal = BUSY_BOARD, maxActions = 400): BusyBoardPlan {
-  const match = new LocalMatch(seed);
+export function planBusyBoard(seed: number, goal: BusyBoardGoal = BUSY_BOARD, maxActions = 400, deckSet: DeckSet = 'starter'): BusyBoardPlan {
+  const match = new LocalMatch(seed, { deckSet });
   for (let n = 0; n < maxActions; n++) {
     const v = match.view(match.view('corp').activePlayer);
     if (busyBoardReached(v, goal)) {
-      return { seed, actions: [...match.actions()], activePlayer: v.activePlayer };
+      return { seed, deckSet, actions: [...match.actions()], activePlayer: v.activePlayer };
     }
     if (v.phase === 'over') break;
     const action =
@@ -203,7 +206,21 @@ export type StepGoal =
   | 'runner_cyberfeeder_ice_wall'
   | 'runner_bank_job_remote'
   | 'corp_ice_wall'
-  | 'remote_last_card';
+  | 'remote_last_card'
+  // Sprint 8 (core decks)
+  | 'corp_first_install'
+  | 'runner_kate_discount'
+  | 'corp_rez_adonis'
+  | 'adonis_before_corp_turn'
+  | 'corp_melange'
+  | 'corp_biotic_labor'
+  | 'viktor_encounter'
+  | 'heimdall_corroder_encounter'
+  | 'heimdall_ram_encounter'
+  | 'pipeline_katana_encounter'
+  | 'runner_magnum_opus'
+  | 'runner_sure_gamble'
+  | 'rototurret_two_programs';
 
 export const STEP_GOALS: readonly StepGoal[] = [
   'corp_rez_prompt',
@@ -227,6 +244,52 @@ export const STEP_GOALS: readonly StepGoal[] = [
   'remote_last_card',
 ];
 
+/**
+ * Sprint 8 goals, planned on the core decks (identities, 30 cards); seed lists in the README.
+ * - `corp_first_install`: Corp's action step with all 3 clicks (nothing installed this turn) and a
+ *   legal install of a hand card into a new remote. `info: {handIndex, cardId}`.
+ * - `runner_kate_discount`: Runner's action step with all 4 clicks, Corroder and a resource in the
+ *   Grip, ≥ 3 credits. `info: {corroderIndex, resourceIndex, resourceId}`.
+ * - `corp_rez_adonis`: Corp's action step, a face-down Adonis Campaign with Rez legal (4 credits).
+ *   `info: {uid, server, cost}`.
+ * - `adonis_before_corp_turn`: Runner's action step (no run), a face-up Adonis Campaign holding
+ *   ≥ 3 credits (End turn → the Corp's turn begins with +3). `info: {uid, server, credits}`.
+ * - `corp_melange`: Corp's action step with 3 clicks and a face-up Melange Mining Corp.
+ *   `info: {uid, server}`.
+ * - `corp_biotic_labor`: Corp's action step with 3 clicks, Biotic Labor in HQ, playing it legal.
+ *   `info: {handIndex}`.
+ * - `viktor_encounter`: the Runner encounters a rezzed Viktor 1.0 (alone on a remote) with no code
+ *   gate breaker, ≥ 2 Grip cards, `pass` offered. `info: {server, iceUid}`.
+ * - `heimdall_corroder_encounter`: … a rezzed Heimdall 1.0, Corroder installed, ≥ 7 credits.
+ *   `info: {server, iceUid, breakerUid}`.
+ * - `heimdall_ram_encounter`: … a rezzed Heimdall 1.0, Battering Ram installed, ≥ 5 credits.
+ *   `info: {server, iceUid, breakerUid}`.
+ * - `pipeline_katana_encounter`: … a rezzed Neural Katana, Pipeline installed, ≥ 5 credits, ≥ 4
+ *   Grip cards. `info: {server, iceUid, breakerUid}`.
+ * - `runner_magnum_opus`: Runner's action step (no run), ≥ 1 click, Magnum Opus installed. `info: {uid}`.
+ * - `runner_sure_gamble`: Runner's action step, ≥ 1 click, exactly 5 credits, Sure Gamble in the
+ *   Grip. `info: {handIndex}`.
+ * - `rototurret_two_programs`: the Runner encounters a rezzed Rototurret with ≥ 2 programs
+ *   installed (`pass` → the Corp's `trash_target` choice). `info: {server, iceUid, programs}`
+ *   (comma-separated uids, rig order) and `construct` (Sacrificial Construct's uid, or '' when not
+ *   installed: then no `prevent_trash`).
+ */
+export const SPRINT8_GOALS: readonly StepGoal[] = [
+  'corp_first_install',
+  'runner_kate_discount',
+  'corp_rez_adonis',
+  'adonis_before_corp_turn',
+  'corp_melange',
+  'corp_biotic_labor',
+  'viktor_encounter',
+  'heimdall_corroder_encounter',
+  'heimdall_ram_encounter',
+  'pipeline_katana_encounter',
+  'runner_magnum_opus',
+  'runner_sure_gamble',
+  'rototurret_two_programs',
+];
+
 /** Sprint 7 goals (their own seed lists in the README). */
 export const SPRINT7_GOALS: readonly StepGoal[] = [
   'corp_rez_asset',
@@ -241,6 +304,8 @@ export const SPRINT7_GOALS: readonly StepGoal[] = [
 export interface StepPlan {
   readonly seed: number;
   readonly goal: StepGoal;
+  /** Sprint 8: the deck set the plan was made with (create the game with the same options). */
+  readonly deckSet: DeckSet;
   /** Every action, in order, for `submit(action.player, action)`. All are accepted. */
   readonly actions: Action[];
   /** Whose decision it is after the last action (the run's decider during a run). */
@@ -510,6 +575,259 @@ export function stepReached(goal: StepGoal, views: Views): boolean {
         remotes(corp).length >= 2 &&
         lastCardTarget(corp, runner) !== undefined
       );
+    default:
+      return coreReached(goal, views);
+  }
+}
+
+// ---- Sprint 8 (core decks) ------------------------------------------------------------
+
+/** Encounter goals: the ICE (alone on a new remote), the rig the Runner needs, his credits and Grip. */
+interface CoreEncounter {
+  readonly ice: string;
+  readonly rig: readonly string[];
+  /** Install this many programs (any), Rototurret. */
+  readonly programs?: number;
+  readonly credits: number;
+  readonly hand: number;
+}
+
+const CORE_ENCOUNTER: Partial<Record<StepGoal, CoreEncounter>> = {
+  viktor_encounter: { ice: 'c17', rig: [], credits: 0, hand: 2 },
+  heimdall_corroder_encounter: { ice: 'c18', rig: ['r04'], credits: 7, hand: 0 },
+  heimdall_ram_encounter: { ice: 'c18', rig: ['r17'], credits: 5, hand: 0 },
+  pipeline_katana_encounter: { ice: 'c07', rig: ['r16'], credits: 5, hand: 4 },
+  rototurret_two_programs: { ice: 'c19', rig: [], programs: 2, credits: 0, hand: 0 },
+};
+
+const isProgram = (id: string | null | undefined) => typeOf(id ?? '') === 'program';
+const isResource = (id: string | null | undefined) => typeOf(id ?? '') === 'resource';
+const corpAction = (corp: PlayerView) => corp.phase === 'action' && corp.activePlayer === 'corp';
+const runnerAction = (runner: PlayerView) => runner.phase === 'action' && runner.activePlayer === 'runner' && runner.run === null;
+
+/** Corp view: the first installed card `cardId` (with its server). */
+const corpCard = (corp: PlayerView, cardId: string) => corpInstalled(corp).find((c) => c.cardId === cardId);
+
+function coreEncounterReached(goal: StepGoal, corp: PlayerView, runner: PlayerView): boolean {
+  const spec = CORE_ENCOUNTER[goal]!;
+  const r = runner.run;
+  if (r?.step !== 'encounter' || r.ice?.cardId !== spec.ice || !runner.run!.options.some((o) => o.action.type === 'pass' && o.reject === null)) return false;
+  if (corp.run?.iceUid !== r.iceUid) return false;
+  if (!spec.rig.every((id) => rigCard(runner, id))) return false;
+  if (spec.programs !== undefined && runner.rig.filter((c) => isProgram(c.cardId)).length < spec.programs) return false;
+  if (goal === 'viktor_encounter' && runner.rig.some((c) => card(c.cardId)?.subtype === 'breaker_code_gate')) return false;
+  return runner.players.runner.credits >= spec.credits && runner.players.runner.handCount >= spec.hand;
+}
+
+function coreReached(goal: StepGoal, views: Views): boolean {
+  const { corp, runner } = views;
+  if (CORE_ENCOUNTER[goal]) return coreEncounterReached(goal, corp, runner);
+  const hand = (v: PlayerView) => v.players[v.viewer].hand ?? [];
+  switch (goal) {
+    case 'corp_first_install':
+      return corpAction(corp) && corp.players.corp.clicks === 3 && firstInstall(corp) !== undefined;
+    case 'runner_kate_discount': {
+      const h = hand(runner);
+      return runnerAction(runner) && runner.players.runner.clicks === 4 && h.includes('r04') && h.some(isResource) && runner.players.runner.credits >= 3;
+    }
+    case 'corp_rez_adonis': {
+      const a = corpInstalled(corp).find((c) => c.cardId === 'c14' && !c.faceUp);
+      return corpAction(corp) && a !== undefined && corp.installedOptions[a.uid]?.some((o) => o.action.type === 'rez' && o.reject === null) === true;
+    }
+    case 'adonis_before_corp_turn':
+      return runnerAction(runner) && corpInstalled(corp).some((c) => c.cardId === 'c14' && c.faceUp && c.hostedCredits >= 3);
+    case 'corp_melange':
+      return corpAction(corp) && corp.players.corp.clicks === 3 && corpInstalled(corp).some((c) => c.cardId === 'c15' && c.faceUp);
+    case 'corp_biotic_labor':
+      return corpAction(corp) && corp.players.corp.clicks === 3 && bioticPlay(corp) !== undefined;
+    case 'runner_magnum_opus':
+      return runnerAction(runner) && runner.players.runner.clicks >= 1 && rigCard(runner, 'r15') !== undefined;
+    case 'runner_sure_gamble':
+      return runnerAction(runner) && runner.players.runner.clicks >= 1 && runner.players.runner.credits === 5 && hand(runner).includes('r14');
+    default:
+      return false;
+  }
+}
+
+/** Corp view: a legal install of a hand card into a new remote (the first one offered). */
+function firstInstall(corp: PlayerView) {
+  return corp.legalActions.find((a) => a.type === 'install' && a.server === 'new');
+}
+
+/** Corp view: playing Biotic Labor, when legal. */
+function bioticPlay(corp: PlayerView) {
+  const i = (corp.players.corp.hand ?? []).indexOf('c16');
+  return i >= 0 ? corp.legalActions.find((a) => a.type === 'play' && a.handIndex === i) : undefined;
+}
+
+function coreInfo(goal: StepGoal, views: Views): Record<string, string> {
+  const { corp, runner } = views;
+  if (CORE_ENCOUNTER[goal]) {
+    const r = runner.run!;
+    const info: Record<string, string> = { server: r.server, iceUid: r.iceUid ?? '' };
+    const breaker = CORE_ENCOUNTER[goal]!.rig[0];
+    if (breaker) info.breakerUid = rigCard(runner, breaker)!.uid;
+    if (goal === 'rototurret_two_programs') {
+      info.programs = runner.rig.filter((c) => isProgram(c.cardId)).map((c) => c.uid).join(',');
+      info.construct = rigCard(runner, 'r12')?.uid ?? '';
+    }
+    return info;
+  }
+  switch (goal) {
+    case 'corp_first_install': {
+      const a = firstInstall(corp)!;
+      const i = a.type === 'install' ? a.handIndex : -1;
+      return { handIndex: String(i), cardId: (corp.players.corp.hand ?? [])[i] ?? '' };
+    }
+    case 'runner_kate_discount': {
+      const h = runner.players.runner.hand ?? [];
+      const ri = h.findIndex(isResource);
+      return { corroderIndex: String(h.indexOf('r04')), resourceIndex: String(ri), resourceId: h[ri] ?? '' };
+    }
+    case 'corp_rez_adonis': {
+      const a = corpInstalled(corp).find((c) => c.cardId === 'c14' && !c.faceUp)!;
+      return { uid: a.uid, server: a.server, cost: String(corp.installedOptions[a.uid]!.find((o) => o.action.type === 'rez')!.cost) };
+    }
+    case 'adonis_before_corp_turn': {
+      const a = corpInstalled(corp).find((c) => c.cardId === 'c14' && c.faceUp && c.hostedCredits >= 3)!;
+      return { uid: a.uid, server: a.server, credits: String(a.hostedCredits) };
+    }
+    case 'corp_melange': {
+      const m = corpInstalled(corp).find((c) => c.cardId === 'c15' && c.faceUp)!;
+      return { uid: m.uid, server: m.server };
+    }
+    case 'corp_biotic_labor': {
+      const a = bioticPlay(corp)!;
+      return { handIndex: String(a.type === 'play' ? a.handIndex : -1) };
+    }
+    case 'runner_magnum_opus':
+      return { uid: rigCard(runner, 'r15')!.uid };
+    case 'runner_sure_gamble':
+      return { handIndex: String((runner.players.runner.hand ?? []).indexOf('r14')) };
+    default:
+      return {};
+  }
+}
+
+/** Sprint 8: answer a choice the plan did not aim for: the first offered legal move (Skip for free rez). */
+function choiceAnswer(v: PlayerView): Action {
+  const opts = (v.choice?.options ?? []).filter((o) => o.reject === null).map((o) => o.action);
+  return opts.find((a) => a.type === 'pass') ?? opts[0] ?? { type: 'pass', player: v.viewer };
+}
+
+/** Sprint 8 Corp policies (core decks, outside runs). */
+function corpCoreMove(goal: StepGoal, v: PlayerView): Action {
+  const me = v.players.corp;
+  const enc = CORE_ENCOUNTER[goal];
+  const want: Record<string, number> = enc ? { [enc.ice]: 3, c01: 2 } : goal === 'corp_biotic_labor' ? { c16: 3, c01: 2 } : { c14: 3, c15: 3, c01: 2 };
+  if (v.phase === 'discard') return discardKeeping(v, (id) => want[id] ?? 0);
+  const end: Action = { type: 'end_turn', player: 'corp' };
+  const gain: Action = { type: 'gain_credit', player: 'corp' };
+  const installNewOf = (id: string): Action | undefined => {
+    const i = handIdx(v, (x) => x === id);
+    return i >= 0 ? installNew(v, i) : undefined;
+  };
+  const fund = (): Action | undefined => {
+    const i = handIdx(v, (x) => x === 'c01');
+    return i >= 0 && me.credits >= 5 ? legal(v, (a) => a.type === 'play' && a.handIndex === i) : undefined;
+  };
+  const rezIt = (uid: string) => v.installedOptions[uid]?.find((o) => o.action.type === 'rez' && o.reject === null)?.action;
+  if (enc) {
+    if (me.clicks === 0) return end;
+    const ice = corpInstalled(v).find((c) => c.zone === 'ice' && c.cardId === enc.ice);
+    if (!ice) return installNewOf(enc.ice) ?? basicMove(v, 1);
+    const cost = card(enc.ice)?.cost ?? 0;
+    if (!ice.faceUp && me.credits < cost) return fund() ?? gain;
+    return end;
+  }
+  switch (goal) {
+    case 'corp_first_install':
+      return end; // reached at the start of a Corp turn
+    case 'corp_rez_adonis': {
+      if (me.clicks === 0) return end;
+      if (!corpCard(v, 'c14')) return installNewOf('c14') ?? basicMove(v, 2);
+      return fund() ?? gain;
+    }
+    case 'adonis_before_corp_turn': {
+      const a = corpCard(v, 'c14');
+      if (a && !a.faceUp) return rezIt(a.uid) ?? (me.clicks > 0 ? (fund() ?? gain) : end);
+      if (me.clicks === 0 || a) return end;
+      return installNewOf('c14') ?? basicMove(v, 2);
+    }
+    case 'corp_melange': {
+      const m = corpCard(v, 'c15');
+      if (m && !m.faceUp) return rezIt(m.uid) ?? (me.clicks > 0 ? gain : end);
+      if (me.clicks === 0 || m) return end;
+      return installNewOf('c15') ?? basicMove(v, 2);
+    }
+    case 'corp_biotic_labor': {
+      if (me.clicks === 0) return end;
+      if (handIdx(v, (x) => x === 'c16') >= 0) return me.credits < 4 ? (fund() ?? gain) : end;
+      return basicMove(v, 2);
+    }
+    default:
+      return end; // Runner-side goals: the Corp stays out of the way
+  }
+}
+
+/** Sprint 8 Runner policies (core decks, outside runs). */
+function runnerCoreMove(goal: StepGoal, v: PlayerView, views: Views): Action {
+  const me = v.players.runner;
+  const hand = me.hand ?? [];
+  const enc = CORE_ENCOUNTER[goal];
+  const keep = (id: string) => {
+    if (enc) return enc.rig.includes(id) || (enc.programs && isProgram(id)) || id === 'r12' ? 3 : id === 'r14' || id === 'r01' ? 1 : 0;
+    if (goal === 'runner_kate_discount') return id === 'r04' || isResource(id) ? 3 : 0;
+    if (goal === 'runner_sure_gamble') return id === 'r14' ? 3 : 0;
+    if (goal === 'runner_magnum_opus') return id === 'r15' ? 3 : 0;
+    return 0;
+  };
+  if (v.phase === 'discard') return discardKeeping(v, keep);
+  const end: Action = { type: 'end_turn', player: 'runner' };
+  if (me.clicks === 0) return end;
+  const draw: Action = me.deckCount > 0 ? { type: 'draw', player: 'runner' } : end;
+  const gain: Action = { type: 'gain_credit', player: 'runner' };
+  const installOf = (pred: (id: string) => boolean): Action | undefined => {
+    const i = hand.findIndex(pred);
+    return i >= 0 ? (installNew(v, i) ?? gain) : undefined;
+  };
+  const money = (): Action => {
+    const i = hand.findIndex((id) => id === 'r14' || id === 'r01');
+    const play = i >= 0 ? legal(v, (a) => a.type === 'play' && a.handIndex === i) : undefined;
+    return play ?? gain;
+  };
+  if (enc) {
+    for (const id of enc.rig) {
+      if (rigCard(v, id)) continue;
+      return installOf((x) => x === id) ?? draw;
+    }
+    const programs = v.rig.filter((c) => isProgram(c.cardId)).length;
+    if (enc.programs !== undefined && programs < enc.programs) {
+      const fits = installOf((x) => isProgram(x) && legal(v, (a) => a.type === 'install' && hand[a.handIndex] === x) !== undefined);
+      if (fits) return fits;
+      if (hand.some(isProgram)) return gain;
+      return draw;
+    }
+    if (enc.programs !== undefined && !rigCard(v, 'r12') && hand.includes('r12')) return installOf((x) => x === 'r12')!;
+    if (me.handCount < enc.hand) return draw;
+    if (me.credits < enc.credits) return money();
+    const corp = views.corp;
+    const ice = corpInstalled(corp).find((c) => c.zone === 'ice' && c.cardId === enc.ice);
+    const corpCanRez = ice && (ice.faceUp || corp.players.corp.credits >= (card(enc.ice)?.cost ?? 99));
+    return ice && corpCanRez ? { type: 'run', player: 'runner', server: ice.server } : end;
+  }
+  switch (goal) {
+    case 'runner_kate_discount':
+      // Never install: the goal is the start of a turn with Corroder and a resource in the Grip.
+      if (hand.includes('r04') && hand.some(isResource)) return me.credits < 3 ? gain : end;
+      return draw;
+    case 'runner_sure_gamble':
+      return hand.includes('r14') ? end : draw;
+    case 'runner_magnum_opus':
+      if (rigCard(v, 'r15')) return end;
+      return hand.includes('r15') ? (installOf((x) => x === 'r15') ?? gain) : draw;
+    default:
+      return end; // Corp-side goals: the Runner stays out of the way
   }
 }
 
@@ -600,6 +918,8 @@ function stepInfo(goal: StepGoal, views: Views): Record<string, string> {
       const other = remotes(corp).find((s) => s.id !== t.server)!;
       return { server: t.server, uid: t.card.uid, cardId: t.card.cardId!, otherServer: other.id };
     }
+    default:
+      return coreInfo(goal, views);
   }
 }
 
@@ -792,6 +1112,16 @@ function runnerSprint7Move(goal: StepGoal, v: PlayerView, views: Views): Action 
 }
 
 function corpMoveFor(goal: StepGoal, v: PlayerView): Action {
+  if (SPRINT8_GOALS.includes(goal)) {
+    if (v.choice) return choiceAnswer(v);
+    if (v.run) {
+      const rezIt = v.run.options.find((o) => o.action.type === 'rez' && o.reject === null);
+      const wanted = CORE_ENCOUNTER[goal]?.ice;
+      if (wanted && rezIt && v.run.ice?.cardId === wanted) return rezIt.action;
+      return defaultRunMove(v);
+    }
+    return corpCoreMove(goal, v);
+  }
   const me = v.players.corp;
   // A free-rez choice the plan did not aim for: Skip (keeps ICE face down).
   if (v.choice) return { type: 'pass', player: 'corp' };
@@ -874,6 +1204,11 @@ function corpMoveFor(goal: StepGoal, v: PlayerView): Action {
 
 function runnerMoveFor(goal: StepGoal, v: PlayerView, views: Views): Action {
   const me = v.players.runner;
+  if (SPRINT8_GOALS.includes(goal)) {
+    if (v.choice) return choiceAnswer(v);
+    if (v.run) return defaultRunMove(v);
+    return runnerCoreMove(goal, v, views);
+  }
   if (v.run) {
     if (goal === 'wall_of_static_encounter' && v.run.step === 'encounter') return { type: 'pass', player: 'runner' };
     return defaultRunMove(v);
@@ -933,20 +1268,28 @@ function runnerMoveFor(goal: StepGoal, v: PlayerView, views: Views): Action {
   return { type: 'end_turn', player: 'runner' };
 }
 
+/** Sprint 8: the deck set a goal is planned on when the options name none (Sprint 3–7 goals: `'starter'`). */
+export function goalDeckSet(goal: StepGoal): DeckSet {
+  return (STEP_GOALS as readonly StepGoal[]).includes(goal) ? 'starter' : 'core';
+}
+
 /**
  * Plans a real game from `newGame(seed)` to `goal` (see `StepGoal`). The page,
  * started with the same seed, reaches the same situation by dispatching
  * `actions` in order (each as its own `player`). Throws if the goal is not
- * reached within `maxActions` or the game ends first.
+ * reached within `maxActions` or the game ends first. Sprint 8: `options.deckSet`
+ * defaults to `goalDeckSet(goal)` (legacy goals: `'starter'`); `plan.deckSet` says which.
  */
 export function planToStep(seed: number, goal: StepGoal, maxActions = 1500, options?: Partial<GameOptions>): StepPlan {
-  const match = new LocalMatch(seed, options);
+  const deckSet = options?.deckSet ?? goalDeckSet(goal);
+  const match = new LocalMatch(seed, { ...options, deckSet });
   for (let n = 0; n < maxActions; n++) {
     const views: Views = { corp: match.view('corp'), runner: match.view('runner') };
     if (stepReached(goal, views)) {
       return {
         seed,
         goal,
+        deckSet,
         actions: [...match.actions()],
         waitingOn: decider(views.corp),
         activePlayer: views.corp.activePlayer,

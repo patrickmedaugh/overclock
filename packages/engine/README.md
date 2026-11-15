@@ -447,6 +447,68 @@ Everything in the Sprint 1–6 interfaces still holds unless noted. Tech plan: `
 - Client `{v: 1, t: 'leave'}`: from a seat in a lobby nobody joined, the room closes (seat sockets closed with 1000 `left`, storage deleted; the code then answers `no_game`). In a started game, or from a socket without a seat: `bad_message` (kept open).
 - Room restore by replay (snapshot from another build): if any logged action is rejected on replay, the game is expired (storage deleted; reattached sockets get `error expired`; `join`/`resume` get `expired` until the room is reused).
 
+## Sprint 8 interface (pinned: implement exactly this; changes go through the architect)
+
+Everything in the Sprint 1–7 interfaces still holds unless noted. Tech plan: `docs/sprints/sprint-08-tech-plan.md`. No engine or client code checks a card id. `RULES_VERSION = 2`.
+
+### Card DSL v3 (`@overclock/cards`, additive)
+- `CardType` += `'identity'` (never in a deck; one per side). Every card has `faction: 'haas_bioroid' | 'jinteki' | 'nbn' | 'weyland' | 'anarch' | 'criminal' | 'shaper' | 'neutral'` and `influence?` (pips, absent = 0). Identities: `minDeckSize`, `influenceLimit`, `link?` (shown only).
+- `whenYouInstall?: {firstEachTurn: true, types?, effects}` (Haas-Bioroid: `gain_credits 1`) · `installDiscount?: {amount, firstEachTurn: true, types}` (Kate: 1, program/hardware, min cost 0) — both read from **active sources** = the side's identity + its face-up installed cards. A face-down Corp card is never an active source and never triggers (P1). Corp cards never have `onInstall`.
+- `onRez?: Effect[]` (Corp cards, whenever they turn face up) · `trashPrevention?: {types}` (Sacrificial Construct) · `trashWhenEmpty` also on Corp cards (→ Archives face up).
+- Effects += `gain_clicks {amount}` · `brain_damage {amount}` · `trash_installed {types: RunnerCardType[]}` (Corp chooses). `abilityGain` also sums `gain_credits` (labels "Gain {gain} credits"). `BreakerAbility.break.count: 1 | 2`.
+- Decks: `DeckDef {identity, cards}`; `CORP_CORE_DECK` (c13 + 30), `RUNNER_CORE_DECK` (r13 + 30); `CORP_STARTER_DECK` / `RUNNER_STARTER_DECK` unchanged (frozen). `checkDeck(deck, {minDeckSize?}) → DeckProblem[]` (`unknown_card | not_identity | too_small | wrong_side | identity_in_deck | too_many_copies | agenda_faction | influence | agenda_points`), `deckInfluence`, `deckAgendaPoints`, `HOUSE_MIN_DECK_SIZE = 30`, `MAX_COPIES = 3`.
+- New ids: c13 Haas-Bioroid: Engineering the Future, c14 Adonis Campaign, c15 Melange Mining Corp., c16 Biotic Labor, c17 Viktor 1.0, c18 Heimdall 1.0, c19 Rototurret; r13 Kate "Mac" McCaffrey: Digital Tinker, r14 Sure Gamble, r15 Magnum Opus, r16 Pipeline, r17 Battering Ram.
+
+### Options and state
+```ts
+type DeckSet = 'core' | 'starter';
+interface GameOptions { rezWindow: 'affordable' | 'always'; deckSet: DeckSet }  // DEFAULT_OPTIONS = {rezWindow: 'affordable', deckSet: 'core'}
+// 'core' = 30-card decks + identities (hot-seat and online); 'starter' = Sprint 7 15/17-card decks, no identities (test fixture)
+// PlayerState += identity: string | null; brainDamage: number; installedThisTurn: CardType[]
+//   (installedThisTurn reset for both sides at every turn_started; never in any view)
+// RunState += firing: number | null      the sub being resolved while an in-run choice is open
+type ChoiceKind = 'free_rez' | 'trash_target' | 'prevent_trash';
+// ChoiceState += target?: uid (prevent_trash: the card that would be trashed); resume: 'action' | 'run'
+const IDENTITY_UID = { corp: 'id:corp', runner: 'id:runner' };
+maxHandSize(state, side) = 5 − brainDamage    // exported
+```
+
+### Rules
+- Discard step: down to `maxHandSize` (never below 0 cards). A Runner `end_turn` with `maxHandSize < 0` → `game_over{corp, flatline}` at once (no discard step, no `turn_ended`).
+- Brain damage: `brainDamage += amount` first, then `amount` random Grip cards (seeded RNG) to the Heap; more damage than cards = flatline (all go, as net damage).
+- `installCost`: an `installDiscount` applies when no card of its `types` is in `installedThisTurn` (the first matching install uses it up, even a free one); min 0. `whenYouInstall` fires after `card_installed` (and any `onInstall`) when `installedThisTurn` held nothing of its types before this install.
+- Turn start order: `turn_started` → reset → `onTurnStart` / recurring refills (Adonis takes 3; emptied → trashed; empty remote pruned) → the Corp's draw.
+- Choices inside a run (`trash_installed`): 0 candidates = nothing (`amount` 0); 1 = that card (no window); ≥ 2 → `choice_opened{trash_target, player: corp, cardId: ICE}`, `phase: 'choice'`, `run` kept (step `encounter`, `firing` = sub). A target with a preventer in the rig (`trashPrevention` covers its type; not itself) → `choice_opened{prevent_trash, player: runner, cardId: ICE, target}`. On close the phase returns to `'run'`, `subroutine_resolved` for `firing` (`amount` 1 trashed / 0 saved), then the remaining subs fire. A trashed breaker's boosts are dropped.
+
+### Actions
+- **New** `{type: 'choose', player, uid}` — `trash_target`: a candidate uid (Corp); `prevent_trash`: a preventer uid (Runner). Checks: `invalid_action` → `game_over` → `not_your_turn` (`waitingOn`) → `wrong_phase` (no open choice of these kinds) → `bad_target`.
+- `pass` in `prevent_trash` = let it be trashed; in `trash_target` = `bad_target` (mandatory). `rez` in a non-`free_rez` choice = `wrong_phase`.
+- `use_ability` += `subs?: number[]` — required for `count: 2` breaks (1–2 distinct unbroken subs, ascending; `sub` absent → else `bad_target`), forbidden for any other ability (`invalid_action`, shape check). One payment, one `subroutine_broken` per sub.
+
+### Events (all public)
+- `ability_triggered.trigger` += `'install' | 'install_discount' | 'rez'` (uid may be an identity uid; `install_discount` only when it lowered the price, right before `credits_spent`).
+- `clicks_gained {player, amount}` · `brain_damage {amount, cardIds, maxHandSize}` · `corp_card_trashed {uid, cardId, server}` (to Archives face up) · `trash_prevented {uid, cardId, byUid, byCardId}` · `choice_opened.target?`.
+- Sequences: Corp first install: `card_installed` → `ability_triggered{id:corp, install}` → `credit_gained{corp, 1}`. Kate: `ability_triggered{id:runner, install_discount}` → [`credits_spent`] → `card_installed`. Rez with `onRez` (Adonis): `credits_spent` → `card_rezzed` → `ability_triggered{rez}` → `hosted_credits_changed{12}`. Adonis at turn start: `ability_triggered{turn_start}` → `hosted_credits_changed` → `credit_gained` → (`corp_card_trashed` → `server_removed`). Rototurret: `subroutine_fired` → (`choice_opened` … `choice_closed`)* → `rig_card_trashed` (the target, or the Construct then `trash_prevented`) → `subroutine_resolved{op: 'trash_installed'}`.
+
+### View
+- `PlayerSideView` += `identity: {uid, cardId} | null`, `maxHandSize`, `brainDamage`.
+- `CardOption` += `discount?` (install options: credits off, only when > 0; `cost` is already the lowered price).
+- `ChoiceView` += `target?`. Options: `trash_target` = one `choose` per candidate (rig order); `prevent_trash` = one `choose` per preventer (rig order), then `pass`. `view.run` stays set while an in-run choice is open (its `options` are empty then; `choice.options` has the moves).
+- `installedOptions` (Corp) lists rezzed cards' click abilities (Melange: `activate`, `clicks: 3`, `gain: 7`). Breaker options for `count: 2`: one `use_ability` per subset of unbroken subs of size 1–2 (ascending; Heimdall: 6).
+
+### Engine rulings within the interface (Sprint 8, engine-dev)
+- `install_discount` is reported once per applying source, before `credits_spent` (and before `card_installed`). A Corp first install: `card_installed` → (`hosted_credits_changed` for recurring/onInstall, none on Corp cards) → `ability_triggered{id:corp, install}` → `credit_gained`. The just-installed card is never its own source.
+- Breaker options for a `count: 2` break: every single subroutine (ascending), then every pair (ascending), e.g. Heimdall `[0] [1] [2] [0,1] [0,2] [1,2]`. All cost the ability's price.
+- `RunView.letFire` while letting Rototurret fire with ≥ 2 programs (or a Construct) stops where the choice opens: `outcomes` = what resolved before it (none for sub 0), `ends: null`. With 0 or 1 unprotected program it shows `{op: 'trash_installed', amount: 0 | 1}` as usual.
+- `brain_damage.maxHandSize` is the new maximum (after the damage); a flatline from brain damage still raises it.
+- A Runner `end_turn` below max 0 gives only `game_over` (no `turn_ended`, no discard step).
+- An empty remote is also pruned at turn start (Adonis emptied) and after a Corp `activate` (`server_removed`).
+- AI: `trash_target` → the costliest offered program (card cost; first on a tie); `prevent_trash` → always save (first preventer).
+
+### Protocol / host
+- Test-mode `create.test.deckSet?: 'core' | 'starter'` (production ignores `test`; always `'core'`). `PROTOCOL_VERSION` stays 1. `ONLINE_OPTIONS = {rezWindow: 'always', deckSet: 'core'}`.
+- `@overclock/match/testing`: `planToStep(seed, goal, maxActions?, options?)` plans on `options.deckSet ?? goalDeckSet(goal)` (Sprint 3–7 goals: `'starter'`; Sprint 8 goals: `'core'`) and returns `plan.deckSet`; `planBusyBoard(seed, goal?, maxActions?, deckSet = 'starter')` returns `deckSet`. Create the page's game with the plan's `deckSet`.
+
 ## `@overclock/match` (host; `packages/match`)
 Owns one game's `GameState` and talks to seats only through projections. It is the same contract a network server will expose later.
 
@@ -488,6 +550,21 @@ The planner answers a free-rez choice it did not aim for with Skip.
 - `neural_katana_encounter` — the same with Neural Katana and ≥ 3 cards in the Grip; `letFire` = 3 net damage, `ends: null`. `info: {server, iceUid}`.
 - `runner_at_access` — the access step of a run on Archives showing ≥ 2 cards at once (no ICE on Archives). `info: {server: 'archives', count}`.
 - `runner_after_access` — the same run finished (agendas stolen, Done): Runner's action step, `lastRun` lists ≥ 2 cards, ≥ 1 click left. `info: {server: 'archives', count}`.
+
+**Test-only (Sprint 8):** thirteen `planToStep` goals on the **core decks** (`SPRINT8_GOALS`; `plan.deckSet === 'core'`; create the page's game with the same options). All work for seeds 1-100 and 12345, pass-the-phone and online (`{rezWindow: 'always'}`); tests pin 1, 7, 42, 12345. The legacy goals (`STEP_GOALS`) keep planning on `'starter'`.
+- `corp_first_install` — Corp's action step, all 3 clicks, an install into a new remote legal (turn 1: `actions` may be `[]`). `info: {handIndex, cardId}`. Install → `ability_triggered{id:corp, install}`, `credit_gained 1`.
+- `runner_kate_discount` — Runner's action step, all 4 clicks, Corroder and a resource in the Grip, ≥ 3 credits. `info: {corroderIndex, resourceIndex, resourceId}`. Corroder's option: `cost 1, discount 1`; installing the resource first leaves it at 1.
+- `corp_rez_adonis` — Corp's action step, face-down Adonis Campaign, Rez legal. `info: {uid, server, cost: '4'}`. Rez → `hosted_credits_changed 12`.
+- `adonis_before_corp_turn` — Runner's action step, a face-up Adonis Campaign holding ≥ 3 (usually 12). `info: {uid, server, credits}`. End turn → the Corp's turn starts with `ability_triggered{turn_start}`, hosted −3, `credit_gained 3`.
+- `corp_melange` — Corp's action step, 3 clicks, face-up Melange Mining Corp. `info: {uid, server}`. Option `{activate, clicks 3, gain 7}`.
+- `corp_biotic_labor` — Corp's action step, 3 clicks, Biotic Labor playable. `info: {handIndex}`. Play → clicks 2 + 2 = 4.
+- `viktor_encounter` — encounter with a rezzed Viktor 1.0 alone on a remote, no code gate breaker, ≥ 2 Grip cards. `info: {server, iceUid}`. Pass → `brain_damage{maxHandSize: 4}`, run ended.
+- `heimdall_corroder_encounter` — rezzed Heimdall 1.0, Corroder (strength 2), ≥ 7 credits. `info: {server, iceUid, breakerUid}`.
+- `heimdall_ram_encounter` — rezzed Heimdall 1.0, Battering Ram (strength 3), ≥ 5 credits. `info: {server, iceUid, breakerUid}`. 3 pumps, then 6 break picks.
+- `pipeline_katana_encounter` — rezzed Neural Katana, Pipeline (strength 1), ≥ 5 credits, ≥ 4 Grip cards. `info: {server, iceUid, breakerUid}`.
+- `runner_magnum_opus` — Runner's action step, ≥ 1 click, Magnum Opus installed. `info: {uid}`.
+- `runner_sure_gamble` — Runner's action step, ≥ 1 click, exactly 5 credits, Sure Gamble in the Grip. `info: {handIndex}`.
+- `rototurret_two_programs` — encounter with a rezzed Rototurret, ≥ 2 programs installed. `info: {server, iceUid, programs: 'uidA,uidB', construct: uid | ''}`. Pass → `trash_target` (Corp). **With Sacrificial Construct installed** (then `prevent_trash` follows the Corp's pick) on seeds 2, 6, 7, 9, 15, 16, 19, 23, 24, 27, 33, 34, 44, 46, 59, 60, 62, 71, 74, 99, 100, 12345; the other seeds of 1-100 have none (e.g. 1, 3, 42).
 
 **Test-only (Sprint 7):** seven more `planToStep` goals (all work for seeds 1-100 and 12345, pass-the-phone and online; `planToStep(seed, goal, maxActions?, options?)` takes the game options, e.g. `{rezWindow: 'always'}` for an online prelude — pass the same options to the game). `SPRINT7_GOALS` lists them.
 - `corp_rez_asset` — Corp's action step, a face-down PAD Campaign with Rez legal (≥ 2 credits). `info: {uid, cardId: 'c03', server, cost: '2'}`. Rez → `credits_spent 2`, `card_rezzed`; at the next Corp turn start `ability_triggered` + `credit_gained 1`.

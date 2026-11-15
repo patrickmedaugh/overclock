@@ -31,13 +31,28 @@ const same = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.str
  */
 export function runnerEventLeaks(events: readonly GameEvent[], after: GameState): string[] {
   const out: string[] = [];
+  // Sprint 8 (spec change): a face-up Corp card trashed to Archives in this batch (Adonis Campaign emptied) is public.
+  const trashed = new Map<string, string>();
+  for (const e of events) if (e.type === 'corp_card_trashed') trashed.set(e.uid, e.cardId);
+  const archivesUp = after.players.corp.discard.filter((d) => d.faceUp).map((d) => d.cardId);
   for (const e of events) {
     if (REVEALING.has(e.type)) continue;
+    if (e.type === 'corp_card_trashed') {
+      if (!archivesUp.includes(e.cardId)) out.push(`corp_card_trashed names ${e.cardId}, not face up in Archives`);
+      continue;
+    }
+    // Sprint 8 (spec change): the Corp's identity is a public card; its own trigger may name it.
+    if (e.type === 'ability_triggered' && e.uid === 'id:corp') {
+      if (e.cardId !== after.players.corp.identity) out.push(`ability_triggered names ${e.cardId}, not the Corp identity`);
+      continue;
+    }
     if (e.type === 'card_rezzed' || e.type === 'ability_triggered') {
       // Sprint 7: may name a Corp card only once it is face up (installed, rezzed, same id).
       const corp = after.servers.flatMap((sv) => [...sv.ice, ...sv.content]).find((c) => c.uid === e.uid);
       if (corp && !(corp.rezzed && corp.cardId === e.cardId)) out.push(`${e.type} names ${e.cardId}, not face-up ${e.uid}`);
-      if (!corp && CORP_ID.test(JSON.stringify(e))) out.push(`${e.type} names a Corp card not installed: ${JSON.stringify(e)}`);
+      if (!corp && trashed.has(e.uid)) {
+        if (trashed.get(e.uid) !== e.cardId) out.push(`${e.type} names ${e.cardId}, not the card trashed from ${e.uid}`);
+      } else if (!corp && CORP_ID.test(JSON.stringify(e))) out.push(`${e.type} names a Corp card not installed: ${JSON.stringify(e)}`);
       continue;
     }
     if (e.type === 'subroutine_resolved') {
@@ -62,6 +77,8 @@ export function runnerViewLeaks(s: GameState, v: PlayerView = viewFor('runner', 
   check(same(v.players.corp.discard, s.players.corp.discard.map((d) => (d.faceUp ? d.cardId : null))), 'Archives: a face-down card is named');
   check(same(v.players.corp.scored, s.players.corp.scoreArea), 'Corp score area differs');
   check(same(v.players.runner.scored, s.players.runner.scoreArea), 'Runner score area differs');
+  // Sprint 8 (spec change): identities are public cards.
+  check(same(v.players.corp.identity?.cardId ?? null, s.players.corp.identity), 'Corp identity differs');
   const installed = s.servers.flatMap((sv) => [...sv.ice, ...sv.content]);
   for (const c of v.corpServers.flatMap((sv) => [...sv.ice, ...sv.content])) {
     const real = installed.find((x) => x.uid === c.uid);
@@ -76,14 +93,19 @@ export function runnerViewLeaks(s: GameState, v: PlayerView = viewFor('runner', 
   }
   const last = !s.run && s.lastRun && s.lastRun.cards.length > 0 ? s.lastRun : null;
   check(same(v.lastRun, last), 'lastRun differs from the recorded accesses');
-  if (v.choice) check(s.players.corp.scoreArea.includes(v.choice.cardId), 'choice names a card not in the score area');
+  if (v.choice) {
+    // Sprint 8 (spec change): an in-run choice names the rezzed ICE whose subroutine opened it.
+    const ice = s.run ? s.servers.find((sv) => sv.id === s.run!.server)?.ice[s.run.position] : undefined;
+    const ok = s.players.corp.scoreArea.includes(v.choice.cardId) || (ice?.rezzed === true && ice.cardId === v.choice.cardId);
+    check(ok, 'choice names a card neither in the score area nor the rezzed current ICE');
+  }
   // Sprint 7: installed-card options only for the Runner's own rig cards.
   const rigUids = new Set(s.rig.map((c) => c.uid));
   for (const uid of Object.keys(v.installedOptions)) check(rigUids.has(uid), `Runner option on non-rig card ${uid}`);
   const rest = {
     ...v,
     players: {
-      corp: { ...v.players.corp, discard: [], scored: [] },
+      corp: { ...v.players.corp, discard: [], scored: [], identity: null },
       runner: { ...v.players.runner, scored: [] },
     },
     corpServers: v.corpServers.map((sv) => ({

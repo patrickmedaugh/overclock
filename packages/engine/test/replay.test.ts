@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { apply, newGame, replay, type Action, type GameEvent } from '../src/index';
-import { discard, draw, endTurn, gainCredit } from './helpers';
+import { apply, type Action, type GameEvent } from '../src/index';
+import { discard, draw, endTurn, gainCredit, newGame, replay } from './helpers';
 
 describe('replay from (seed, actions[])', () => {
   const actions: Action[] = [

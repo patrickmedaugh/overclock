@@ -1,6 +1,7 @@
-import { newGame, replay, viewFor, type Action } from '@overclock/engine';
+import { viewFor, type Action } from '@overclock/engine';
 import { describe, expect, it } from 'vitest';
-import { LocalMatch } from '../src/index';
+import { newGame, replay, LocalMatch } from './legacy';
+
 
 const endTurn = (player: 'corp' | 'runner'): Action => ({ type: 'end_turn', player });
 

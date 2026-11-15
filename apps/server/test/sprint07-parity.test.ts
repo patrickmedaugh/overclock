@@ -13,11 +13,12 @@ import { FakeConn, harness, msg } from './fakes';
 const SEEDS = [1, 7, 42];
 
 function onlineGame(seed: number, goal: StepGoal) {
-  const plan = planToStep(seed, goal, 1500, ONLINE_OPTIONS);
+  // Sprint 8: these Sprint 7 goals are planned on the starter decks (test-mode create.deckSet).
+  const plan = planToStep(seed, goal, 1500, { rezWindow: ONLINE_OPTIONS.rezWindow });
   const h = harness({ testMode: true });
   const conns: Record<Side, FakeConn> = { corp: new FakeConn('corp'), runner: new FakeConn('runner') };
   h.room.connect(conns.corp, { kind: 'creator', code: 'S7PT' });
-  h.room.message(conns.corp, msg({ t: 'create', side: 'corp', test: { seed, actions: plan.actions } }));
+  h.room.message(conns.corp, msg({ t: 'create', side: 'corp', test: { seed, actions: plan.actions, deckSet: plan.deckSet } }));
   h.room.connect(conns.runner, { kind: 'player' });
   h.room.message(conns.runner, msg({ t: 'join' }));
   expect(h.room.seq()).toBe(plan.actions.length); // every prelude action accepted under online rules
@@ -45,7 +46,7 @@ function onlineGame(seed: number, goal: StepGoal) {
   /** The same move in a pass-the-phone game reaching the same goal (its own plan): the same events, uids aside. */
   const hotSeat = (move: (info: Record<string, string>) => Action) => {
     const p = planToStep(seed, goal);
-    const s = replay(seed, p.actions).state;
+    const s = replay(seed, p.actions, { deckSet: p.deckSet }).state;
     return apply(s, move(p.info as Record<string, string>)).events.map((e) => e.type);
   };
   return { plan, info: plan.info as Record<string, string>, send, hotSeat };
@@ -112,7 +113,7 @@ describe('Sprint 7 abilities through the online room: both phones agree, same as
     }
     // Pass-the-phone: the same two moves give the same events.
     const p = planToStep(seed, 'runner_bank_job_remote');
-    const m = new LocalMatch(seed);
+    const m = new LocalMatch(seed, { deckSet: p.deckSet });
     for (const a of p.actions) m.submit(a.player, a);
     m.submit('runner', { type: 'run', player: 'runner', server: p.info.server as ServerId });
     const hs = m.submit('runner', { type: 'activate', player: 'runner', uid: p.info.bankJobUid!, ability: 0 });

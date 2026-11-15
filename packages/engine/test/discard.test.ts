@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { apply, legalActions, newGame, viewFor, type GameState, type Side } from '../src/index';
-import { discard, draw, endTurn, finishTurn, run, withHand } from './helpers';
+import { apply, legalActions, viewFor, type GameState, type Side } from '../src/index';
+import { discard, draw, endTurn, finishTurn, run, withHand, newGame } from './helpers';
 
 const HAND7 = ['c01', 'c02', 'c03', 'c04', 'c05', 'c06', 'c07'];
 const RHAND7 = ['r01', 'r02', 'r03', 'r04', 'r05', 'r06', 'r07'];

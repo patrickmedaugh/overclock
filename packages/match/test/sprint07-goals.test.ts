@@ -1,9 +1,10 @@
 // Sprint 7 E7: the planToStep goals for the Sprint 7 e2e, played on through both seats in
 // pass-the-phone (rezWindow 'affordable') and online (rezWindow 'always') games: each story's
 // result is the same on both phones and in both modes (S-07-2 AC6, S-07-3 AC6, S-07-4 AC8).
-import { replay, type Action, type GameEvent, type GameOptions, type PlayerView, type ServerId, type Side } from '@overclock/engine';
+import { type Action, type GameEvent, type GameOptions, type PlayerView, type ServerId, type Side } from '@overclock/engine';
 import { describe, expect, it } from 'vitest';
-import { LocalMatch, type MatchUpdate } from '../src/index';
+import { replay, LocalMatch } from './legacy';
+import { type MatchUpdate } from '../src/index';
 import { SPRINT7_GOALS, STEP_GOALS, planToStep, runnerEventLeaks, runnerViewLeaks, type StepGoal } from '../src/testing';
 
 const MODES: [string, Partial<GameOptions>][] = [

@@ -1,6 +1,7 @@
-import { newGame, replay, viewFor, waitingOn, type Action } from '@overclock/engine';
+import { viewFor, waitingOn, type Action } from '@overclock/engine';
 import { describe, expect, it } from 'vitest';
-import { LocalMatch } from '../src/index';
+import { newGame, replay, LocalMatch } from './legacy';
+
 import { STEP_GOALS, planToStep, stepReached, type StepGoal } from '../src/testing';
 
 const SEEDS = [1, 2, 3, 7, 42, 99, 12345];

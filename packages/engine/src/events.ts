@@ -26,8 +26,12 @@ export type RejectReason =
 /** How a run ended. `access_replaced` (Sprint 7): a `replacesAccess` ability (Bank Job) was used instead of access. */
 export type RunOutcome = 'accessed' | 'jacked_out' | 'ended_by_ice' | 'flatline' | 'access_replaced';
 
-/** Sprint 7: what made a card ability happen. */
-export type AbilityTrigger = 'click' | 'turn_start' | 'successful_run';
+/**
+ * Sprint 7: what made a card ability happen. Sprint 8: `install` ("the first time you install a card
+ * each turn", e.g. the Haas-Bioroid identity), `install_discount` (an install got cheaper, e.g. Kate;
+ * only when it lowered the price), `rez` (a card's "when rezzed" effect).
+ */
+export type AbilityTrigger = 'click' | 'turn_start' | 'successful_run' | 'install' | 'install_discount' | 'rez';
 
 export type InstallZone = 'ice' | 'content' | 'rig';
 
@@ -123,8 +127,12 @@ export type GameEvent =
   // ---- Sprint 4: "when scored" bonuses, bad publicity (all public) ----
   /** The Corp took `amount` bad publicity; `total` is its new bad publicity. */
   | { readonly type: 'bad_publicity_gained'; readonly amount: number; readonly total: number }
-  /** A choice opened (phase 'choice'); `cardId` = the card whose effect opened it. */
-  | { readonly type: 'choice_opened'; readonly kind: ChoiceKind; readonly player: Side; readonly cardId: string }
+  /**
+   * A choice opened (phase 'choice'); `cardId` = the card whose effect opened it (Sprint 8: the
+   * rezzed ICE for `trash_target` / `prevent_trash`). `target` (Sprint 8, `prevent_trash` only):
+   * the rig card that would be trashed.
+   */
+  | { readonly type: 'choice_opened'; readonly kind: ChoiceKind; readonly player: Side; readonly cardId: string; readonly target?: string }
   /** The choice was answered: `skipped` = the player chose Skip. */
   | { readonly type: 'choice_closed'; readonly kind: ChoiceKind; readonly skipped: boolean }
   /** Right after `run_started` (only when > 0): run-only credits from bad publicity. */
@@ -141,4 +149,16 @@ export type GameEvent =
   /** A Runner card left the rig for the Heap (face up), e.g. Armitage Codebusting emptied. */
   | { readonly type: 'rig_card_trashed'; readonly uid: string; readonly cardId: string }
   /** An empty remote (no ICE, no cards) was removed (after `run_ended`, or at the end of a score). Its id is never reused. */
-  | { readonly type: 'server_removed'; readonly server: ServerId };
+  | { readonly type: 'server_removed'; readonly server: ServerId }
+  // ---- Sprint 8: identities, brain damage, Corp trashes, trash prevention (all public) ----
+  /** `player` gained `amount` clicks (Biotic Labor). */
+  | { readonly type: 'clicks_gained'; readonly player: Side; readonly amount: number }
+  /**
+   * Brain damage to the Runner: `amount` taken (the hand size drops by it first), `cardIds` = the
+   * random Grip cards that went face up to the Heap, `maxHandSize` = the new maximum.
+   */
+  | { readonly type: 'brain_damage'; readonly amount: number; readonly cardIds: readonly string[]; readonly maxHandSize: number }
+  /** A face-up Corp card left its server for Archives, face up (e.g. Adonis Campaign emptied). */
+  | { readonly type: 'corp_card_trashed'; readonly uid: string; readonly cardId: string; readonly server: ServerId }
+  /** Rig card `uid` was not trashed: preventer `byUid` was trashed instead (its `rig_card_trashed` comes first). */
+  | { readonly type: 'trash_prevented'; readonly uid: string; readonly cardId: string; readonly byUid: string; readonly byCardId: string };

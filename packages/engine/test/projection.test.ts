@@ -55,10 +55,16 @@ const SAMPLES: Samples = {
   card_advanced: [{ type: 'card_advanced', uid: 'i5', advancements: 2 }],
   agenda_scored: [{ type: 'agenda_scored', uid: 'i5', cardId: 'c08', points: 1 }],
   bad_publicity_gained: [{ type: 'bad_publicity_gained', amount: 1, total: 2 }],
-  choice_opened: [{ type: 'choice_opened', kind: 'free_rez', player: 'corp', cardId: 'c10' }],
+  choice_opened: [
+    { type: 'choice_opened', kind: 'free_rez', player: 'corp', cardId: 'c10' },
+    { type: 'choice_opened', kind: 'trash_target', player: 'corp', cardId: 'c19' },
+    { type: 'choice_opened', kind: 'prevent_trash', player: 'runner', cardId: 'c19', target: 'i2' },
+  ],
   choice_closed: [
     { type: 'choice_closed', kind: 'free_rez', skipped: true },
     { type: 'choice_closed', kind: 'free_rez', skipped: false },
+    { type: 'choice_closed', kind: 'trash_target', skipped: false },
+    { type: 'choice_closed', kind: 'prevent_trash', skipped: true },
   ],
   temp_credits_gained: [{ type: 'temp_credits_gained', amount: 1 }],
   temp_credits_lost: [{ type: 'temp_credits_lost', amount: 1 }],
@@ -72,16 +78,28 @@ const SAMPLES: Samples = {
     { type: 'ability_triggered', uid: 'i3', cardId: 'c03', trigger: 'turn_start' },
     { type: 'ability_triggered', uid: 'i7', cardId: 'r02', trigger: 'click' },
     { type: 'ability_triggered', uid: 'i8', cardId: 'r10', trigger: 'successful_run' },
+    // Sprint 8: identities and "when rezzed".
+    { type: 'ability_triggered', uid: 'id:corp', cardId: 'c13', trigger: 'install' },
+    { type: 'ability_triggered', uid: 'id:runner', cardId: 'r13', trigger: 'install_discount' },
+    { type: 'ability_triggered', uid: 'i4', cardId: 'c14', trigger: 'rez' },
   ],
   hosted_credits_changed: [{ type: 'hosted_credits_changed', uid: 'i7', credits: 10 }],
   rig_card_trashed: [{ type: 'rig_card_trashed', uid: 'i7', cardId: 'r02' }],
   server_removed: [{ type: 'server_removed', server: 'remote2' }],
+  // Sprint 8: all public.
+  clicks_gained: [
+    { type: 'clicks_gained', player: 'corp', amount: 2 },
+    { type: 'clicks_gained', player: 'runner', amount: 1 },
+  ],
+  brain_damage: [{ type: 'brain_damage', amount: 1, cardIds: ['r01'], maxHandSize: 4 }],
+  corp_card_trashed: [{ type: 'corp_card_trashed', uid: 'i4', cardId: 'c14', server: 'remote1' }],
+  trash_prevented: [{ type: 'trash_prevented', uid: 'i2', cardId: 'r04', byUid: 'i3', byCardId: 'r12' }],
 };
 
 /** Sprint 1/2 events have their own projection tests (view.test.ts, install-play.test.ts). */
 const OLDER = new Set(['card_drawn', 'cards_discarded', 'card_installed', 'card_played']);
 
-describe('viewEvents for the Sprint 3, 4, 5 and 7 events', () => {
+describe('viewEvents for the Sprint 3, 4, 5, 7 and 8 events', () => {
   const sides: Side[] = ['corp', 'runner'];
   const sprint3 = (Object.entries(SAMPLES) as [string, GameEvent[]][]).filter(([t]) => !OLDER.has(t));
 

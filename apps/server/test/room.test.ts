@@ -40,10 +40,11 @@ const tokenOf = (c: FakeConn): string => {
 const meta = (h: Harness) => h.store.get<RoomMeta>('meta')!;
 const seed = (h: Harness) => meta(h).seed;
 const accepted = (h: Harness) => h.store.list<Action>('a:').map(([, a]) => a);
-const truth = (h: Harness): GameState => replay(seed(h), accepted(h), ONLINE_OPTIONS).state;
+// Sprint 8: replay under the game's own stored options (test mode may pick the starter decks).
+const truth = (h: Harness): GameState => replay(seed(h), accepted(h), meta(h).options).state;
 
 /** Corp host + Runner guest, both seated, game started. */
-function started(h: Harness, test?: { seed: number; actions: Action[] }) {
+function started(h: Harness, test?: { seed: number; actions: Action[]; deckSet?: 'core' | 'starter' }) {
   const host = creator(h);
   h.room.message(host, msg({ t: 'create', side: 'corp', ...(test ? { test } : {}) }));
   const guest = player(h);
@@ -474,7 +475,7 @@ describe('cleanup (TTL wake-ups)', () => {
   it('a finished game is cleaned up 1 h after the last move', () => {
     const win = planToStep(1, 'corp_one_score_from_win');
     const h = harness({ testMode: true });
-    const { host } = started(h, { seed: win.seed, actions: win.actions });
+    const { host } = started(h, { seed: win.seed, actions: win.actions, deckSet: win.deckSet });
     const uid = (win.info as { uid: string }).uid;
     h.room.message(host, msg({ t: 'act', id: 1, action: { type: 'score', player: 'corp', uid } }));
     expect(truth(h).phase).toBe('over');

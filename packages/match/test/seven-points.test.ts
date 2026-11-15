@@ -2,8 +2,9 @@
 // either side. Each game is played from newGame(seed) through LocalMatch (seat
 // views only), then the last agenda is scored / stolen.
 import { describe, expect, it } from 'vitest';
-import { replay, type Action, type GameEvent, type ServerId } from '@overclock/engine';
-import { LocalMatch } from '../src/index';
+import { replay, LocalMatch } from './legacy';
+import { type Action, type GameEvent, type ServerId } from '@overclock/engine';
+
 import { planToStep } from '../src/testing';
 
 function playPlan(seed: number, actions: readonly Action[]): LocalMatch {

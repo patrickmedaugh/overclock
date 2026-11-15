@@ -5,7 +5,7 @@ import { HotSeat, seedFromUrl } from '../src/hotseat';
 /** A HotSeat played to `goal` with the planned actions (each submitted as its own player). */
 function hotSeatAt(seed: number, goal: Parameters<typeof planToStep>[1]) {
   const plan = planToStep(seed, goal);
-  const h = new HotSeat(seed);
+  const h = new HotSeat(seed, { deckSet: 'starter' });
   for (const a of plan.actions) {
     const p = h.submit(a);
     const events = p.kind === 'same' ? p.events : p.actorEvents;
@@ -16,7 +16,7 @@ function hotSeatAt(seed: number, goal: Parameters<typeof planToStep>[1]) {
 
 describe('HotSeat', () => {
   it('starts on the Corp seat (Corp goes first) and hides the Runner hand', () => {
-    const h = new HotSeat(7);
+    const h = new HotSeat(7, { deckSet: 'starter' });
     expect(h.seat).toBe('corp');
     const v = h.view();
     expect(v.viewer).toBe('corp');
@@ -25,7 +25,7 @@ describe('HotSeat', () => {
   });
 
   it('a click action keeps the seat and returns the actor events', () => {
-    const h = new HotSeat(7);
+    const h = new HotSeat(7, { deckSet: 'starter' });
     const p = h.submit({ type: 'gain_credit', player: 'corp' });
     expect(p.kind).toBe('same');
     if (p.kind !== 'same') return;
@@ -34,7 +34,7 @@ describe('HotSeat', () => {
   });
 
   it('end_turn flips the bottom seat and splits events at turn_ended', () => {
-    const h = new HotSeat(7);
+    const h = new HotSeat(7, { deckSet: 'starter' });
     // The Corp holds 6 after its free draw, so it discards 1 first.
     expect(h.submit({ type: 'end_turn', player: 'corp' }).kind).toBe('same');
     const p = h.submit({ type: 'discard', player: 'corp', handIndices: [0] });
@@ -58,7 +58,7 @@ describe('HotSeat', () => {
   });
 
   it('the hand-limit step keeps the seat until the discard is sent', () => {
-    const h = new HotSeat(7);
+    const h = new HotSeat(7, { deckSet: 'starter' });
     for (let i = 0; i < 3; i++) h.submit({ type: 'draw', player: 'corp' });
     const p = h.submit({ type: 'end_turn', player: 'corp' });
     expect(p.kind).toBe('same');
@@ -71,7 +71,7 @@ describe('HotSeat', () => {
   });
 
   it('a seat acting out of turn gets its rejection; the bottom seat is unchanged', () => {
-    const h = new HotSeat(7);
+    const h = new HotSeat(7, { deckSet: 'starter' });
     const before = h.view();
     const p = h.submit({ type: 'draw', player: 'runner' });
     expect(p).toEqual({ kind: 'same', view: before, events: [{ type: 'action_rejected', reason: 'not_your_turn' }], decision: null });
@@ -130,7 +130,7 @@ describe('HotSeat during a run (Q1 A: the Corp decides on the shared board)', ()
   });
 
   it('no decision outside a run', () => {
-    expect(new HotSeat(7).decision()).toBeNull();
+    expect(new HotSeat(7, { deckSet: 'starter' }).decision()).toBeNull();
   });
 });
 

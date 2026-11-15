@@ -17,11 +17,14 @@ import {
   breakerPayment,
   breakerCard,
   breakerStrength,
+  breakSubs,
   corpInstalled,
   currentIce,
   findServer,
   rezCost,
+  trashCandidates,
   trashCost,
+  trashPreventers,
   unrezzedIce,
 } from './rules';
 import {
@@ -29,6 +32,7 @@ import {
   WINNING_POINTS,
   drawTop,
   endGame,
+  maxHandSize,
   pointsOf,
   withPlayer,
   type AccessCard,
@@ -95,6 +99,7 @@ export function startRun(state: GameState, server: ServerId, opts: RunOptions, e
     access: null,
     // Bad publicity: 1 run-only credit each.
     tempCredits: state.badPublicity,
+    firing: null,
   };
   // Sprint 5: the Last run record starts afresh (replacing the previous one).
   const s: GameState = { ...state, phase: 'run', lastRunTurn: state.turn, run, lastRun: { server, cards: [] } };
@@ -185,24 +190,31 @@ function outcomeAmount(state: GameState, effect: Effect, owner: Side): number {
     case 'draw':
       return Math.min(effect.count, state.players[owner].deck.length);
     case 'net_damage':
+    case 'brain_damage':
     case 'gain_credits':
     case 'bad_publicity':
+    case 'gain_clicks':
       return effect.amount;
+    case 'trash_installed':
+      // Only used when no choice opens: 0 candidates → 0, one unprotected candidate → 1.
+      return trashCandidates(state, effect).length > 0 ? 1 : 0;
     default:
       return 0;
   }
 }
 
 /**
- * Let it through: every unbroken subroutine fires in order until one ends the run (or the game).
- * Each fired subroutine: `subroutine_fired`, its effect's own events, `subroutine_resolved`, then
- * whatever ends the run / game (Sprint 5).
+ * Let it through: every unbroken subroutine from `from` on fires in order until one ends the run
+ * (or the game). Each fired subroutine: `subroutine_fired`, its effect's own events,
+ * `subroutine_resolved`, then whatever ends the run / game (Sprint 5). Sprint 8: a subroutine
+ * whose effect opens a choice (`trash_target` / `prevent_trash`) stops here with `run.firing` set;
+ * `finishFiring` reports it and goes on with the next one when the choice closes.
  */
-function letThrough(state: GameState, events: Events): GameState {
+function letThrough(state: GameState, events: Events, from = 0): GameState {
   const ice = currentIce(state) as Installed;
   const subs = getCard(ice.cardId)?.subroutines ?? [];
   let s = state;
-  for (let i = 0; i < subs.length; i++) {
+  for (let i = from; i < subs.length; i++) {
     if (theRun(s).broken.includes(i)) continue;
     const effect = (subs[i] as { effect: Effect }).effect;
     const outcome: SubOutcome = { sub: i, op: effect.op, amount: outcomeAmount(s, effect, 'corp') };
@@ -213,11 +225,40 @@ function letThrough(state: GameState, events: Events): GameState {
       events.push({ type: 'subroutine_resolved', iceUid: ice.uid, cardId: ice.cardId, outcome });
     };
     events.push({ type: 'subroutine_fired', iceUid: ice.uid, sub: i });
-    s = resolveEffect(s, effect, 'corp', events, { beforeEnd: report });
+    s = resolveEffect(setRun(s, { firing: i }), effect, 'corp', events, { cardId: ice.cardId, beforeEnd: report });
+    if (s.phase === 'choice') return s; // Sprint 8: waits on a choice; reported when it closes
+    if (s.run) s = setRun(s, { firing: null });
     report();
     if (s.phase !== 'run') return s; // the run (or the game) ended
   }
   return passIce(s, events);
+}
+
+/**
+ * Sprint 8: the subroutine an in-run choice was resolving (`run.firing`) is done: `subroutine_resolved`
+ * (`amount` = cards trashed, 0 when saved), then the remaining subroutines fire.
+ */
+function finishFiring(state: GameState, amount: number, events: Events): GameState {
+  const run = theRun(state);
+  const ice = currentIce(state) as Installed;
+  const sub = run.firing as number;
+  const op = getCard(ice.cardId)?.subroutines?.[sub]?.effect.op ?? 'trash_installed';
+  events.push({ type: 'subroutine_resolved', iceUid: ice.uid, cardId: ice.cardId, outcome: { sub, op, amount } });
+  return letThrough(setRun(state, { firing: null }), events, sub + 1);
+}
+
+/**
+ * Sprint 8: rig card `target` is about to be trashed by the Corp's effect (opened by `cardId`). With a
+ * preventer in the rig (Sacrificial Construct) the Runner is asked first (`prevent_trash`);
+ * otherwise it goes to the Heap. Returns whether it was trashed now.
+ */
+function trashOrAsk(state: GameState, target: string, cardId: string, events: Events): { state: GameState; trashed: boolean } {
+  if (trashPreventers(state, target).length > 0) {
+    events.push({ type: 'choice_opened', kind: 'prevent_trash', player: 'runner', cardId, target });
+    const resume = state.run ? 'run' : 'action';
+    return { state: { ...state, phase: 'choice', choice: { kind: 'prevent_trash', player: 'runner', cardId, target, resume } }, trashed: false };
+  }
+  return { state: trashRigCard(state, target, events), trashed: true };
 }
 
 // ---- access -----------------------------------------------------------------------
@@ -347,21 +388,28 @@ const groupDone = (s: GameState) => (theRun(s).access as AccessState).cards.ever
 
 // ---- effects ----------------------------------------------------------------------
 
-/** Net damage to the Runner: random cards from the Grip to the Heap; more than the Grip holds flatlines it. */
-function netDamage(state: GameState, amount: number, events: Events, ctx: EffectContext): GameState {
-  const runner = state.players.runner;
+/**
+ * Net damage (Sprint 8: and brain damage) to the Runner: random cards from the Grip to the Heap;
+ * more than the Grip holds flatlines it. Brain damage first lowers the maximum hand size by `amount`
+ * for good (`brain_damage.maxHandSize` = the new maximum).
+ */
+function damage(state: GameState, kind: 'net' | 'brain', amount: number, events: Events, ctx: EffectContext): GameState {
+  const base = kind === 'brain' ? withPlayer(state, 'runner', { brainDamage: state.players.runner.brainDamage + amount }) : state;
+  const runner = base.players.runner;
+  const report = (cardIds: string[]) =>
+    events.push(kind === 'brain' ? { type: 'brain_damage', amount, cardIds, maxHandSize: maxHandSize(base, 'runner') } : { type: 'net_damage', amount, cardIds });
   if (amount > runner.hand.length) {
-    let s = withPlayer(state, 'runner', {
+    let s = withPlayer(base, 'runner', {
       hand: [],
       discard: [...runner.discard, ...runner.hand.map((cardId) => ({ cardId, faceUp: true }))],
     });
-    events.push({ type: 'net_damage', amount, cardIds: runner.hand.slice() });
+    report(runner.hand.slice());
     ctx.beforeEnd?.();
     if (s.phase === 'run') s = endRun(s, 'flatline', events);
     return endGame(s, 'corp', 'flatline', events);
   }
   let hand = runner.hand.slice();
-  let rng = state.rng;
+  let rng = base.rng;
   const cardIds: string[] = [];
   for (let k = 0; k < amount; k++) {
     const pick = nextInt(rng, hand.length);
@@ -369,8 +417,8 @@ function netDamage(state: GameState, amount: number, events: Events, ctx: Effect
     cardIds.push(hand[pick.value] as string);
     hand = hand.filter((_, i) => i !== pick.value);
   }
-  events.push({ type: 'net_damage', amount, cardIds });
-  return withPlayer({ ...state, rng }, 'runner', {
+  report(cardIds);
+  return withPlayer({ ...base, rng }, 'runner', {
     hand,
     discard: [...runner.discard, ...cardIds.map((cardId) => ({ cardId, faceUp: true }))],
   });
@@ -407,7 +455,9 @@ export function resolveEffect(state: GameState, effect: Effect, owner: Side, eve
       return s;
     }
     case 'net_damage':
-      return netDamage(state, effect.amount, events, ctx);
+      return damage(state, 'net', effect.amount, events, ctx);
+    case 'brain_damage':
+      return damage(state, 'brain', effect.amount, events, ctx);
     case 'lose_clicks': {
       const lost = Math.min(effect.amount, state.players.runner.clicks);
       if (lost === 0) return state;
@@ -438,7 +488,7 @@ export function resolveEffect(state: GameState, effect: Effect, owner: Side, eve
       if (unrezzedIce(state).length === 0) return state;
       const cardId = ctx.cardId as string;
       events.push({ type: 'choice_opened', kind: 'free_rez', player: owner, cardId });
-      return { ...state, phase: 'choice', choice: { kind: 'free_rez', player: owner, cardId } };
+      return { ...state, phase: 'choice', choice: { kind: 'free_rez', player: owner, cardId, resume: 'action' } };
     }
     case 'place_credits': {
       const card = ctx.uid !== undefined ? installedCard(state, ctx.uid) : undefined;
@@ -453,6 +503,20 @@ export function resolveEffect(state: GameState, effect: Effect, owner: Side, eve
       const s = setHosted(state, card.uid, card.hostedCredits - n, events);
       events.push({ type: 'credit_gained', player: owner, amount: n });
       return withPlayer(s, owner, { credits: s.players[owner].credits + n });
+    }
+    case 'gain_clicks': {
+      // Sprint 8: Biotic Labor.
+      events.push({ type: 'clicks_gained', player: owner, amount: effect.amount });
+      return withPlayer(state, owner, { clicks: state.players[owner].clicks + effect.amount });
+    }
+    case 'trash_installed': {
+      // Sprint 8 (Rototurret): 0 candidates = nothing; 1 = that card (no window); 2+ = the Corp picks.
+      const candidates = trashCandidates(state, effect);
+      const cardId = ctx.cardId as string;
+      if (candidates.length === 0) return state;
+      if (candidates.length === 1) return trashOrAsk(state, (candidates[0] as Installed).uid, cardId, events).state;
+      events.push({ type: 'choice_opened', kind: 'trash_target', player: 'corp', cardId });
+      return { ...state, phase: 'choice', choice: { kind: 'trash_target', player: 'corp', cardId, resume: state.run ? 'run' : 'action' } };
     }
   }
 }
@@ -484,6 +548,8 @@ export function turnStartAbilities(state: GameState, events: Events): GameState 
         s = resolveEffect(s, effect, side, events, { cardId: c.cardId, uid: c.uid });
         if (s.phase === 'over') return s;
       }
+      // Sprint 8: Adonis Campaign emptied → Archives (then an empty remote goes, below).
+      s = trashIfEmpty(s, c.uid, events);
     }
     const recurring = def.recurringCredits;
     const now = installedCard(s, c.uid);
@@ -492,18 +558,39 @@ export function turnStartAbilities(state: GameState, events: Events): GameState 
       s = setHosted(s, c.uid, recurring.amount, events);
     }
   }
-  return s;
+  return s.phase === 'run' ? s : pruneEmptyRemotes(s, events);
 }
 
 /**
- * A `trashWhenEmpty` rig card with no credits left goes face up to the Heap (`rig_card_trashed`).
- * (No Corp card has the flag yet.)
+ * A `trashWhenEmpty` card with no credits left is trashed: a rig card goes face up to the Heap
+ * (`rig_card_trashed`); Sprint 8: a face-up Corp card goes face up to Archives (`corp_card_trashed`;
+ * the caller prunes an emptied remote).
  */
 export function trashIfEmpty(state: GameState, uid: string, events: Events): GameState {
-  const card = state.rig.find((c) => c.uid === uid);
+  const card = installedCard(state, uid);
   if (!card || card.hostedCredits > 0 || !getCard(card.cardId)?.trashWhenEmpty) return state;
+  if (state.rig.some((c) => c.uid === uid)) return trashRigCard(state, uid, events);
+  const where = corpInstalled(state, uid);
+  if (!where || !card.rezzed) return state;
+  events.push({ type: 'corp_card_trashed', uid, cardId: card.cardId, server: where.server.id });
+  const s: GameState = {
+    ...state,
+    servers: state.servers.map((sv) => ({ ...sv, ice: sv.ice.filter((c) => c.uid !== uid), content: sv.content.filter((c) => c.uid !== uid) })),
+  };
+  return withPlayer(s, 'corp', { discard: [...s.players.corp.discard, { cardId: card.cardId, faceUp: true }] });
+}
+
+/** Moves rig card `uid` face up to the Heap (`rig_card_trashed`); Sprint 8: its breaker boosts are dropped. */
+export function trashRigCard(state: GameState, uid: string, events: Events): GameState {
+  const card = state.rig.find((c) => c.uid === uid);
+  if (!card) return state;
   events.push({ type: 'rig_card_trashed', uid, cardId: card.cardId });
-  const s: GameState = { ...state, rig: state.rig.filter((c) => c.uid !== uid) };
+  let s: GameState = { ...state, rig: state.rig.filter((c) => c.uid !== uid) };
+  if (s.run && (uid in s.run.encounterBoost || uid in s.run.runBoost)) {
+    const { [uid]: _e, ...encounterBoost } = s.run.encounterBoost;
+    const { [uid]: _r, ...runBoost } = s.run.runBoost;
+    s = setRun(s, { encounterBoost, runBoost });
+  }
   return withPlayer(s, 'runner', { discard: [...s.players.runner.discard, { cardId: card.cardId, faceUp: true }] });
 }
 
@@ -567,11 +654,44 @@ function setRezzed(state: GameState, uid: string): GameState {
   return { ...state, servers: state.servers.map((sv) => ({ ...sv, ice: fix(sv.ice), content: fix(sv.content) })) };
 }
 
-/** Closes the open choice: back to the action phase (the Corp's turn goes on). */
+/** Closes the open choice: back to the action phase (the Corp's turn goes on), or (Sprint 8) to the run it opened in. */
 function closeChoice(state: GameState, skipped: boolean, events: Events): GameState {
   const choice = state.choice as ChoiceState;
   events.push({ type: 'choice_closed', kind: choice.kind, skipped });
-  return { ...state, phase: 'action', choice: null };
+  return { ...state, phase: choice.resume === 'run' ? 'run' : 'action', choice: null };
+}
+
+/** Sprint 8: after an in-run choice settled the trash: report the subroutine and fire the rest (outside a run: nothing more). */
+function afterTrashChoice(state: GameState, trashed: boolean, events: Events): GameState {
+  if (state.phase === 'choice') return state; // another choice opened (prevent_trash)
+  return state.run && state.run.firing !== null ? finishFiring(state, trashed ? 1 : 0, events) : state;
+}
+
+/**
+ * Sprint 8: answers an open `trash_target` (Corp names the card) or `prevent_trash` (Runner names the
+ * preventer to trash instead) choice (validated). Events: `choice_closed`, then (`choice_opened`
+ * prevent_trash) or `rig_card_trashed` [+ `trash_prevented`], `subroutine_resolved`, the next subs.
+ */
+export function doChoose(state: GameState, a: ActionOf<'choose'>): { state: GameState; events: GameEvent[] } {
+  const events: Events = [];
+  const choice = state.choice as ChoiceState;
+  let s = closeChoice(state, false, events);
+  if (choice.kind === 'trash_target') {
+    const r = trashOrAsk(s, a.uid, choice.cardId, events);
+    return { state: afterTrashChoice(r.state, r.trashed, events), events };
+  }
+  const target = s.rig.find((c) => c.uid === choice.target) as Installed;
+  const by = s.rig.find((c) => c.uid === a.uid) as Installed;
+  s = trashRigCard(s, by.uid, events);
+  events.push({ type: 'trash_prevented', uid: target.uid, cardId: target.cardId, byUid: by.uid, byCardId: by.cardId });
+  return { state: afterTrashChoice(s, false, events), events };
+}
+
+/** Sprint 8: `pass` in `prevent_trash` = let it be trashed. */
+function letItBeTrashed(state: GameState, events: Events): GameState {
+  const target = (state.choice as ChoiceState).target as string;
+  const s = trashRigCard(closeChoice(state, true, events), target, events);
+  return afterTrashChoice(s, true, events);
 }
 
 export function doRez(state: GameState, a: ActionOf<'rez'>): { state: GameState; events: GameEvent[] } {
@@ -579,8 +699,9 @@ export function doRez(state: GameState, a: ActionOf<'rez'>): { state: GameState;
   if (state.phase === 'choice') {
     // Priority Requisition: any unrezzed installed ICE, ignoring all costs.
     const ice = unrezzedIce(state).find((c) => c.uid === a.uid) as Installed;
-    const s = setRezzed(state, a.uid);
+    let s = setRezzed(state, a.uid);
     events.push({ type: 'ice_rezzed', uid: ice.uid, cardId: ice.cardId });
+    s = afterRez(s, a.uid, events);
     return { state: closeChoice(s, false, events), events };
   }
   if (state.phase === 'action') {
@@ -590,19 +711,37 @@ export function doRez(state: GameState, a: ActionOf<'rez'>): { state: GameState;
     if (cost > 0) events.push({ type: 'credits_spent', player: 'corp', amount: cost });
     const s = setRezzed(withPlayer(state, 'corp', { credits: state.players.corp.credits - cost }), a.uid);
     events.push({ type: 'card_rezzed', uid: a.uid, cardId: where.installed.cardId, server: where.server.id });
-    return { state: s, events };
+    return { state: afterRez(s, a.uid, events), events };
   }
   const ice = currentIce(state) as Installed;
   const cost = rezCost(state, ice);
   if (cost > 0) events.push({ type: 'credits_spent', player: 'corp', amount: cost });
-  const s = setRezzed(withPlayer(state, 'corp', { credits: state.players.corp.credits - cost }), a.uid);
+  let s = setRezzed(withPlayer(state, 'corp', { credits: state.players.corp.credits - cost }), a.uid);
   events.push({ type: 'ice_rezzed', uid: ice.uid, cardId: ice.cardId });
-  return { state: encounter(s, events), events };
+  s = afterRez(s, a.uid, events);
+  return { state: s.phase === 'run' ? encounter(s, events) : s, events };
+}
+
+/** Sprint 8: a Corp card just turned face up: its `onRez` effects (`ability_triggered{rez}` first), source = the card. */
+function afterRez(state: GameState, uid: string, events: Events): GameState {
+  const card = installedCard(state, uid);
+  const effects = card ? (getCard(card.cardId)?.onRez ?? []) : [];
+  if (!card || effects.length === 0) return state;
+  events.push({ type: 'ability_triggered', uid, cardId: card.cardId, trigger: 'rez' });
+  let s = state;
+  for (const effect of effects) {
+    s = resolveEffect(s, effect, 'corp', events, { cardId: card.cardId, uid });
+    if (s.phase === 'over') return s;
+  }
+  return s;
 }
 
 export function doPass(state: GameState): { state: GameState; events: GameEvent[] } {
   const events: Events = [];
-  if (state.phase === 'choice') return { state: closeChoice(state, true, events), events }; // Skip
+  if (state.phase === 'choice') {
+    if (state.choice?.kind === 'prevent_trash') return { state: letItBeTrashed(state, events), events };
+    return { state: closeChoice(state, true, events), events }; // Skip
+  }
   const step = theRun(state).step;
   let s: GameState;
   if (step === 'approach') s = passIce(state, events); // Don't rez: passed face down
@@ -633,6 +772,7 @@ export function doActivate(state: GameState, a: ActionOf<'activate'>): { state: 
   }
   s = trashIfEmpty(s, installed.uid, events);
   if (ability.replacesAccess && s.phase === 'run') s = endRun(s, 'access_replaced', events);
+  else if (s.phase === 'action') s = pruneEmptyRemotes(s, events); // Sprint 8: a Corp card emptied by its ability
   return { state: s, events };
 }
 
@@ -654,11 +794,12 @@ export function doUseAbility(state: GameState, a: ActionOf<'use_ability'>): { st
     return { state: s, events };
   }
   const ice = currentIce(s) as Installed;
-  const sub = a.sub as number;
-  s = setRun(s, { broken: [...run.broken, sub].sort((x, y) => x - y) });
-  events.push({ type: 'subroutine_broken', iceUid: ice.uid, sub, breakerUid: a.uid });
-  const subs = getCard(ice.cardId)?.subroutines ?? [];
-  if (theRun(s).broken.length >= subs.length) s = passIce(s, events);
+  // Sprint 8: a "break up to 2" ability names its subroutines in `subs` (one payment, one event each).
+  const subs = breakSubs(a);
+  s = setRun(s, { broken: [...run.broken, ...subs].sort((x, y) => x - y) });
+  for (const sub of subs) events.push({ type: 'subroutine_broken', iceUid: ice.uid, sub, breakerUid: a.uid });
+  const all = getCard(ice.cardId)?.subroutines ?? [];
+  if (theRun(s).broken.length >= all.length) s = passIce(s, events);
   return { state: s, events };
 }
 

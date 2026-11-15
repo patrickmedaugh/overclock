@@ -1,6 +1,7 @@
 // Sprint 5 interface (E1): the new fields exist with their resting values.
 import { describe, expect, it } from 'vitest';
-import { newGame, viewFor } from '../src/index';
+import { viewFor } from '../src/index';
+import { newGame } from './helpers';
 
 describe('Sprint 5 interface', () => {
   it('a new game has no last run, and neither view shows one', () => {

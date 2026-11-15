@@ -1,7 +1,7 @@
 // Sprint 4 E2: agendas' "when scored" bonuses (S-04-4 AC1, AC4; RULES_SPEC "When scored" bonuses).
 import { describe, expect, it } from 'vitest';
-import { apply, hasMeaningfulResponse, legalActions, newGame, viewEvents, viewFor, waitingOn, type Action } from '../src/index';
-import { act, board, clone, corpBoard, liveness, rejection, run, withHand, withPlayer } from './helpers';
+import { apply, hasMeaningfulResponse, legalActions, viewEvents, viewFor, waitingOn, type Action } from '../src/index';
+import { act, board, clone, corpBoard, liveness, rejection, run, withHand, withPlayer, newGame } from './helpers';
 import { expectRunnerViewClean } from './hidden';
 
 const score = (uid: string): Action => ({ type: 'score', player: 'corp', uid });
@@ -121,7 +121,7 @@ describe('S-04-4 AC3: Priority Requisition — rez one face-down ICE for free, o
       { type: 'server_removed', server: 'remote4' }, // Sprint 7 (S-07-1)
     ]);
     expect(r.state.phase).toBe('choice');
-    expect(r.state.choice).toEqual({ kind: 'free_rez', player: 'corp', cardId: 'c10' });
+    expect(r.state.choice).toEqual({ kind: 'free_rez', player: 'corp', cardId: 'c10', resume: 'action' });
     expect(waitingOn(r.state)).toBe('corp');
     expect(hasMeaningfulResponse(r.state, 'corp')).toBe(true);
     expect(hasMeaningfulResponse(r.state, 'runner')).toBe(false);

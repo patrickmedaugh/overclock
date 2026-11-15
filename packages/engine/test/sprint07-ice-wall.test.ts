@@ -1,8 +1,8 @@
 // Sprint 7 E6 (S-07-5): Ice Wall can be advanced (face up or down) and has +1 strength per
 // counter; other ICE can't be advanced. Real play from a new game (hands/credits set first).
 import { describe, expect, it } from 'vitest';
-import { apply, legalActions, newGame, viewEvents, viewFor, type Action, type GameState } from '../src/index';
-import { finishTurn, rejection, run, withHand, withPlayer } from './helpers';
+import { apply, legalActions, viewEvents, viewFor, type Action, type GameState } from '../src/index';
+import { finishTurn, rejection, run, withHand, withPlayer, newGame } from './helpers';
 
 const advance = (uid: string): Action => ({ type: 'advance', player: 'corp', uid });
 const newServer = (handIndex = 0): Action => ({ type: 'install', player: 'corp', handIndex, server: 'new' });
