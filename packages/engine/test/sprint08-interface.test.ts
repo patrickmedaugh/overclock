@@ -39,6 +39,21 @@ describe('Sprint 8 interface', () => {
     for (const viewer of ['corp', 'runner'] as const) expect(JSON.stringify(viewFor(viewer, marked))).not.toMatch(/installedThisTurn/);
   });
 
+  it('S-08-5 AC1: a core deal: R&D 25 before the first draw (the Corp has drawn its 6th card), Stack 25', () => {
+    for (const seed of [1, 2, 3, 42, 12345]) {
+      const s = engineNewGame(seed);
+      expect(s.players.corp.hand).toHaveLength(6);
+      expect(s.players.corp.deck.length + 1).toBe(25);
+      expect(s.players.runner.hand).toHaveLength(5);
+      expect(s.players.runner.deck).toHaveLength(25);
+      expect([...s.players.corp.hand, ...s.players.corp.deck].sort()).toEqual([...CORP_CORE_DECK.cards].sort());
+      expect([...s.players.runner.hand, ...s.players.runner.deck].sort()).toEqual([...RUNNER_CORE_DECK.cards].sort());
+      const v = viewFor('runner', s);
+      expect(v.players.corp.deckCount).toBe(24);
+      expect(v.players.runner.deckCount).toBe(25);
+    }
+  });
+
   it('the deck set never changes for a seed: the same core deal every time', () => {
     expect(engineNewGame(12345)).toEqual(engineNewGame(12345));
     expect(engineNewGame(12345).players.corp.hand).not.toEqual(newGame(12345).players.corp.hand);

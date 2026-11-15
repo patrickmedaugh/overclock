@@ -5,7 +5,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { ALL_CARDS, CORP_STARTER_DECK, RUNNER_STARTER_DECK, getCard } from '../src/index';
+import { ALL_CARDS, CORP_CORE_DECK, CORP_STARTER_DECK, RUNNER_CORE_DECK, RUNNER_STARTER_DECK, getCard } from '../src/index';
 
 const RETIRED_NAMES: readonly string[] = [
   'Quarterly Windfall',
@@ -64,6 +64,12 @@ describe('no invented card names left (S-02-5 AC4)', () => {
 
   it('every starter deck card is a pool card (so a real one)', () => {
     for (const id of [...CORP_STARTER_DECK, ...RUNNER_STARTER_DECK]) expect(getCard(id), id).toBeDefined();
+  });
+
+  it('Sprint 8 (S-08-5 AC4): every core deck card and both identities are pool cards', () => {
+    for (const deck of [CORP_CORE_DECK, RUNNER_CORE_DECK]) {
+      for (const id of [deck.identity, ...deck.cards]) expect(getCard(id), id).toBeDefined();
+    }
   });
 
   it('client source, page and glossary contain no retired name', () => {
