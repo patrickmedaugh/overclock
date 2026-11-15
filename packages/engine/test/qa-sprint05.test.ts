@@ -1,8 +1,8 @@
 // QA Sprint 5 (written by QA, not the developers): independent probes of S-05-1 and S-05-2.
 // Cross-checks the engine's own record against the event stream it emits, over random games.
 import { describe, expect, it } from 'vitest';
-import { apply, legalActions, newGame, viewFor, waitingOn, type Action, type GameState } from '../src/index';
-import { act, board } from './helpers';
+import { apply, legalActions, viewFor, waitingOn, type Action, type GameState } from '../src/index';
+import { act, board, newGame } from './helpers';
 
 function prng(seed: number): (n: number) => number {
   let x = (seed * 40503 + 99991) >>> 0 || 3;

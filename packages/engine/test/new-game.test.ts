@@ -1,7 +1,7 @@
 import { CORP_STARTER_DECK, RUNNER_STARTER_DECK } from '@overclock/cards';
 import { describe, expect, it } from 'vitest';
-import { newGame } from '../src/index';
-import { clone } from './helpers';
+
+import { clone, newGame } from './helpers';
 
 describe('newGame (S-00-5 AC1: same seed deals the same cards)', () => {
   it('two games with the same seed are identical, including hands and deck order', () => {

@@ -4,20 +4,8 @@
 // Cyberfeeder never paying installs or trash costs, Bank Job only on remotes).
 // Real play from a new game; only hands/credits/clicks are set before the first action.
 import { describe, expect, it } from 'vitest';
-import {
-  apply,
-  legalActions,
-  newGame,
-  viewEvents,
-  viewFor,
-  waitingOn,
-  type Action,
-  type GameEvent,
-  type GameState,
-  type ServerId,
-  type Side,
-} from '../src/index';
-import { finishTurn, rejection, run, withHand, withPlayer } from './helpers';
+import { apply, legalActions, viewEvents, viewFor, waitingOn, type Action, type GameEvent, type GameState, type ServerId, type Side } from '../src/index';
+import { finishTurn, rejection, run, withHand, withPlayer, newGame } from './helpers';
 
 const corpInstall = (handIndex: number, server: ServerId | 'new'): Action => ({ type: 'install', player: 'corp', handIndex, server });
 const runnerInstall = (handIndex: number): Action => ({ type: 'install', player: 'runner', handIndex });

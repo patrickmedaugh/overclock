@@ -1,9 +1,10 @@
 // Sprint 6 E3: the pure hidden-information checks exported from @overclock/match/testing
 // agree with the engine's own checks on real games, and catch planted leaks.
-import { apply, legalActions, newGame, viewEvents, viewFor, waitingOn, type GameEvent, type PlayerView } from '@overclock/engine';
+import { apply, legalActions, viewEvents, viewFor, waitingOn, type GameEvent, type PlayerView } from '@overclock/engine';
 import { describe, expect, it } from 'vitest';
+import { newGame, LocalMatch } from './legacy';
 import { planBusyBoard, runnerEventLeaks, runnerViewLeaks } from '../src/testing';
-import { LocalMatch } from '../src/index';
+
 
 describe('runnerViewLeaks / runnerEventLeaks', () => {
   it('report nothing over random games (both rez-window options)', () => {

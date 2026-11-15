@@ -1,18 +1,7 @@
 // Sprint 3 E2: advance and score agendas; score areas, points, 7-point win (S-03-2 engine side).
 import { describe, expect, it } from 'vitest';
-import {
-  WINNING_POINTS,
-  apply,
-  legalActions,
-  newGame,
-  viewEvents,
-  viewFor,
-  type Action,
-  type GameState,
-  type RejectReason,
-  type Side,
-} from '../src/index';
-import { clone, finishTurn, rejection, run, withHand, withPlayer } from './helpers';
+import { WINNING_POINTS, apply, legalActions, viewEvents, viewFor, type Action, type GameState, type RejectReason, type Side } from '../src/index';
+import { clone, finishTurn, rejection, run, withHand, withPlayer, newGame } from './helpers';
 
 const advance = (player: Side, uid: string): Action => ({ type: 'advance', player, uid });
 const score = (player: Side, uid: string): Action => ({ type: 'score', player, uid });

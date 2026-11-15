@@ -10,7 +10,7 @@
  * views, like a player would.
  */
 import { getCard } from '@overclock/cards';
-import type { Action, GameOptions, PlayerView, Side } from '@overclock/engine';
+import type { Action, DeckSet, GameOptions, PlayerView, Side } from '@overclock/engine';
 import { LocalMatch } from './local-match';
 
 /** Sprint 6: pure hidden-information checks (server leak test, Node-side e2e). */
@@ -29,6 +29,8 @@ export const BUSY_BOARD: BusyBoardGoal = { remotes: 3, icePerRemote: 2, rig: 4 }
 
 export interface BusyBoardPlan {
   readonly seed: number;
+  /** Sprint 8: the deck set the plan was made with (create the game with the same one). */
+  readonly deckSet: DeckSet;
   /** Every action, in order, for `submit(action.player, action)`. All are accepted. */
   readonly actions: Action[];
   /** Whose turn it is after the last action. */
@@ -110,14 +112,15 @@ function runnerMove(v: PlayerView, goal: BusyBoardGoal): Action {
 
 /**
  * Plans the busy board for `seed`. Throws if the goal is not reached within
- * `maxActions` (e.g. the Corp would run out of cards first).
+ * `maxActions` (e.g. the Corp would run out of cards first). Sprint 8: `deckSet`
+ * defaults to `'starter'` (the Sprint 2–7 fixture decks).
  */
-export function planBusyBoard(seed: number, goal: BusyBoardGoal = BUSY_BOARD, maxActions = 400): BusyBoardPlan {
-  const match = new LocalMatch(seed);
+export function planBusyBoard(seed: number, goal: BusyBoardGoal = BUSY_BOARD, maxActions = 400, deckSet: DeckSet = 'starter'): BusyBoardPlan {
+  const match = new LocalMatch(seed, { deckSet });
   for (let n = 0; n < maxActions; n++) {
     const v = match.view(match.view('corp').activePlayer);
     if (busyBoardReached(v, goal)) {
-      return { seed, actions: [...match.actions()], activePlayer: v.activePlayer };
+      return { seed, deckSet, actions: [...match.actions()], activePlayer: v.activePlayer };
     }
     if (v.phase === 'over') break;
     const action =
@@ -241,6 +244,8 @@ export const SPRINT7_GOALS: readonly StepGoal[] = [
 export interface StepPlan {
   readonly seed: number;
   readonly goal: StepGoal;
+  /** Sprint 8: the deck set the plan was made with (create the game with the same options). */
+  readonly deckSet: DeckSet;
   /** Every action, in order, for `submit(action.player, action)`. All are accepted. */
   readonly actions: Action[];
   /** Whose decision it is after the last action (the run's decider during a run). */
@@ -933,20 +938,28 @@ function runnerMoveFor(goal: StepGoal, v: PlayerView, views: Views): Action {
   return { type: 'end_turn', player: 'runner' };
 }
 
+/** Sprint 8: the deck set a goal is planned on when the options name none (Sprint 3–7 goals: `'starter'`). */
+export function goalDeckSet(goal: StepGoal): DeckSet {
+  return (STEP_GOALS as readonly StepGoal[]).includes(goal) ? 'starter' : 'core';
+}
+
 /**
  * Plans a real game from `newGame(seed)` to `goal` (see `StepGoal`). The page,
  * started with the same seed, reaches the same situation by dispatching
  * `actions` in order (each as its own `player`). Throws if the goal is not
- * reached within `maxActions` or the game ends first.
+ * reached within `maxActions` or the game ends first. Sprint 8: `options.deckSet`
+ * defaults to `goalDeckSet(goal)` (legacy goals: `'starter'`); `plan.deckSet` says which.
  */
 export function planToStep(seed: number, goal: StepGoal, maxActions = 1500, options?: Partial<GameOptions>): StepPlan {
-  const match = new LocalMatch(seed, options);
+  const deckSet = options?.deckSet ?? goalDeckSet(goal);
+  const match = new LocalMatch(seed, { ...options, deckSet });
   for (let n = 0; n < maxActions; n++) {
     const views: Views = { corp: match.view('corp'), runner: match.view('runner') };
     if (stepReached(goal, views)) {
       return {
         seed,
         goal,
+        deckSet,
         actions: [...match.actions()],
         waitingOn: decider(views.corp),
         activePlayer: views.corp.activePlayer,

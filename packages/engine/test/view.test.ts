@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { apply, newGame, viewEvents, viewFor, type GameEvent } from '../src/index';
-import { discard, draw, endTurn, finishTurn, run, withHand } from './helpers';
+import { apply, viewEvents, viewFor, type GameEvent } from '../src/index';
+import { discard, draw, endTurn, finishTurn, run, withHand, newGame } from './helpers';
 
 describe('viewFor (S-01-4 AC2: opponent hand count, not contents)', () => {
   it('shows the viewer their own hand and hides the opponent hand (count only)', () => {

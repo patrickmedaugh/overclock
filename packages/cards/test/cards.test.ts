@@ -9,9 +9,10 @@ import {
 } from '../src/index';
 
 describe('card pool', () => {
-  it('has about 12 cards per side', () => {
-    expect(RUNNER_CARDS).toHaveLength(12);
-    expect(CORP_CARDS).toHaveLength(12);
+  it('Sprint 8: 12 starter cards per side, plus 6 Haas-Bioroid / 4 Kate cards and one identity each', () => {
+    expect(RUNNER_CARDS).toHaveLength(17);
+    expect(CORP_CARDS).toHaveLength(19);
+    expect(ALL_CARDS.filter((c) => c.type === 'identity').map((c) => c.id)).toEqual(['r13', 'c13']);
   });
 
   it('every card id is unique across both sides', () => {
@@ -32,7 +33,8 @@ describe('card pool', () => {
   it('covers the v0 pool: economy, draw, three ICE types, matching breakers, agendas, an asset, damage', () => {
     const iceTypes = new Set(CORP_CARDS.filter((c) => c.type === 'ice').map((c) => c.subtype));
     expect(iceTypes).toEqual(new Set(['barrier', 'code_gate', 'sentry']));
-    const breakers = new Set(RUNNER_CARDS.filter((c) => c.type === 'program').map((c) => c.subtype));
+    // Sprint 8: Magnum Opus is a program but no icebreaker.
+    const breakers = new Set(RUNNER_CARDS.filter((c) => c.type === 'program' && c.subtype).map((c) => c.subtype));
     expect(breakers).toEqual(new Set(['breaker_barrier', 'breaker_code_gate', 'breaker_sentry']));
     const agendas = CORP_CARDS.filter((c) => c.type === 'agenda');
     expect(agendas.length).toBeGreaterThanOrEqual(2);
@@ -198,7 +200,8 @@ describe('Sprint 7 card data (DSL v2)', () => {
   it('only ICE is advanceable; only cards holding credits trash when empty; abilities have a label', () => {
     for (const c of ALL_CARDS) {
       if (c.advanceable || c.strengthPerAdvancement) expect(c.type).toBe('ice');
-      if (c.trashWhenEmpty) expect(c.onInstall?.some((e) => e.op === 'place_credits')).toBe(true);
+      // Sprint 8: Adonis Campaign gets its credits when rezzed (Corp cards are installed face down).
+      if (c.trashWhenEmpty) expect([...(c.onInstall ?? []), ...(c.onRez ?? [])].some((e) => e.op === 'place_credits'), c.id).toBe(true);
       for (const ab of c.cardAbilities ?? []) expect(ab.label.length).toBeGreaterThan(0);
     }
   });

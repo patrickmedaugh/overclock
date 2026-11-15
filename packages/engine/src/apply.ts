@@ -9,6 +9,7 @@ import {
   breakerPayment,
   breakerCard,
   breakerIceType,
+  chooseTargets,
   currentIce,
   discardCount,
   handCard,
@@ -29,6 +30,7 @@ import {
   accessReplacements,
   afterInstall,
   doActivate,
+  doChoose,
   doJackOut,
   doPass,
   doRez,
@@ -43,6 +45,7 @@ import {
 import {
   checkPointsWin,
   drawTop,
+  maxHandSize,
   opponentOf,
   startTurn,
   withPlayer,
@@ -85,7 +88,7 @@ function doGainCredit(state: GameState, a: ActionOf<'gain_credit'>): ApplyResult
 function doEndTurn(state: GameState, a: ActionOf<'end_turn'>): ApplyResult {
   // Leftover clicks are lost (house rule: ending early is allowed).
   const s = withPlayer(state, a.player, { clicks: 0 });
-  const count = discardCount(s.players[a.player].hand.length);
+  const count = discardCount(s.players[a.player].hand.length, maxHandSize(s, a.player));
   if (count > 0) {
     return { state: { ...s, phase: 'discard' }, events: [{ type: 'discard_required', player: a.player, count }] };
   }
@@ -248,6 +251,8 @@ export function apply(state: GameState, action: Action): ApplyResult {
       return doTrash(state, action);
     case 'activate':
       return doActivate(state, action);
+    case 'choose':
+      return doChoose(state, action);
   }
 }
 
@@ -259,7 +264,7 @@ export function apply(state: GameState, action: Action): ApplyResult {
 export function legalActions(state: GameState, player: Side): Action[] {
   if (player !== 'corp' && player !== 'runner') return [];
   const handSize = state.players[player].hand.length;
-  const n = discardCount(handSize);
+  const n = discardCount(handSize, maxHandSize(state, player));
   const candidates: Action[] = [
     { type: 'draw', player },
     { type: 'gain_credit', player },
@@ -366,11 +371,18 @@ export function runStepOptions(state: GameState, player: Side): CardOption[] {
  * The deciding player's options in an open choice (empty for the other player
  * and outside phase 'choice'). `free_rez`: one `rez` (cost 0) per unrezzed
  * installed ICE (servers in order, then ICE index order), then `pass` (Skip).
+ * Sprint 8: `trash_target`: one `choose` per candidate (rig order; no `pass`);
+ * `prevent_trash`: one `choose` per preventer (rig order), then `pass` (let it be trashed).
  */
 export function choiceOptions(state: GameState, player: Side): CardOption[] {
   if (state.phase !== 'choice' || !state.choice || waitingOn(state) !== player) return [];
-  const rezzes = unrezzedIce(state).map((c) => option(state, { type: 'rez', player, uid: c.uid }, 0));
-  return [...rezzes, option(state, { type: 'pass', player }, 0)];
+  const kind = state.choice.kind;
+  if (kind === 'free_rez') {
+    const rezzes = unrezzedIce(state).map((c) => option(state, { type: 'rez', player, uid: c.uid }, 0));
+    return [...rezzes, option(state, { type: 'pass', player }, 0)];
+  }
+  const chooses = chooseTargets(state).map((uid) => option(state, { type: 'choose', player, uid }, 0));
+  return kind === 'prevent_trash' ? [...chooses, option(state, { type: 'pass', player }, 0)] : chooses;
 }
 
 /** Sprint 7: one `activate` option per `click` ability of an own face-up card (price, clicks, gain). */

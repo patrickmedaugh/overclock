@@ -1,14 +1,35 @@
 import {
   apply,
   legalActions,
-  newGame,
+  newGame as engineNewGame,
+  replay as engineReplay,
   type Action,
+  type GameOptions,
   type GameEvent,
   type GameState,
   type PlayerState,
   type ServerId,
   type Side,
 } from '../src/index';
+
+/**
+ * Sprint 8: legacy tests (Sprints 1–7) play on the frozen starter decks. `newGame`/`replay` here
+ * default `deckSet` to `'starter'`; pass `{deckSet: 'core'}` for the 30-card decks with identities.
+ */
+export const STARTER: Pick<GameOptions, 'deckSet'> = { deckSet: 'starter' };
+
+export function newGame(seed: number, options?: Partial<GameOptions>): GameState {
+  return engineNewGame(seed, { ...STARTER, ...options });
+}
+
+export function replay(seed: number, actions: readonly Action[], options?: Partial<GameOptions>): { state: GameState; events: GameEvent[] } {
+  return engineReplay(seed, actions, { ...STARTER, ...options });
+}
+
+/** Sprint 8: a core-deck game (identities, 30 cards). */
+export function coreGame(seed: number, options?: Partial<GameOptions>): GameState {
+  return engineNewGame(seed, { ...options, deckSet: 'core' });
+}
 
 /** Recursively freezes a value so any mutation throws in strict mode. */
 export function deepFreeze<T>(value: T): T {

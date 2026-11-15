@@ -1,6 +1,7 @@
-import { replay, viewFor } from '@overclock/engine';
+import { viewFor } from '@overclock/engine';
 import { describe, expect, it } from 'vitest';
-import { LocalMatch } from '../src/index';
+import { replay, LocalMatch } from './legacy';
+
 import { BUSY_BOARD, busyBoardReached, planBusyBoard } from '../src/testing';
 
 describe('planBusyBoard (e2e setup helper)', () => {

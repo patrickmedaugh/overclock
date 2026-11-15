@@ -1,9 +1,9 @@
 // Sprint 7 E2 (S-07-1): a remote left with no ICE and no cards disappears (steal, trash, score);
 // one with ICE stays and takes installs; ids are never reused. Reached by real play only.
 import { describe, expect, it } from 'vitest';
-import { apply, newGame, viewEvents, viewFor, type Action, type GameState, type ServerId } from '../src/index';
+import { apply, viewEvents, viewFor, type Action, type GameState, type ServerId } from '../src/index';
 import { handOptions } from '../src/apply';
-import { finishTurn, run, withHand, withPlayer } from './helpers';
+import { finishTurn, run, withHand, withPlayer, newGame } from './helpers';
 
 const install = (handIndex: number, server: ServerId | 'new'): Action => ({ type: 'install', player: 'corp', handIndex, server });
 const runOn = (server: ServerId): Action => ({ type: 'run', player: 'runner', server });

@@ -27,6 +27,11 @@ const REVEALING: ReadonlySet<GameEvent['type']> = new Set([
 export function expectRunnerEventsClean(events: readonly GameEvent[], where: string, after: GameState): void {
   for (const e of viewEvents('runner', events)) {
     if (REVEALING.has(e.type)) continue;
+    // Sprint 8 (spec change): the Corp's identity is a public card; its own trigger may name it.
+    if (e.type === 'ability_triggered' && e.uid === 'id:corp') {
+      expect(e.cardId, `${where}: Corp identity trigger`).toBe(after.players.corp.identity);
+      continue;
+    }
     if (e.type === 'card_rezzed' || e.type === 'ability_triggered') {
       // Sprint 7 (spec change): may name a Corp card only once it is face up: the uid is an
       // installed Corp card with that id, rezzed, after the action. Otherwise (a rig card) no Corp id.
@@ -54,6 +59,8 @@ export function expectRunnerViewClean(s: GameState, where: string): void {
   // Score areas are face up.
   expect(v.players.corp.scored, where).toEqual(s.players.corp.scoreArea);
   expect(v.players.runner.scored, where).toEqual(s.players.runner.scoreArea);
+  // Sprint 8 (spec change): identities are public cards.
+  expect(v.players.corp.identity?.cardId ?? null, where).toBe(s.players.corp.identity);
   // Installed Corp cards: an id only when rezzed.
   const installed = s.servers.flatMap((sv) => [...sv.ice, ...sv.content]);
   for (const c of v.corpServers.flatMap((sv) => [...sv.ice, ...sv.content])) {
@@ -81,7 +88,7 @@ export function expectRunnerViewClean(s: GameState, where: string): void {
   const rest = {
     ...v,
     players: {
-      corp: { ...v.players.corp, discard: [], scored: [] },
+      corp: { ...v.players.corp, discard: [], scored: [], identity: null },
       runner: { ...v.players.runner, scored: [] },
     },
     corpServers: v.corpServers.map((sv) => ({

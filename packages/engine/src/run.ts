@@ -95,6 +95,7 @@ export function startRun(state: GameState, server: ServerId, opts: RunOptions, e
     access: null,
     // Bad publicity: 1 run-only credit each.
     tempCredits: state.badPublicity,
+    firing: null,
   };
   // Sprint 5: the Last run record starts afresh (replacing the previous one).
   const s: GameState = { ...state, phase: 'run', lastRunTurn: state.turn, run, lastRun: { server, cards: [] } };
@@ -438,7 +439,7 @@ export function resolveEffect(state: GameState, effect: Effect, owner: Side, eve
       if (unrezzedIce(state).length === 0) return state;
       const cardId = ctx.cardId as string;
       events.push({ type: 'choice_opened', kind: 'free_rez', player: owner, cardId });
-      return { ...state, phase: 'choice', choice: { kind: 'free_rez', player: owner, cardId } };
+      return { ...state, phase: 'choice', choice: { kind: 'free_rez', player: owner, cardId, resume: 'action' } };
     }
     case 'place_credits': {
       const card = ctx.uid !== undefined ? installedCard(state, ctx.uid) : undefined;
@@ -454,6 +455,11 @@ export function resolveEffect(state: GameState, effect: Effect, owner: Side, eve
       events.push({ type: 'credit_gained', player: owner, amount: n });
       return withPlayer(s, owner, { credits: s.players[owner].credits + n });
     }
+    case 'gain_clicks':
+    case 'brain_damage':
+    case 'trash_installed':
+      // Sprint 8 (E1 interface stub): resolved in E4 / E5 / E7.
+      return state;
   }
 }
 
@@ -567,11 +573,16 @@ function setRezzed(state: GameState, uid: string): GameState {
   return { ...state, servers: state.servers.map((sv) => ({ ...sv, ice: fix(sv.ice), content: fix(sv.content) })) };
 }
 
-/** Closes the open choice: back to the action phase (the Corp's turn goes on). */
+/** Closes the open choice: back to the action phase (the Corp's turn goes on), or (Sprint 8) to the run it opened in. */
 function closeChoice(state: GameState, skipped: boolean, events: Events): GameState {
   const choice = state.choice as ChoiceState;
   events.push({ type: 'choice_closed', kind: choice.kind, skipped });
-  return { ...state, phase: 'action', choice: null };
+  return { ...state, phase: choice.resume === 'run' ? 'run' : 'action', choice: null };
+}
+
+/** Sprint 8: answers an in-run `trash_target` / `prevent_trash` choice (validated). E1 interface stub; E7 resolves it. */
+export function doChoose(state: GameState, _a: ActionOf<'choose'>): { state: GameState; events: GameEvent[] } {
+  return { state, events: [] };
 }
 
 export function doRez(state: GameState, a: ActionOf<'rez'>): { state: GameState; events: GameEvent[] } {

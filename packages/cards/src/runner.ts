@@ -1,4 +1,4 @@
-import type { CardDef, DeckList } from './types';
+import type { CardDef, DeckDef, DeckList } from './types';
 
 /**
  * Runner starter pool: real cards from the original Core Set (2012), official
@@ -13,6 +13,8 @@ export const RUNNER_CARDS: readonly CardDef[] = [
     name: 'Easy Mark',
     side: 'runner',
     type: 'event',
+    faction: 'criminal',
+    influence: 1,
     cost: 0,
     text: 'Gain 3 credits.',
     art: 'glyph:coin-stack',
@@ -23,6 +25,7 @@ export const RUNNER_CARDS: readonly CardDef[] = [
     name: 'Armitage Codebusting',
     side: 'runner',
     type: 'resource',
+    faction: 'neutral',
     cost: 1,
     text:
       'Place 12 credits from the bank on Armitage Codebusting when it is installed. When there are no credits left on Armitage Codebusting, trash it.\nClick: Take 2 credits from Armitage Codebusting.',
@@ -45,6 +48,8 @@ export const RUNNER_CARDS: readonly CardDef[] = [
     name: 'Diesel',
     side: 'runner',
     type: 'event',
+    faction: 'shaper',
+    influence: 2,
     cost: 0,
     text: 'Draw 3 cards.',
     art: 'glyph:folder-open',
@@ -55,6 +60,8 @@ export const RUNNER_CARDS: readonly CardDef[] = [
     name: 'Corroder',
     side: 'runner',
     type: 'program',
+    faction: 'anarch',
+    influence: 2,
     subtype: 'breaker_barrier',
     cost: 2,
     memory: 1,
@@ -71,6 +78,8 @@ export const RUNNER_CARDS: readonly CardDef[] = [
     name: 'Gordian Blade',
     side: 'runner',
     type: 'program',
+    faction: 'shaper',
+    influence: 3,
     subtype: 'breaker_code_gate',
     cost: 4,
     memory: 1,
@@ -87,6 +96,8 @@ export const RUNNER_CARDS: readonly CardDef[] = [
     name: 'Ninja',
     side: 'runner',
     type: 'program',
+    faction: 'criminal',
+    influence: 2,
     subtype: 'breaker_sentry',
     cost: 4,
     memory: 1,
@@ -103,6 +114,8 @@ export const RUNNER_CARDS: readonly CardDef[] = [
     name: "The Maker's Eye",
     side: 'runner',
     type: 'event',
+    faction: 'shaper',
+    influence: 2,
     cost: 2,
     text: 'Make a run on R&D. If successful, access 2 additional cards from R&D.',
     art: 'glyph:pin',
@@ -113,6 +126,8 @@ export const RUNNER_CARDS: readonly CardDef[] = [
     name: 'Cyberfeeder',
     side: 'runner',
     type: 'hardware',
+    faction: 'anarch',
+    influence: 1,
     cost: 2,
     text: '1 recurring credit.\nUse this credit to pay for using icebreakers or for installing virus programs.',
     art: 'glyph:lung',
@@ -123,6 +138,8 @@ export const RUNNER_CARDS: readonly CardDef[] = [
     name: 'Akamatsu Mem Chip',
     side: 'runner',
     type: 'hardware',
+    faction: 'shaper',
+    influence: 1,
     cost: 1,
     text: '+1 memory.',
     art: 'glyph:halo',
@@ -133,6 +150,8 @@ export const RUNNER_CARDS: readonly CardDef[] = [
     name: 'Bank Job',
     side: 'runner',
     type: 'resource',
+    faction: 'criminal',
+    influence: 2,
     cost: 1,
     text:
       'Place 8 credits from the bank on Bank Job when it is installed. When there are no credits left on Bank Job, trash it.\nWhenever you make a successful run on a remote server, instead of accessing cards you may take any number of credits from Bank Job.',
@@ -156,6 +175,8 @@ export const RUNNER_CARDS: readonly CardDef[] = [
     name: 'Inside Job',
     side: 'runner',
     type: 'event',
+    faction: 'criminal',
+    influence: 3,
     cost: 2,
     text: 'Make a run. Bypass the first piece of ICE encountered during this run.',
     art: 'glyph:wave-cut',
@@ -166,16 +187,117 @@ export const RUNNER_CARDS: readonly CardDef[] = [
     name: 'Sacrificial Construct',
     side: 'runner',
     type: 'resource',
+    faction: 'shaper',
+    influence: 1,
     cost: 0,
     text: 'Trash: Prevent an installed program or an installed piece of hardware from being trashed.',
     art: 'glyph:mask',
+    trashPrevention: { types: ['program', 'hardware'] },
+  },
+  // ---- Sprint 8: Kate (identity + 4 cards). Numbers checked against the official Core Set list. ----
+  {
+    id: 'r13',
+    name: 'Kate "Mac" McCaffrey: Digital Tinker',
+    side: 'runner',
+    type: 'identity',
+    faction: 'shaper',
+    cost: 0,
+    minDeckSize: 45,
+    influenceLimit: 15,
+    link: 1,
+    text: 'Lower the install cost of the first program or piece of hardware you install each turn by 1.',
+    art: 'glyph:wrench-spark',
+    installDiscount: { amount: 1, firstEachTurn: true, types: ['program', 'hardware'] },
+  },
+  {
+    id: 'r14',
+    name: 'Sure Gamble',
+    side: 'runner',
+    type: 'event',
+    faction: 'neutral',
+    cost: 5,
+    text: 'Gain 9 credits.',
+    art: 'glyph:dice',
+    onPlay: [{ op: 'gain_credits', amount: 9 }],
+  },
+  {
+    id: 'r15',
+    name: 'Magnum Opus',
+    side: 'runner',
+    type: 'program',
+    faction: 'shaper',
+    influence: 2,
+    cost: 5,
+    memory: 2,
+    text: 'Click: Gain 2 credits.',
+    art: 'glyph:opus',
+    cardAbilities: [{ label: 'Gain {gain} credits', when: 'click', clicks: 1, credits: 0, effects: [{ op: 'gain_credits', amount: 2 }] }],
+  },
+  {
+    id: 'r16',
+    name: 'Pipeline',
+    side: 'runner',
+    type: 'program',
+    subtype: 'breaker_sentry',
+    faction: 'shaper',
+    influence: 1,
+    cost: 3,
+    memory: 1,
+    strength: 1,
+    text: '1 credit: Break sentry subroutine.\n2 credits: +1 strength for the remainder of this run.',
+    art: 'glyph:pipe',
+    abilities: [
+      { op: 'break', cost: 1, iceType: 'sentry', count: 1 },
+      { op: 'strength', cost: 2, amount: 1, until: 'run' },
+    ],
+  },
+  {
+    id: 'r17',
+    name: 'Battering Ram',
+    side: 'runner',
+    type: 'program',
+    subtype: 'breaker_barrier',
+    faction: 'shaper',
+    influence: 2,
+    cost: 5,
+    memory: 2,
+    strength: 3,
+    text: '2 credits: Break up to 2 barrier subroutines.\n1 credit: +1 strength for the remainder of this run.',
+    art: 'glyph:ram',
+    abilities: [
+      { op: 'break', cost: 2, iceType: 'barrier', count: 2 },
+      { op: 'strength', cost: 1, amount: 1, until: 'run' },
+    ],
   },
 ];
 
 /** 15-card starter deck: one of each, plus an extra Easy Mark, Armitage Codebusting and Diesel. */
 export const RUNNER_STARTER_DECK: DeckList = [
-  ...RUNNER_CARDS.map((c) => c.id),
+  // The 12 Sprint 2 cards, one each (frozen: Sprint 8 cards are not in it).
+  ...['r01', 'r02', 'r03', 'r04', 'r05', 'r06', 'r07', 'r08', 'r09', 'r10', 'r11', 'r12'],
   'r01',
   'r02',
   'r03',
 ];
+
+/** Sprint 8: the 30-card Kate core deck (proposal S-08 table). Influence 14 of 15. */
+export const RUNNER_CORE_DECK: DeckDef = {
+  identity: 'r13',
+  cards: [
+    ...['r14', 'r14', 'r14'], // Sure Gamble
+    ...['r01', 'r01'], // Easy Mark
+    ...['r03', 'r03', 'r03'], // Diesel
+    ...['r02', 'r02'], // Armitage Codebusting
+    'r10', // Bank Job
+    ...['r15', 'r15'], // Magnum Opus
+    ...['r07', 'r07', 'r07'], // The Maker's Eye
+    ...['r11', 'r11'], // Inside Job
+    'r04', // Corroder
+    ...['r05', 'r05'], // Gordian Blade
+    ...['r16', 'r16'], // Pipeline
+    ...['r17', 'r17'], // Battering Ram
+    ...['r09', 'r09'], // Akamatsu Mem Chip
+    ...['r08', 'r08'], // Cyberfeeder
+    'r12', // Sacrificial Construct
+  ],
+};

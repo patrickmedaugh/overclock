@@ -52,10 +52,14 @@ export type Presence = 'none' | 'here' | 'away';
 export type ErrorCode = 'no_game' | 'full' | 'bad_token' | 'version' | 'bad_message' | 'expired' | 'replaced';
 export const ERROR_CODES: readonly ErrorCode[] = ['no_game', 'full', 'bad_token', 'version', 'bad_message', 'expired', 'replaced'];
 
-/** Test mode only (`OVERCLOCK_TEST_MODE=1` on the server): a fixed seed and a prelude of actions. */
+/**
+ * Test mode only (`OVERCLOCK_TEST_MODE=1` on the server): a fixed seed and a prelude of actions.
+ * Sprint 8: `deckSet` (default `'core'`) — `'starter'` keeps legacy specs on the Sprint 7 decks.
+ */
 export interface TestSetup {
   readonly seed: number;
   readonly actions: readonly Action[];
+  readonly deckSet?: 'core' | 'starter';
 }
 
 // ---- client → server ----------------------------------------------------------
@@ -147,7 +151,14 @@ function result<M>(d: Obj | 'bad_message' | 'version', check: (d: Obj) => boolea
 }
 
 function isTestSetup(x: unknown): x is TestSetup {
-  return isObj(x) && isUint(x.seed) && x.seed <= 0xffffffff && Array.isArray(x.actions) && x.actions.every(isAction);
+  return (
+    isObj(x) &&
+    isUint(x.seed) &&
+    x.seed <= 0xffffffff &&
+    Array.isArray(x.actions) &&
+    x.actions.every(isAction) &&
+    (x.deckSet === undefined || x.deckSet === 'core' || x.deckSet === 'starter')
+  );
 }
 
 const CLIENT_CHECKS: Record<ClientMsgType, (d: Obj) => boolean> = {

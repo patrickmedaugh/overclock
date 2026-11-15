@@ -12,18 +12,8 @@
 import { getCard } from '@overclock/cards';
 import { describe, expect, it } from 'vitest';
 import { rezCost } from '../src/rules';
-import {
-  WINNING_POINTS,
-  apply,
-  legalActions,
-  newGame,
-  viewEvents,
-  viewFor,
-  waitingOn,
-  type Action,
-  type GameEvent,
-  type GameState,
-} from '../src/index';
+import { WINNING_POINTS, apply, legalActions, viewEvents, viewFor, waitingOn, type Action, type GameEvent, type GameState } from '../src/index';
+import { newGame } from './helpers';
 
 function prng(seed: number): (n: number) => number {
   let s = (seed * 2246822519) >>> 0 || 7;

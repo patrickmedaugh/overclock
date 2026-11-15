@@ -33,6 +33,11 @@ export function runnerEventLeaks(events: readonly GameEvent[], after: GameState)
   const out: string[] = [];
   for (const e of events) {
     if (REVEALING.has(e.type)) continue;
+    // Sprint 8 (spec change): the Corp's identity is a public card; its own trigger may name it.
+    if (e.type === 'ability_triggered' && e.uid === 'id:corp') {
+      if (e.cardId !== after.players.corp.identity) out.push(`ability_triggered names ${e.cardId}, not the Corp identity`);
+      continue;
+    }
     if (e.type === 'card_rezzed' || e.type === 'ability_triggered') {
       // Sprint 7: may name a Corp card only once it is face up (installed, rezzed, same id).
       const corp = after.servers.flatMap((sv) => [...sv.ice, ...sv.content]).find((c) => c.uid === e.uid);
@@ -62,6 +67,8 @@ export function runnerViewLeaks(s: GameState, v: PlayerView = viewFor('runner', 
   check(same(v.players.corp.discard, s.players.corp.discard.map((d) => (d.faceUp ? d.cardId : null))), 'Archives: a face-down card is named');
   check(same(v.players.corp.scored, s.players.corp.scoreArea), 'Corp score area differs');
   check(same(v.players.runner.scored, s.players.runner.scoreArea), 'Runner score area differs');
+  // Sprint 8 (spec change): identities are public cards.
+  check(same(v.players.corp.identity?.cardId ?? null, s.players.corp.identity), 'Corp identity differs');
   const installed = s.servers.flatMap((sv) => [...sv.ice, ...sv.content]);
   for (const c of v.corpServers.flatMap((sv) => [...sv.ice, ...sv.content])) {
     const real = installed.find((x) => x.uid === c.uid);
@@ -83,7 +90,7 @@ export function runnerViewLeaks(s: GameState, v: PlayerView = viewFor('runner', 
   const rest = {
     ...v,
     players: {
-      corp: { ...v.players.corp, discard: [], scored: [] },
+      corp: { ...v.players.corp, discard: [], scored: [], identity: null },
       runner: { ...v.players.runner, scored: [] },
     },
     corpServers: v.corpServers.map((sv) => ({

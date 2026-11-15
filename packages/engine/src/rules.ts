@@ -20,6 +20,7 @@ import {
   CENTRAL_SERVERS,
   MAX_HAND_SIZE,
   MEMORY_LIMIT,
+  maxHandSize,
   type GameState,
   type AccessCard,
   type Installed,
@@ -66,11 +67,11 @@ const indicesShape = (_s: GameState, a: ActionOf<'discard'>): RejectReason | nul
   return Array.isArray(idx) && idx.every((i) => Number.isInteger(i)) ? null : 'invalid_action';
 };
 
-/** Exactly hand - 5 distinct indices, each inside the hand. */
+/** Exactly hand − max hand size (Sprint 8: 5 − brain damage) distinct indices, each inside the hand. */
 const validDiscard = (s: GameState, a: ActionOf<'discard'>): RejectReason | null => {
   const handSize = s.players[a.player].hand.length;
   const idx = a.handIndices;
-  if (idx.length !== discardCount(handSize)) return 'bad_discard';
+  if (idx.length !== discardCount(handSize, maxHandSize(s, a.player))) return 'bad_discard';
   if (new Set(idx).size !== idx.length) return 'bad_discard';
   if (idx.some((i) => i < 0 || i >= handSize)) return 'bad_discard';
   return null;
@@ -265,9 +266,13 @@ export function rezzableCard(s: GameState, uid: unknown): Installed | undefined 
   return type === 'asset' || type === 'upgrade' ? where.installed : undefined;
 }
 
-/** `rez` is answered in the approach step, an open choice, or (Sprint 7) the Corp's action phase. */
+/**
+ * `rez` is answered in the approach step, an open `free_rez` choice, or (Sprint 7) the Corp's action
+ * phase. Sprint 8: any other choice (`trash_target`, `prevent_trash`) is `wrong_phase`.
+ */
 const rezPhase = (s: GameState): RejectReason | null => {
-  if (s.phase === 'choice' || s.phase === 'action') return null;
+  if (s.phase === 'choice') return s.choice?.kind === 'free_rez' ? null : 'wrong_phase';
+  if (s.phase === 'action') return null;
   return s.phase === 'run' && s.run?.step === 'approach' ? null : 'wrong_phase';
 };
 
@@ -301,12 +306,29 @@ const atStepOrChoice =
   (s: GameState): RejectReason | null =>
     s.phase === 'choice' && s.choice ? null : atStep(...steps)(s);
 
-/** Leave it / Done is refused while an agenda that must be stolen is shown. */
-const passAllowed = (s: GameState): RejectReason | null =>
-  s.run?.step === 'access' && unstolenAgendaShown(s) ? 'bad_target' : null;
+/**
+ * Leave it / Done is refused while an agenda that must be stolen is shown. Sprint 8: `pass` in a
+ * `trash_target` choice is refused too (the Corp must pick).
+ */
+const passAllowed = (s: GameState): RejectReason | null => {
+  if (s.phase === 'choice') return s.choice?.kind === 'trash_target' ? 'bad_target' : null;
+  return s.run?.step === 'access' && unstolenAgendaShown(s) ? 'bad_target' : null;
+};
 
-const abilityShape = (_s: GameState, a: ActionOf<'use_ability'>): RejectReason | null =>
-  typeof a.uid === 'string' && isInt(a.ability) && (a.sub === undefined || isInt(a.sub)) ? null : 'invalid_action';
+/**
+ * Shape: uid string, integer ability, `sub` absent or an integer. Sprint 8: `subs` absent or an
+ * array of integers, never together with `sub`, and only for a `count: 2` break ability of the
+ * named card (when it is a breaker with that ability; otherwise the target check answers).
+ */
+const abilityShape = (s: GameState, a: ActionOf<'use_ability'>): RejectReason | null => {
+  if (typeof a.uid !== 'string' || !isInt(a.ability) || !(a.sub === undefined || isInt(a.sub))) return 'invalid_action';
+  const subs: unknown = a.subs;
+  if (subs === undefined) return null;
+  if (!Array.isArray(subs) || !subs.every(isInt) || a.sub !== undefined) return 'invalid_action';
+  const ability = breakerCard(s, a.uid)?.card.abilities?.[a.ability];
+  if (ability && !(ability.op === 'break' && ability.count === 2)) return 'invalid_action';
+  return null;
+};
 
 /** The ability being used, when the breaker, ability and (for breaks) subroutine are all valid targets. */
 export function abilityTarget(s: GameState, a: ActionOf<'use_ability'>): BreakerAbility | undefined {
@@ -319,14 +341,26 @@ export function abilityTarget(s: GameState, a: ActionOf<'use_ability'>): Breaker
   const ability = b.card.abilities?.[a.ability];
   if (!ability) return undefined;
   if (ability.op === 'break') {
-    const subs = iceCard.subroutines ?? [];
-    if (a.sub === undefined || a.sub < 0 || a.sub >= subs.length) return undefined;
-    if (s.run?.broken.includes(a.sub)) return undefined;
     if (ability.iceType !== iceCard.subtype) return undefined;
-  } else if (a.sub !== undefined) {
+    const count = (iceCard.subroutines ?? []).length;
+    const ok = (i: number) => i >= 0 && i < count && !s.run?.broken.includes(i);
+    if (ability.count === 2) {
+      // Sprint 8: "break up to 2": 1–2 distinct unbroken subroutines, ascending.
+      const subs = a.subs;
+      if (a.sub !== undefined || !subs || subs.length < 1 || subs.length > 2) return undefined;
+      if (!subs.every(ok) || (subs.length === 2 && !((subs[0] as number) < (subs[1] as number)))) return undefined;
+    } else if (a.sub === undefined || !ok(a.sub)) {
+      return undefined;
+    }
+  } else if (a.sub !== undefined || a.subs !== undefined) {
     return undefined;
   }
   return ability;
+}
+
+/** Sprint 8: the subroutine indices a (validated) break names: `subs`, or `[sub]`. */
+export function breakSubs(a: ActionOf<'use_ability'>): number[] {
+  return a.subs ? [...a.subs] : a.sub !== undefined ? [a.sub] : [];
 }
 
 const abilityTargetCheck = (s: GameState, a: ActionOf<'use_ability'>): RejectReason | null =>
@@ -582,6 +616,7 @@ export const RULES: RuleTable = {
   advance: [playerShape, uidShape, notOver, yourTurn, inPhase('action'), hasClick, ownAdvanceable, canAffordAdvance],
   score: [playerShape, uidShape, notOver, yourTurn, inPhase('action'), ownAgenda, enoughCounters],
   activate: [playerShape, activateShape, notOver, decides, activateTargetCheck, activatePhase, activateClicks, activateCondition, activateCredits],
+  choose: [playerShape, chooseShape, notOver, decides, choosePhase, chooseTarget],
 };
 
 /** Memory used by the Runner's installed programs (card data `memory`). */
@@ -589,9 +624,57 @@ export function memoryUsed(state: GameState): number {
   return state.rig.reduce((sum, c) => sum + (getCard(c.cardId)?.memory ?? 0), 0);
 }
 
-/** How many cards a hand of `handSize` must discard at end of turn. */
-export function discardCount(handSize: number): number {
-  return Math.max(0, handSize - MAX_HAND_SIZE);
+/** How many cards a hand of `handSize` must discard at end of turn (Sprint 8: down to `max`, never below 0 cards). */
+export function discardCount(handSize: number, max: number = MAX_HAND_SIZE): number {
+  return Math.max(0, handSize - Math.max(0, max));
+}
+
+// ---- Sprint 8: choices inside a run ---------------------------------------------------
+
+/** The effect of the subroutine an in-run choice is resolving (`run.firing`), if any. */
+export function firingEffect(s: GameState): Effect | undefined {
+  const ice = currentIce(s);
+  const firing = s.run?.firing;
+  if (!ice || firing === null || firing === undefined) return undefined;
+  return getCard(ice.cardId)?.subroutines?.[firing]?.effect;
+}
+
+/** Rig cards a `trash_installed` effect may trash (rig order). */
+export function trashCandidates(s: GameState, effect: Effect | undefined): Installed[] {
+  if (effect?.op !== 'trash_installed') return [];
+  const types: readonly CardType[] = effect.types;
+  return s.rig.filter((c) => {
+    const t = getCard(c.cardId)?.type;
+    return t !== undefined && types.includes(t);
+  });
+}
+
+/** Rig cards that may be trashed instead of rig card `target` (`trashPrevention` covers its type; not itself), rig order. */
+export function trashPreventers(s: GameState, target: string): Installed[] {
+  const t = getCard(s.rig.find((c) => c.uid === target)?.cardId ?? '')?.type;
+  if (t === undefined) return [];
+  return s.rig.filter((c) => c.uid !== target && (getCard(c.cardId)?.trashPrevention?.types ?? []).includes(t));
+}
+
+/** The uids `choose` may name in the open choice (trash_target: candidates; prevent_trash: preventers). */
+export function chooseTargets(s: GameState): string[] {
+  const c = s.choice;
+  if (s.phase !== 'choice' || !c) return [];
+  if (c.kind === 'trash_target') return trashCandidates(s, firingEffect(s)).map((x) => x.uid);
+  if (c.kind === 'prevent_trash' && c.target !== undefined) return trashPreventers(s, c.target).map((x) => x.uid);
+  return [];
+}
+
+function chooseShape(_s: GameState, a: ActionOf<'choose'>): RejectReason | null {
+  return typeof a.uid === 'string' ? null : 'invalid_action';
+}
+
+function choosePhase(s: GameState): RejectReason | null {
+  return s.phase === 'choice' && (s.choice?.kind === 'trash_target' || s.choice?.kind === 'prevent_trash') ? null : 'wrong_phase';
+}
+
+function chooseTarget(s: GameState, a: ActionOf<'choose'>): RejectReason | null {
+  return chooseTargets(s).includes(a.uid) ? null : 'bad_target';
 }
 
 function isKnownType(t: unknown): t is ActionType {

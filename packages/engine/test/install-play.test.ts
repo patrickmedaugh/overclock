@@ -1,20 +1,7 @@
 // Sprint 2 E3: install and play (S-02-1..S-02-4 engine side).
 import { describe, expect, it } from 'vitest';
-import {
-  apply,
-  legalActions,
-  newGame,
-  replay,
-  viewEvents,
-  waitingOn,
-  viewFor,
-  type Action,
-  type GameState,
-  type RejectReason,
-  type ServerId,
-  type Side,
-} from '../src/index';
-import { clone, finishTurn, rejection, run, withHand, withPlayer } from './helpers';
+import { apply, legalActions, viewEvents, waitingOn, viewFor, type Action, type GameState, type RejectReason, type ServerId, type Side } from '../src/index';
+import { clone, finishTurn, rejection, run, withHand, withPlayer, newGame, replay } from './helpers';
 import { expectRunnerEventsClean, expectRunnerViewClean } from './hidden';
 
 const install = (player: Side, handIndex: number, server?: ServerId | 'new'): Action =>

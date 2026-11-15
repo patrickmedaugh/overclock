@@ -8,7 +8,7 @@ import type { Presentation } from '../src/session';
 /** Plays `seed` to `goal`, collecting every presentation with the decision shown before it. */
 function play(seed: number, goal: Parameters<typeof planToStep>[1]) {
   const plan = planToStep(seed, goal);
-  const h = new HotSeat(seed);
+  const h = new HotSeat(seed, { deckSet: 'starter' });
   const seen: { p: Presentation; before: 'corp' | 'runner' | null }[] = [];
   let shown = h.decision()?.seat ?? null;
   h.onPresent((p) => {
@@ -21,7 +21,7 @@ function play(seed: number, goal: Parameters<typeof planToStep>[1]) {
 
 describe('coverFor', () => {
   it('ending a turn hands the phone to the next player', () => {
-    const h = new HotSeat(7);
+    const h = new HotSeat(7, { deckSet: 'starter' });
     expect(coverFor(h.submit({ type: 'gain_credit', player: 'corp' }), null)).toBeNull();
     expect(h.submit({ type: 'end_turn', player: 'corp' }).kind).toBe('same'); // the discard picker first
     const p = h.submit({ type: 'discard', player: 'corp', handIndices: [0] });
@@ -59,7 +59,7 @@ describe('coverFor', () => {
 
 describe('HotSeat as a Session', () => {
   it('presents every submit to its listeners at once (same object it returns)', () => {
-    const h = new HotSeat(7);
+    const h = new HotSeat(7, { deckSet: 'starter' });
     const got: Presentation[] = [];
     const off = h.onPresent((p) => got.push(p));
     const p = h.submit({ type: 'draw', player: 'corp' });

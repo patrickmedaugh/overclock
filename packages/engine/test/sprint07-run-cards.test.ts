@@ -2,8 +2,8 @@
 // and Bank Job (successful run on a remote: take its credits instead of accessing). Real play
 // from a new game; hands, credits and clicks are set before the first action.
 import { describe, expect, it } from 'vitest';
-import { apply, legalActions, newGame, viewEvents, viewFor, type Action, type GameState, type ServerId } from '../src/index';
-import { finishTurn, liveness, rejection, run, withHand, withPlayer } from './helpers';
+import { apply, legalActions, viewEvents, viewFor, type Action, type GameState, type ServerId } from '../src/index';
+import { finishTurn, liveness, rejection, run, withHand, withPlayer, newGame } from './helpers';
 
 const corpInstall = (handIndex: number, server: ServerId | 'new'): Action => ({ type: 'install', player: 'corp', handIndex, server });
 const install = (handIndex: number): Action => ({ type: 'install', player: 'runner', handIndex });

@@ -4,6 +4,8 @@ import type { GameEvent, RejectReason, SubOutcome } from './events';
 import { getCard } from '@overclock/cards';
 import { breakerCard, breakerStrength, currentIce, discardCount, iceStrength, memoryLimit, memoryUsed, waitingOn } from './rules';
 import {
+  IDENTITY_UID,
+  maxHandSize,
   pointsOf,
   type AccessFrom,
   type ChoiceKind,
@@ -32,6 +34,12 @@ export interface PlayerSideView {
   readonly scored: readonly string[];
   /** Agenda points in the score area. */
   readonly points: number;
+  /** Sprint 8: the side's identity card (public; `uid` = `id:corp` / `id:runner`), or null (starter decks). */
+  readonly identity: { readonly uid: string; readonly cardId: string } | null;
+  /** Sprint 8: maximum hand size (5 − brain damage; may be below 0 just before a flatline). */
+  readonly maxHandSize: number;
+  /** Sprint 8: brain damage taken (Runner; 0 for the Corp). */
+  readonly brainDamage: number;
 }
 
 /** An installed card as one player sees it. */
@@ -68,6 +76,8 @@ export interface CardOption {
   readonly gain?: number;
   /** Sprint 7: breaker options only, only when non-empty: the cards whose credits pay part of `cost` (e.g. Cyberfeeder). */
   readonly hostedPay?: readonly { readonly uid: string; readonly amount: number }[];
+  /** Sprint 8: install options only, only when > 0: credits an install discount (Kate) takes off; `cost` is already lowered. */
+  readonly discount?: number;
 }
 
 /** The current ICE during a run, as the viewer sees it. */
@@ -142,11 +152,15 @@ export interface ChoiceView {
   readonly kind: ChoiceKind;
   /** Who must decide (the Corp for `free_rez`). */
   readonly waitingOn: Side;
-  /** The card whose effect opened it (the scored agenda; public). */
+  /** The card whose effect opened it (the scored agenda; Sprint 8: the rezzed ICE whose subroutine fired; public). */
   readonly cardId: string;
+  /** Sprint 8, `prevent_trash` only: the rig card that would be trashed. */
+  readonly target?: string;
   /**
    * The deciding viewer's options: `free_rez` = one `rez` (cost 0) per unrezzed installed ICE uid
-   * (servers in `corpServers` order, then ICE index order), then `pass` (= Skip). Empty for the other player.
+   * (servers in `corpServers` order, then ICE index order), then `pass` (= Skip). Sprint 8:
+   * `trash_target` = one `choose` per candidate (rig order); `prevent_trash` = one `choose` per
+   * preventer (rig order), then `pass` (let it be trashed). Empty for the other player.
    */
   readonly options: readonly CardOption[];
 }
@@ -194,7 +208,8 @@ export interface PlayerView {
   readonly lastRun: LastRunView | null;
 }
 
-function sideView(p: PlayerState, side: Side, viewer: Side): PlayerSideView {
+function sideView(state: GameState, side: Side, viewer: Side): PlayerSideView {
+  const p: PlayerState = state.players[side];
   return {
     deckCount: p.deck.length,
     handCount: p.hand.length,
@@ -206,6 +221,9 @@ function sideView(p: PlayerState, side: Side, viewer: Side): PlayerSideView {
     discard: p.discard.map((d) => (side === viewer || d.faceUp ? d.cardId : null)),
     scored: p.scoreArea.slice(),
     points: pointsOf(p.scoreArea),
+    identity: p.identity !== null ? { uid: IDENTITY_UID[side], cardId: p.identity } : null,
+    maxHandSize: maxHandSize(state, side),
+    brainDamage: p.brainDamage,
   };
 }
 
@@ -292,7 +310,13 @@ function runView(state: GameState, viewer: Side): RunView | null {
 function choiceView(state: GameState, viewer: Side): ChoiceView | null {
   const c = state.choice;
   if (state.phase !== 'choice' || !c) return null;
-  return { kind: c.kind, waitingOn: c.player, cardId: c.cardId, options: choiceOptions(state, viewer) };
+  return {
+    kind: c.kind,
+    waitingOn: c.player,
+    cardId: c.cardId,
+    ...(c.target !== undefined ? { target: c.target } : {}),
+    options: choiceOptions(state, viewer),
+  };
 }
 
 /** Runner only, only between runs, only when the most recent run accessed something. */
@@ -305,7 +329,7 @@ function lastRunView(state: GameState, viewer: Side): LastRunView | null {
 export function viewFor(player: Side, state: GameState): PlayerView {
   const pendingDiscard =
     state.phase === 'discard' && state.activePlayer === player
-      ? discardCount(state.players[player].hand.length)
+      ? discardCount(state.players[player].hand.length, maxHandSize(state, player))
       : 0;
   return {
     viewer: player,
@@ -315,8 +339,8 @@ export function viewFor(player: Side, state: GameState): PlayerView {
     pendingDiscard,
     result: copyResult(state.result),
     players: {
-      corp: sideView(state.players.corp, 'corp', player),
-      runner: sideView(state.players.runner, 'runner', player),
+      corp: sideView(state, 'corp', player),
+      runner: sideView(state, 'runner', player),
     },
     corpServers: state.servers.map((s) => ({
       id: s.id,
