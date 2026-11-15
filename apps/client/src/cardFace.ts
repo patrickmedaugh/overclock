@@ -324,6 +324,7 @@ function buildCardBack(side: Side, w: number, h: number): Container {
 
 const TYPE_LABEL: Record<string, string> = {
   event: 'EVENT',
+  identity: 'IDENTITY',
   program: 'PROGRAM',
   hardware: 'HARDWARE',
   resource: 'RESOURCE',
@@ -389,7 +390,7 @@ function buildCardFace(card: CardDef, w: number, h: number, detail: 'small' | 'f
  */
 function smallFace(card: CardDef, w: number, h: number): FaceDraw {
   for (const artFrac of [0.4, 0.34, 0.28]) {
-    for (const nameK of artFrac > 0.28 ? [1] : [1, 0.9, 0.82]) {
+    for (const nameK of artFrac > 0.28 ? [1] : [1, 0.9, 0.82, 0.75]) {
       const c = drawCardFace(card, w, h, 'small', artFrac, 1, nameK);
       if (c.fits) return c;
       c.root.destroy({ children: true });
@@ -406,12 +407,24 @@ export interface SmallFaceLayout {
   nameFontPx: number;
   /** The drawn name (may end in an ellipsis if it had to be cut). */
   nameText: string;
+  /** The art window (U1: credits on the card are drawn here, clear of the name and type). */
+  art: { x: number; y: number; width: number; height: number };
+  /** The cost bubble's bounding square. */
+  cost: { x: number; y: number; width: number; height: number };
 }
 
+const faceLayouts = new Map<string, SmallFaceLayout>();
+
+/** Where a small face's parts are (memoised per card and size: the board asks on every redraw). */
 export function smallFaceLayout(card: CardDef, w: number, h: number): SmallFaceLayout {
+  const key = `${card.id}:${sizeKey(w, h)}`;
+  const hit = faceLayouts.get(key);
+  if (hit) return hit;
   const c = smallFace(card, w, h);
   const out = c.small!;
   c.root.destroy({ children: true });
+  if (faceLayouts.size > 200) faceLayouts.clear();
+  faceLayouts.set(key, out);
   return out;
 }
 
@@ -464,19 +477,24 @@ function drawCardFace(
   const cr = w * (detail === 'full' ? 0.075 : 0.13);
   const ccx = left + cr + w * 0.04;
   const ccy = top + cr + w * 0.04;
-  g.circle(ccx, ccy, cr).fill({ color: 0x000000, alpha: 0.85 }).stroke({ width: Math.max(1, cr * 0.15), color: theme.credit });
+  // U2: an identity has no cost (it is never played), so no cost bubble. (`as string` until E1 adds 'identity' to CardType.)
+  const hasCost = (card.type as string) !== 'identity';
+  if (hasCost) g.circle(ccx, ccy, cr).fill({ color: 0x000000, alpha: 0.85 }).stroke({ width: Math.max(1, cr * 0.15), color: theme.credit });
   c.addChild(g);
 
-  const cost = new Text({
-    text: String(card.cost),
-    style: { fontFamily: theme.monoFamily, fontSize: cr * 1.2, fontWeight: '700', fill: theme.credit },
-  });
-  cost.anchor.set(0.5);
-  cost.position.set(ccx, ccy);
-  c.addChild(cost);
+  if (hasCost) {
+    const cost = new Text({
+      text: String(card.cost),
+      style: { fontFamily: theme.monoFamily, fontSize: cr * 1.2, fontWeight: '700', fill: theme.credit },
+    });
+    cost.anchor.set(0.5);
+    cost.position.set(ccx, ccy);
+    c.addChild(cost);
+  }
 
   const nameSize = detail === 'full' ? w * 0.068 : Math.max(7, w * 0.125) * nameK;
   const nameX = detail === 'full' ? ccx + cr + w * 0.04 : left + w * 0.06;
+  const nameWrap = left + w - nameX - w * 0.05;
   const name = new Text({
     text: card.name,
     style: {
@@ -485,9 +503,10 @@ function drawCardFace(
       fontWeight: '700',
       fill: theme.text,
       wordWrap: true,
-      wordWrapWidth: left + w - nameX - w * 0.05,
+      wordWrapWidth: nameWrap,
       lineHeight: nameSize * 1.1,
-      breakWords: true,
+      // Small faces: a word is never split across lines ("Codebustin|g", QA-S7-1) unless nothing else fits.
+      breakWords: detail === 'full' || clampName,
     },
   });
   if (detail === 'full') {
@@ -518,12 +537,14 @@ function drawCardFace(
     // A small gap between the name's last line and the type label.
     const nameBottom = typeTop - h * 0.01;
     if (clampName) clampLines(name, Math.max(1, Math.floor((nameBottom - name.y) / (nameSize * 1.1))));
-    fits = name.y + name.height <= nameBottom;
+    fits = name.y + name.height <= nameBottom && (clampName || name.width <= nameWrap + 0.5);
     small = {
       name: { x: name.x, y: name.y, width: name.width, height: name.height },
       type: { x: type.x, y: typeTop, width: type.width, height: type.height },
       nameFontPx: nameSize,
       nameText: name.text,
+      art: { x: artX, y: artY, width: artW, height: artH },
+      cost: hasCost ? { x: ccx - cr, y: ccy - cr, width: cr * 2, height: cr * 2 } : { x: ccx, y: ccy, width: 0, height: 0 },
     };
   }
   if (detail === 'full') {

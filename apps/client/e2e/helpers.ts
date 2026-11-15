@@ -398,6 +398,7 @@ export function expectCleanLayout(l: LayoutSnapshot): void {
   if (l.hint) {
     for (const [n, b] of [...elements, ...hand]) expect(overlaps(l.hint.box, b), `hint "${l.hint.text}" ${JSON.stringify(l.hint.box)} overlaps ${n}`).toBe(false);
   }
+  expectMarkersClear(l);
   for (let i = 1; i < hand.length; i++) {
     const a = hand[i - 1]![1];
     const b = hand[i]![1];
@@ -410,6 +411,31 @@ export function expectCleanLayout(l: LayoutSnapshot): void {
         expect(overlaps(hand[i]![1], hand[j]![1]), `${hand[i]![0]} overlaps ${hand[j]![0]}`).toBe(false);
       }
     }
+  }
+}
+
+/**
+ * QA-S7-1/2: on every installed card, the credits pill and the advancement tag sit on
+ * the card and never cover its name, type label or cost; the two markers never
+ * overlap each other and look different (colour and icon).
+ */
+export function expectMarkersClear(l: LayoutSnapshot): void {
+  const cards = [...l.servers.flatMap((s) => [...s.ice, ...s.content]), ...l.rig];
+  for (const c of cards) {
+    const marks: [string, Box][] = [];
+    if (c.hosted) marks.push([`credits pill "${c.hosted.text}"`, c.hosted.box]);
+    if (c.counterBadge) marks.push([`advancement tag "${c.counterBadge.text}"`, c.counterBadge.box]);
+    for (const [mn, mb] of marks) {
+      expect(inside(mb, c.box), `${mn} ${JSON.stringify(mb)} is on ${c.cardId ?? 'card back'} ${JSON.stringify(c.box)}`).toBe(true);
+      if (!c.face) continue;
+      for (const [fn, fb] of [['name', c.face.name], ['type', c.face.type], ['cost', c.face.cost]] as const) {
+        expect(overlaps(mb, fb), `${mn} ${JSON.stringify(mb)} covers the ${fn} of ${c.cardId} ${JSON.stringify(fb)}`).toBe(false);
+      }
+    }
+    if (c.hosted && c.counterBadge) expect(overlaps(c.hosted.box, c.counterBadge.box), `credits pill and advancement tag on ${c.uid} overlap`).toBe(false);
+    if (c.hosted) expect(c.hosted).toMatchObject({ icon: 'coin' });
+    if (c.counterBadge) expect(c.counterBadge).toMatchObject({ icon: 'chevron' });
+    if (c.hosted && c.counterBadge) expect(c.hosted.color).not.toBe(c.counterBadge.color);
   }
 }
 
