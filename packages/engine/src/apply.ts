@@ -377,9 +377,14 @@ export function runStepOptions(state: GameState, player: Side): CardOption[] {
           out.push(breakerOption(state, { type: 'use_ability', player, uid: c.uid, ability }, ab.cost));
           return;
         }
-        (iceCard?.subroutines ?? []).forEach((_, sub) => {
-          if (!run.broken.includes(sub)) out.push(breakerOption(state, { type: 'use_ability', player, uid: c.uid, ability, sub }, ab.cost));
-        });
+        const open = (iceCard?.subroutines ?? []).map((_, sub) => sub).filter((sub) => !run.broken.includes(sub));
+        if (ab.count === 2) {
+          // Sprint 8 ("break up to 2", Battering Ram): every 1- then 2-subroutine choice, ascending.
+          const picks = [...open.map((x) => [x]), ...open.flatMap((x, i) => open.slice(i + 1).map((y) => [x, y]))];
+          for (const subs of picks) out.push(breakerOption(state, { type: 'use_ability', player, uid: c.uid, ability, subs }, ab.cost));
+          return;
+        }
+        for (const sub of open) out.push(breakerOption(state, { type: 'use_ability', player, uid: c.uid, ability, sub }, ab.cost));
       });
     }
     out.push(option(state, pass, 0));

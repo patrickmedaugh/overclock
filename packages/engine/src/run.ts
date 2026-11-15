@@ -17,6 +17,7 @@ import {
   breakerPayment,
   breakerCard,
   breakerStrength,
+  breakSubs,
   corpInstalled,
   currentIce,
   findServer,
@@ -720,11 +721,12 @@ export function doUseAbility(state: GameState, a: ActionOf<'use_ability'>): { st
     return { state: s, events };
   }
   const ice = currentIce(s) as Installed;
-  const sub = a.sub as number;
-  s = setRun(s, { broken: [...run.broken, sub].sort((x, y) => x - y) });
-  events.push({ type: 'subroutine_broken', iceUid: ice.uid, sub, breakerUid: a.uid });
-  const subs = getCard(ice.cardId)?.subroutines ?? [];
-  if (theRun(s).broken.length >= subs.length) s = passIce(s, events);
+  // Sprint 8: a "break up to 2" ability names its subroutines in `subs` (one payment, one event each).
+  const subs = breakSubs(a);
+  s = setRun(s, { broken: [...run.broken, ...subs].sort((x, y) => x - y) });
+  for (const sub of subs) events.push({ type: 'subroutine_broken', iceUid: ice.uid, sub, breakerUid: a.uid });
+  const all = getCard(ice.cardId)?.subroutines ?? [];
+  if (theRun(s).broken.length >= all.length) s = passIce(s, events);
   return { state: s, events };
 }
 
