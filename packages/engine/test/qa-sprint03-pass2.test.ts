@@ -13,7 +13,7 @@ import { getCard } from '@overclock/cards';
 import { describe, expect, it } from 'vitest';
 import { rezCost } from '../src/rules';
 import { WINNING_POINTS, apply, legalActions, viewEvents, viewFor, waitingOn, type Action, type GameEvent, type GameState } from '../src/index';
-import { newGame } from './helpers';
+import { coreGame, newGame } from './helpers';
 
 function prng(seed: number): (n: number) => number {
   let s = (seed * 2246822519) >>> 0 || 7;
@@ -97,6 +97,8 @@ function checkRunnerView(s: GameState, where: string): void {
     ...s.players.corp.discard.filter((d) => d.faceUp).map((d) => d.cardId),
     ...s.players.corp.scoreArea,
     ...s.players.runner.scoreArea,
+    // Sprint 8 (engine-dev, spec change; QA reviews): the Corp's identity is a public card.
+    ...(s.players.corp.identity !== null ? [s.players.corp.identity] : []),
   ];
   // Sprint 5 (engine-dev, spec change): Last run shows the Runner exactly the cards its most recent
   // run accessed, only between runs (RULES_SPEC § Runs step 4).
@@ -120,9 +122,18 @@ function checkRunnerEvents(before: GameState, after: GameState, events: readonly
       case 'card_trashed':
       case 'card_played':
         break; // public
-      case 'choice_opened':
+      case 'choice_opened': {
         // Sprint 4 (engine-dev): names the agenda scored by this same action (face up now).
-        expect(events.some((x) => x.type === 'agenda_scored' && x.cardId === e.cardId), `${where}: choice names the scored agenda`).toBe(true);
+        // Sprint 8 (engine-dev, spec change; QA reviews): or, for an in-run choice, the rezzed current ICE.
+        const run = after.run;
+        const ice = run && run.position >= 0 ? after.servers.find((x) => x.id === run.server)?.ice[run.position] : undefined;
+        const ok = events.some((x) => x.type === 'agenda_scored' && x.cardId === e.cardId) || (e.kind !== 'free_rez' && ice?.rezzed === true && ice.cardId === e.cardId);
+        expect(ok, `${where}: choice names the scored agenda or the rezzed current ICE`).toBe(true);
+        break;
+      }
+      case 'corp_card_trashed':
+        // Sprint 8 (engine-dev, spec change; QA reviews): a face-up Corp card emptied to Archives (face up).
+        expect(after.players.corp.discard.some((d) => d.faceUp && d.cardId === e.cardId), `${where}: ${e.cardId} face up in Archives`).toBe(true);
         break;
       case 'subroutine_resolved': {
         // Sprint 5 (engine-dev, spec change): names the ICE whose subroutine fired, which is rezzed (face up).
@@ -134,8 +145,15 @@ function checkRunnerEvents(before: GameState, after: GameState, events: readonly
       case 'ability_triggered': {
         // Sprint 7 (engine-dev, spec change; QA reviews): names a Corp card only once it is face up:
         // the uid is an installed, rezzed card with that id after the action.
+        // Sprint 8 (engine-dev, spec change; QA reviews): the Corp identity's own trigger, and a card
+        // trashed face up to Archives in this same action (Adonis Campaign emptied).
+        if (e.type === 'ability_triggered' && e.uid === 'id:corp') {
+          expect(e.cardId, `${where}: Corp identity trigger`).toBe(after.players.corp.identity);
+          break;
+        }
         const c = after.servers.flatMap((sv) => [...sv.ice, ...sv.content]).find((x) => x.uid === e.uid);
-        expect(c?.rezzed === true && c.cardId === e.cardId, `${where}: ${e.type} names face-up ${e.uid}`).toBe(true);
+        const trashed = events.some((x) => x.type === 'corp_card_trashed' && x.uid === e.uid && x.cardId === e.cardId);
+        expect((c?.rezzed === true && c.cardId === e.cardId) || (!c && trashed), `${where}: ${e.type} names face-up ${e.uid}`).toBe(true);
         break;
       }
       case 'card_accessed':
@@ -238,4 +256,32 @@ describe('QA Sprint 3: random games with runs', () => {
     expect(stats.scores).toBeGreaterThan(20);
     expect(stats.over.agenda_points + stats.over.flatline + stats.over.corp_decked).toBeGreaterThan(100);
   }, 60_000); // ~2–8s; a long timeout so a busy CI runner cannot turn it red (architect, 2026-11-13). Assertions unchanged.
+});
+
+describe('QA Sprint 3 checks on the Sprint 8 core decks (engine-dev; QA reviews)', () => {
+  it('hidden info and decision windows hold at every step (100 core-deck games)', () => {
+    let runs = 0;
+    for (let seed = 1; seed <= 100; seed++) {
+      const pick = prng(seed);
+      let s = coreGame(seed);
+      for (let step = 0; step < 1500 && s.phase !== 'over'; step++) {
+        const where = `core seed ${seed} step ${step}`;
+        checkRunnerView(s, where);
+        checkWindows(s, where);
+        const me = waitingOn(s)!;
+        const legal = legalActions(s, me);
+        expect(legal.length, `${where}: ${me} can act`).toBeGreaterThan(0);
+        const w = legal.map(weight);
+        let r = pick(w.reduce((x, y) => x + y, 0));
+        let i = 0;
+        while (r >= w[i]!) r -= w[i++]!;
+        const res = apply(s, legal[i]!);
+        expect(res.events.some((e) => e.type === 'action_rejected'), `${where}: legal accepted`).toBe(false);
+        checkRunnerEvents(s, res.state, res.events, where);
+        runs += res.events.filter((e) => e.type === 'run_started').length;
+        s = res.state;
+      }
+    }
+    expect(runs).toBeGreaterThan(200);
+  }, 60_000);
 });

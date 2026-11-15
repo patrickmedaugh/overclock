@@ -25,7 +25,7 @@ The engine implements this document. It is a simplified, genre-standard ruleset;
   - New remote servers are numbered Server 1, Server 2, ... in the order they are made; numbers are never reused.
 - **Install** (1 click), Runner: programs, hardware and resources go face up into the Runner's area (the rig). Pay the card's cost. Programs use memory: installed programs' memory must stay at or under the memory limit: 4, plus 1 for each installed card that raises it (Akamatsu Mem Chip: +1, Sprint 7).
 - **Play** (1 click): an operation (Corp) or event (Runner). Pay its cost, the card goes face up on top of your discard pile (Archives / Heap), then its effect happens. Card draws from an effect stop when the deck is empty; nothing is lost (only the Corp's mandatory draw can lose the game).
-- *(Sprint 2: cards whose effect needs runs could not be played yet. From Sprint 3 they work; see Runs.)* From Sprint 7 installed cards' abilities work (see "Card abilities and credits on cards"); only Private Security Force and Sacrificial Construct still have nothing to react to.
+- *(Sprint 2: cards whose effect needs runs could not be played yet. From Sprint 3 they work; see Runs.)* From Sprint 7 installed cards' abilities work (see "Card abilities and credits on cards"); from Sprint 8 Sacrificial Construct works too (Rototurret), so only Private Security Force still has nothing to react to (it needs tags).
 - If several things stop an install or play, the reason given follows this order: not your turn, wrong step, no clicks, wrong card, wrong place, needs a system not built yet, its play condition is not met (e.g. Neural EMP without a run last turn), not enough credits, not enough memory.
 
 ## Identities and deck rules (Sprint 8)
