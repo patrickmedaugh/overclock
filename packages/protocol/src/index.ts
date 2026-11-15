@@ -69,6 +69,11 @@ export type ClientMsg =
   | { readonly v: 1; readonly t: 'resume'; readonly token: string; readonly since: number }
   /** Submit a move. `id` is the client's own counter, echoed back as `ack`. */
   | { readonly v: 1; readonly t: 'act'; readonly id: number; readonly action: Action }
+  /**
+   * Sprint 7: the seat gives up a lobby nobody joined: the room closes (sockets closed, storage
+   * deleted; the code then answers `no_game`). In a started game: `bad_message`.
+   */
+  | { readonly v: 1; readonly t: 'leave' }
   | { readonly v: 1; readonly t: 'ping' };
 
 // ---- server → client ----------------------------------------------------------
@@ -150,6 +155,7 @@ const CLIENT_CHECKS: Record<ClientMsgType, (d: Obj) => boolean> = {
   join: () => true,
   resume: (d) => typeof d.token === 'string' && d.token.length > 0 && d.token.length <= 64 && isUint(d.since),
   act: (d) => isUint(d.id) && isAction(d.action),
+  leave: () => true,
   ping: () => true,
 };
 

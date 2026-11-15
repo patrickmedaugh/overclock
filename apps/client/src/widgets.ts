@@ -478,6 +478,9 @@ export class TargetMarker {
   private readonly pill = new Graphics();
   private readonly label: Text;
   private drawn = '';
+  private main = '';
+  /** S-07-2/3: why a dimmed button would be refused, shown under its label ("Not enough credits"). */
+  note = '';
   box: Box = { x: 0, y: 0, width: 0, height: 0 };
 
   constructor(scale: number) {
@@ -499,15 +502,23 @@ export class TargetMarker {
   }
 
   get text(): string {
-    return this.label.text;
+    return this.main;
+  }
+
+  /** S-07-6: a dragged card is over this place: it swells a little. */
+  setHover(on: boolean): void {
+    this.root.scale.set(on ? 1.05 : 1);
   }
 
   /** `at` is where the price pill goes, relative to the box: 'top' | 'bottom' | 'center'. */
-  set(b: Box, text: string, lit: boolean, at: 'top' | 'bottom' | 'center'): void {
+  set(b: Box, text: string, lit: boolean, at: 'top' | 'bottom' | 'center', note = ''): void {
+    this.setHover(false);
     this.box = { ...b };
+    this.main = text;
+    this.note = note;
     this.root.position.set(b.x + b.width / 2, b.y + b.height / 2);
     this.root.hitArea = new Rectangle(-b.width / 2, -b.height / 2, b.width, b.height);
-    const key = `${b.width}x${b.height}:${text}:${lit}:${at}`;
+    const key = `${b.width}x${b.height}:${text}:${note}:${lit}:${at}`;
     if (key === this.drawn) return;
     this.drawn = key;
     const color = lit ? theme.credit : theme.textDim;
@@ -517,7 +528,7 @@ export class TargetMarker {
     this.g.roundRect(-w / 2, -h / 2, w, h, r).fill({ color, alpha: lit ? 0.14 : 0.08 });
     glowRoundRect(this.g, -w / 2, -h / 2, w, h, r, color, 2, lit ? 1.2 : 0.5);
     this.label.style.wordWrapWidth = Math.max(30, w - 10);
-    this.label.text = text;
+    this.label.text = note ? `${text}\n${note}` : text;
     this.label.scale.set(1);
     const lw = Math.min(this.label.width, w - 6);
     const lh = this.label.height;

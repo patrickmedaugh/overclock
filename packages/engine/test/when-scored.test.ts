@@ -15,6 +15,7 @@ describe('S-04-4 AC1: Hostile Takeover — +7 credits and 1 bad publicity when s
       { type: 'agenda_scored', uid: 'i1', cardId: 'c08', points: 1 },
       { type: 'credit_gained', player: 'corp', amount: 7 },
       { type: 'bad_publicity_gained', amount: 1, total: 1 },
+      { type: 'server_removed', server: 'remote1' }, // Sprint 7 (S-07-1): the emptied remote goes last
     ]);
     expect(r.state.players.corp).toMatchObject({ credits: 9, scoreArea: ['c08'], clicks: 3 });
     expect(r.state.badPublicity).toBe(1);
@@ -42,7 +43,10 @@ describe('S-04-4 AC1: Hostile Takeover — +7 credits and 1 bad publicity when s
 
   it('agendas without a bonus (Private Security Force) score only their points', () => {
     const r = act(corpBoard(['c09'], { ready: ['i1'] }), score('i1'));
-    expect(r.events).toEqual([{ type: 'agenda_scored', uid: 'i1', cardId: 'c09', points: 2 }]);
+    expect(r.events).toEqual([
+      { type: 'agenda_scored', uid: 'i1', cardId: 'c09', points: 2 },
+      { type: 'server_removed', server: 'remote1' }, // Sprint 7 (S-07-1)
+    ]);
     expect(r.state.badPublicity).toBe(0);
   });
 
@@ -114,6 +118,7 @@ describe('S-04-4 AC3: Priority Requisition — rez one face-down ICE for free, o
     expect(r.events).toEqual([
       { type: 'agenda_scored', uid: 'i4', cardId: 'c10', points: 3 },
       { type: 'choice_opened', kind: 'free_rez', player: 'corp', cardId: 'c10' },
+      { type: 'server_removed', server: 'remote4' }, // Sprint 7 (S-07-1)
     ]);
     expect(r.state.phase).toBe('choice');
     expect(r.state.choice).toEqual({ kind: 'free_rez', player: 'corp', cardId: 'c10' });
@@ -189,12 +194,15 @@ describe('S-04-4 AC3: Priority Requisition — rez one face-down ICE for free, o
 
   it('no face-down ICE installed: no window, no event (auto-pass)', () => {
     const noIce = act(corpBoard(['c10'], { ready: ['i1'] }), score('i1'));
-    expect(noIce.events).toEqual([{ type: 'agenda_scored', uid: 'i1', cardId: 'c10', points: 3 }]);
+    expect(noIce.events).toEqual([
+      { type: 'agenda_scored', uid: 'i1', cardId: 'c10', points: 3 },
+      { type: 'server_removed', server: 'remote1' }, // Sprint 7 (S-07-1)
+    ]);
     expect(noIce.state.phase).toBe('action');
     const s = prReady();
     const allRezzed = { ...s, servers: s.servers.map((sv) => ({ ...sv, ice: sv.ice.map((c) => ({ ...c, rezzed: true })) })) };
     const r = act(allRezzed, score('i4'));
-    expect(r.events.map((e) => e.type)).toEqual(['agenda_scored']);
+    expect(r.events.map((e) => e.type)).toEqual(['agenda_scored', 'server_removed']); // Sprint 7: its remote goes
     expect(r.state.choice).toBeNull();
   });
 
@@ -249,9 +257,9 @@ describe('S-04-4 AC3: Priority Requisition — rez one face-down ICE for free, o
     expect(rejection(apply(over, rez('i1')).events)).toBe('game_over');
   });
 
-  it('outside a choice, rez of a non-approached ICE is still wrong_phase (no run)', () => {
+  it('outside a choice, rez of ICE in the action phase is bad_target (Sprint 7: only assets/upgrades rez there)', () => {
     const s = prReady();
-    expect(rejection(apply(s, rez('i1')).events)).toBe('wrong_phase');
+    expect(rejection(apply(s, rez('i1')).events)).toBe('bad_target');
     expect(rejection(apply(s, pass()).events)).toBe('wrong_phase');
   });
 

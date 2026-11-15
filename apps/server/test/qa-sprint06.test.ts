@@ -117,7 +117,9 @@ describe('QA S-06-2: one phone cannot act for the other side', () => {
 describe('QA S-06-2 AC6: nothing secret in any frame', () => {
   it('over random games: no seed / rng / deck order in any frame, and no phone ever gets the other seat\'s token', () => {
     let frames = 0;
-    for (let game = 1; game <= 12; game++) {
+    // Sprint 7 (engine-dev; QA reviews): 16 games, not 12 — new options (rez assets, card abilities) end random
+    // games sooner, and the 2000-frame floor below stays as it was.
+    for (let game = 1; game <= 16; game++) {
       const pick = prng(game * 97);
       const h = harness({ rngSeed: game * 13 });
       const { conns, tokens } = seatedGame(h, game % 2 ? 'corp' : 'runner');

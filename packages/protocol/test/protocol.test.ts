@@ -31,6 +31,7 @@ describe('client messages', () => {
     { v: 1, t: 'join' },
     { v: 1, t: 'resume', token: 'abcDEF_-123', since: 0 },
     { v: 1, t: 'act', id: 7, action: { type: 'gain_credit', player: 'runner' } },
+    { v: 1, t: 'leave' }, // Sprint 7
     { v: 1, t: 'ping' },
   ];
   it.each(good.map((m) => [m.t, m]))('%s round-trips', (_t, m) => {

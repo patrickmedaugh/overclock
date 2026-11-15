@@ -15,7 +15,7 @@
  */
 import type { ActionOf, ActionType, Action } from './actions';
 import type { RejectReason } from './events';
-import { getCard, type BreakerAbility, type CardDef, type CardType, type Effect, type PlayCondition } from '@overclock/cards';
+import { getCard, type BreakerAbility, type CardAbility, type CardDef, type CardType, type Effect, type PlayCondition } from '@overclock/cards';
 import {
   CENTRAL_SERVERS,
   MAX_HAND_SIZE,
@@ -215,7 +215,7 @@ const atStep =
   (s: GameState): RejectReason | null =>
     s.phase === 'run' && s.run && steps.includes(s.run.step) ? null : 'wrong_phase';
 
-const ALL_STEPS: RunStep[] = ['approach', 'encounter', 'continue', 'access'];
+const ALL_STEPS: RunStep[] = ['approach', 'encounter', 'continue', 'success', 'access'];
 
 const isInt = (x: unknown) => Number.isInteger(x);
 
@@ -228,9 +228,28 @@ const runTarget = (s: GameState, a: ActionOf<'run'>): RejectReason | null =>
 const rezUidShape = (_s: GameState, a: ActionOf<'rez'>): RejectReason | null =>
   typeof a.uid === 'string' ? null : 'invalid_action';
 
-/** The approached ICE's rez cost (its card cost; discounts are not built yet). */
-export function rezCost(ice: Installed): number {
-  return getCard(ice.cardId)?.cost ?? 0;
+/** Sprint 7: an installed Corp card with its server and zone, or undefined. */
+export function corpInstalled(s: GameState, uid: unknown): { installed: Installed; server: Server; zone: 'ice' | 'content' } | undefined {
+  for (const server of s.servers) {
+    const ice = server.ice.find((c) => c.uid === uid);
+    if (ice) return { installed: ice, server, zone: 'ice' };
+    const content = server.content.find((c) => c.uid === uid);
+    if (content) return { installed: content, server, zone: 'content' };
+  }
+  return undefined;
+}
+
+/**
+ * Sprint 7: an installed Corp card's rez cost. ICE: printed cost minus every rezzed
+ * `iceRezDiscount` among the cards of the server it protects (Akitaro Watanabe), never below 0.
+ * Other cards: printed cost. The only price used by options, the rez window and `no_credits`.
+ */
+export function rezCost(s: GameState, card: Installed): number {
+  const cost = getCard(card.cardId)?.cost ?? 0;
+  const where = corpInstalled(s, card.uid);
+  if (!where || where.zone !== 'ice') return cost;
+  const discount = where.server.content.reduce((sum, c) => sum + (c.rezzed ? (getCard(c.cardId)?.iceRezDiscount ?? 0) : 0), 0);
+  return Math.max(0, cost - discount);
 }
 
 /** Every unrezzed installed Corp ICE: servers in order, then ICE index order (innermost first). */
@@ -238,16 +257,43 @@ export function unrezzedIce(s: GameState): Installed[] {
   return s.servers.flatMap((sv) => sv.ice.filter((c) => !c.rezzed));
 }
 
-/** `free_rez` choice: any unrezzed installed ICE. Run: the approached ICE, still unrezzed. */
-const rezTarget = (s: GameState, a: ActionOf<'rez'>): RejectReason | null => {
-  if (s.phase === 'choice') return unrezzedIce(s).some((c) => c.uid === a.uid) ? null : 'bad_target';
-  const ice = currentIce(s);
-  return ice && ice.uid === a.uid && !ice.rezzed ? null : 'bad_target';
+/** Sprint 7: the Corp's unrezzed asset/upgrade `uid` (rezzable in its action phase), or undefined. */
+export function rezzableCard(s: GameState, uid: unknown): Installed | undefined {
+  const where = corpInstalled(s, uid);
+  if (!where || where.zone !== 'content' || where.installed.rezzed) return undefined;
+  const type = getCard(where.installed.cardId)?.type;
+  return type === 'asset' || type === 'upgrade' ? where.installed : undefined;
+}
+
+/** `rez` is answered in the approach step, an open choice, or (Sprint 7) the Corp's action phase. */
+const rezPhase = (s: GameState): RejectReason | null => {
+  if (s.phase === 'choice' || s.phase === 'action') return null;
+  return s.phase === 'run' && s.run?.step === 'approach' ? null : 'wrong_phase';
 };
 
-/** The free-rez choice costs nothing. */
-const canAffordRez = (s: GameState): RejectReason | null =>
-  s.phase === 'choice' || s.players.corp.credits >= rezCost(currentIce(s) as Installed) ? null : 'no_credits';
+/**
+ * `free_rez` choice: any unrezzed installed ICE. Run: the approached ICE, still unrezzed.
+ * Action phase (Sprint 7): the Corp's unrezzed asset/upgrade (ICE: bad_target). An asset/upgrade
+ * named during a run or a choice is `wrong_phase` (it can be rezzed, just not now).
+ */
+const rezTarget = (s: GameState, a: ActionOf<'rez'>): RejectReason | null => {
+  if (s.phase === 'action') return a.player === 'corp' && rezzableCard(s, a.uid) ? null : 'bad_target';
+  let ok: boolean;
+  if (s.phase === 'choice') ok = unrezzedIce(s).some((c) => c.uid === a.uid);
+  else {
+    const ice = currentIce(s);
+    ok = !!ice && ice.uid === a.uid && !ice.rezzed;
+  }
+  if (ok) return null;
+  return rezzableCard(s, a.uid) ? 'wrong_phase' : 'bad_target';
+};
+
+/** The free-rez choice costs nothing; otherwise the card's `rezCost`. */
+const canAffordRez = (s: GameState, a: ActionOf<'rez'>): RejectReason | null => {
+  if (s.phase === 'choice') return null;
+  const card = s.phase === 'action' ? (rezzableCard(s, a.uid) as Installed) : (currentIce(s) as Installed);
+  return s.players.corp.credits >= rezCost(s, card) ? null : 'no_credits';
+};
 
 /** `rez`/`pass` also answer an open choice (Priority Requisition: rez one ICE for free, or Skip). */
 const atStepOrChoice =
@@ -286,9 +332,10 @@ export function abilityTarget(s: GameState, a: ActionOf<'use_ability'>): Breaker
 const abilityTargetCheck = (s: GameState, a: ActionOf<'use_ability'>): RejectReason | null =>
   abilityTarget(s, a) ? null : 'bad_target';
 
-/** The ICE's strength (printed; advancement bonuses are not built yet). */
+/** The ICE's strength: printed + advancements × `strengthPerAdvancement` (Sprint 7: Ice Wall). */
 export function iceStrength(ice: Installed): number {
-  return getCard(ice.cardId)?.strength ?? 0;
+  const card = getCard(ice.cardId);
+  return (card?.strength ?? 0) + ice.advancements * (card?.strengthPerAdvancement ?? 0);
 }
 
 const strongEnough = (s: GameState, a: ActionOf<'use_ability'>): RejectReason | null => {
@@ -301,8 +348,36 @@ export function runnerSpendable(s: GameState): number {
   return s.players.runner.credits + (s.run?.tempCredits ?? 0);
 }
 
+/** Sprint 7: who pays `amount` for an icebreaker ability. `own` may exceed the Runner's credits (then unaffordable). */
+export interface BreakerPayment {
+  /** Recurring credits usable for icebreakers, rig order. */
+  readonly hosted: readonly { readonly uid: string; readonly amount: number }[];
+  /** Run-only credits (bad publicity). */
+  readonly temp: number;
+  /** The Runner's own credits. */
+  readonly own: number;
+}
+
+/**
+ * Sprint 7: an icebreaker ability is paid from recurring credits for icebreakers first (rig
+ * order, Cyberfeeder), then run-only credits, then the Runner's own credits.
+ */
+export function breakerPayment(s: GameState, amount: number): BreakerPayment {
+  let left = Math.max(0, amount);
+  const hosted: { uid: string; amount: number }[] = [];
+  for (const c of s.rig) {
+    if (left === 0) break;
+    if (getCard(c.cardId)?.recurringCredits?.for !== 'icebreaker' || c.hostedCredits <= 0) continue;
+    const n = Math.min(left, c.hostedCredits);
+    hosted.push({ uid: c.uid, amount: n });
+    left -= n;
+  }
+  const temp = Math.min(left, s.run?.tempCredits ?? 0);
+  return { hosted, temp, own: left - temp };
+}
+
 const canAffordAbility = (s: GameState, a: ActionOf<'use_ability'>): RejectReason | null =>
-  runnerSpendable(s) >= (abilityTarget(s, a)?.cost ?? 0) ? null : 'no_credits';
+  breakerPayment(s, abilityTarget(s, a)?.cost ?? 0).own <= s.players.runner.credits ? null : 'no_credits';
 
 const cardShape = (_s: GameState, a: ActionOf<'steal' | 'trash'>): RejectReason | null =>
   isInt(a.card) ? null : 'invalid_action';
@@ -362,11 +437,22 @@ export function installedAgenda(s: GameState, uid: unknown): Installed | undefin
   return undefined;
 }
 
+/** Sprint 7: what `advance` may target: the Corp's installed agenda, or its `advanceable` ICE (face up or down). */
+export function advanceTarget(s: GameState, uid: unknown): Installed | undefined {
+  const agenda = installedAgenda(s, uid);
+  if (agenda) return agenda;
+  const where = corpInstalled(s, uid);
+  return where?.zone === 'ice' && getCard(where.installed.cardId)?.advanceable ? where.installed : undefined;
+}
+
 /** Credits an advance costs. */
 export const ADVANCE_COST = 1;
 
-const ownAgenda = (s: GameState, a: ActionOf<'advance' | 'score'>): RejectReason | null =>
+const ownAgenda = (s: GameState, a: ActionOf<'score'>): RejectReason | null =>
   a.player === 'corp' && installedAgenda(s, a.uid) ? null : 'bad_target';
+
+const ownAdvanceable = (s: GameState, a: ActionOf<'advance'>): RejectReason | null =>
+  a.player === 'corp' && advanceTarget(s, a.uid) ? null : 'bad_target';
 
 const canAffordAdvance = (s: GameState, a: ActionOf<'advance'>): RejectReason | null =>
   s.players[a.player].credits >= ADVANCE_COST ? null : 'no_credits';
@@ -380,8 +466,69 @@ const enoughCounters = (s: GameState, a: ActionOf<'score'>): RejectReason | null
 const memoryFits = (s: GameState, a: ActionOf<'install'>): RejectReason | null => {
   const card = handCard(s, a.player, a.handIndex);
   if (!card || card.type !== 'program') return null;
-  return memoryUsed(s) + (card.memory ?? 0) <= MEMORY_LIMIT ? null : 'no_memory';
+  return memoryUsed(s) + (card.memory ?? 0) <= memoryLimit(s) ? null : 'no_memory';
 };
+
+/** Sprint 7: the Runner's memory limit: 4 + every rig card's `memoryBonus` (Akamatsu Mem Chip). */
+export function memoryLimit(state: GameState): number {
+  return state.rig.reduce((sum, c) => sum + (getCard(c.cardId)?.memoryBonus ?? 0), MEMORY_LIMIT);
+}
+
+const activateShape = (_s: GameState, a: ActionOf<'activate'>): RejectReason | null =>
+  typeof a.uid === 'string' && isInt(a.ability) ? null : 'invalid_action';
+
+/** Sprint 7: `player`'s own installed, face-up card `uid` (Runner: rig; Corp: rezzed), or undefined. */
+export function ownFaceUpCard(s: GameState, player: Side, uid: unknown): Installed | undefined {
+  if (player === 'runner') return s.rig.find((c) => c.uid === uid);
+  const c = corpInstalled(s, uid)?.installed;
+  return c?.rezzed ? c : undefined;
+}
+
+/** Sprint 7: the card and ability an `activate` names, when both exist (own face-up card). */
+export function activateTarget(s: GameState, a: ActionOf<'activate'>): { installed: Installed; card: CardDef; ability: CardAbility } | undefined {
+  const installed = ownFaceUpCard(s, a.player, a.uid);
+  const card = installed && getCard(installed.cardId);
+  const ability = card?.cardAbilities?.[a.ability];
+  return installed && card && ability ? { installed, card, ability } : undefined;
+}
+
+const activateTargetCheck = (s: GameState, a: ActionOf<'activate'>): RejectReason | null => (activateTarget(s, a) ? null : 'bad_target');
+
+/** `click`: the player's own action phase; `successful_run_remote`: run step `success`. */
+const activatePhase = (s: GameState, a: ActionOf<'activate'>): RejectReason | null => {
+  const when = activateTarget(s, a)!.ability.when;
+  if (when === 'click') return s.phase === 'action' && s.activePlayer === a.player ? null : 'wrong_phase';
+  return s.phase === 'run' && s.run?.step === 'success' ? null : 'wrong_phase';
+};
+
+const activateClicks = (s: GameState, a: ActionOf<'activate'>): RejectReason | null =>
+  s.players[a.player].clicks >= activateTarget(s, a)!.ability.clicks ? null : 'no_clicks';
+
+/** `requires: 'hosted_credits'`: only while the card holds credits. */
+export function abilityUsable(installed: Installed, ability: CardAbility): boolean {
+  return ability.requires !== 'hosted_credits' || installed.hostedCredits > 0;
+}
+
+const activateCondition = (s: GameState, a: ActionOf<'activate'>): RejectReason | null => {
+  const t = activateTarget(s, a)!;
+  return abilityUsable(t.installed, t.ability) ? null : 'condition_not_met';
+};
+
+const activateCredits = (s: GameState, a: ActionOf<'activate'>): RejectReason | null =>
+  s.players[a.player].credits >= activateTarget(s, a)!.ability.credits ? null : 'no_credits';
+
+/** Sprint 7: credits an ability's `take_credits` effects give from `installed` now (undefined: none). */
+export function abilityGain(installed: Installed, ability: CardAbility): number | undefined {
+  let gain: number | undefined;
+  let left = installed.hostedCredits;
+  for (const e of ability.effects) {
+    if (e.op !== 'take_credits') continue;
+    const n = e.amount === 'all' ? left : Math.min(e.amount, left);
+    left -= n;
+    gain = (gain ?? 0) + n;
+  }
+  return gain;
+}
 
 export const RULES: RuleTable = {
   draw: [playerShape, notOver, yourTurn, inPhase('action'), hasClick, deckNotEmpty],
@@ -417,7 +564,7 @@ export const RULES: RuleTable = {
     canAffordPlay,
   ],
   run: [playerShape, runServerShape, notOver, yourTurn, inPhase('action'), hasClick, runTarget],
-  rez: [playerShape, rezUidShape, notOver, decides, atStepOrChoice('approach'), rezTarget, canAffordRez],
+  rez: [playerShape, rezUidShape, notOver, decides, rezPhase, rezTarget, canAffordRez],
   pass: [playerShape, notOver, decides, atStepOrChoice(...ALL_STEPS), passAllowed],
   jack_out: [playerShape, notOver, decides, atStep('continue')],
   use_ability: [
@@ -432,8 +579,9 @@ export const RULES: RuleTable = {
   ],
   steal: [playerShape, cardShape, notOver, decides, atStep('access'), stealTarget],
   trash: [playerShape, cardShape, notOver, decides, atStep('access'), trashTarget, canAffordTrash],
-  advance: [playerShape, uidShape, notOver, yourTurn, inPhase('action'), hasClick, ownAgenda, canAffordAdvance],
+  advance: [playerShape, uidShape, notOver, yourTurn, inPhase('action'), hasClick, ownAdvanceable, canAffordAdvance],
   score: [playerShape, uidShape, notOver, yourTurn, inPhase('action'), ownAgenda, enoughCounters],
+  activate: [playerShape, activateShape, notOver, decides, activateTargetCheck, activatePhase, activateClicks, activateCondition, activateCredits],
 };
 
 /** Memory used by the Runner's installed programs (card data `memory`). */

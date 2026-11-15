@@ -1,4 +1,4 @@
-// S-06-1 (client part, U1): the start screen. Play on this phone / Play online
+// S-06-1 (client part, U1): the start screen. Play on this device / Play online
 // -> Start a game (Corp / Runner) / Join with code, `?join=CODE`, and "Online
 // play isn't set up yet" when the build has no online service (`server=none`).
 // The e2e web build points at the local service (playwright.config.ts); whole
@@ -63,10 +63,10 @@ async function shot(page: Page, name: string): Promise<void> {
 }
 
 test.describe('S-06-1 start screen', () => {
-  test('opens on Play on this phone / Play online; Play on this phone starts the pass-the-phone game', async ({ page }) => {
+  test('opens on Play on this device / Play online; Play on this device starts the pass-the-phone game', async ({ page }) => {
     await openStart(page);
     await expect(page.locator(START)).toBeVisible();
-    await expect(page.locator(START).getByRole('button', { name: /Play on this phone/ })).toBeVisible();
+    await expect(page.locator(START).getByRole('button', { name: /Play on this device/ })).toBeVisible();
     await expect(page.locator(START).getByRole('button', { name: /Play online/ })).toBeVisible();
     // No game yet.
     expect(await page.evaluate(() => typeof window.__overclock)).toBe('undefined');
@@ -74,7 +74,7 @@ test.describe('S-06-1 start screen', () => {
     await shot(page, 'start-home');
 
     const t0 = Date.now();
-    await tapButton(page, /Play on this phone/);
+    await tapButton(page, /Play on this device/);
     await page.waitForFunction(() => !!window.__overclock);
     const ms = Date.now() - t0;
     test.info().annotations.push({ type: 'play-here-ms', description: String(ms) });
@@ -98,9 +98,9 @@ test.describe('S-06-1 start screen', () => {
     await shot(page, 'start-not-set-up');
     await tapButton(page, 'Back');
     expect(await screen(page)).toBe('home');
-    // From the notice, Play on this phone still works.
+    // From the notice, Play on this device still works.
     await tapButton(page, /Play online/);
-    await tapButton(page, /Play on this phone/);
+    await tapButton(page, /Play on this device/);
     await page.waitForFunction(() => !!window.__overclock);
     await expect(page.locator(START)).toBeHidden();
   });

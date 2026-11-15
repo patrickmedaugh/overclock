@@ -1,5 +1,5 @@
 // S-06-1: the start screen. A DOM overlay over the canvas (the code needs a
-// real text field and the phone's keyboard): Play on this phone / Play online
+// real text field and the phone's keyboard): Play on this device / Play online
 // -> Start a game (pick Corp or Runner) / Join with code. No game logic: it
 // only asks the handlers to start or join.
 import type { Side } from '@overclock/engine';
@@ -9,10 +9,10 @@ import './start.css';
 export const START_TEXT = {
   title: 'OVERCLOCK',
   tagline: 'A two-player hacking card game',
-  playHere: 'Play on this phone',
-  playHereSub: 'Pass the phone between turns',
+  playHere: 'Play on this device',
+  playHereSub: 'Take turns on one screen',
   playOnline: 'Play online',
-  playOnlineSub: 'Each player on their own phone',
+  playOnlineSub: 'Each player on their own device',
   startGame: 'Start a game',
   startGameSub: 'Get a code to send',
   joinGame: 'Join with code',
@@ -25,7 +25,7 @@ export const START_TEXT = {
   join: 'Join',
   badCode: `Codes are ${CODE_LENGTH} letters or numbers, like K7QF`,
   notSetUp: "Online play isn't set up yet",
-  notSetUpNote: 'Play on this phone works now.',
+  notSetUpNote: 'Play on this device works now.',
   back: 'Back',
   rejoin: 'Rejoin game',
   rejoinSub: 'Back to your seat',
@@ -45,7 +45,7 @@ export const FAIL_TEXT: Record<string, string> = {
   network: "Can't reach the online game. Check your connection and try again.",
   version: 'This copy of the game is out of date. Reload the page, or update the app.',
   expired: 'That game has ended.',
-  bad_token: 'That seat belongs to another phone now.',
+  bad_token: 'That seat belongs to another device now.',
   replaced: 'This game was opened on another screen.',
   bad_message: 'Something went wrong. Try again.',
 };

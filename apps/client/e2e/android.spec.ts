@@ -4,9 +4,9 @@
 import { type Page, expect, test } from '@playwright/test';
 import { pixelStats } from './pixels';
 
-/** Sprint 6: the app opens on the start screen; "Play on this phone" starts today's game. */
+/** Sprint 6: the app opens on the start screen; "Play on this device" starts today's game. */
 async function playHere(page: Page): Promise<void> {
-  await page.getByRole('button', { name: /Play on this phone/ }).tap();
+  await page.getByRole('button', { name: /Play on this device/ }).tap();
   await expect(page.locator('#start')).toBeHidden();
 }
 
@@ -65,6 +65,45 @@ test.describe('S-04-2 the app bundle', () => {
     const [s] = await pixelStats(page, [BOARD]);
     expect(s!.spread).toBeGreaterThan(10);
     await context.setOffline(false);
+  });
+
+  test('S-07-6 in the app bundle: tap the hand, hold the big card and drag it with real touches; let go away and the hand view is back', async ({ page }) => {
+    const errors: string[] = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto('./');
+    await page.waitForFunction(() => document.body.dataset.ready === 'true');
+    await playHere(page);
+    await page.waitForTimeout(400);
+    const W = BOARD.width;
+    const H = BOARD.height;
+    // The right-hand rail (credits, clicks, End turn): no card of the hand view covers it, the view's shade does.
+    const rail = { x: W - 80, y: Math.round(H * 0.55), width: 60, height: Math.round(H * 0.35) };
+    const [board] = await pixelStats(page, [rail]);
+    // A card in the hand strip along the bottom: the hand view opens, shading the board.
+    await page.touchscreen.tap(W * 0.45, H - 30);
+    await page.waitForTimeout(400);
+    const [open] = await pixelStats(page, [rail]);
+    expect(open!.mean, 'the hand view shades the board').toBeLessThan(board!.mean - 5);
+    await test.info().attach('app-hand-view', { body: await page.screenshot(), contentType: 'image/png' });
+    // Hold the big card in the middle until it lifts, then drag it to the opponent's row (no place to play).
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: W / 2, y: H / 2 }] });
+    await page.waitForTimeout(700);
+    const to = { x: W * 0.25, y: H * 0.22 };
+    for (let k = 1; k <= 6; k++) {
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: W / 2 + ((to.x - W / 2) * k) / 6, y: H / 2 + ((to.y - H / 2) * k) / 6 }] });
+    }
+    await page.waitForTimeout(300);
+    const [dragging] = await pixelStats(page, [rail]);
+    // Lifted: the view faded out, the board shows again (the touch was not cancelled by the WebView).
+    expect(dragging!.mean, 'the board shows while the card is dragged').toBeGreaterThan(open!.mean + 5);
+    await test.info().attach('app-dragging', { body: await page.screenshot(), contentType: 'image/png' });
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    await cdp.detach();
+    await page.waitForTimeout(500);
+    const [back] = await pixelStats(page, [rail]);
+    expect(back!.mean, 'let go away from a place: the hand view is back').toBeLessThan(dragging!.mean - 5);
+    expect(errors).toEqual([]);
   });
 
   test('upright, the app still shows no rotate prompt (Android keeps it sideways)', async ({ page }) => {

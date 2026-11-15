@@ -26,18 +26,18 @@ describe('coverFor', () => {
     expect(h.submit({ type: 'end_turn', player: 'corp' }).kind).toBe('same'); // the discard picker first
     const p = h.submit({ type: 'discard', player: 'corp', handIndices: [0] });
     expect(p.kind).toBe('handoff');
-    expect(coverFor(p, null)).toEqual({ to: 'runner', title: 'Pass the phone to the Runner', line: COVER_LINE });
+    expect(coverFor(p, null)).toEqual({ to: 'runner', title: 'Pass to the Runner — tap when ready', line: COVER_LINE });
   });
 
   it("the Corp's rez decision mid-run: to the Corp first, then back to the Runner", () => {
     const { h, seen } = play(1, 'corp_rez_prompt');
     const last = seen.at(-1)!;
-    expect(coverFor(last.p, last.before)).toEqual({ to: 'corp', title: 'Pass the phone to the Corp', line: COVER_LINE });
+    expect(coverFor(last.p, last.before)).toEqual({ to: 'corp', title: 'Pass to the Corp — tap when ready', line: COVER_LINE });
     // Before the prompt, no cover mid-run (only turn ends).
     const runStart = seen.findIndex((s) => s.p.kind === 'same' && s.p.view.run !== null);
     for (const s of seen.slice(runStart, -1)) expect(coverFor(s.p, s.before)).toBeNull();
     const after = h.submit({ type: 'pass', player: 'corp' });
-    expect(coverFor(after, 'corp')).toEqual({ to: 'runner', title: 'Pass the phone back to the Runner', line: COVER_LINE });
+    expect(coverFor(after, 'corp')).toEqual({ to: 'runner', title: 'Pass back to the Runner — tap when ready', line: COVER_LINE });
   });
 
   it('a refused Corp choice keeps the Corp holding the phone (no cover)', () => {

@@ -10,7 +10,7 @@
  * views, like a player would.
  */
 import { getCard } from '@overclock/cards';
-import type { Action, PlayerView, Side } from '@overclock/engine';
+import type { Action, GameOptions, PlayerView, Side } from '@overclock/engine';
 import { LocalMatch } from './local-match';
 
 /** Sprint 6: pure hidden-information checks (server leak test, Node-side e2e). */
@@ -165,6 +165,24 @@ export function planBusyBoard(seed: number, goal: BusyBoardGoal = BUSY_BOARD, ma
  *   `info: {server: 'archives', count}`.
  * - `runner_after_access`: Runner's action step after that run (Done tapped, agendas stolen),
  *   `lastRun` lists at least 2 cards, at least 1 click left. `info: {server: 'archives', count}`.
+ * Sprint 7 (card abilities; see packages/engine/README.md for the seeds that work):
+ * - `corp_rez_asset`: Corp's action step, a face-down PAD Campaign installed and Rez legal
+ *   (≥ 2 credits). `info: {uid, cardId, server, cost}`.
+ * - `runner_approach_akitaro`: a run waits on the Corp at a face-down Wall of Static in a server
+ *   with a face-up Akitaro Watanabe; the Corp has exactly 1 credit, the Rez option costs 1
+ *   (S-07-2 AC4 + AC5). `info: {server, iceUid, akitaroUid, cost, corpCredits}`.
+ * - `runner_armitage`: Runner's action step, ≥ 1 click, Armitage Codebusting installed with
+ *   12 credits on it. `info: {uid, credits}`.
+ * - `runner_cyberfeeder_ice_wall`: the Runner encounters a rezzed Ice Wall (no counters) with
+ *   Corroder and Cyberfeeder (1 credit on it) installed and 0 credits of his own.
+ *   `info: {server, iceUid, breakerUid, cyberfeederUid}`.
+ * - `runner_bank_job_remote`: Runner's action step, ≥ 1 click, Bank Job installed with 8 credits,
+ *   a remote with no ICE holding a card (a run there gets in). `info: {bankJobUid, server, credits}`.
+ * - `corp_ice_wall`: Corp's action step, ≥ 2 clicks and ≥ 3 credits (2 advances + a rez), an
+ *   installed Ice Wall with no counters alone on a remote; the Runner has Corroder installed and
+ *   ≥ 2 credits (S-07-5 AC1 + AC2). `info: {uid, server, breakerUid}`.
+ * - `remote_last_card`: Runner's action step, ≥ 1 click, ≥ 2 remotes, one with no ICE holding
+ *   exactly one agenda whose steal does not win (S-07-1). `info: {server, uid, cardId, otherServer}`.
  */
 export type StepGoal =
   | 'corp_rez_prompt'
@@ -178,7 +196,14 @@ export type StepGoal =
   | 'enigma_encounter'
   | 'neural_katana_encounter'
   | 'runner_at_access'
-  | 'runner_after_access';
+  | 'runner_after_access'
+  | 'corp_rez_asset'
+  | 'runner_approach_akitaro'
+  | 'runner_armitage'
+  | 'runner_cyberfeeder_ice_wall'
+  | 'runner_bank_job_remote'
+  | 'corp_ice_wall'
+  | 'remote_last_card';
 
 export const STEP_GOALS: readonly StepGoal[] = [
   'corp_rez_prompt',
@@ -193,6 +218,24 @@ export const STEP_GOALS: readonly StepGoal[] = [
   'neural_katana_encounter',
   'runner_at_access',
   'runner_after_access',
+  'corp_rez_asset',
+  'runner_approach_akitaro',
+  'runner_armitage',
+  'runner_cyberfeeder_ice_wall',
+  'runner_bank_job_remote',
+  'corp_ice_wall',
+  'remote_last_card',
+];
+
+/** Sprint 7 goals (their own seed lists in the README). */
+export const SPRINT7_GOALS: readonly StepGoal[] = [
+  'corp_rez_asset',
+  'runner_approach_akitaro',
+  'runner_armitage',
+  'runner_cyberfeeder_ice_wall',
+  'runner_bank_job_remote',
+  'corp_ice_wall',
+  'remote_last_card',
 ];
 
 export interface StepPlan {
@@ -299,7 +342,34 @@ const ENCOUNTER_TARGET: Partial<Record<StepGoal, string>> = {
   wall_of_static_encounter: 'c04',
   enigma_encounter: 'c06',
   neural_katana_encounter: 'c07',
+  runner_cyberfeeder_ice_wall: 'c05',
 };
+
+// ---- Sprint 7 helpers ----
+
+/** The first rig card with `cardId`. */
+const rigCard = (v: PlayerView, cardId: string) => v.rig.find((c) => c.cardId === cardId);
+
+/** Corp view: the server holding a face-up Akitaro Watanabe, and the face-down Wall of Static protecting it. */
+function akitaroSetup(corp: PlayerView) {
+  const sv = corp.corpServers.find((s) => s.content.some((c) => c.cardId === 'c11' && c.faceUp));
+  const akitaro = sv?.content.find((c) => c.cardId === 'c11');
+  const wall = sv?.ice.find((c) => c.cardId === 'c04' && !c.faceUp);
+  return { sv, akitaro, wall };
+}
+
+/** Remotes with no ICE and exactly one card (Corp view). */
+function lonelyRemotes(corp: PlayerView) {
+  return remotes(corp).filter((s) => s.ice.length === 0 && s.content.length === 1);
+}
+
+/** Corp view: an Ice Wall with no counters alone on a remote. */
+function loneIceWall(corp: PlayerView) {
+  for (const s of remotes(corp)) {
+    if (s.ice.length === 1 && s.ice[0]!.cardId === 'c05' && s.ice[0]!.advancements === 0) return { server: s.id, ice: s.ice[0]! };
+  }
+  return undefined;
+}
 
 /** Sprint 5: the Runner meets rezzed `iceId` with a click left and `pass` (let it fire) offered. */
 function letFireEncounter(runner: PlayerView, iceId: string): boolean {
@@ -380,7 +450,84 @@ export function stepReached(goal: StepGoal, views: Views): boolean {
         runner.players.runner.clicks >= 1 &&
         (runner.lastRun?.cards.length ?? 0) >= ARCHIVES_MIN
       );
+    case 'corp_rez_asset':
+      return corp.phase === 'action' && corp.activePlayer === 'corp' && padRez(corp) !== undefined;
+    case 'runner_approach_akitaro': {
+      const { wall } = akitaroSetup(corp);
+      const rez = corp.run?.options.find((o) => o.action.type === 'rez');
+      return (
+        corp.run?.step === 'approach' &&
+        corp.run.waitingOn === 'corp' &&
+        wall !== undefined &&
+        corp.run.iceUid === wall.uid &&
+        corp.players.corp.credits === 1 &&
+        rez?.cost === 1 &&
+        rez.reject === null
+      );
+    }
+    case 'runner_armitage':
+      return (
+        runner.phase === 'action' &&
+        runner.activePlayer === 'runner' &&
+        runner.run === null &&
+        runner.players.runner.clicks >= 1 &&
+        (rigCard(runner, 'r02')?.hostedCredits ?? 0) === 12
+      );
+    case 'runner_cyberfeeder_ice_wall':
+      return (
+        runner.run?.step === 'encounter' &&
+        runner.run.ice?.cardId === 'c05' &&
+        runner.run.ice.strength === 1 &&
+        rigCard(runner, 'r04') !== undefined &&
+        (rigCard(runner, 'r08')?.hostedCredits ?? 0) >= 1 &&
+        runner.players.runner.credits === 0
+      );
+    case 'runner_bank_job_remote':
+      return (
+        runner.phase === 'action' &&
+        runner.activePlayer === 'runner' &&
+        runner.run === null &&
+        runner.players.runner.clicks >= 1 &&
+        (rigCard(runner, 'r10')?.hostedCredits ?? 0) === 8 &&
+        remotes(corp).some((s) => s.ice.length === 0 && s.content.length > 0)
+      );
+    case 'corp_ice_wall':
+      return (
+        corp.phase === 'action' &&
+        corp.activePlayer === 'corp' &&
+        corp.players.corp.clicks >= 2 &&
+        corp.players.corp.credits >= 3 &&
+        loneIceWall(corp) !== undefined &&
+        rigCard(runner, 'r04') !== undefined &&
+        runner.players.runner.credits >= 2
+      );
+    case 'remote_last_card':
+      return (
+        runner.phase === 'action' &&
+        runner.activePlayer === 'runner' &&
+        runner.run === null &&
+        runner.players.runner.clicks >= 1 &&
+        remotes(corp).length >= 2 &&
+        lastCardTarget(corp, runner) !== undefined
+      );
   }
+}
+
+/** A face-down PAD Campaign whose Rez is legal now (Corp view). */
+function padRez(corp: PlayerView) {
+  const pad = corpInstalled(corp).find((c) => c.cardId === 'c03' && !c.faceUp);
+  const opt = pad ? corp.installedOptions[pad.uid]?.find((o) => o.action.type === 'rez') : undefined;
+  return pad && opt?.reject === null ? { pad, cost: opt.cost } : undefined;
+}
+
+/** An ICE-less remote holding exactly one agenda whose steal does not win. */
+function lastCardTarget(corp: PlayerView, runner: PlayerView) {
+  for (const s of lonelyRemotes(corp)) {
+    const c = s.content[0]!;
+    const def = card(c.cardId);
+    if (def?.type === 'agenda' && runner.players.runner.points + (def.agendaPoints ?? 0) < WIN) return { server: s.id, card: c };
+  }
+  return undefined;
 }
 
 function stepInfo(goal: StepGoal, views: Views): Record<string, string> {
@@ -423,6 +570,36 @@ function stepInfo(goal: StepGoal, views: Views): Record<string, string> {
       return { server: 'archives', count: String(runner.run!.access!.cards.length) };
     case 'runner_after_access':
       return { server: runner.lastRun!.server, count: String(runner.lastRun!.cards.length) };
+    case 'corp_rez_asset': {
+      const { pad, cost } = padRez(corp)!;
+      return { uid: pad.uid, cardId: 'c03', server: pad.server, cost: String(cost) };
+    }
+    case 'runner_approach_akitaro': {
+      const { sv, akitaro, wall } = akitaroSetup(corp);
+      return { server: sv!.id, iceUid: wall!.uid, akitaroUid: akitaro!.uid, cost: '1', corpCredits: '1' };
+    }
+    case 'runner_armitage':
+      return { uid: rigCard(runner, 'r02')!.uid, credits: '12' };
+    case 'runner_cyberfeeder_ice_wall':
+      return {
+        server: runner.run!.server,
+        iceUid: runner.run!.iceUid ?? '',
+        breakerUid: rigCard(runner, 'r04')!.uid,
+        cyberfeederUid: rigCard(runner, 'r08')!.uid,
+      };
+    case 'runner_bank_job_remote': {
+      const s = remotes(corp).find((x) => x.ice.length === 0 && x.content.length > 0)!;
+      return { bankJobUid: rigCard(runner, 'r10')!.uid, server: s.id, credits: '8' };
+    }
+    case 'corp_ice_wall': {
+      const w = loneIceWall(corp)!;
+      return { uid: w.ice.uid, server: w.server, breakerUid: rigCard(runner, 'r04')!.uid };
+    }
+    case 'remote_last_card': {
+      const t = lastCardTarget(corp, runner)!;
+      const other = remotes(corp).find((s) => s.id !== t.server)!;
+      return { server: t.server, uid: t.card.uid, cardId: t.card.cardId!, otherServer: other.id };
+    }
   }
 }
 
@@ -495,6 +672,125 @@ function corpArchivesMove(v: PlayerView): Action {
   return basicMove(v, 3);
 }
 
+/** Sprint 7: cards each goal's seats keep when discarding. */
+const KEEP7: Partial<Record<StepGoal, Readonly<Record<string, number>>>> = {
+  corp_rez_asset: { c03: 3 },
+  runner_approach_akitaro: { c11: 3, c04: 3, c08: 1, c09: 1, c10: 1 },
+  corp_ice_wall: { c05: 3 },
+  remote_last_card: { c08: 2, c09: 2, c10: 2 },
+  runner_bank_job_remote: { c08: 2, c09: 2, c10: 2, c03: 2 },
+  runner_armitage: { r02: 3 },
+  runner_cyberfeeder_ice_wall: { r08: 3, r04: 3, r09: 2, r02: 2, r10: 2 },
+};
+
+const keepFor = (goal: StepGoal) => (id: string) => KEEP7[goal]?.[id] ?? 0;
+
+/** Sprint 7 Corp policies (outside runs). */
+function corpSprint7Move(goal: StepGoal, v: PlayerView): Action {
+  const me = v.players.corp;
+  if (v.phase === 'discard') return discardKeeping(v, keepFor(goal));
+  const end: Action = { type: 'end_turn', player: 'corp' };
+  const installNewOf = (pred: (id: string) => boolean): Action | undefined => {
+    const i = handIdx(v, pred);
+    return i >= 0 ? installNew(v, i) : undefined;
+  };
+  if (goal === 'runner_approach_akitaro') {
+    const aki = corpInstalled(v).find((c) => c.cardId === 'c11');
+    if (aki && !aki.faceUp) {
+      const rez = v.installedOptions[aki.uid]?.find((o) => o.action.type === 'rez' && o.reject === null);
+      if (rez) return rez.action; // no click needed
+    }
+    if (me.clicks === 0) return end;
+    // Spare clicks keep the Corp's credits at `target` (2 before Akitaro is face up, then 1: S-07-2 AC5),
+    // spending extra credits on advances, and look for the cards.
+    const target = aki?.faceUp ? 1 : 2;
+    const spare = (): Action => {
+      if (me.credits > target) {
+        const adv = legal(v, (x) => x.type === 'advance');
+        if (adv) return adv;
+        const agenda = installNewOf(isAgendaId);
+        if (agenda) return agenda;
+      }
+      if (me.credits < target) return { type: 'gain_credit', player: 'corp' };
+      return me.deckCount > 1 ? { type: 'draw', player: 'corp' } : end;
+    };
+    if (!aki) return installNewOf((id) => id === 'c11') ?? spare();
+    if (!aki.faceUp) return { type: 'gain_credit', player: 'corp' };
+    const { sv, wall } = akitaroSetup(v);
+    if (!wall) {
+      const i = handIdx(v, (id) => id === 'c04');
+      const there = i >= 0 ? legal(v, (x) => x.type === 'install' && x.handIndex === i && x.server === sv!.id) : undefined;
+      return there ?? spare();
+    }
+    // Ready: end the turn at exactly 1 credit.
+    return me.credits === 1 ? end : spare();
+  }
+  if (me.clicks === 0) return end;
+  switch (goal) {
+    case 'corp_rez_asset': {
+      if (corpInstalled(v).some((c) => c.cardId === 'c03' && !c.faceUp)) return { type: 'gain_credit', player: 'corp' };
+      return installNewOf((id) => id === 'c03') ?? basicMove(v, 2);
+    }
+    case 'corp_ice_wall': {
+      if (!loneIceWall(v)) return installNewOf((id) => id === 'c05') ?? basicMove(v, 2);
+      return me.credits < 3 ? { type: 'gain_credit', player: 'corp' } : end;
+    }
+    case 'remote_last_card':
+      return installNewOf((id) => isAgendaId(id)) ?? basicMove(v, 1);
+    case 'runner_bank_job_remote':
+      if (remotes(v).some((s) => s.ice.length === 0 && s.content.length > 0)) return end;
+      return installNewOf((id) => isAgendaId(id) || id === 'c03') ?? basicMove(v, 2);
+    default:
+      return end; // runner_armitage: the Corp stays out of the way
+  }
+}
+
+/** Sprint 7 Runner policies (outside runs). */
+function runnerSprint7Move(goal: StepGoal, v: PlayerView, views: Views): Action {
+  const me = v.players.runner;
+  if (v.phase === 'discard') return discardKeeping(v, keepFor(goal));
+  const end: Action = { type: 'end_turn', player: 'runner' };
+  if (me.clicks === 0) return end;
+  /** Installs the first of `ids` not in the rig yet (gaining credits for it), or draws to find it; null when all are in. */
+  const want = (ids: string[]): Action | null => {
+    for (const id of ids) {
+      if (rigCard(v, id)) continue;
+      const i = handIdx(v, (x) => x === id);
+      if (i < 0) return me.deckCount > 0 ? { type: 'draw', player: 'runner' } : end;
+      return installNew(v, i) ?? { type: 'gain_credit', player: 'runner' };
+    }
+    return null;
+  };
+  const corp = views.corp;
+  switch (goal) {
+    case 'runner_armitage':
+      return want(['r02']) ?? end;
+    case 'runner_bank_job_remote':
+      return want(['r10']) ?? end;
+    case 'corp_ice_wall':
+      return want(['r04']) ?? (me.credits < 2 ? { type: 'gain_credit', player: 'runner' } : end);
+    case 'runner_cyberfeeder_ice_wall': {
+      const w = want(['r08', 'r04']);
+      if (w) return w;
+      if (me.credits > 0) {
+        // Spend down to 0 own credits (AC: no credits of his own) on a card costing what is left or less.
+        const drain = legal(v, (a) => a.type === 'install' && (card((me.hand ?? [])[a.handIndex])?.cost ?? 0) > 0);
+        if (drain) return drain;
+        return me.deckCount > 0 ? { type: 'draw', player: 'runner' } : end;
+      }
+      const ice = corpInstalled(corp).find((c) => c.zone === 'ice' && c.cardId === 'c05' && c.advancements === 0);
+      const corpCanRez = ice && (ice.faceUp || corp.players.corp.credits >= 1);
+      return ice && corpCanRez ? { type: 'run', player: 'runner', server: ice.server } : end;
+    }
+    case 'runner_approach_akitaro': {
+      const { sv, wall } = akitaroSetup(corp);
+      return sv && wall && corp.players.corp.credits === 1 ? { type: 'run', player: 'runner', server: sv.id } : end;
+    }
+    default:
+      return end; // Corp-side goals and remote_last_card: the Runner stays out of the way
+  }
+}
+
 function corpMoveFor(goal: StepGoal, v: PlayerView): Action {
   const me = v.players.corp;
   // A free-rez choice the plan did not aim for: Skip (keeps ICE face down).
@@ -508,7 +804,10 @@ function corpMoveFor(goal: StepGoal, v: PlayerView): Action {
     if (wantedIce && rezIt && v.run.ice?.cardId === wantedIce) return rezIt.action;
     return defaultRunMove(v);
   }
-  if (goal === 'enigma_encounter' || goal === 'neural_katana_encounter') return corpEncounterMove(v, ENCOUNTER_TARGET[goal]!);
+  if (goal === 'enigma_encounter' || goal === 'neural_katana_encounter' || goal === 'runner_cyberfeeder_ice_wall') {
+    return corpEncounterMove(v, ENCOUNTER_TARGET[goal]!);
+  }
+  if (SPRINT7_GOALS.includes(goal)) return corpSprint7Move(goal, v);
   if (goal === 'runner_at_access' || goal === 'runner_after_access') return corpArchivesMove(v);
   if (v.phase === 'discard') {
     const keep = (id: string) =>
@@ -579,6 +878,7 @@ function runnerMoveFor(goal: StepGoal, v: PlayerView, views: Views): Action {
     if (goal === 'wall_of_static_encounter' && v.run.step === 'encounter') return { type: 'pass', player: 'runner' };
     return defaultRunMove(v);
   }
+  if (SPRINT7_GOALS.includes(goal)) return runnerSprint7Move(goal, v, views);
   if (v.phase === 'discard') return discardKeeping(v, (id) => (id === 'r04' ? 2 : typeOf(id) === 'program' ? 1 : 0));
   if (me.clicks === 0) return { type: 'end_turn', player: 'runner' };
   const corpView = views.corp;
@@ -639,8 +939,8 @@ function runnerMoveFor(goal: StepGoal, v: PlayerView, views: Views): Action {
  * `actions` in order (each as its own `player`). Throws if the goal is not
  * reached within `maxActions` or the game ends first.
  */
-export function planToStep(seed: number, goal: StepGoal, maxActions = 1500): StepPlan {
-  const match = new LocalMatch(seed);
+export function planToStep(seed: number, goal: StepGoal, maxActions = 1500, options?: Partial<GameOptions>): StepPlan {
+  const match = new LocalMatch(seed, options);
   for (let n = 0; n < maxActions; n++) {
     const views: Views = { corp: match.view('corp'), runner: match.view('runner') };
     if (stepReached(goal, views)) {

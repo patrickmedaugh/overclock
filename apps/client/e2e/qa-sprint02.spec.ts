@@ -19,7 +19,9 @@ import {
   measureTap,
   openBoard,
   passTurn,
+  openHand,
   pickCard,
+  pickHand,
   pressAndHold,
   tap,
   targetOf,
@@ -46,6 +48,8 @@ async function shot(page: Page, name: string): Promise<void> {
 
 test.describe('QA S-02-1 / S-02-2 targets', () => {
   test('an asset can go into a remote that holds only an upgrade; after that the remote is closed to agendas but open to upgrades', async ({ page }) => {
+    // Sprint 7: each pick is three taps through the hand view; same limit as the other long tests here.
+    test.setTimeout(90_000);
     // Find a seed whose Corp opens with Akitaro Watanabe, PAD Campaign and an agenda.
     let seed = 0;
     for (let s = 1; s <= 40; s++) {
@@ -141,12 +145,16 @@ test.describe('QA S-02-4 needs runs (Sprint 3: the cards work now)', () => {
 
 test.describe('QA snappiness: picking a card', () => {
   test('tapping a hand card lights its targets inside the same tap (< 100ms), on both sides', async ({ page }) => {
+    // S-07-6: each pick is now three taps (open the hand view, tap the big card); a GPU-less CI desktop needs longer than 30 s.
+    test.setTimeout(90_000);
     await openBoard(page, 2);
     const samples: number[] = [];
     for (const side of ['corp', 'runner'] as const) {
       if (side === 'runner') await toRunnerTurn(page);
       const l = await waitIdle(page);
       for (let i = 0; i < l.hand.length; i++) {
+        // S-07-6: the hand view opens on the card first; the tap on its big card is the pick measured here.
+        const open = await openHand(page, i);
         await page.evaluate(() => {
           const w = window as unknown as { __p?: unknown };
           w.__p = undefined;
@@ -161,7 +169,7 @@ test.describe('QA snappiness: picking a card', () => {
             { once: true },
           );
         });
-        await tap(page, l.hand[i]!.box);
+        await tap(page, open.handView!.centre);
         await page.waitForFunction(() => (window as unknown as { __p?: unknown }).__p !== undefined);
         const p = await page.evaluate(() => (window as unknown as { __p: { at: number; handled: number; targets: number; selected: number | null } }).__p);
         const card = getCard(l.hand[i]!.cardId)!;
@@ -215,7 +223,7 @@ test.describe('QA Sprint 2 playthrough (screenshots)', () => {
     await shot(page, '07-hedge-fund-played-archives-face-up');
 
     await page.evaluate(() => window.__overclock!.clearAnims());
-    await tap(page, l.hand[0]!.box);
+    await pickHand(page, 0);
     expect((await anims(page)).find((a) => a.kind === 'hint')?.text).toBe('No clicks left');
     await shot(page, '08-no-clicks-left');
 
@@ -265,9 +273,7 @@ test.describe('QA Sprint 2 playthrough (screenshots)', () => {
     const v = await getView(page);
     const poor = v.handOptions.findIndex((opts) => opts.some((o) => o.reject === 'no_credits'));
     if (poor >= 0) {
-      l = await layout(page);
-      await tap(page, l.hand[poor]!.box);
-      l = await layout(page);
+      l = await pickHand(page, poor);
       const t = l.targets.find((x) => x.reject === 'no_credits')!;
       await page.evaluate(() => window.__overclock!.clearAnims());
       await tap(page, t.box);
@@ -343,6 +349,8 @@ test.describe('QA Sprint 2 playthrough (screenshots)', () => {
 // least 80 square CSS px of toast per character (about a 10px font).
 test.describe('QA-S2-1 hints are readable', () => {
   test('"Only after the Runner made a run", "Not enough credits", "No clicks left" and "Not your turn" are drawn big enough to read', async ({ page }) => {
+    // S-07-6: each pick is now three taps (open the hand view, tap the big card); a GPU-less CI desktop needs longer than 30 s.
+    test.setTimeout(90_000);
     const seen: Record<string, { width: number; height: number; perChar: number }> = {};
     const record = async (): Promise<void> => {
       const h = (await anims(page)).filter((a) => a.kind === 'hint').pop()!;
@@ -401,6 +409,8 @@ test.describe('QA-S2-2 upgrade in HQ', () => {
 // Round 2 (after the QA-S2-1..3 fixes): edge cases beyond the developers' own checks.
 test.describe('QA round 2: fixes hold in harder cases', () => {
   test('an upgrade in R&D and in Archives never covers the R&D / Archives pile either', async ({ page }) => {
+    // Sprint 7: each pick is three taps through the hand view; same limit as the other long tests here.
+    test.setTimeout(90_000);
     // Two upgrades needed: find a seed whose Corp opens with Akitaro and draws a second soon; else use one per game.
     for (const server of ['rd', 'archives'] as const) {
       await openBoard(page, 332);

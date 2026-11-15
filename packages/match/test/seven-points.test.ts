@@ -44,8 +44,10 @@ describe('S-03-2 AC5: 7 points can be reached by both sides in a real game', () 
     const card = access.cards.findIndex((c) => c.cardId === plan.info.cardId);
     const ev = submitOk(m, { type: 'steal', player: 'runner', card });
     for (const side of ['corp', 'runner'] as const) {
-      expect(ev[side].slice(-2)).toEqual([
+      expect(ev[side].slice(-3)).toEqual([
         { type: 'run_ended', server: plan.info.server, outcome: 'accessed' },
+        // Sprint 7 (S-07-1): the goal's remote has no ICE, so emptied it goes.
+        { type: 'server_removed', server: plan.info.server },
         { type: 'game_over', winner: 'runner', reason: 'agenda_points' },
       ]);
       expect(m.view(side).players.runner.points).toBeGreaterThanOrEqual(7);

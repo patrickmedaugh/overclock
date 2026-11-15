@@ -2,9 +2,9 @@ import { type CDPSession, type Page, expect, test } from '@playwright/test';
 import type { Action, GameEvent, PlayerView } from '@overclock/engine';
 import { getCard } from '@overclock/cards';
 import { type StepGoal, type StepPlan, planBusyBoard, planToStep } from '@overclock/match/testing';
-import type { AnimRecord, Box, EndTurnClock, InputStamp, Insets, LayoutSnapshot, TargetSnapshot } from '../src/hook-types';
+import type { AnimRecord, Box, EndTurnClock, InputStamp, Insets, InstalledSnapshot, LayoutSnapshot, TargetSnapshot } from '../src/hook-types';
 
-export type { AnimRecord, Box, EndTurnClock, InputStamp, Insets, LayoutSnapshot, TargetSnapshot };
+export type { AnimRecord, Box, EndTurnClock, InputStamp, Insets, InstalledSnapshot, LayoutSnapshot, TargetSnapshot };
 
 /**
  * `E2E_CPU_THROTTLE=6` slows the page's CPU 6x (Chrome DevTools
@@ -476,14 +476,65 @@ export function handIndexByName(l: LayoutSnapshot, name: string): number {
   return i;
 }
 
-/** Taps the hand card named `name` and returns the layout with its targets lit. */
+/**
+ * S-07-6: taps hand card `i` in the hand strip, which opens the hand view on
+ * it, and waits until the view shows it in the middle. Returns that layout.
+ */
+export async function openHand(page: Page, i: number): Promise<LayoutSnapshot> {
+  const l = await layout(page);
+  const card = l.hand[i];
+  if (!card) throw new Error(`no hand card ${i} (hand of ${l.hand.length})`);
+  await tap(page, card.box);
+  await page.waitForFunction((k) => window.__overclock!.layout().handView?.index === k, i);
+  return layout(page);
+}
+
+/**
+ * S-07-6: picks hand card `i` the no-drag way: open the hand view on it (tap
+ * the hand), then tap the big card in the middle. The view closes and, if the
+ * card can be played, it is picked with its places lit (else its hint shows).
+ * Returns the layout after the tap.
+ */
+export async function pickHand(page: Page, i: number): Promise<LayoutSnapshot> {
+  const open = await openHand(page, i);
+  await tap(page, open.handView!.centre);
+  await page.waitForFunction(() => window.__overclock!.layout().handView === null);
+  return layout(page);
+}
+
+/** S-07-6: a spot outside the open hand view's cards (its top-left corner): a tap there closes the view. */
+export function outsideHandView(l: LayoutSnapshot): Box {
+  const safe = safeRect(l);
+  const b = { x: safe.x + 2, y: safe.y + 2, width: 8, height: 8 };
+  const cards = [...(l.zoom ? [l.zoom.box, ...l.zoom.carousel.map((c) => c.box)] : []), ...l.hand.map((h) => h.box)];
+  expect(cards.some((c) => overlaps(c, b)), 'the corner is clear of the hand view').toBe(false);
+  return b;
+}
+
+/** Picks the hand card named `name` (pickHand) and returns the layout with its targets lit. */
 export async function pickCard(page: Page, name: string): Promise<LayoutSnapshot> {
   const l = await layout(page);
   const i = handIndexByName(l, name);
-  await tap(page, l.hand[i]!.box);
-  const after = await layout(page);
+  const after = await pickHand(page, i);
   expect(after.selected, `${name} is picked`).toBe(i);
   return after;
+}
+
+/**
+ * S-07-6: opens the hand view on hand card `i`, long-presses the big card
+ * until it lifts (its places light up), and returns the hold (still down)
+ * with the layout at the lift.
+ */
+export async function liftHand(page: Page, i: number): Promise<{ hold: Hold; lifted: LayoutSnapshot }> {
+  const open = await openHand(page, i);
+  const hold = await holdAt(page, open.handView!.centre);
+  await page.waitForFunction(() => window.__overclock!.layout().drag !== null);
+  return { hold, lifted: await layout(page) };
+}
+
+/** Moves a hold to `to` in `steps` even steps (a finger drags, it does not jump). */
+export async function dragTo(hold: Hold, from: { x: number; y: number }, to: { x: number; y: number }, steps = 6): Promise<void> {
+  for (let k = 1; k <= steps; k++) await hold.move(from.x + ((to.x - from.x) * k) / steps, from.y + ((to.y - from.y) * k) / steps);
 }
 
 /** A point on empty board (no card, button or target): right of the Corp's last column. */

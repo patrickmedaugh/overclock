@@ -55,6 +55,8 @@ export const timing = {
   playFlight: 260,
   /** A new server's column flashes in. */
   serverOpen: 300,
+  /** S-07-1: a removed server's column folds away (<= 200 by the tech plan). */
+  serverClose: 180,
   /** Run steps (Sprint 3): each <= 300ms on the skippable fx queue. */
   runStep: 200,
   rezFlip: 220,

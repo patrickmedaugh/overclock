@@ -2,8 +2,10 @@
 // cards either side show smaller behind it; sliding moves the zoom and the
 // cards behind slide past with it. QA-S4-1: the hand's zoom faces are drawn
 // ahead while the finger is down, so a slide never waits for one.
+// S-07-6: the hold opens the hand view (this carousel made permanent): lifting
+// leaves it open; a tap outside closes it; a tap on the big card picks the card.
 import { type Page, expect, test } from '@playwright/test';
-import { type Box, center, getView, holdAt, layout, openBoard, tap, waitZoom } from './helpers';
+import { type Box, center, getView, holdAt, layout, openBoard, outsideHandView, tap, waitZoom } from './helpers';
 import { pixelStats } from './pixels';
 
 type Zoom = NonNullable<Awaited<ReturnType<typeof layout>>['zoom']>;
@@ -127,9 +129,10 @@ test.describe('S-05-3 hand carousel', () => {
     await h.release();
   });
 
-  test('lifting the finger closes the zoom and the carousel, with nothing played or spent', async ({ page }) => {
+  test('lifting the finger keeps the hand view and its carousel, with nothing played or spent; a tap outside closes both', async ({ page }) => {
     await openBoard(page, 1);
     const l = await layout(page);
+    const n = l.hand.length;
     const before = await getView(page);
     const h = await holdAt(page, l.hand[1]!.box);
     await waitZoom(page, l.hand[1]!.cardId);
@@ -137,21 +140,35 @@ test.describe('S-05-3 hand carousel', () => {
     await h.move(c.x, c.y);
     await waitZoom(page, l.hand[3]!.cardId);
     await h.release();
+    await page.waitForTimeout(300);
+    let after = await layout(page);
+    expect(after.handView).toMatchObject({ index: 3, lifted: false });
+    expect(slots(after.zoom!)).toEqual(expected(3, n));
+    expect(after.selected).toBeNull();
+    expect(after.targets).toEqual([]);
+    expect(await getView(page)).toEqual(before);
+    await tap(page, outsideHandView(after));
     await page.waitForFunction(() => window.__overclock!.layout().zoom === null);
     await page.waitForTimeout(300);
-    const after = await layout(page);
+    after = await layout(page);
+    expect(after.handView).toBeNull();
     expect(after.selected).toBeNull();
     expect(after.targets).toEqual([]);
     expect(await getView(page)).toEqual(before);
   });
 
-  test('a quick tap on a hand card still picks it', async ({ page }) => {
+  test('a quick tap on a hand card opens the hand view with its carousel; a tap on the big card picks it', async ({ page }) => {
     await openBoard(page, 1);
     const l = await layout(page);
+    const n = l.hand.length;
     const view = await getView(page);
     const i = view.handOptions.findIndex((o) => o.some((x) => x.reject === null));
     expect(i).toBeGreaterThanOrEqual(0);
     await tap(page, l.hand[i]!.box);
+    await page.waitForFunction((k) => window.__overclock!.layout().handView?.index === k, i);
+    expect(slots(await zoomNow(page))).toEqual(expected(i, n));
+    expect((await layout(page)).selected).toBeNull();
+    await tap(page, (await layout(page)).handView!.centre);
     await page.waitForFunction((k) => window.__overclock!.layout().selected === k, i);
     expect((await layout(page)).zoom).toBeNull();
   });

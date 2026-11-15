@@ -239,8 +239,13 @@ export class OnlineMatch implements Session {
     this.stop();
   }
 
-  /** Leaves and forgets the seat (game over, or a lobby given up). */
+  /**
+   * Leaves and forgets the seat (game over, or a lobby given up). A lobby nobody
+   * joined is closed on the service first (QA-S6-1: the code then answers
+   * "No game with that code"); offline, it lingers until it times out.
+   */
   forget(): void {
+    if (this.phaseNow.kind === 'lobby') this.send({ v: 1, t: 'leave' });
     this.stop();
     forgetStoredSeat(this.deps.storage);
   }

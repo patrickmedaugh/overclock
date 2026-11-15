@@ -92,7 +92,10 @@ const SITUATIONS = {
     v.corp.phase === 'action' &&
     v.corp.players.corp.clicks > 0 &&
     v.corp.players.corp.credits === 0 &&
-    Object.keys(v.corp.installedOptions).length > 0,
+    // Sprint 7: installedOptions also lists Ice Wall (advance) and assets (rez): an agenda with Advance.
+    Object.entries(v.corp.installedOptions).some(
+      ([u, os]) => os.some((o) => o.action.type === 'advance') && v.corp.corpServers.some((x) => x.content.some((c) => c.uid === u && !!c.cardId && getCard(c.cardId)?.type === 'agenda')),
+    ),
 } as const;
 
 /** Gordian Blade at the outer of two Enigmas (the inner one rezzed or affordable), 5+ credits. */
@@ -374,7 +377,8 @@ test.describe('QA S-03-4 icebreakers', () => {
 test.describe('QA S-03-2 advance', () => {
   test('with 0 credits, Advance · 1 credit is dim and only says "Not enough credits"; nothing is spent', async ({ page }) => {
     const s = await toSituation(page, 'advanceBroke');
-    const uid = Object.keys(s.views.corp.installedOptions)[0]!;
+    // Sprint 7: installedOptions also lists ICE (Ice Wall: advance) and assets (rez): take the agenda.
+    const uid = Object.entries(s.views.corp.installedOptions).find(([u, os]) => os.some((o) => o.action.type === 'advance') && s.views.corp.corpServers.some((x) => x.content.some((c) => c.uid === u && !!c.cardId && getCard(c.cardId)?.type === 'agenda')))![0];
     const before = await getView(page);
     let l = await layout(page);
     const card = l.servers.flatMap((x) => x.content).find((c) => c.uid === uid)!;
@@ -389,11 +393,13 @@ test.describe('QA S-03-2 advance', () => {
     expect(m.anims.map((a) => [a.kind, a.text])).toEqual([['hint', 'Not enough credits']]);
   });
 
-  test('tapping installed ICE or an asset as the Corp shows no Advance (only agendas can be advanced this sprint)', async ({ page }) => {
+  test('tapping installed ICE or an asset as the Corp shows no Advance (only agendas, and Ice Wall since Sprint 7, can be advanced)', async ({ page }) => {
     const s = await toSituation(page, 'advanceBroke');
-    const agendaUids = new Set(Object.keys(s.views.corp.installedOptions));
+    // Sprint 7 (S-07-5): Ice Wall is advanceable too; every other ICE and asset still offers no Advance.
+    const agendaUids = new Set(Object.entries(s.views.corp.installedOptions).filter(([, os]) => os.some((o) => o.action.type === 'score')).map(([u]) => u));
+    for (const x of s.views.corp.corpServers) for (const c of x.content) if (c.cardId && getCard(c.cardId)?.type === 'agenda') agendaUids.add(c.uid);
     const l0 = await layout(page);
-    const others = l0.servers.flatMap((x) => [...x.ice, ...x.content]).filter((c) => !agendaUids.has(c.uid));
+    const others = l0.servers.flatMap((x) => [...x.ice, ...x.content]).filter((c) => !agendaUids.has(c.uid) && c.cardId !== 'c05');
     for (const c of others.slice(0, 4)) {
       await tap(page, c.box);
       const l = await layout(page);

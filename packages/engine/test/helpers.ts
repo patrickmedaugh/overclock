@@ -106,7 +106,7 @@ export function board(spec: BoardSpec, seed = 77): GameState {
   const inst = (id: string) => {
     const rezzed = id.startsWith('+');
     const u = `i${uid++}`;
-    return { uid: u, cardId: rezzed ? id.slice(1) : id, rezzed, advancements: spec.advancements?.[u] ?? 0 };
+    return { uid: u, cardId: rezzed ? id.slice(1) : id, rezzed, advancements: spec.advancements?.[u] ?? 0, hostedCredits: 0 };
   };
   const rig = (spec.rig ?? []).map((id) => ({ ...inst(id), rezzed: false }));
   const ids = ['hq', 'rd', 'archives', ...Object.keys(spec.servers ?? {}).filter((k) => k.startsWith('remote'))];

@@ -142,6 +142,9 @@ test.describe('S-02-5 real words and real cards', () => {
       expect(z.textOverflow, `${def.name}: text fits the card`).toBe(false);
       if (def.name === 'Bank Job') await shoot(page, 'zoom-bank-job');
       await release();
+      // S-07-6: the hold opened the hand view on the card; it stays open until Back (or a tap outside).
+      expect((await layout(page)).handView?.cardId).toBe(h.cardId);
+      expect(await page.evaluate(() => window.__overclock!.back())).toBe('close_zoom');
       await page.waitForFunction(() => window.__overclock!.layout().zoom === null);
     }
     // Installed, too.

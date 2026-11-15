@@ -10,7 +10,7 @@
  * All handlers are synchronous: the Durable Object runs one event at a time, so a
  * handler can't interleave with another socket's message.
  */
-import type { Action, GameOptions, GameState, PlayerView, Side } from '@overclock/engine';
+import { RULES_VERSION, type Action, type GameOptions, type GameState, type PlayerView, type Side } from '@overclock/engine';
 import { LocalMatch, type MatchUpdate } from '@overclock/match';
 import { encodeMsg, parseClientMsg, PROTOCOL_VERSION, type ClientMsg, type ErrorCode, type Presence, type ServerMsg } from '@overclock/protocol';
 import { base64url, sha256Hex } from './hash';
@@ -79,6 +79,11 @@ export interface RoomMeta {
   lastActive: number;
   /** The build that wrote the `state` snapshot. */
   build: string;
+  /**
+   * The engine's `RULES_VERSION` the game was created under (architect, Sprint 7 review). Absent
+   * in rooms created before it was stored: those were all created under version 1.
+   */
+  rulesVersion?: number;
 }
 
 const actionKey = (seq: number) => `a:${String(seq).padStart(6, '0')}`;
@@ -92,6 +97,11 @@ export class Room {
   private readonly seats: Partial<Record<Side, Conn>> = {};
   /** When the room will answer `pass` for the Corp (null: not waiting). In memory only. */
   private autoPassAt: number | null = null;
+  /**
+   * Sprint 7: the stored game no longer replays under this build's rules (a logged action was
+   * rejected), so it was expired on restore. Until the code is reused, sockets hear `expired`.
+   */
+  private divergedOnRestore = false;
 
   constructor(
     private readonly store: RoomStore,
@@ -128,6 +138,10 @@ export class Room {
 
   /** After a wake from hibernation: a socket that was already open, with its stored role. Sends nothing. */
   reattach(conn: Conn, role: ConnRole): void {
+    if (this.divergedOnRestore && role.kind !== 'creator') {
+      this.fail(conn, 'expired');
+      return;
+    }
     if (role.kind === 'seat') {
       if (!this.meta?.tokenHashes[role.seat] || this.seats[role.seat]) {
         conn.close(CLOSE_ERROR, 'replaced');
@@ -169,6 +183,10 @@ export class Room {
         if (role.kind === 'seat' && this.started()) this.act(role.seat, msg.action, msg.id);
         else this.send(conn, { v: 1, t: 'error', code: 'bad_message' });
         return;
+      case 'leave':
+        if (role.kind === 'seat' && this.meta && !this.started()) this.close();
+        else this.send(conn, { v: 1, t: 'error', code: 'bad_message' });
+        return;
     }
   }
 
@@ -203,6 +221,7 @@ export class Room {
   // ---- handlers -------------------------------------------------------------------
 
   private create(conn: Conn, code: string, msg: Extract<ClientMsg, { t: 'create' }>): void {
+    this.divergedOnRestore = false;
     const now = this.deps.now();
     const test = this.deps.testMode ? msg.test : undefined;
     const seed = test ? test.seed : Math.floor(this.deps.random() * 0x100000000) >>> 0;
@@ -222,6 +241,7 @@ export class Room {
       createdAt: now,
       lastActive: now,
       build: this.deps.build,
+      rulesVersion: RULES_VERSION,
     };
     this.match = match;
     this.accepted = accepted;
@@ -235,7 +255,7 @@ export class Room {
 
   private join(conn: Conn): void {
     const meta = this.meta;
-    if (!meta) return this.fail(conn, 'no_game');
+    if (!meta) return this.fail(conn, this.goneCode());
     const seat = other(meta.hostSide);
     if (meta.tokenHashes[seat]) return this.fail(conn, 'full');
     const token = this.newToken();
@@ -250,7 +270,7 @@ export class Room {
 
   private resume(conn: Conn, token: string): void {
     const meta = this.meta;
-    if (!meta) return this.fail(conn, 'no_game');
+    if (!meta) return this.fail(conn, this.goneCode());
     const hash = sha256Hex(token);
     const seat = SIDES.find((s) => meta.tokenHashes[s] === hash);
     if (!seat) return this.fail(conn, 'bad_token');
@@ -317,7 +337,18 @@ export class Room {
       this.match = LocalMatch.fromSnapshot(meta.seed, snapshot, actions);
     } else {
       // Another build wrote the snapshot (a deploy mid-game): rebuild under this build's rules.
-      this.match = LocalMatch.restore(meta.seed, actions, meta.options);
+      // Sprint 7: a game made under another RULES_VERSION is expired (its log could replay into a
+      // different game without any rejection). Backstop: the log holds accepted actions only, so a
+      // rejection on replay means the rules changed under this game without a version bump.
+      // Either way: expire it rather than show both phones a different game.
+      const match = new LocalMatch(meta.seed, meta.options);
+      const sameRules = (meta.rulesVersion ?? 1) === RULES_VERSION;
+      if (!sameRules || actions.some((a) => isRejected(match.submit(a.player, a), a.player))) {
+        this.store.deleteAll();
+        this.divergedOnRestore = true;
+        return;
+      }
+      this.match = match;
       meta.build = this.deps.build;
       this.store.put('state', this.match.snapshot());
       this.store.put('meta', meta);
@@ -393,6 +424,34 @@ export class Room {
     if (!this.started()) return meta.createdAt + LOBBY_TTL_MS;
     if (this.gameOver()) return meta.lastActive + FINISHED_TTL_MS;
     return meta.lastActive + IDLE_TTL_MS;
+  }
+
+  /** What a socket hears for a code with no game: `expired` right after a diverged restore, else `no_game`. */
+  private goneCode(): ErrorCode {
+    return this.divergedOnRestore ? 'expired' : 'no_game';
+  }
+
+  /**
+   * Sprint 7 (`leave` in a lobby nobody joined): the room closes. Seat sockets are closed
+   * normally, storage is wiped, and the code then answers `no_game` (and is free again).
+   */
+  private close(): void {
+    for (const s of SIDES) {
+      const conn = this.seats[s];
+      if (!conn) continue;
+      delete this.seats[s];
+      this.roles.delete(conn);
+      try {
+        conn.close(CLOSE_NORMAL, 'left');
+      } catch {
+        // already closed
+      }
+    }
+    this.store.deleteAll();
+    this.meta = null;
+    this.match = null;
+    this.accepted = [];
+    this.autoPassAt = null;
   }
 
   private expire(): void {

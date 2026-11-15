@@ -50,8 +50,11 @@ export function optionLabel(o: CardOption, run: RunView, options: readonly CardO
       }
       // Several breakers can act on this ICE: say which one.
       const who = breakersIn(options).length > 1 ? `${nameOf(breaker, 'Breaker')}: ` : '';
-      return `${who}${what} · ${priceText(o.cost)}`;
+      return `${who}${what} · ${payText(o, rig)}`;
     }
+    case 'activate':
+      // S-07-4: "Take 8 credits from Bank Job" (the amount on the card, from the engine).
+      return abilityLabel(rig[a.uid] ?? null, a.ability, o.gain);
     case 'steal':
     case 'trash': {
       const card = run.access?.cards[a.card];
@@ -69,8 +72,41 @@ export function optionLabel(o: CardOption, run: RunView, options: readonly CardO
           return 'Continue';
         case 'access':
           return options.some((x) => x.action.type === 'trash') ? 'Leave it' : 'Done';
+        case 'success':
+          return 'Access cards';
       }
       return 'Pass';
+    default:
+      return a.type;
+  }
+}
+
+/** A card ability's label from card data with `{gain}` filled from the option ("Take 2 credits"). */
+export function abilityLabel(cardId: string | null, ability: number, gain: number | undefined): string {
+  const label = (cardId ? getCard(cardId)?.cardAbilities?.[ability]?.label : undefined) ?? 'Use';
+  return label.replace('{gain}', String(gain ?? 0));
+}
+
+/**
+ * S-07-2/3/5: the button of a picked card on the table: "Rez · 2 credits",
+ * "Advance · 1 credit", "Score", "Take 2 credits · 1 click". Prices and the
+ * click cost come from the engine's option; the words from card data.
+ */
+export function installedOptionLabel(o: CardOption, cardId: string | null): string {
+  const a = o.action;
+  switch (a.type) {
+    case 'rez':
+      return `${TERMS.rez} · ${priceText(o.cost)}`;
+    case 'advance':
+      return `${TERMS.advance} · ${priceText(o.cost)}`;
+    case 'score':
+      return TERMS.score;
+    case 'activate': {
+      const parts = [abilityLabel(cardId, a.ability, o.gain)];
+      if (o.clicks) parts.push(plural(o.clicks, 'click', 'clicks'));
+      if (o.cost > 0) parts.push(priceText(o.cost));
+      return parts.join(' · ');
+    }
     default:
       return a.type;
   }
@@ -96,6 +132,9 @@ export function stepLabel(run: RunView, deciding: Side): string {
       return `Encounter: ${ice}`;
     case 'continue':
       return `Passed ${ice}`;
+    case 'success':
+      // S-07-4: in, before access: take Bank Job's credits instead, or access.
+      return `Got into ${serverLabel(run.server)}`;
     case 'access': {
       const n = run.access?.cards.length ?? 0;
       return n > 1 ? `${TERMS.access}: ${plural(n, 'card', 'cards')}` : `${TERMS.access} ${serverLabel(run.server)}`;
@@ -122,10 +161,44 @@ export function infoLines(run: RunView, rig: RigIds): string[] {
   return lines;
 }
 
+/**
+ * S-07-2: what cards did by themselves at a turn's start, one line each:
+ * "PAD Campaign: +1 credit". A refill of a card's own credits (Cyberfeeder)
+ * says nothing (its disc shows it).
+ */
+export function turnStartNotices(batch: readonly GameEvent[]): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < batch.length; i++) {
+    const e = batch[i]!;
+    if (e.type !== 'ability_triggered' || e.trigger !== 'turn_start') continue;
+    let gained = 0;
+    for (let k = i + 1; k < batch.length; k++) {
+      const n = batch[k]!;
+      if (n.type === 'credit_gained') gained += n.amount;
+      else break;
+    }
+    if (gained > 0) out.push(`${nameOf(e.cardId, 'Card')}: +${plural(gained, 'credit', 'credits')}`);
+  }
+  return out;
+}
+
+/**
+ * S-07-4: a breaker's price with who pays it: "1 credit", "Cyberfeeder pays",
+ * "2 credits · Cyberfeeder pays 1" (the engine's `hostedPay`).
+ */
+export function payText(o: CardOption, rig: RigIds): string {
+  const paid = o.hostedPay ?? [];
+  if (paid.length === 0) return priceText(o.cost);
+  const covered = paid.reduce((n, p) => n + p.amount, 0);
+  const who = paid.map((p) => nameOf(rig[p.uid] ?? null, 'A card')).join(' + ');
+  return covered >= o.cost ? `${who} pays` : `${priceText(o.cost)} · ${who} pays ${covered}`;
+}
+
 /** What a run's end says in the notice (the result of a run that did not end the game). */
 export const RUN_END: Record<string, string> = {
   jacked_out: 'Jacked out',
   ended_by_ice: 'Run ended',
+  access_replaced: 'Took the credits instead of accessing',
 };
 
 /**
@@ -138,6 +211,12 @@ export function runEndText(e: Extract<GameEvent, { type: 'run_ended' }>, batch: 
     const gotIn = batch.some((x) => x.type === 'run_successful');
     const accessed = batch.some((x) => x.type === 'card_accessed');
     return gotIn && !accessed ? `Nothing to access in ${serverLabel(e.server)}` : null;
+  }
+  if (e.outcome === 'access_replaced') {
+    // "Bank Job: +8 credits, nothing accessed".
+    const by = batch.find((x): x is Extract<GameEvent, { type: 'ability_triggered' }> => x.type === 'ability_triggered' && x.trigger === 'successful_run');
+    const gained = batch.filter((x): x is Extract<GameEvent, { type: 'credit_gained' }> => x.type === 'credit_gained').reduce((n, x) => n + x.amount, 0);
+    if (by && gained > 0) return `${nameOf(by.cardId, 'Card')}: +${plural(gained, 'credit', 'credits')}, nothing accessed`;
   }
   return RUN_END[e.outcome] ?? null;
 }

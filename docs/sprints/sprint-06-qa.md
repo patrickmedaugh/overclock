@@ -92,3 +92,13 @@ Actual WebSocket frames, as received by each browser, were captured for every on
 3. Pass-the-phone: tap End turn and check that nothing of your cards shows before "Pass the phone to…", and that the tap shows the next board at once.
 4. In your Cloudflare dashboard: no card on file and nothing charged.
 5. Releases page: **app-sprint-06** opens on the start screen; once the service is live, an app phone can play a web phone.
+
+## Addendum (Sprint 7 QA, 2026-11-14): S-06-4 now that the owner added the Cloudflare secrets
+
+| S-06-4 criterion | Was | Now | Evidence |
+|---|---|---|---|
+| Updating the game updates the online service by itself (automated) | BLOCKED ON OWNER SETUP | **PASS** | The `server` workflow on `sprint-07` deployed the live service on every push after the secrets were added (8295307, f0c03c5, a9364a1, 0865b64). Each time `/health` at `https://overclock.patrickmedaugh.workers.dev` reported that exact commit (job logs, e.g. 132564095994: `{"ok":true,"build":"a9364a16…","protocol":1}`). Production runs with `OVERCLOCK_TEST_MODE "0"`. |
+| Web link and app both play online | BLOCKED ON OWNER SETUP | **Builds PASS; live play = owner check** | The web (Pages) and app (`app-sprint-07`) builds point at `wss://overclock.patrickmedaugh.workers.dev`. Their CSP allows only that service, `check-android-bundle` passes, and the service's allowed list holds the Pages origin and the app. QA's sandbox can't reach `workers.dev`, so a live two-device game stays an owner check. |
+| Nothing charged | BLOCKED ON OWNER SETUP | **Owner check** | Only the owner can see the account. |
+
+Details: `docs/sprints/sprint-07-qa.md`.

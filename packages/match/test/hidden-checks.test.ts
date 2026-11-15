@@ -42,3 +42,23 @@ describe('runnerViewLeaks / runnerEventLeaks', () => {
     expect(runnerEventLeaks(viewEvents('runner', [drawn]), s)).toEqual([]);
   });
 });
+
+describe('Sprint 7 allowlist (narrow): card_rezzed / ability_triggered / Runner installedOptions', () => {
+  it('accept a face-up card, catch a face-down one and a Corp uid in the Runner options', () => {
+    const plan = planBusyBoard(3);
+    const m = LocalMatch.restore(plan.seed, plan.actions);
+    const s = m.snapshot();
+    const faceDown = s.servers.flatMap((sv) => sv.ice).find((c) => !c.rezzed)!;
+    const leak: GameEvent = { type: 'card_rezzed', uid: faceDown.uid, cardId: faceDown.cardId, server: 'remote1' };
+    expect(runnerEventLeaks([leak], s).length).toBeGreaterThan(0);
+    const trig: GameEvent = { type: 'ability_triggered', uid: faceDown.uid, cardId: faceDown.cardId, trigger: 'turn_start' };
+    expect(runnerEventLeaks([trig], s).length).toBeGreaterThan(0);
+    const rezzed = { ...s, servers: s.servers.map((sv) => ({ ...sv, ice: sv.ice.map((c) => (c.uid === faceDown.uid ? { ...c, rezzed: true } : c)) })) };
+    expect(runnerEventLeaks([leak, trig], rezzed)).toEqual([]);
+    const rigCard = s.rig[0]!;
+    expect(runnerEventLeaks([{ type: 'ability_triggered', uid: rigCard.uid, cardId: rigCard.cardId, trigger: 'click' }], s)).toEqual([]);
+    const v = m.view('runner');
+    const planted = { ...v, installedOptions: { [faceDown.uid]: [] } } as PlayerView;
+    expect(runnerViewLeaks(s, planted).length).toBeGreaterThan(0);
+  });
+});

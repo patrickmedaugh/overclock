@@ -14,6 +14,7 @@ import {
   openBoard,
   passTurn,
   pickCard,
+  pickHand,
   runButtonOf,
   tap,
   targetOf,
@@ -70,8 +71,12 @@ test.describe('S-03-2 advance and score', () => {
     const name = getCard(plan.info.cardId!)!.name;
     const types = s.events.map((e) => e.type);
     expect(types[0]).toBe('agenda_scored');
-    if (name === 'Priority Requisition') expect(types.slice(1).every((t) => t === 'choice_opened')).toBe(true);
-    else expect(types.slice(1)).toEqual(bonus[name] ?? []);
+    // S-07-1: a remote left with no ICE and no cards is removed, last (after the bonus).
+    const emptied = (before.corpServers.find((x) => x.id === plan.info.server)?.ice.length ?? 0) === 0 && !s.view.result;
+    const gone = emptied ? ['server_removed'] : [];
+    if (name === 'Priority Requisition') expect(types.slice(1).every((t) => t === 'choice_opened' || t === 'server_removed')).toBe(true);
+    else expect(types.slice(1)).toEqual([...(bonus[name] ?? []), ...gone]);
+    expect(s.events.find((e) => e.type === 'server_removed')).toEqual(emptied ? { type: 'server_removed', server: plan.info.server } : undefined);
     expect(s.view.players.corp.points).toBe(before.players.corp.points + pts);
     expect(s.view.players.corp.clicks).toBe(clicks); // no click needed
     expectSnappy(s, ['score_flight']);
@@ -121,7 +126,8 @@ test.describe('S-03-2 advance and score', () => {
     l = await waitIdle(page);
     expect(l.run!.access!.cards.map((c) => c.cardId)).toEqual([plan.info.cardId]);
     const m = await measureTap(page, runButtonOf(l, 'Steal').box);
-    expect(m.events.map((e) => e.type)).toEqual(['agenda_stolen', 'run_ended', 'game_over']);
+    // S-07-1: the steal emptied the remote (no ICE in front: the planner's goal), so it is removed before the game ends.
+    expect(m.events.map((e) => e.type)).toEqual(['agenda_stolen', 'run_ended', 'server_removed', 'game_over']);
     l = await waitIdle(page);
     expect(l.gameOver).toMatchObject({ title: 'Runner wins', reason: '7 agenda points' });
     expect(l.run).toBeNull();
@@ -210,7 +216,7 @@ test.describe('S-03-5 run cards', () => {
 // S-03-5 AC4: no card says "Needs runs (coming soon)" any more. Seeds 1, 89, 59 and 8 together
 // deal every card of both starter decks into an opening hand (checked below without a browser),
 // so tapping each hand card in those four games shows every card's pick in the UI. One test per
-// seed: each one is ~22 taps, well inside the 30s limit on a GPU-less CI runner.
+// seed (~35 taps since the S-07-6 hand view; 90 s limit for a GPU-less CI runner).
 const NEEDS_RUNS_SEEDS = [1, 89, 59, 8];
 
 /** Opening hands (Corp's, then the Runner's after the Corp discards its 6th card) for a seed. */
@@ -232,6 +238,8 @@ test.describe('S-03-5 no "Needs runs (coming soon)"', () => {
 
   for (const seed of NEEDS_RUNS_SEEDS) {
     test(`seed ${seed}: picking each card in both opening hands never says "Needs runs"`, async ({ page }) => {
+      // S-07-6: each pick is three taps now (open the hand view, tap the big card, tap again to cancel): ~35 taps.
+      test.setTimeout(90_000);
       await openBoard(page, seed);
       for (const side of ['corp', 'runner'] as const) {
         if (side === 'runner') await toRunnerTurn(page);
@@ -241,9 +249,10 @@ test.describe('S-03-5 no "Needs runs (coming soon)"', () => {
         // Picking a card and tapping it again leaves the hand where it was: one read of the boxes.
         const l = await layout(page);
         expect(l.hand.map((h) => h.cardId)).toEqual(openingHands(seed)[side]);
-        for (const h of l.hand) {
-          await tap(page, h.box);
-          await tap(page, h.box); // tap again: cancel
+        for (let k = 0; k < l.hand.length; k++) {
+          // S-07-6: open the hand view on the card and tap its big card (the pick), then tap it again in the hand: cancel.
+          const picked = await pickHand(page, k);
+          if (picked.selected === k) await tap(page, l.hand[k]!.box);
         }
         const after = await layout(page);
         expect(after.selected).toBeNull();

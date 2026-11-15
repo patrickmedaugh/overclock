@@ -1,6 +1,6 @@
 import type { CardOption, GameEvent, RunView } from '@overclock/engine';
 import { describe, expect, it } from 'vitest';
-import { iceReport, infoLines, letFireLabel, optionLabel, runEndText, runTitle, stepLabel } from '../src/runText';
+import { abilityLabel, iceReport, infoLines, installedOptionLabel, letFireLabel, optionLabel, payText, runEndText, runTitle, stepLabel, turnStartNotices } from '../src/runText';
 
 const base: RunView = {
   server: 'remote1',
@@ -160,5 +160,64 @@ describe('S-05-2 ICE report: what the ICE did', () => {
     expect(iceReport([res('c05', 0, 'end_run', 0), { type: 'run_ended', server: 'rd', outcome: 'ended_by_ice' }])).toBe('Ice Wall ended your run.');
     expect(iceReport([{ type: 'run_ended', server: 'rd', outcome: 'jacked_out' }])).toBeNull();
     expect(iceReport([res('c06', 0, 'lose_clicks', 0)])).toBe('Enigma: nothing happened.');
+  });
+});
+
+// ---- Sprint 7 (U4 / U5) ----
+
+describe('S-07-2/3/5 buttons of a picked card on the table', () => {
+  it('Rez, Advance and Score with the engine price; a card ability from card data with {gain} and its click', () => {
+    expect(installedOptionLabel(opt({ type: 'rez', player: 'corp', uid: 'a' }, 2), 'c03')).toBe('Rez · 2 credits');
+    expect(installedOptionLabel(opt({ type: 'rez', player: 'corp', uid: 'a' }, 1), 'c11')).toBe('Rez · 1 credit');
+    expect(installedOptionLabel(opt({ type: 'advance', player: 'corp', uid: 'a' }, 1), null)).toBe('Advance · 1 credit');
+    expect(installedOptionLabel(opt({ type: 'score', player: 'corp', uid: 'a' }), null)).toBe('Score');
+    const take: CardOption = { ...opt({ type: 'activate', player: 'runner', uid: 'r', ability: 0 }), clicks: 1, gain: 2 };
+    expect(installedOptionLabel(take, 'r02')).toBe('Take 2 credits · 1 click');
+    expect(abilityLabel('r10', 0, 8)).toBe('Take 8 credits from Bank Job');
+  });
+});
+
+describe('S-07-4 run panel: Bank Job and Cyberfeeder', () => {
+  it('step success: "Take 8 credits from Bank Job" or "Access cards"', () => {
+    const options: CardOption[] = [{ ...opt({ type: 'activate', player: 'runner', uid: 'b1', ability: 0 }), gain: 8 }, opt({ type: 'pass', player: 'runner' })];
+    const run: RunView = { ...base, step: 'success', iceUid: null, ice: null, options };
+    expect(options.map((o) => optionLabel(o, run, options, { b1: 'r10' }))).toEqual(['Take 8 credits from Bank Job', 'Access cards']);
+    expect(stepLabel(run, 'runner')).toBe('Got into Server 1');
+  });
+
+  it('a breaker paid by Cyberfeeder says so; partly paid shows both', () => {
+    const r = { i5: 'r04', cf: 'r08' };
+    const full: CardOption = { ...opt({ type: 'use_ability', player: 'runner', uid: 'i5', ability: 0, sub: 0 }, 1), hostedPay: [{ uid: 'cf', amount: 1 }] };
+    expect(payText(full, r)).toBe('Cyberfeeder pays');
+    const part: CardOption = { ...full, cost: 2 };
+    expect(payText(part, r)).toBe('2 credits · Cyberfeeder pays 1');
+    expect(payText(opt({ type: 'use_ability', player: 'runner', uid: 'i5', ability: 0 }, 1), r)).toBe('1 credit');
+    const options = [full];
+    expect(optionLabel(full, { ...base, ice: { cardId: 'c05', strength: 1, subroutines: [{ text: 'End the run', broken: false }] }, options }, options, r)).toBe('Break "End the run" · Cyberfeeder pays');
+  });
+
+  it('Bank Job taken: the end notice says what it gave and that nothing was accessed', () => {
+    const batch: GameEvent[] = [
+      { type: 'ability_triggered', uid: 'b1', cardId: 'r10', trigger: 'successful_run' },
+      { type: 'hosted_credits_changed', uid: 'b1', credits: 0 },
+      { type: 'credit_gained', player: 'runner', amount: 8 },
+      { type: 'rig_card_trashed', uid: 'b1', cardId: 'r10' },
+      { type: 'run_ended', server: 'remote1', outcome: 'access_replaced' },
+    ];
+    expect(runEndText(batch.at(-1) as Extract<GameEvent, { type: 'run_ended' }>, batch)).toBe('Bank Job: +8 credits, nothing accessed');
+  });
+});
+
+describe('S-07-2 turn-start notices', () => {
+  it('"PAD Campaign: +1 credit"; a refill (no credits gained) says nothing', () => {
+    const batch: GameEvent[] = [
+      { type: 'turn_started', player: 'corp', turn: 3 } as GameEvent,
+      { type: 'ability_triggered', uid: 'p1', cardId: 'c03', trigger: 'turn_start' },
+      { type: 'credit_gained', player: 'corp', amount: 1 },
+      { type: 'ability_triggered', uid: 'cf', cardId: 'r08', trigger: 'turn_start' },
+      { type: 'hosted_credits_changed', uid: 'cf', credits: 1 },
+    ];
+    expect(turnStartNotices(batch)).toEqual(['PAD Campaign: +1 credit']);
+    expect(turnStartNotices([])).toEqual([]);
   });
 });

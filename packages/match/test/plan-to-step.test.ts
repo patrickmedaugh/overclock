@@ -90,6 +90,8 @@ describe('planToStep (Sprint 3 e2e setup helper)', () => {
         { type: 'agenda_scored', uid: plan.info.uid, cardId: 'c08', points: 1 },
         { type: 'credit_gained', player: 'corp', amount: 7 },
         { type: 'bad_publicity_gained', amount: 1, total: bp },
+        // Sprint 7 (S-07-1): the planner installs the agenda alone in a new remote, which goes.
+        { type: 'server_removed', server: plan.info.server },
       ]);
       expect(u.runner.events).toEqual(u.corp.events);
       expect(u.runner.view.badPublicity).toBe(bp);
@@ -100,7 +102,11 @@ describe('planToStep (Sprint 3 e2e setup helper)', () => {
       const { plan, m } = play(seed, 'corp_score_priority_requisition');
       expect(plan.info.cardId).toBe('c10');
       const u = m.submit('corp', { type: 'score', player: 'corp', uid: plan.info.uid! });
-      expect(u.corp.events.at(-1)).toEqual({ type: 'choice_opened', kind: 'free_rez', player: 'corp', cardId: 'c10' });
+      expect(u.corp.events.slice(-2)).toEqual([
+        { type: 'choice_opened', kind: 'free_rez', player: 'corp', cardId: 'c10' },
+        // Sprint 7 (S-07-1): the planner installs the agenda alone in a new remote, which goes.
+        { type: 'server_removed', server: plan.info.server },
+      ]);
       expect(u.runner.events).toEqual(u.corp.events);
       const rez: Action = { type: 'rez', player: 'corp', uid: plan.info.iceUid! };
       expect(u.corp.view.choice!.options).toContainEqual({ action: rez, cost: 0, reject: null });

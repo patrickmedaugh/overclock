@@ -1,4 +1,4 @@
-// S-06-5: the opaque "Pass the phone to the Runner. Tap when ready" screen.
+// S-06-5: the opaque "Pass to the Runner — tap when ready" screen (owner wording, 2026-11-14).
 // It hides the whole board (every card, both hands, the run) and takes every
 // tap until the next player taps it. The board behind it is already drawn for
 // that player, so the tap only takes the cover away (next frame, < 100 ms).
@@ -79,7 +79,10 @@ export class Cover {
     fitText(line, maxW);
 
     const gap = Math.round(14 * s);
-    const total = pw + gap + title.height + gap / 2 + line.height;
+    // One line since the owner's wording (2026-11-14): no second line when it is empty.
+    line.visible = text.line !== '';
+    const lineH = line.visible ? line.height + gap / 2 : 0;
+    const total = pw + gap + title.height + lineH;
     const cx = safe.x + safe.width / 2;
     let y = safe.y + Math.max(0, Math.round((safe.height - total) / 2));
     phone.position.set(cx, y + pw / 2);
@@ -88,9 +91,10 @@ export class Cover {
     y += title.height + gap / 2;
     line.position.set(cx, y);
     // The phone's glow reaches 7 px past its outline.
-    const w = Math.max(title.width, line.width, ph + 14);
+    const w = Math.max(title.width, line.visible ? line.width : 0, ph + 14);
     const top = phone.y - pw / 2 - 8;
-    this.content = { x: Math.floor(cx - w / 2) - 6, y: Math.floor(top), width: Math.ceil(w) + 12, height: Math.ceil(line.y + line.height - top) + 6 };
+    const bottom = line.visible ? line.y + line.height : title.y + title.height;
+    this.content = { x: Math.floor(cx - w / 2) - 6, y: Math.floor(top), width: Math.ceil(w) + 12, height: Math.ceil(bottom - top) + 6 };
     for (const t of [phone, title, line]) t.eventMode = 'none';
     this.root.addChild(phone, title, line);
 

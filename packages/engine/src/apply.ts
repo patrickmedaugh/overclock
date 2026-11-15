@@ -1,9 +1,12 @@
 import type { Action, ActionOf } from './actions';
 import type { GameEvent } from './events';
 import type { CardOption } from './view';
-import { getCard } from '@overclock/cards';
+import { getCard, type CardAbility } from '@overclock/cards';
 import {
+  abilityGain,
   ADVANCE_COST,
+  advanceTarget,
+  breakerPayment,
   breakerCard,
   breakerIceType,
   currentIce,
@@ -22,7 +25,21 @@ import {
   unstolenAgendaShown,
   waitingOn,
 } from './rules';
-import { doJackOut, doPass, doRez, doRun, doSteal, doTrash, doUseAbility, resolveEffect } from './run';
+import {
+  accessReplacements,
+  afterInstall,
+  doActivate,
+  doJackOut,
+  doPass,
+  doRez,
+  doRun,
+  doSteal,
+  doTrash,
+  doUseAbility,
+  pruneEmptyRemotes,
+  resolveEffect,
+  turnStartAbilities,
+} from './run';
 import {
   checkPointsWin,
   drawTop,
@@ -47,7 +64,8 @@ function passTurn(state: GameState, events: GameEvent[]): ApplyResult {
   events.push({ type: 'turn_ended', player: ending });
   // Sprint 5: Last run goes away when the Runner's turn ends.
   const ended = ending === 'runner' ? { ...state, lastRun: null } : state;
-  const started = startTurn(ended, opponentOf(ending), state.turn + 1);
+  // Sprint 7: "when your turn begins" abilities happen before the Corp's draw.
+  const started = startTurn(ended, opponentOf(ending), state.turn + 1, turnStartAbilities);
   events.push(...started.events);
   return { state: started.state, events };
 }
@@ -105,13 +123,13 @@ function doInstall(state: GameState, a: ActionOf<'install'>): ApplyResult {
   const cardId = state.players[a.player].hand[a.handIndex] as string;
   const events: GameEvent[] = [];
   let s = payFromHand(state, a.player, a.handIndex, installCost(state, a), events);
-  const card: Installed = { uid: `i${s.nextUid}`, cardId, rezzed: false, advancements: 0 };
+  const card: Installed = { uid: `i${s.nextUid}`, cardId, rezzed: false, advancements: 0, hostedCredits: 0 };
   s = { ...s, nextUid: s.nextUid + 1 };
 
   if (a.player === 'runner') {
     s = { ...s, rig: [...s.rig, card] };
     events.push({ type: 'card_installed', player: a.player, uid: card.uid, zone: 'rig', handIndex: a.handIndex, cardId });
-    return { state: s, events };
+    return { state: afterInstall(s, card.uid, a.player, events), events };
   }
 
   let serverId = a.server as ServerId | 'new';
@@ -128,7 +146,7 @@ function doInstall(state: GameState, a: ActionOf<'install'>): ApplyResult {
     servers: s.servers.map((sv) => (sv.id === target ? { ...sv, [zone]: [...sv[zone], card] } : sv)),
   };
   events.push({ type: 'card_installed', player: a.player, uid: card.uid, zone, server: target, handIndex: a.handIndex, cardId });
-  return { state: s, events };
+  return { state: afterInstall(s, card.uid, a.player, events), events };
 }
 
 function doPlay(state: GameState, a: ActionOf<'play'>): ApplyResult {
@@ -157,7 +175,7 @@ function patchInstalled(state: GameState, uid: string, patch: Partial<Installed>
 
 function doAdvance(state: GameState, a: ActionOf<'advance'>): ApplyResult {
   const me = state.players[a.player];
-  const card = installedAgenda(state, a.uid) as Installed;
+  const card = advanceTarget(state, a.uid) as Installed;
   const advancements = card.advancements + 1;
   let s = withPlayer(state, a.player, { clicks: me.clicks - 1, credits: me.credits - ADVANCE_COST });
   s = patchInstalled(s, a.uid, { advancements });
@@ -185,7 +203,8 @@ function doScore(state: GameState, a: ActionOf<'score'>): ApplyResult {
     if (s.phase !== 'action') break; // game over, or a choice opened (free_rez is last)
     s = resolveEffect(s, effect, a.player, events, { cardId: card.cardId });
   }
-  return { state: s, events };
+  // Sprint 7 (S-07-1): a remote left empty by the score goes (not after a winning score: the game is over).
+  return { state: s.phase === 'over' ? s : pruneEmptyRemotes(s, events), events };
 }
 
 /**
@@ -227,6 +246,8 @@ export function apply(state: GameState, action: Action): ApplyResult {
       return doSteal(state, action);
     case 'trash':
       return doTrash(state, action);
+    case 'activate':
+      return doActivate(state, action);
   }
 }
 
@@ -278,6 +299,12 @@ const option = (state: GameState, action: Action, cost: number): CardOption => (
   reject: rejectionFor(state, action),
 });
 
+/** Sprint 7: a breaker option, with `hostedPay` when recurring credits (Cyberfeeder) pay part of it. */
+function breakerOption(state: GameState, action: ActionOf<'use_ability'>, cost: number): CardOption {
+  const hosted = breakerPayment(state, cost).hosted;
+  return { ...option(state, action, cost), ...(hosted.length > 0 ? { hostedPay: hosted.map((h) => ({ uid: h.uid, amount: h.amount })) } : {}) };
+}
+
 /** Runner only: one `run` per server (corpServers order), listed off-turn too with its reason. Corp: []. */
 export function runStartOptions(state: GameState, player: Side): CardOption[] {
   if (player !== 'runner') return [];
@@ -295,7 +322,7 @@ export function runStepOptions(state: GameState, player: Side): CardOption[] {
   const pass: Action = { type: 'pass', player };
   if (run.step === 'approach') {
     const ice = currentIce(state) as Installed;
-    out.push(option(state, { type: 'rez', player, uid: ice.uid }, rezCost(ice)), option(state, pass, 0));
+    out.push(option(state, { type: 'rez', player, uid: ice.uid }, rezCost(state, ice)), option(state, pass, 0));
   } else if (run.step === 'encounter') {
     const ice = currentIce(state) as Installed;
     const iceCard = getCard(ice.cardId);
@@ -304,17 +331,25 @@ export function runStepOptions(state: GameState, player: Side): CardOption[] {
       if (!b || breakerIceType(b.card) !== iceCard?.subtype) continue;
       (b.card.abilities ?? []).forEach((ab, ability) => {
         if (ab.op === 'strength') {
-          out.push(option(state, { type: 'use_ability', player, uid: c.uid, ability }, ab.cost));
+          out.push(breakerOption(state, { type: 'use_ability', player, uid: c.uid, ability }, ab.cost));
           return;
         }
         (iceCard?.subroutines ?? []).forEach((_, sub) => {
-          if (!run.broken.includes(sub)) out.push(option(state, { type: 'use_ability', player, uid: c.uid, ability, sub }, ab.cost));
+          if (!run.broken.includes(sub)) out.push(breakerOption(state, { type: 'use_ability', player, uid: c.uid, ability, sub }, ab.cost));
         });
       });
     }
     out.push(option(state, pass, 0));
   } else if (run.step === 'continue') {
     out.push(option(state, pass, 0), option(state, { type: 'jack_out', player }, 0));
+  } else if (run.step === 'success') {
+    // Sprint 7: take credits from Bank Job (one option per usable card), or pass = Access cards.
+    for (const { uid, ability } of accessReplacements(state)) {
+      const c = state.rig.find((x) => x.uid === uid) as Installed;
+      const ab = getCard(c.cardId)?.cardAbilities?.[ability] as CardAbility;
+      out.push(abilityOption(state, { type: 'activate', player, uid, ability }, c, ab));
+    }
+    out.push(option(state, pass, 0));
   } else {
     (run.access?.cards ?? []).forEach((c, card) => {
       if (c.stolen || c.trashed) return;
@@ -338,25 +373,58 @@ export function choiceOptions(state: GameState, player: Side): CardOption[] {
   return [...rezzes, option(state, { type: 'pass', player }, 0)];
 }
 
+/** Sprint 7: one `activate` option per `click` ability of an own face-up card (price, clicks, gain). */
+function clickAbilityOptions(state: GameState, player: Side, c: Installed): CardOption[] {
+  const out: CardOption[] = [];
+  (getCard(c.cardId)?.cardAbilities ?? []).forEach((ab, ability) => {
+    if (ab.when !== 'click') return;
+    out.push(abilityOption(state, { type: 'activate', player, uid: c.uid, ability }, c, ab));
+  });
+  return out;
+}
+
+/** An `activate` option: `cost` = credits, `clicks` when > 0, `gain` when it takes credits. */
+function abilityOption(state: GameState, action: ActionOf<'activate'>, c: Installed, ab: CardAbility): CardOption {
+  const gain = abilityGain(c, ab);
+  return {
+    ...option(state, action, ab.credits),
+    ...(ab.clicks > 0 ? { clicks: ab.clicks } : {}),
+    ...(gain !== undefined ? { gain } : {}),
+  };
+}
+
 /**
- * Corp only: per installed agenda uid (servers in order, then install order),
- * `advance` (cost 1) and, once it has enough counters, `score`. Listed off-turn
- * too, with the reason in `reject` (like `handOptions`). Runner: {}.
+ * Per own installed card uid, listed off-turn too with the reason in `reject` (like `handOptions`).
+ * Corp (servers in order; ICE innermost first, then content): agenda `advance` (cost 1) and, once it
+ * has enough counters, `score`; unrezzed asset/upgrade `rez` (cost = rez cost, Sprint 7); click
+ * abilities of rezzed cards. Runner (Sprint 7, rig order): one `activate` per `click` ability.
+ * The other side's cards are never listed.
  */
 export function installedOptions(state: GameState, player: Side): Record<string, CardOption[]> {
   const out: Record<string, CardOption[]> = {};
+  if (player === 'runner') {
+    for (const c of state.rig) {
+      const opts = clickAbilityOptions(state, player, c);
+      if (opts.length > 0) out[c.uid] = opts;
+    }
+    return out;
+  }
   if (player !== 'corp') return out;
   for (const sv of state.servers) {
-    for (const c of sv.content) {
+    for (const c of [...sv.ice, ...sv.content]) {
       const card = getCard(c.cardId);
-      if (card?.type !== 'agenda') continue;
-      const advance: ActionOf<'advance'> = { type: 'advance', player, uid: c.uid };
-      const opts: CardOption[] = [{ action: advance, cost: ADVANCE_COST, reject: rejectionFor(state, advance) }];
-      if (c.advancements >= (card.advancementRequirement ?? 0)) {
-        const score: ActionOf<'score'> = { type: 'score', player, uid: c.uid };
-        opts.push({ action: score, cost: 0, reject: rejectionFor(state, score) });
+      const opts: CardOption[] = [];
+      if (card?.type === 'agenda') {
+        opts.push(option(state, { type: 'advance', player, uid: c.uid }, ADVANCE_COST));
+        if (c.advancements >= (card.advancementRequirement ?? 0)) opts.push(option(state, { type: 'score', player, uid: c.uid }, 0));
+      } else if (card?.type === 'ice' && card.advanceable) {
+        // Sprint 7: advanceable ICE (Ice Wall), face up or down.
+        opts.push(option(state, { type: 'advance', player, uid: c.uid }, ADVANCE_COST));
+      } else if ((card?.type === 'asset' || card?.type === 'upgrade') && !c.rezzed) {
+        opts.push(option(state, { type: 'rez', player, uid: c.uid }, rezCost(state, c)));
       }
-      out[c.uid] = opts;
+      if (c.rezzed) opts.push(...clickAbilityOptions(state, player, c));
+      if (opts.length > 0) out[c.uid] = opts;
     }
   }
   return out;

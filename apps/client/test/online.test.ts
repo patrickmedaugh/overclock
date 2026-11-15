@@ -150,6 +150,23 @@ describe('OnlineMatch: start a game', () => {
     expect(m.status()).toEqual({ connection: 'open', opponent: 'here' });
   });
 
+  it('QA-S6-1: giving up a lobby nobody joined sends leave before closing, and forgets the seat', () => {
+    const m = OnlineMatch.create(deps(), 'corp');
+    last().serverOpen();
+    last().serverSend({ v: 1, t: 'seated', code: 'K7QF', seat: 'corp', token: 'tok' });
+    last().serverSend({ v: 1, t: 'lobby', code: 'K7QF', seat: 'corp' });
+    m.forget();
+    expect(last().msgs().at(-1)).toEqual({ v: 1, t: 'leave' });
+    expect(last().closed).not.toBeNull();
+    expect(store.getItem(STORAGE_KEY)).toBeNull();
+  });
+
+  it('forgetting a started game (game over) sends no leave', () => {
+    const { m } = joined();
+    m.forget();
+    expect(last().msgs().some((x) => (x as { t: string }).t === 'leave')).toBe(false);
+  });
+
   it('create passes a test setup through', () => {
     OnlineMatch.create(deps(), 'runner', { seed: 5, actions: [] });
     last().serverOpen();

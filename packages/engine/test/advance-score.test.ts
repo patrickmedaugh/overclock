@@ -45,7 +45,7 @@ describe('S-03-2 AC1: advance (1 click + 1 credit, own installed agenda)', () =>
       { type: 'card_advanced', uid: 'i1', advancements: 1 },
     ]);
     expect(r.state.players.corp).toMatchObject({ clicks: 2, credits: 4 });
-    expect(installedCard(r.state, 'i1')).toEqual({ uid: 'i1', cardId: 'c08', rezzed: false, advancements: 1 });
+    expect(installedCard(r.state, 'i1')).toEqual({ uid: 'i1', cardId: 'c08', rezzed: false, advancements: 1, hostedCredits: 0 });
     const again = apply(r.state, advance('corp', 'i1'));
     expect(installedCard(again.state, 'i1')?.advancements).toBe(2);
   });
@@ -53,9 +53,9 @@ describe('S-03-2 AC1: advance (1 click + 1 credit, own installed agenda)', () =>
   it('AC2: both players see the counters; the Runner still sees only the card back', () => {
     const s = run(corpInstalled(['c09']), [advance('corp', 'i1'), advance('corp', 'i1')]).state;
     const rv = viewFor('runner', s).corpServers.find((sv) => sv.id === 'remote1')!.content[0];
-    expect(rv).toEqual({ uid: 'i1', cardId: null, faceUp: false, advancements: 2 });
+    expect(rv).toEqual({ uid: 'i1', cardId: null, faceUp: false, advancements: 2, hostedCredits: 0 });
     const cv = viewFor('corp', s).corpServers.find((sv) => sv.id === 'remote1')!.content[0];
-    expect(cv).toEqual({ uid: 'i1', cardId: 'c09', faceUp: false, advancements: 2 });
+    expect(cv).toEqual({ uid: 'i1', cardId: 'c09', faceUp: false, advancements: 2, hostedCredits: 0 });
     // card_advanced is public and names no card.
     expect(viewEvents('runner', apply(s, advance('corp', 'i1')).events)).toEqual([
       { type: 'credits_spent', player: 'corp', amount: 1 },
@@ -73,7 +73,7 @@ describe('S-03-2 AC1: advance (1 click + 1 credit, own installed agenda)', () =>
     ['wrong_phase', () => ({ state: discardStep(), action: advance('corp', 'i1') })],
     ['no_clicks', () => ({ state: corpInstalled(['c08'], 0), action: advance('corp', 'i1') })],
     ['bad_target', () => ({ state: corpInstalled(['c08']), action: advance('corp', 'i9') })], // unknown uid
-    ['bad_target', () => ({ state: corpInstalled(['c05']), action: advance('corp', 'i1') })], // Ice Wall: not advanceable this sprint
+    ['bad_target', () => ({ state: corpInstalled(['c04']), action: advance('corp', 'i1') })], // Wall of Static: not advanceable (Sprint 7: Ice Wall is)
     ['bad_target', () => ({ state: corpInstalled(['c03']), action: advance('corp', 'i1') })], // an asset
     ['no_credits', () => ({ state: corpInstalled(['c08'], 3, 0), action: advance('corp', 'i1') })],
   ];
@@ -89,7 +89,7 @@ describe('S-03-2 AC1: advance (1 click + 1 credit, own installed agenda)', () =>
 
   it('precedence: no_clicks beats bad_target; bad_target beats no_credits', () => {
     expect(rejection(apply(corpInstalled(['c05'], 0), advance('corp', 'i1')).events)).toBe('no_clicks');
-    expect(rejection(apply(corpInstalled(['c05'], 3, 0), advance('corp', 'i1')).events)).toBe('bad_target');
+    expect(rejection(apply(corpInstalled(['c04'], 3, 0), advance('corp', 'i1')).events)).toBe('bad_target');
   });
 });
 
@@ -101,7 +101,7 @@ describe('S-03-2 AC3: score (no click, Corp turn, counters >= requirement)', () 
     // Sprint 4: followed by its "when scored" bonus (when-scored.test.ts).
     expect(r.events[0]).toEqual({ type: 'agenda_scored', uid: 'i1', cardId: 'c08', points: 1 });
     expect(r.state.players.corp).toMatchObject({ clicks: 1, credits: 3 + 7, scoreArea: ['c08'] });
-    expect(r.state.servers.find((sv) => sv.id === 'remote1')!.content).toEqual([]);
+    expect(r.state.servers.find((sv) => sv.id === 'remote1')).toBeUndefined(); // Sprint 7 (S-07-1): the emptied remote goes
     for (const p of ['corp', 'runner'] as const) {
       const v = viewFor(p, r.state);
       expect(v.players.corp).toMatchObject({ scored: ['c08'], points: 1 });
@@ -172,10 +172,12 @@ describe('S-03-2 AC4: 7 agenda points win at once', () => {
 });
 
 describe('installedOptions (Corp: advance, then score once ready)', () => {
-  it('advance per installed agenda; score appears with enough counters; ICE and assets are not listed', () => {
-    let s = corpInstalled(['c08', 'c05', 'c03', 'c09'], 3, 5);
+  it('advance per installed agenda; score appears with enough counters; non-advanceable ICE is not listed', () => {
+    let s = corpInstalled(['c08', 'c04', 'c03', 'c09'], 3, 5);
     expect(viewFor('corp', s).installedOptions).toEqual({
       i1: [{ action: advance('corp', 'i1'), cost: 1, reject: null }],
+      // Sprint 7: an unrezzed asset offers Rez (PAD Campaign: 2 credits).
+      i3: [{ action: { type: 'rez', player: 'corp', uid: 'i3' }, cost: 2, reject: null }],
       i4: [{ action: advance('corp', 'i4'), cost: 1, reject: null }],
     });
     s = run(s, [advance('corp', 'i1'), advance('corp', 'i1')]).state;
@@ -185,7 +187,12 @@ describe('installedOptions (Corp: advance, then score once ready)', () => {
     ]);
     expect(viewFor('runner', s).installedOptions).toEqual({});
     // Advance and score are in legalActions, after installs/plays.
-    expect(legalActions(s, 'corp').slice(-3)).toEqual([advance('corp', 'i1'), score('corp', 'i1'), advance('corp', 'i4')]);
+    expect(legalActions(s, 'corp').slice(-4)).toEqual([
+      advance('corp', 'i1'),
+      score('corp', 'i1'),
+      { type: 'rez', player: 'corp', uid: 'i3' },
+      advance('corp', 'i4'),
+    ]);
   });
 
   it('reject equals apply: no credits, no clicks, off turn', () => {

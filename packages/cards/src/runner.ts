@@ -27,6 +27,18 @@ export const RUNNER_CARDS: readonly CardDef[] = [
     text:
       'Place 12 credits from the bank on Armitage Codebusting when it is installed. When there are no credits left on Armitage Codebusting, trash it.\nClick: Take 2 credits from Armitage Codebusting.',
     art: 'glyph:handshake',
+    onInstall: [{ op: 'place_credits', amount: 12 }],
+    trashWhenEmpty: true,
+    cardAbilities: [
+      {
+        label: 'Take {gain} credits',
+        when: 'click',
+        clicks: 1,
+        credits: 0,
+        requires: 'hosted_credits',
+        effects: [{ op: 'take_credits', amount: 2 }],
+      },
+    ],
   },
   {
     id: 'r03',
@@ -104,6 +116,7 @@ export const RUNNER_CARDS: readonly CardDef[] = [
     cost: 2,
     text: '1 recurring credit.\nUse this credit to pay for using icebreakers or for installing virus programs.',
     art: 'glyph:lung',
+    recurringCredits: { amount: 1, for: 'icebreaker' },
   },
   {
     id: 'r09',
@@ -113,6 +126,7 @@ export const RUNNER_CARDS: readonly CardDef[] = [
     cost: 1,
     text: '+1 memory.',
     art: 'glyph:halo',
+    memoryBonus: 1,
   },
   {
     id: 'r10',
@@ -123,6 +137,19 @@ export const RUNNER_CARDS: readonly CardDef[] = [
     text:
       'Place 8 credits from the bank on Bank Job when it is installed. When there are no credits left on Bank Job, trash it.\nWhenever you make a successful run on a remote server, instead of accessing cards you may take any number of credits from Bank Job.',
     art: 'glyph:cross',
+    onInstall: [{ op: 'place_credits', amount: 8 }],
+    trashWhenEmpty: true,
+    cardAbilities: [
+      {
+        label: 'Take {gain} credits from Bank Job',
+        when: 'successful_run_remote',
+        clicks: 0,
+        credits: 0,
+        requires: 'hosted_credits',
+        replacesAccess: true,
+        effects: [{ op: 'take_credits', amount: 'all' }],
+      },
+    ],
   },
   {
     id: 'r11',

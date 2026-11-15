@@ -19,6 +19,7 @@ import {
   type PlayerView,
 } from '../src/index';
 import { act, board, liveness, rejection } from './helpers';
+import { rezCost } from '../src/rules';
 
 const always: GameOptions = { rezWindow: 'always' };
 const runHq: Action = { type: 'run', player: 'runner', server: 'hq' };
@@ -171,7 +172,9 @@ describe("Sprint 6: random games with rezWindow 'always'", () => {
         if (s.run?.step === 'approach') {
           const ice = s.servers.find((sv) => sv.id === s.run!.server)!.ice[s.run.position]!;
           expect(ice.rezzed).toBe(false);
-          const cost = getCard(ice.cardId)?.cost ?? Number.NaN;
+          // Sprint 7: the price that counts is rezCost (a face-up Akitaro Watanabe lowers it).
+          const cost = rezCost(s, ice);
+          expect(cost).toBeLessThanOrEqual(getCard(ice.cardId)?.cost ?? Number.NaN);
           if (s.players.corp.credits < cost) {
             unaffordable++;
             expect(legalActions(s, 'corp')).toEqual([corpPass]);

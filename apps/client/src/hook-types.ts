@@ -37,6 +37,8 @@ export interface InstalledSnapshot {
   box: Box;
   /** The advancement counter drawn on it ("2"), or null when none is shown. */
   counter: string | null;
+  /** S-07-3/4: the credits disc on it ("12"), or null when none is shown; `box` where it is drawn, `fontPx` its digits' size. */
+  hosted: { text: string; box: Box; fontPx: number } | null;
 }
 
 export interface ServerSnapshot {
@@ -62,7 +64,7 @@ export interface TargetSnapshot {
    * free_rez / skip (S-04-4): the Corp's free-rez choice after scoring Priority Requisition
    * (each offered ICE, with `uid`; Skip in the Play slot).
    */
-  kind: 'server' | 'new_server' | 'install' | 'play' | 'run' | 'advance' | 'score' | 'free_rez' | 'skip';
+  kind: 'server' | 'new_server' | 'install' | 'play' | 'run' | 'advance' | 'score' | 'free_rez' | 'skip' | 'rez' | 'activate';
   /** For server targets (and run / server-named play targets). */
   server?: string;
   /** For advance / score: the installed card. */
@@ -70,6 +72,8 @@ export interface TargetSnapshot {
   box: Box;
   /** The price label, e.g. "Install · 1 credit". */
   label: string;
+  /** S-07: a dimmed installed-card button's reason, drawn under the label ("Not enough credits"). */
+  note?: string;
   /** Bright (the engine would accept it) vs dim (shown with its price, refused with a hint). */
   lit: boolean;
   /** The engine's reason it would be refused (from view.handOptions). */
@@ -203,6 +207,18 @@ export interface LayoutSnapshot {
     carousel: { cardId: string; index: number; offset: number; box: Box; full: boolean }[];
   } | null;
   /**
+   * S-07-6: the open hand view (tap the hand): `index` is the hand card in the
+   * middle, drawn big (`zoom` describes it and its neighbours while it shows).
+   * `lifted`: that card was long-pressed out of the view and follows the finger (`drag`).
+   * `centre`: where the big card sits (tap it to pick the card, hold it to lift it).
+   */
+  handView: { index: number; cardId: string; lifted: boolean; centre: Box } | null;
+  /**
+   * S-07-6: a hand card lifted out of the hand view, following the finger.
+   * `box`: where it is drawn now; `hover`: the place under the finger, if any (lit or dimmed).
+   */
+  drag: { index: number; cardId: string; box: Box; hover: { kind: TargetSnapshot['kind']; server?: string; lit: boolean } | null } | null;
+  /**
    * S-05-2: what the ICE just did ("Enigma: you lost 1 click. Enigma ended your run."),
    * shown until the next tap anywhere (that tap only closes it). `box`: the message.
    */
@@ -239,8 +255,16 @@ export type AnimKind =
   | 'play_flight'
   /** A new remote server's column appears. */
   | 'server_open'
+  /** S-07-1: an empty remote server's column folds away. */
+  | 'server_close'
   /** The ICE flips face up. */
   | 'ice_rez'
+  /** S-07-2: an asset or upgrade flips face up (rezzed in the Corp's turn). */
+  | 'card_rez'
+  /** S-07-3/4: credits on a card change (the disc pops). */
+  | 'hosted_pop'
+  /** S-07-3/4: a Runner card goes from the rig to the Heap. */
+  | 'rig_trash_flight'
   /** A run step moves the tracker (approach, encounter, pass, access). */
   | 'run_step'
   /** A subroutine is crossed out. */
@@ -270,7 +294,13 @@ export type AnimKind =
   /** S-04-4: a status note pops (bad publicity taken, run-only credits gained or spent). */
   | 'tag_pop'
   /** S-04-4: the free-rez choice lights the offered ICE. */
-  | 'choice_open';
+  | 'choice_open'
+  /** S-07-6: the hand view opens (`text`: the card in the middle). */
+  | 'hand_open'
+  /** S-07-6: a card lifts out of the hand view (the view fades out; `text`: its card id). */
+  | 'card_lift'
+  /** S-07-6: a lifted card let go away from a lit place flies back to the hand. */
+  | 'card_return';
 
 /** Logged when an animation or hint starts. */
 export interface AnimRecord {

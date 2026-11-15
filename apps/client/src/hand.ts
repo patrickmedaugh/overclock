@@ -52,6 +52,8 @@ export class Hand {
   sizeKey = '';
   /** The card the zoom shows while a hand card is held (outlined), or null. */
   private browsing: HandCard | null = null;
+  /** S-07-6: the card lifted out of the hand view, following the finger (or waiting on its place). */
+  private lifted: HandCard | null = null;
 
   constructor(
     private readonly side: Side,
@@ -102,6 +104,78 @@ export class Hand {
     if (!card || card === this.browsing) return;
     this.setBrowsing(card);
     this.callbacks.onZoomSlide(card.cardId, this.cardBox(card), at, i);
+  }
+
+  /**
+   * S-07-6: lifts hand card `index` out of the strip: it is drawn over the
+   * board, takes no taps, and follows `dragTo` (the finger) with no tween.
+   */
+  lift(index: number): boolean {
+    const card = this.cards[index];
+    if (!card) return false;
+    this.fx.cancel(card.root);
+    this.ui.cancel(card.root);
+    this.ui.cancel(card.flip.scale);
+    card.root.eventMode = 'none';
+    card.flip.scale.set(1.08);
+    card.root.scale.set(1);
+    card.back.visible = false;
+    card.face.visible = true;
+    this.lifted = card;
+    this.restack();
+    return true;
+  }
+
+  /** The lifted card's centre goes to x/y (set in the move handler: no tween, no allocation). */
+  dragTo(x: number, y: number): void {
+    this.lifted?.root.position.set(x, y);
+  }
+
+  /** Where the lifted card is drawn now, or null. */
+  liftedBox(): Box | null {
+    return this.lifted ? this.cardBox(this.lifted) : null;
+  }
+
+  /** The hand index of the lifted card, or null. */
+  get liftedIndex(): number | null {
+    const i = this.lifted ? this.cards.indexOf(this.lifted) : -1;
+    return i >= 0 ? i : null;
+  }
+
+  /**
+   * S-07-6: the lifted card goes back to its place in the strip over `ms`
+   * (0: at once) and takes taps again.
+   */
+  settle(ms: number): void {
+    const card = this.lifted;
+    this.lifted = null;
+    const layout = this.layout;
+    if (!card || card.root.destroyed || !layout) return;
+    const i = this.cards.indexOf(card);
+    const slot = handSlots(layout, this.cards.length)[i];
+    card.root.eventMode = 'static';
+    this.ui.cancel(card.flip.scale);
+    this.fx.cancel(card.root);
+    this.ui.cancel(card.root);
+    if (!slot) return;
+    const to = { x: slot.x + slot.width / 2, y: slot.y + slot.height / 2 };
+    if (ms <= 0) {
+      card.root.position.set(to.x, to.y);
+      card.flip.scale.set(1);
+      this.restack();
+      return;
+    }
+    this.ui.add({ target: card.root, to, duration: ms, ease: ease.outCubic, owner: card.root, onComplete: () => this.restack() });
+    this.ui.add({ target: card.flip.scale, to: { x: 1, y: 1 }, duration: ms, owner: card.flip });
+  }
+
+  /**
+   * S-07-6: the lifted card was dropped on a place: it stays where it is
+   * (the play's flight starts from there) until the game answers. The next
+   * sync puts it back if the play did not happen.
+   */
+  leaveLifted(): void {
+    this.lifted = null;
   }
 
   /** Drops every sprite (they are rebuilt the next time this hand is shown). */
@@ -291,6 +365,15 @@ export class Hand {
       this.ui.cancel(card.root);
       card.selected = false;
       if (card.glow) card.glow.visible = false;
+      // A card lifted (S-07-6) or cut off mid-flight takes taps again in its slot.
+      if (card !== this.lifted) {
+        card.root.eventMode = 'static';
+        this.ui.cancel(card.flip.scale);
+        card.flip.scale.set(1);
+        card.back.visible = false;
+        card.face.visible = true;
+        card.root.scale.set(1);
+      }
       this.fx.add({
         target: card.root,
         to: { x: slot.x + slot.width / 2, y: slot.y + slot.height / 2 },
@@ -441,13 +524,14 @@ export class Hand {
 
   private restack(): void {
     this.cards.forEach((c, i) => {
-      if (!c.pressed) c.root.zIndex = c === this.browsing ? 950 : c.selected ? 900 : i;
+      if (!c.pressed) c.root.zIndex = c === this.lifted ? 2000 : c === this.browsing ? 950 : c.selected ? 900 : i;
     });
   }
 
   private destroyCard(card: HandCard): void {
     if (card.root.destroyed) return;
     if (this.browsing === card) this.browsing = null;
+    if (this.lifted === card) this.lifted = null;
     card.detach();
     this.fx.cancel(card.root);
     this.ui.cancel(card.root);
