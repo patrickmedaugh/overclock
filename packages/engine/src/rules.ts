@@ -605,11 +605,16 @@ const activateCondition = (s: GameState, a: ActionOf<'activate'>): RejectReason 
 const activateCredits = (s: GameState, a: ActionOf<'activate'>): RejectReason | null =>
   s.players[a.player].credits >= activateTarget(s, a)!.ability.credits ? null : 'no_credits';
 
-/** Sprint 7: credits an ability's `take_credits` effects give from `installed` now (undefined: none). */
+/** Sprint 7: credits an ability's `take_credits` (Sprint 8: and `gain_credits`) effects give now (undefined: none). */
 export function abilityGain(installed: Installed, ability: CardAbility): number | undefined {
   let gain: number | undefined;
   let left = installed.hostedCredits;
   for (const e of ability.effects) {
+    if (e.op === 'gain_credits') {
+      // Sprint 8: Melange Mining Corp., Magnum Opus ("Gain {gain} credits").
+      gain = (gain ?? 0) + e.amount;
+      continue;
+    }
     if (e.op !== 'take_credits') continue;
     const n = e.amount === 'all' ? left : Math.min(e.amount, left);
     left -= n;

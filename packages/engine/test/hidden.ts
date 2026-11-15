@@ -20,13 +20,27 @@ const REVEALING: ReadonlySet<GameEvent['type']> = new Set([
   'choice_opened',
 ]);
 
+/** Sprint 8: uids of Corp cards that went face up to Archives in this batch, with their ids. */
+function trashedFaceUp(events: readonly GameEvent[]): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const e of events) if (e.type === 'corp_card_trashed') out.set(e.uid, e.cardId);
+  return out;
+}
+
 /**
  * The Runner's projection of `events` names Corp cards only in revealing events, and those match the state.
  * `after` = the state the events led to.
  */
 export function expectRunnerEventsClean(events: readonly GameEvent[], where: string, after: GameState): void {
+  const trashed = trashedFaceUp(events);
+  const archivesUp = after.players.corp.discard.filter((d) => d.faceUp).map((d) => d.cardId);
   for (const e of viewEvents('runner', events)) {
     if (REVEALING.has(e.type)) continue;
+    // Sprint 8 (spec change): a face-up Corp card trashed to Archives (Adonis Campaign emptied) is public.
+    if (e.type === 'corp_card_trashed') {
+      expect(archivesUp, `${where}: corp_card_trashed ${e.cardId} face up in Archives`).toContain(e.cardId);
+      continue;
+    }
     // Sprint 8 (spec change): the Corp's identity is a public card; its own trigger may name it.
     if (e.type === 'ability_triggered' && e.uid === 'id:corp') {
       expect(e.cardId, `${where}: Corp identity trigger`).toBe(after.players.corp.identity);
@@ -37,6 +51,7 @@ export function expectRunnerEventsClean(events: readonly GameEvent[], where: str
       // installed Corp card with that id, rezzed, after the action. Otherwise (a rig card) no Corp id.
       const corp = after.servers.flatMap((sv) => [...sv.ice, ...sv.content]).find((c) => c.uid === e.uid);
       if (corp) expect(corp.rezzed && corp.cardId === e.cardId, `${where}: ${e.type} names face-up ${e.uid}`).toBe(true);
+      else if (trashed.has(e.uid)) expect(trashed.get(e.uid), `${where}: ${e.type} names ${e.uid}, trashed face up`).toBe(e.cardId);
       else expect(JSON.stringify(e), where).not.toMatch(CORP_ID);
       continue;
     }

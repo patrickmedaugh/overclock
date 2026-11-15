@@ -31,8 +31,16 @@ const same = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.str
  */
 export function runnerEventLeaks(events: readonly GameEvent[], after: GameState): string[] {
   const out: string[] = [];
+  // Sprint 8 (spec change): a face-up Corp card trashed to Archives in this batch (Adonis Campaign emptied) is public.
+  const trashed = new Map<string, string>();
+  for (const e of events) if (e.type === 'corp_card_trashed') trashed.set(e.uid, e.cardId);
+  const archivesUp = after.players.corp.discard.filter((d) => d.faceUp).map((d) => d.cardId);
   for (const e of events) {
     if (REVEALING.has(e.type)) continue;
+    if (e.type === 'corp_card_trashed') {
+      if (!archivesUp.includes(e.cardId)) out.push(`corp_card_trashed names ${e.cardId}, not face up in Archives`);
+      continue;
+    }
     // Sprint 8 (spec change): the Corp's identity is a public card; its own trigger may name it.
     if (e.type === 'ability_triggered' && e.uid === 'id:corp') {
       if (e.cardId !== after.players.corp.identity) out.push(`ability_triggered names ${e.cardId}, not the Corp identity`);
@@ -42,7 +50,9 @@ export function runnerEventLeaks(events: readonly GameEvent[], after: GameState)
       // Sprint 7: may name a Corp card only once it is face up (installed, rezzed, same id).
       const corp = after.servers.flatMap((sv) => [...sv.ice, ...sv.content]).find((c) => c.uid === e.uid);
       if (corp && !(corp.rezzed && corp.cardId === e.cardId)) out.push(`${e.type} names ${e.cardId}, not face-up ${e.uid}`);
-      if (!corp && CORP_ID.test(JSON.stringify(e))) out.push(`${e.type} names a Corp card not installed: ${JSON.stringify(e)}`);
+      if (!corp && trashed.has(e.uid)) {
+        if (trashed.get(e.uid) !== e.cardId) out.push(`${e.type} names ${e.cardId}, not the card trashed from ${e.uid}`);
+      } else if (!corp && CORP_ID.test(JSON.stringify(e))) out.push(`${e.type} names a Corp card not installed: ${JSON.stringify(e)}`);
       continue;
     }
     if (e.type === 'subroutine_resolved') {

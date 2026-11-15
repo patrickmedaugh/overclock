@@ -455,10 +455,14 @@ export function resolveEffect(state: GameState, effect: Effect, owner: Side, eve
       events.push({ type: 'credit_gained', player: owner, amount: n });
       return withPlayer(s, owner, { credits: s.players[owner].credits + n });
     }
-    case 'gain_clicks':
+    case 'gain_clicks': {
+      // Sprint 8: Biotic Labor.
+      events.push({ type: 'clicks_gained', player: owner, amount: effect.amount });
+      return withPlayer(state, owner, { clicks: state.players[owner].clicks + effect.amount });
+    }
     case 'brain_damage':
     case 'trash_installed':
-      // Sprint 8 (E1 interface stub): resolved in E4 / E5 / E7.
+      // Sprint 8 (E1 interface stub): resolved in E5 / E7.
       return state;
   }
 }
@@ -490,6 +494,8 @@ export function turnStartAbilities(state: GameState, events: Events): GameState 
         s = resolveEffect(s, effect, side, events, { cardId: c.cardId, uid: c.uid });
         if (s.phase === 'over') return s;
       }
+      // Sprint 8: Adonis Campaign emptied → Archives (then an empty remote goes, below).
+      s = trashIfEmpty(s, c.uid, events);
     }
     const recurring = def.recurringCredits;
     const now = installedCard(s, c.uid);
@@ -498,18 +504,39 @@ export function turnStartAbilities(state: GameState, events: Events): GameState 
       s = setHosted(s, c.uid, recurring.amount, events);
     }
   }
-  return s;
+  return s.phase === 'run' ? s : pruneEmptyRemotes(s, events);
 }
 
 /**
- * A `trashWhenEmpty` rig card with no credits left goes face up to the Heap (`rig_card_trashed`).
- * (No Corp card has the flag yet.)
+ * A `trashWhenEmpty` card with no credits left is trashed: a rig card goes face up to the Heap
+ * (`rig_card_trashed`); Sprint 8: a face-up Corp card goes face up to Archives (`corp_card_trashed`;
+ * the caller prunes an emptied remote).
  */
 export function trashIfEmpty(state: GameState, uid: string, events: Events): GameState {
-  const card = state.rig.find((c) => c.uid === uid);
+  const card = installedCard(state, uid);
   if (!card || card.hostedCredits > 0 || !getCard(card.cardId)?.trashWhenEmpty) return state;
+  if (state.rig.some((c) => c.uid === uid)) return trashRigCard(state, uid, events);
+  const where = corpInstalled(state, uid);
+  if (!where || !card.rezzed) return state;
+  events.push({ type: 'corp_card_trashed', uid, cardId: card.cardId, server: where.server.id });
+  const s: GameState = {
+    ...state,
+    servers: state.servers.map((sv) => ({ ...sv, ice: sv.ice.filter((c) => c.uid !== uid), content: sv.content.filter((c) => c.uid !== uid) })),
+  };
+  return withPlayer(s, 'corp', { discard: [...s.players.corp.discard, { cardId: card.cardId, faceUp: true }] });
+}
+
+/** Moves rig card `uid` face up to the Heap (`rig_card_trashed`); Sprint 8: its breaker boosts are dropped. */
+export function trashRigCard(state: GameState, uid: string, events: Events): GameState {
+  const card = state.rig.find((c) => c.uid === uid);
+  if (!card) return state;
   events.push({ type: 'rig_card_trashed', uid, cardId: card.cardId });
-  const s: GameState = { ...state, rig: state.rig.filter((c) => c.uid !== uid) };
+  let s: GameState = { ...state, rig: state.rig.filter((c) => c.uid !== uid) };
+  if (s.run && (uid in s.run.encounterBoost || uid in s.run.runBoost)) {
+    const { [uid]: _e, ...encounterBoost } = s.run.encounterBoost;
+    const { [uid]: _r, ...runBoost } = s.run.runBoost;
+    s = setRun(s, { encounterBoost, runBoost });
+  }
   return withPlayer(s, 'runner', { discard: [...s.players.runner.discard, { cardId: card.cardId, faceUp: true }] });
 }
 
@@ -590,8 +617,9 @@ export function doRez(state: GameState, a: ActionOf<'rez'>): { state: GameState;
   if (state.phase === 'choice') {
     // Priority Requisition: any unrezzed installed ICE, ignoring all costs.
     const ice = unrezzedIce(state).find((c) => c.uid === a.uid) as Installed;
-    const s = setRezzed(state, a.uid);
+    let s = setRezzed(state, a.uid);
     events.push({ type: 'ice_rezzed', uid: ice.uid, cardId: ice.cardId });
+    s = afterRez(s, a.uid, events);
     return { state: closeChoice(s, false, events), events };
   }
   if (state.phase === 'action') {
@@ -601,14 +629,29 @@ export function doRez(state: GameState, a: ActionOf<'rez'>): { state: GameState;
     if (cost > 0) events.push({ type: 'credits_spent', player: 'corp', amount: cost });
     const s = setRezzed(withPlayer(state, 'corp', { credits: state.players.corp.credits - cost }), a.uid);
     events.push({ type: 'card_rezzed', uid: a.uid, cardId: where.installed.cardId, server: where.server.id });
-    return { state: s, events };
+    return { state: afterRez(s, a.uid, events), events };
   }
   const ice = currentIce(state) as Installed;
   const cost = rezCost(state, ice);
   if (cost > 0) events.push({ type: 'credits_spent', player: 'corp', amount: cost });
-  const s = setRezzed(withPlayer(state, 'corp', { credits: state.players.corp.credits - cost }), a.uid);
+  let s = setRezzed(withPlayer(state, 'corp', { credits: state.players.corp.credits - cost }), a.uid);
   events.push({ type: 'ice_rezzed', uid: ice.uid, cardId: ice.cardId });
-  return { state: encounter(s, events), events };
+  s = afterRez(s, a.uid, events);
+  return { state: s.phase === 'run' ? encounter(s, events) : s, events };
+}
+
+/** Sprint 8: a Corp card just turned face up: its `onRez` effects (`ability_triggered{rez}` first), source = the card. */
+function afterRez(state: GameState, uid: string, events: Events): GameState {
+  const card = installedCard(state, uid);
+  const effects = card ? (getCard(card.cardId)?.onRez ?? []) : [];
+  if (!card || effects.length === 0) return state;
+  events.push({ type: 'ability_triggered', uid, cardId: card.cardId, trigger: 'rez' });
+  let s = state;
+  for (const effect of effects) {
+    s = resolveEffect(s, effect, 'corp', events, { cardId: card.cardId, uid });
+    if (s.phase === 'over') return s;
+  }
+  return s;
 }
 
 export function doPass(state: GameState): { state: GameState; events: GameEvent[] } {
@@ -644,6 +687,7 @@ export function doActivate(state: GameState, a: ActionOf<'activate'>): { state: 
   }
   s = trashIfEmpty(s, installed.uid, events);
   if (ability.replacesAccess && s.phase === 'run') s = endRun(s, 'access_replaced', events);
+  else if (s.phase === 'action') s = pruneEmptyRemotes(s, events); // Sprint 8: a Corp card emptied by its ability
   return { state: s, events };
 }
 
