@@ -11,6 +11,7 @@ import { type Page, expect, test } from '@playwright/test';
 import type { InstalledSnapshot, LayoutSnapshot } from '../src/hook-types';
 import {
   dismissReport,
+  overlaps,
   expectCleanLayout,
   getView,
   layout,
@@ -217,7 +218,7 @@ test.describe('S-08-4 new breakers and events', () => {
     expect(JSON.stringify(await getView(page))).toBe(before);
   });
 
-  test('Heimdall with Corroder: it pumps and breaks one subroutine at a time', async ({ page }) => {
+  test('Heimdall with Corroder: it pumps and breaks one subroutine at a time; the panel shows the total', async ({ page }) => {
     await core(page);
     await toStep(page, SEED, 'heimdall_corroder_encounter');
     const l = await layout(page);
@@ -225,6 +226,14 @@ test.describe('S-08-4 new breakers and events', () => {
     expect(l.run!.buttons.some((b) => b.role === 'multi')).toBe(false);
     expect(runButtonOf(l, /\+\d strength/).label).toMatch(/credit/);
     expectBigButtons(l);
+    // QA-S8-2 (S-08-3 AC3): the panel adds the price up: +4 strength and 3 breaks = 7 credits.
+    expect(l.run!.lines).toContain('Break all: 4 + 3 = 7 credits');
+    // Still readable with the extra line (3 subroutines; the panel also takes the build date's line during a run).
+    const floor: Record<string, number> = { desktop: 12, phone: 10, 'phone-small': 8 };
+    expect(l.run!.infoFontPx).toBeGreaterThanOrEqual(floor[test.info().project.name] ?? 10);
+    // QA-S8-3: no toast over the run panel.
+    if (l.hint) expect(overlaps(l.hint.box, l.run!.infoBox), 'toast over the run panel').toBe(false);
+    await shot(page, 's08-3-heimdall-corroder-break-all-7');
   });
 
   test('Pipeline on Neural Katana: pump and break', async ({ page }) => {
@@ -232,6 +241,8 @@ test.describe('S-08-4 new breakers and events', () => {
     await toStep(page, SEED, 'pipeline_katana_encounter');
     let l = await layout(page);
     expect(l.run!.stepLabel).toBe('Encounter: Neural Katana');
+    // The total comes from the engine's plan (Pipeline: 2 + 2 to reach 3, then 1).
+    expect(l.run!.lines).toContain('Break all: 4 + 1 = 5 credits');
     for (let i = 0; i < 6; i++) {
       const brk = l.run!.buttons.find((b) => /Break "/.test(b.label));
       if (brk?.lit) break;

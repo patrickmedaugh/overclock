@@ -294,7 +294,7 @@ export class Board {
   private runPicking = false;
   /** Installed card picked for its choices (Corp agenda: Advance / Score). */
   private pickedInstalled: string | null = null;
-  private hint: { text: string; root: Container; box: Box } | null = null;
+  private hint: { text: string; root: Container; box: Box; kind: 'hint' | 'notice'; slot: string } | null = null;
   private zoom: {
     cardId: string | null;
     root: Container;
@@ -1583,6 +1583,8 @@ export class Board {
     help.position.set(hb.x + hb.width / 2, hb.y);
     fitText(help, hb.width, hb.height);
     this.syncHelp();
+    // QA-S8-3: a toast shown before a run started (or ended) moves to the slot for now.
+    if (this.hint && this.hint.slot !== JSON.stringify(this.hintSlot(layout))) this.showHint(this.hint.text, this.hint.kind);
 
     const button = gen.button;
     if (view.result) {
@@ -1590,6 +1592,10 @@ export class Board {
     } else if (pending > 0) {
       button.root.visible = true;
       button.set('confirm', this.marked.size === pending, this.marked.size === pending, this.ui);
+    } else if (this.runNoticeSlot(layout, view)) {
+      // QA-S8-3: sideways, during a run End turn can't be used; its slot shows the run's notes
+      // (so they never cover the run panel in the rail).
+      button.root.visible = false;
     } else {
       const canEnd = view.legalActions.some((a) => a.type === 'end_turn');
       button.root.visible = true;
@@ -2585,7 +2591,7 @@ export class Board {
     const layout = this.layout;
     if (!layout) return;
     const s = Math.min(layout.scale, 1.2);
-    const area = layout.hintArea;
+    const area = this.hintSlot(layout);
     const root = new Container();
     const padX = Math.max(6, Math.round(8 * s));
     const padY = Math.max(5, Math.round(6 * s));
@@ -2615,7 +2621,7 @@ export class Board {
     // The slot is sized so hints wrap at full size; shrink only if one ever does not fit.
     const fit = Math.min(1, (area.width - 2 * ring) / w, (area.height - 2 * ring) / h);
     root.scale.set(fit);
-    const hint = { text, root, box: { x: 0, y: 0, width: w * fit, height: h * fit } };
+    const hint = { text, root, box: { x: 0, y: 0, width: w * fit, height: h * fit }, kind, slot: JSON.stringify(area) };
     this.positionHint(hint);
     root.alpha = 0;
     this.hintLayer.addChild(root);
@@ -2653,7 +2659,8 @@ export class Board {
     const help = this.gen?.subHelp;
     if (help) help.renderable = !(this.hint && this.layout?.mode === 'landscape');
     // In the column the build date shares the hint's slot: hide it while a hint shows.
-    this.buildText.visible = !(this.hint && this.layout?.mode === 'portrait');
+    // Sideways during a run, the run panel uses the build date's line (QA-S8-2).
+    this.buildText.visible = !(this.hint && this.layout?.mode === 'portrait') && !(this.layout?.mode === 'landscape' && this.view?.run);
   }
 
   /** Where the build date's text is drawn (CSS px). */
@@ -2665,6 +2672,8 @@ export class Board {
   /** The build date: the date and time centered in the narrow rail (sideways), "Built …" in the column's hint slot. */
   private placeBuildLabel(layout: BoardLayout): void {
     const t = this.buildText;
+    // QA-S8-2: sideways, the run panel uses the build date's line while a run is on.
+    t.visible = !(layout.mode === 'landscape' && this.view?.run);
     const when = this.callbacks.buildTime;
     const rail = layout.mode === 'landscape';
     const text = rail ? when : `Built ${when}`;
@@ -2676,12 +2685,24 @@ export class Board {
     t.position.set(rail ? b.x + b.width / 2 : b.x, b.y + b.height / 2);
   }
 
+  /** QA-S8-3: sideways during a run, the End turn slot (End turn is hidden then); else null. */
+  private runNoticeSlot(layout: BoardLayout, view: PlayerView | null): Box | null {
+    return layout.mode === 'landscape' && view?.run && !view.result ? layout.endTurn : null;
+  }
+
+  /** Where the toast goes: the hint slot, or (sideways, during a run) End turn's slot, clear of the run panel. */
+  private hintSlot(layout: BoardLayout): Box {
+    return this.runNoticeSlot(layout, this.view) ?? layout.hintArea;
+  }
+
   private positionHint(hint: { root: Container; box: Box }): void {
-    const a = this.layout?.hintArea;
-    if (!a) return;
+    const layout = this.layout;
+    if (!layout) return;
+    const a = this.hintSlot(layout);
+    const run = this.runNoticeSlot(layout, this.view) !== null;
     const cx = a.x + a.width / 2;
     // Sideways the slot is tall (the help text's room): sit at its bottom, by the viewer's name.
-    const cy = this.layout?.mode === 'landscape' ? a.y + a.height - 3 - hint.box.height / 2 : a.y + a.height / 2;
+    const cy = layout.mode === 'landscape' && !run ? a.y + a.height - 3 - hint.box.height / 2 : a.y + a.height / 2;
     hint.root.position.set(cx, cy);
     hint.box.x = cx - hint.box.width / 2;
     hint.box.y = cy - hint.box.height / 2;

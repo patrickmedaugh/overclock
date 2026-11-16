@@ -177,6 +177,19 @@ export function stepLabel(run: RunView, deciding: Side): string {
   }
 }
 
+/**
+ * QA-S8-2: the whole price of breaking the ICE, from the engine's `breakAll`: "Break all:
+ * 4 + 3 = 7 credits" (strength first, then the breaks). Several breakers: one line each, named.
+ * Nothing when no breaker can break it all with the credits there are.
+ */
+export function breakAllLines(run: RunView, rig: RigIds): string[] {
+  const all = run.breakAll ?? [];
+  // One short line each, the sum written out: "Break all: 4 + 3 = 7 credits".
+  const sum = (b: (typeof all)[number]) => (b.strengthCredits > 0 ? `${b.strengthCredits} + ${b.breakCredits} = ${plural(b.credits, 'credit', 'credits')}` : plural(b.credits, 'credit', 'credits'));
+  if (all.length === 1) return [`Break all: ${sum(all[0]!)}`];
+  return all.map((b) => `${nameOf(rig[b.uid] ?? null, 'Breaker')}, all: ${sum(b)}`);
+}
+
 /** Info lines under the step line: ICE strength, the breakers that can act and their strength, the next stop. */
 export function infoLines(run: RunView, rig: RigIds): string[] {
   const lines: string[] = [];
@@ -189,6 +202,7 @@ export function infoLines(run: RunView, rig: RigIds): string[] {
       if (s !== undefined) lines.push(`${nameOf(rig[uid] ?? null, 'Breaker')} ${s}`);
     }
     if (run.options.length > 0 && breakersIn(run.options).length === 0) lines.push('No breaker for this ICE');
+    lines.push(...breakAllLines(run, rig));
   }
   if (run.step === 'continue') lines.push(run.position > 0 ? `Next: ${run.position} more ${TERMS.ice}` : `Next: ${serverLabel(run.server)}`);
   if (run.bypassPending && run.step !== 'access') lines.push('Inside Job: next ICE bypassed');

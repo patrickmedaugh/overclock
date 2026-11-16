@@ -542,7 +542,8 @@ function landscapeLayout(vw: number, vh: number, insets: Insets, safe: Box, view
     hintArea,
     endTurn,
     action2,
-    runInfo: sub,
+    // QA-S8-2: during a run the build date is hidden and the info panel takes its line too.
+    runInfo: box(railX, subY, railW, Math.max(0, railLabel.y - rg - subY)),
     runButtons: handArea,
     access,
     scores: { corp: scoreCorp, runner: scoreRunner },

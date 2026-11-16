@@ -192,7 +192,7 @@ test.describe('QA S-03-4: the most crowded encounter', () => {
     await tap(page, runButtonOf(l, /^Rez Enigma/).box);
     l = await waitIdle(page);
     expect(l.run).toMatchObject({ step: 'encounter', deciding: 'runner', stepLabel: 'Encounter: Enigma' });
-    expect(l.run!.lines).toEqual(['Strength 2', 'Gordian Blade 2']);
+    expect(l.run!.lines).toEqual(['Strength 2', 'Gordian Blade 2', 'Break all: 2 credits']); // + QA-S8-2's total (Sprint 8)
     expect(l.run!.buttons.map((b) => [b.label, b.lit])).toEqual([
       ['Break "The Runner loses 1 click, if able" · 1 credit', true],
       ['Break "End the run" · 1 credit', true],
