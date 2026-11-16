@@ -19,6 +19,7 @@ import {
   bidWaitText,
   clampBid,
   clickCreditText,
+  escapes,
   isTraceChoice,
   linkText,
   maxBid,
@@ -84,6 +85,15 @@ describe('S-09-1 trace words', () => {
     expect(traceLines(c, 0, false)).toEqual(['Trace strength 5 vs link 1']);
     expect(bidCaption(c, 4)).toBe('link 5 · escape');
     expect(bidCaption(c, 1)).toBe('link 2 · short');
+  });
+
+  it('architect review: escape / short follow the engine\'s `needed`, not a tie rule in the client', () => {
+    // A made-up view where `needed` disagrees with strength − link: the words must follow `needed`.
+    const c = traceChoice('trace_runner', { strength: 5, corpBid: 2, needed: 2 }, bids('runner', 6));
+    expect(traceLines(c, 2, true)).toEqual(['Link 1 + 2 = 3: you escape']);
+    expect(traceLines(c, 1, true)).toEqual(['Link 1 + 1 = 2: 1 short']);
+    expect(bidCaption(c, 2)).toBe('link 3 · escape');
+    expect(escapes({ needed: 0 }, 0)).toBe(true);
   });
 
   it('online: the other phone is bidding', () => {

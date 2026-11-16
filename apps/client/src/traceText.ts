@@ -59,6 +59,11 @@ export function maxBid(amounts: readonly number[]): number {
   return amounts.length > 0 ? amounts[amounts.length - 1]! : 0;
 }
 
+/** The Runner's `bid` stops the trace: it reaches the engine's `needed` (credits to tie = escape). */
+export function escapes(t: Pick<TraceView, 'needed'>, bid: number): boolean {
+  return bid >= t.needed;
+}
+
 /** What `bid` makes of the trace: the Corp's strength, or the Runner's link total and whether he escapes. */
 export function bidTotal(kind: TraceKind, t: TraceView, bid: number): number {
   return kind === 'trace_corp' ? t.base + bid : t.link + bid;
@@ -85,16 +90,16 @@ export function traceLines(c: TraceChoice, bid: number, mine: boolean): string[]
     return mine ? [`${TERMS.trace} ${t.base} + ${bid} → ${TERMS.strength.toLowerCase()} ${t.base + bid}`, runner] : [`${TERMS.trace} ${t.base}`, runner];
   }
   if (!mine) return [`${TERMS.trace} ${TERMS.strength.toLowerCase()} ${t.strength} vs ${TERMS.link.toLowerCase()} ${t.link}`];
+  // Escape / short from the engine's `needed` (the bid that ties = escapes); no tie rule here.
   const total = t.link + bid;
-  return [`${TERMS.link} ${t.link} + ${bid} = ${total}: ${total >= t.strength ? 'you escape' : `${t.strength - total} short`}`];
+  return [`${TERMS.link} ${t.link} + ${bid} = ${total}: ${escapes(t, bid) ? 'you escape' : `${t.needed - bid} short`}`];
 }
 
 /** The small line under the big bid number: "strength 5" (Corp) / "link 5 · escape" (Runner). */
 export function bidCaption(c: TraceChoice, bid: number): string {
   const t = c.trace;
   if (c.kind === 'trace_corp') return `${TERMS.strength.toLowerCase()} ${t.base + bid}`;
-  const total = t.link + bid;
-  return `${TERMS.link.toLowerCase()} ${total} · ${total >= t.strength ? 'escape' : 'short'}`;
+  return `${TERMS.link.toLowerCase()} ${t.link + bid} · ${escapes(t, bid) ? 'escape' : 'short'}`;
 }
 
 /** The Bid button: "Bid 2" ("Bid 0" is the default). */
