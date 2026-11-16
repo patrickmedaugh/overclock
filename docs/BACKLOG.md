@@ -123,6 +123,11 @@ Sprint 8 demo: `docs/sprints/sprint-08-demo.md` (QA 36/36 after round 2). **Spri
   - Given the Runner has 1 link, when the board shows, then "Link 1" sits next to the memory counter and nothing is drawn over the identity card.
   - Given link changes (e.g. Access to Globalsec installed), when the board updates, then the counter beside memory shows the new number.
   - Given 844×390 and 640×360 landscape, when the Runner's row is full, then the link counter, memory counter and installed cards don't overlap.
+- **P1 — Show "Tagged" with link (beside memory), not in the Runner's status note.** Owner: *"I also think the tagged can show up elsewhere probably where link is since they're related concepts."* Do together with the link item above (next sprint). What this means: today the red "Tagged 1" sits in the Runner's status note by his name (and he taps it to remove a tag). Move it into the same spot as link, beside the memory counter, so link and tags (both about traces) read as one group. It keeps its red colour, the "+1 tag" / "-1 tag" pop, and tapping it still offers "Remove 1 tag · 1 click, 2 credits". Hidden when he has no tags.
+  - Given the Runner has 1 tag, when the board shows, then a red "Tagged 1" appears next to link beside the memory counter, and not in his status note.
+  - Given the Runner is tagged on his turn, when he taps "Tagged 1", then "Remove 1 tag" is offered as before.
+  - Given the tags go back to 0, when the board updates, then "Tagged" disappears and link stays put.
+  - Given 844×390 and 640×360 landscape, when the Runner is tagged with a full row, then tagged, link, memory and installed cards don't overlap.
 
 ## Owner feedback in chat after the Sprint 5 demo went up (2026-11-13)
 - ~~**P1 — Hand: tap to open, long-press to light targets, drag to play.**~~ **Done in Sprint 7 as S-07-6 (owner chose 1B; accepted 2026-11-15).** Owner: *"tap to bring up the hand and then long press on a card and it highlights where it can be played. Drag a card to the location you want to play it. Release long press to go back to the hand view. Tap outside the hand to minimize."* What this means (his chosen design, replacing both the Sprint 5 question options):
