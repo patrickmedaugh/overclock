@@ -105,4 +105,10 @@ All **accepted**:
 4. Online on two phones: do the waiting lines ("Corp is choosing its trace bid…") show quickly enough?
 
 ## CI on the QA commit
-See the commit message / the line below (filled in after the push).
+QA's tests and screenshots were added in **bed0ec6** (no product code changed). CI on bed0ec6:
+- `checks` passed: lint, typecheck, **2041 unit tests**.
+- Full screen-test suite, all 4 parts: **1160 passed / 6 skipped / 0 failed, 1 flaky** (parts: 290 / 291 / 289 + 1 flaky / 290). QA's 18 new screen tests passed first try.
+- `guard-mutation`, `android`, `deploy`, `server` passed. ("Workers Builds" ignored, as instructed.)
+- **The flaky test** is an old QA test, not Sprint 9: `qa-sprint06.spec.ts:229` "QA S-06-2 not your turn … real taps" on `desktop`. It failed once and passed on the retry. It expected the "Not your turn" hint 150 ms after a tap and saw no hint. Most likely the hint had not shown or had already faded on a slow CI runner. Logged as **QA-S9-3 (test-only, low)**: QA will make that check read the animation log instead of the live screen (as the Sprint 9 specs do). Not counted against Sprint 9.
+
+This report's own commit only changes this file.
