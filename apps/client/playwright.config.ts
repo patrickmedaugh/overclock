@@ -10,6 +10,11 @@ const PORT = Number(process.env.E2E_PORT ?? 4173);
 // Offset well past PORT so side-by-side runs (E2E_PORT 4173, 4174, ...) never collide.
 const ANDROID_PORT = Number(process.env.E2E_ANDROID_PORT ?? PORT + 500);
 const NOT_WEB = [/rotate\.spec\.ts/, /android\.spec\.ts/];
+// Sprint 9 owner bug: a short sideways screen (Android Chrome with its address
+// bar showing). `phone-short` runs the rail specs only; short-rail.spec.ts sets
+// its own short sizes, so the other projects skip it.
+const SHORT_SPECS = [/short-rail\.spec\.ts/, /s03-corp-score\.spec\.ts/];
+const NOT_WIDE = [...NOT_WEB, /short-rail\.spec\.ts/];
 // Sprint 6: the online service (apps/server) under `wrangler dev`, test mode on,
 // fresh storage every run. The web build points "Play online" at it.
 const SERVER_PORT = Number(process.env.E2E_SERVER_PORT ?? PORT + 600);
@@ -52,7 +57,7 @@ export default defineConfig({
   projects: [
     {
       name: 'phone',
-      testIgnore: NOT_WEB,
+      testIgnore: NOT_WIDE,
       use: {
         viewport: { width: 844, height: 390 },
         deviceScaleFactor: 3,
@@ -62,7 +67,7 @@ export default defineConfig({
     },
     {
       name: 'phone-small',
-      testIgnore: NOT_WEB,
+      testIgnore: NOT_WIDE,
       use: {
         viewport: { width: 640, height: 360 },
         deviceScaleFactor: 2,
@@ -72,12 +77,23 @@ export default defineConfig({
     },
     {
       name: 'desktop',
-      testIgnore: NOT_WEB,
+      testIgnore: NOT_WIDE,
       use: {
         viewport: { width: 1280, height: 800 },
         deviceScaleFactor: 1,
         isMobile: false,
         hasTouch: false,
+      },
+    },
+    {
+      // Android Chrome sideways with the address bar showing (~915x330 CSS px).
+      name: 'phone-short',
+      testMatch: SHORT_SPECS,
+      use: {
+        viewport: { width: 915, height: 330 },
+        deviceScaleFactor: 2.625,
+        isMobile: true,
+        hasTouch: true,
       },
     },
     {
