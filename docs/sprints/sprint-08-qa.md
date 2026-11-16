@@ -221,3 +221,94 @@ The texts of the 12 new cards also match QA's reading of the 2012 print:
 2. **Feel on a real phone:** Battering Ram's "Break up to 2", then tap two subroutines, then "Break 2"; holding an identity card to read it; the Viktor tap.
 3. **Read the table at 640×360:** are the identity cards and "Hand max" easy to read?
 4. **Decide on QA-S8-2:** should the screen show a total price when a breaker must raise its strength first (e.g. "7 credits to break all")? Or are per-button prices enough?
+
+---
+
+## Round 2 (2026-11-16)
+
+**Code checked at d207696.** The fixes since round 1 are:
+- 3b74ab5: QA-S8-1.
+- 166d714: the engine's new `RunView.breakAll`.
+- bf6b4d3 and d207696: the "Break all" line in the client, and toasts moved to the End turn slot (QA-S8-3).
+
+QA's round-2 tests are in **9d3751d**, which changes no product code. QA did not write the fixes.
+
+**Summary: 36 acceptance criteria. 36 PASS, 0 FAIL.**
+- QA-S8-1, QA-S8-2 and QA-S8-3 are **fixed and verified**.
+- No new bugs.
+- One owner check is added: the size of the run panel's text at 640×360.
+
+**CI:**
+- **d207696** (the last code commit): all green. 1063 passed / 6 skipped / 0 flaky, all 4 parts (266 / 265 / 265 / 266).
+- **9d3751d** (QA tests): all green. `checks` passed with **1777 unit tests**.
+  - Screen tests, all 4 parts: 1058 passed + 2 flaky / 6 skipped / 0 failed.
+  - The 2 flaky tests are older QA timing checks. Each failed its 1st try and passed its CI retry:
+    - `qa-sprint05` "slide the moment the zoom opens", desktop: 467 ms on the 1st try.
+    - `qa-sprint07` "drag latency", phone-small: 508 ms on the 1st try.
+  - These parts ran at 14–16 min instead of the usual ~8. The product code is identical to d207696, where both passed first time.
+  - QA repeated just these two locally (allowed for timing tests): **5/5 and 5/5 passed**. QA reads this as a slow CI machine, not a regression. If it comes back, these two are the ones to watch.
+- **Live service:** `/health` reported `9d3751d…` on the 1st try. That is the deploy of the QA test commit, which carries d207696's product code.
+- As before, "Workers Builds: overclock" is ignored.
+
+**Correction to round 1:** `qa-sprint08.spec.ts` has **18** tests, not 19, which makes 54 runs over the three sizes. Round 1's "54 passed + 3 expected failures" should read **51 passed + 3 expected failures = 54**. QA's local run in round 2: **54/54 passed**.
+
+### Re-checked criteria
+
+| Criterion | Round 2 | Evidence |
+|---|---|---|
+| S-08-2 AC3: Melange with fewer than 3 clicks is dimmed **and says why** | **PASS** (QA-S8-1 fixed) | QA e2e (3 sizes), now asserting the right words:<br>- With 2 clicks the dim button's note is "Needs 3 clicks". A tap shows the hint "Needs 3 clicks" and changes nothing in the game.<br>- At 0 clicks it still says "No clicks left" (`*-36-round2-melange-needs-3-clicks`).<br>- The "+7 · 3 clicks" part was re-run and still passes. |
+| S-08-3 AC3: Heimdall vs Corroder needs +4 first, **and the price shown adds that up** | **PASS** (QA-S8-2 fixed) | QA e2e (3 sizes): the run panel shows **"Break all: 4 + 3 = 7 credits"** (`*-16`). After the 4 pump taps it shows "Break all: 3 credits". The real taps spend exactly 7.<br>QA engine: Corroder {7 = 4 + 3} and Battering Ram {7 = 3 + 4} side by side. With 6 credits, neither can break it all, and the panel adds no line. One Ram pump lowers Ram's plan to 6. |
+| QA-S8-3: no note over the run panel | **Fixed** | QA e2e (3 sizes): a deterministic toast during a run (tap a dim Break: "Raise strength first") is clear of the run panel and of every run button. It sits in the End turn slot, which is hidden during runs (`*-37-round2-toast-clear-of-run-panel`). The Rototurret note on the Corp's pick screen is checked the same way. |
+
+### breakAll never leaks hidden information (QA's own probe)
+
+New in `packages/engine/test/qa-sprint08.test.ts`: 120 random core-deck games. Two thirds of them give the Runner 40 credits so that more full breaks are affordable. At 908 encounters with rezzed ICE, QA checked:
+
+- The **Corp's view** always gets `breakAll = []`. Every other run step gets `[]` too.
+- **Each entry equals QA's own price**, worked out from card data: pumps up to the ICE's current strength (Ice Wall counters included), then breaks of the unbroken subroutines, 1 or 2 at a time. This covered 275 entries, 59 of them with pumps.
+  - A breaker of the right type is missing only when the Runner can't pay: never while his own credits cover QA's price.
+- **Hidden-info invariance:** at all 923 encounters QA built a second game that differs only in hidden Corp information:
+  - the HQ cards swapped for others;
+  - R&D order reversed;
+  - every face-down card on the table (other than the current ICE) changed to a different card.
+
+  The Runner's `breakAll` was identical every time.
+- The real state is untouched by the throw-away preview.
+- Face-down ICE is never *encountered* (it is passed at approach), so the "face-down ICE gives `[]`" guard never fired. The engine code returns `[]` for it.
+
+### Mutation checks (each mutation was reverted; the source is clean)
+
+| Mutation | Caught by |
+|---|---|
+| Engine: a break costs 1 whatever its price | QA engine probe and the Heimdall test (Ram's 2-credit break) |
+| Engine: the plan breaks the *fewest* subroutines per payment (Ram one at a time) | QA engine probe ("expected 9 to be 7") and the Heimdall test |
+| Engine: drop the "Runner's view only" guard | **Not caught: equivalent mutant.** The Corp's view never has breaker options, so its list stays empty either way. The probe checks the result directly. |
+| Client: `clicksHint` always "No clicks left" | QA e2e QA-S8-1 |
+| Client: no "Break all" line | QA e2e Heimdall |
+| Client: toasts back in the old hint slot during runs | QA e2e Heimdall ("toast over the run panel", phone and phone-small) and the Rototurret pass-and-play test ("note over the run panel") |
+
+### Developers' and architect's edits to QA-owned specs
+
+| Spec | Edit | QA's view |
+|---|---|---|
+| `qa-sprint08.spec.ts` | Removed only the `test.fail` marker on QA-S8-1 | **Agree.** QA has now rewritten that test to assert the fixed words ("Needs 3 clicks"; "No clicks left" at 0) and updated its comment. |
+| `qa-sprint03.spec.ts` "Enigma vs Gordian Blade" | The exact line list gains `'Break all: 2 credits'` | **Confirmed.** Gordian Blade 2 vs Enigma 2 needs no pump; 2 subroutines × 1 credit = 2, so the line has no "+". No assertion was loosened. |
+
+### Regression check of nearby criteria
+
+- The full QA e2e spec passed on all 3 sizes (54/54). Re-checked this way:
+  - S-08-1 notes and Kate's price, Adonis, Biotic Labor;
+  - Viktor's report, "Hand max 4" and discard down to 4;
+  - Battering Ram break-2, Pipeline (also shows "Break all: 4 + 1 = 5 credits"), Magnum Opus, Sure Gamble, "Not enough memory";
+  - Rototurret and the Construct through the cover and online, with frame checks;
+  - QA-S7-1/2 markers.
+- All QA engine (39) and room (11) tests pass.
+- The developers' `s03-encounter` now expects the Break all lines for Wall of Static vs Corroder ("1 + 1 = 2 credits", then "1 credit"). QA checked these by hand: correct.
+- **Snappiness:** every QA tap is still < 100 ms. The toast now uses End turn's slot during runs; End turn can't be used during a run, so nothing usable is hidden.
+
+### Owner check added
+
+5. **Run panel text on the smallest phone.** At 640×360, with a 3-subroutine ICE (Heimdall 1.0), the smallest text in the run panel is **8.3 px** (QA measure; 10 px at 844×390, 12 px on desktop). It was about 9 px before the new "Break all" line.
+   - Screenshot: `phone-small-16-heimdall-corroder-prices.png`. It looks crisp on a 2× screen.
+   - Please check on your real phone: can you read the run panel during a Heimdall encounter?
+   - The architect accepted this for Sprint 8 as an owner check. If it's too small, a wider panel during runs goes on the backlog.
