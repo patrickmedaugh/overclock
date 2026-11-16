@@ -502,9 +502,18 @@ export class Board {
    * on the next frame. A tap on the cover lifts it.
    */
   setCover(text: CoverText | null): void {
+    const wasUp = this.cover !== null;
     this.cover?.destroy();
     this.cover = null;
     if (text) {
+      // Sprint 9: a notice just shown (SEA Source's "trace 3 vs link 1: Runner tagged") would fade
+      // unseen under the cover: it shows again once the cover lifts (notices only say public things).
+      if (this.hint?.kind === 'notice' && !wasUp) {
+        this.pendingNotices.unshift(this.hint.text);
+        this.ui.cancel(this.hint.root);
+        this.hint.root.destroy({ children: true });
+        this.hint = null;
+      }
       this.closeZoom(true);
       this.stopPredraw();
       this.closeLastRun();
