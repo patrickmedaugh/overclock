@@ -1,6 +1,6 @@
 # Project state
 
-phase: BUILD
+phase: QA
 running_since: 2026-11-16 12:35 UTC
 sprint: 9
 open_pr: (none — PR #21 Sprint 09 proposal merged 2026-11-16 after owner approved in chat)
@@ -237,3 +237,9 @@ Phase BUILD for Sprint 9 on branch sprint-09. Ignore the external Workers Builds
 - Engine E1–E7 (651e086..98c7397): traces, tags, link, remove tag / trash resource, meat damage, PSF score-area ability, SEA Source, Ichi 1.0, Hunter, Access to Globalsec, deck swaps (Corp inf 8, Runner 10), SPRINT9_GOALS, 300-game property test, AI. Nothing cut.
 - UI U1–U4 merged (4c6dbd2): bid panel, Tagged marker/link, trace in run panel + Corp-turn panel with covers, remove-tag / trash / PSF buttons, meat damage, SEA Source dim text.
 - Unit tests all green on 4c6dbd2. Next: U5 story e2e + fix s08/qa-sprint08 specs broken by deck change (Katana goal retired, Construct seeds moved), then architect review.
+
+## Sprint 9 BUILD done — 2026-11-16
+- U5 (3c8f38a, d4f6cc3): s09-cards (pass-the-phone, real play), s09-online (two phones via wrangler dev), s08/qa-sprint08 specs moved off retired goal/seeds; 18 real 640×360 screens in docs/sprints/sprint-09-screens/.
+- Architect approved (324d0b7 client tie wording now from engine `needed`; b0296fb qa-sprint07-android reference uses core decks). CI fully green on b0296fb (external Workers Builds ignored).
+- Follow-ups: flaky qa-sprint06.spec.ts:229 desktop hint (pre-Sprint 9); QA to review marked edits to its specs; client should use parseScoredUid; note in TESTING.md that the app bundle ignores decks=.
+- Not covered in real-play e2e (stub/engine only): PSF dimmed when untagged, remove-tag dimmed for credits/clicks, Runner 0-credit skip, empty-Grip flatline.
