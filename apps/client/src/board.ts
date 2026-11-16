@@ -2916,7 +2916,9 @@ export class Board {
     if (help) help.renderable = !(this.hint && this.layout?.mode === 'landscape');
     // In the column the build date shares the hint's slot: hide it while a hint shows.
     // Sideways during a run, the run panel uses the build date's line (QA-S8-2).
-    this.buildText.visible = !(this.hint && this.layout?.mode === 'portrait') && !(this.layout?.mode === 'landscape' && panelUp(this.view));
+    // Short sideways screens hide it (zero-height line) so a picked card's two buttons fit.
+    this.buildText.visible =
+      !(this.hint && this.layout?.mode === 'portrait') && !(this.layout?.mode === 'landscape' && panelUp(this.view)) && (this.layout?.buildLabel.height ?? 1) > 0;
   }
 
   /** Where the build date's text is drawn (CSS px). */
@@ -2929,7 +2931,8 @@ export class Board {
   private placeBuildLabel(layout: BoardLayout): void {
     const t = this.buildText;
     // QA-S8-2: sideways, the run panel uses the build date's line while a run is on.
-    t.visible = !(layout.mode === 'landscape' && panelUp(this.view));
+    t.visible = !(layout.mode === 'landscape' && panelUp(this.view)) && layout.buildLabel.height > 0;
+    if (layout.buildLabel.height <= 0) return;
     const when = this.callbacks.buildTime;
     const rail = layout.mode === 'landscape';
     const text = rail ? when : `Built ${when}`;

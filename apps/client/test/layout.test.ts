@@ -1,7 +1,7 @@
 import type { Side } from '@overclock/engine';
 import { describe, expect, it } from 'vitest';
 import type { Box, Insets } from '../src/hook-types';
-import { type BoardLayout, type BoardShape, EMPTY_SHAPE, MIN_TOUCH, computeLayout, handSlots, nearestSlot } from '../src/layout';
+import { type BoardLayout, type BoardShape, COMPACT_PILL, EMPTY_SHAPE, MIN_TOUCH, computeLayout, handSlots, nearestSlot } from '../src/layout';
 
 /** S-02-5: 3 remotes with 2 ICE each (plus an asset/agenda), ICE on the centrals too, 4 Runner installs. */
 const BUSY: BoardShape = {
@@ -95,7 +95,8 @@ function elements(l: BoardLayout, opts: { fanned?: boolean } = {}): [string, Box
   // Sideways the hint shares the help text's room inside `sub` (checked apart); in the column it has its own slot.
   if (l.mode === 'portrait') out.push(['hintArea', l.hintArea]);
   // The build date: its own spot sideways; in the column it sits in the hint slot (hidden while a hint shows).
-  else out.push(['buildLabel', l.buildLabel]);
+  // (Short sideways screens hide it: a zero-height line, not drawn.)
+  else if (l.buildLabel.height > 0) out.push(['buildLabel', l.buildLabel]);
   return out;
 }
 
@@ -123,7 +124,7 @@ function expectClean(l: BoardLayout, w: number, h: number, insets: Insets, opts:
     expect(overlaps(l.corp.band, b), `corp band vs ${n}`).toBe(false);
   }
   // S-04-1: the build date is inside the safe area, and in the column inside the hint slot.
-  expect(inside(l.buildLabel, safe), 'buildLabel inside safe').toBe(true);
+  if (l.mode === 'portrait' || l.buildLabel.height > 0) expect(inside(l.buildLabel, safe), 'buildLabel inside safe').toBe(true);
   if (l.mode === 'portrait') expect(inside(l.buildLabel, l.hintArea), 'buildLabel in the hint slot').toBe(true);
   // The Play button sits inside the help area (it replaces the help text while shown).
   expect(inside(l.action, l.sub)).toBe(true);
@@ -274,6 +275,58 @@ describe('computeLayout: sideways phones and desktop (S-02-5, S-02-6)', () => {
     for (const [w, h] of [...MAIN, ...OTHER]) {
       const l = computeLayout(w, h);
       expect(l.zoom.width).toBeGreaterThan(l.card.width * 2.5);
+    }
+  });
+});
+
+/**
+ * Sprint 9 owner bug: Android Chrome sideways with its address bar showing is only
+ * ~300-345 CSS px tall (the owner's phone ~891x296). A picked card's two buttons
+ * (Advance + Score) must both be full size there.
+ */
+const SHORT: [number, number][] = [
+  [915, 330],
+  [900, 345],
+  [844, 340],
+  [891, 296],
+  [852, 300],
+  [800, 280],
+];
+const SHORT_CASES = SHORT.flatMap(([w, h]) => INSETS.slice(0, 2).flatMap(([name, i]) => SIDES.map((v) => [w, h, name, v, i] as const)));
+
+describe('computeLayout: short sideways screens (browser bars showing)', () => {
+  it.each(SHORT_CASES)('%ix%i, insets %s, %s viewing: Play and the second button are both >= 44 px, inside the help room, clear of the rail', (w, h, _n, viewer, insets) => {
+    for (const shape of [EMPTY_SHAPE, BUSY]) {
+      const l = computeLayout(w, h, insets, { viewer, shape });
+      expectClean(l, w, h, insets);
+      expect(l.mode).toBe('landscape');
+      expect(l.action.height).toBeGreaterThanOrEqual(MIN_TOUCH);
+      expect(l.action2.height).toBeGreaterThanOrEqual(MIN_TOUCH);
+      expect(inside(l.action2, l.sub), 'second button inside the help room').toBe(true);
+      expect(overlaps(l.action, l.action2)).toBe(false);
+      const rail: [string, Box][] = [['banner', l.banner], ['name', l.bottom.label], ['credits', l.bottom.credits], ['clicks', l.bottom.clicks], ['endTurn', l.endTurn]];
+      if (l.buildLabel.height > 0) rail.push(['build date', l.buildLabel]);
+      for (const [n, b] of rail) {
+        expect(overlaps(l.action, b), `Play vs ${n}`).toBe(false);
+        expect(overlaps(l.action2, b), `second button vs ${n}`).toBe(false);
+      }
+      expect(l.endTurn.height).toBeGreaterThanOrEqual(MIN_TOUCH);
+      expect(l.bottom.credits.height).toBeGreaterThanOrEqual(COMPACT_PILL);
+      expect(l.bottom.clicks.height).toBeGreaterThanOrEqual(COMPACT_PILL);
+    }
+  });
+
+  it('the build date hides first, then the clicks pill slims; 640x360 and taller keep everything as before', () => {
+    expect(computeLayout(915, 330).buildLabel.height).toBeGreaterThan(0);
+    const l = computeLayout(891, 296);
+    expect(l.buildLabel.height).toBe(0);
+    expect(l.bottom.clicks.height).toBeLessThan(MIN_TOUCH);
+    expect(l.bottom.credits.height).toBe(MIN_TOUCH);
+    for (const [w, h] of MAIN) {
+      const m = computeLayout(w, h);
+      expect(m.buildLabel.height).toBeGreaterThan(0);
+      expect(m.bottom.clicks.height).toBeGreaterThanOrEqual(MIN_TOUCH);
+      expect(m.bottom.credits.height).toBeGreaterThanOrEqual(MIN_TOUCH);
     }
   });
 });
