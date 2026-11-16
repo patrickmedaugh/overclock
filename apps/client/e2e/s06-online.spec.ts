@@ -126,9 +126,18 @@ test.describe('S-06-2 a whole game across two phones', () => {
     const t0 = Date.now();
     await tap(corp.page, cl.corp.credits);
     await waitView(runner, (v) => v.players.corp.credits === before + 1);
-    const ms = Date.now() - t0;
-    test.info().annotations.push({ type: 'opponent-move-ms', description: String(ms) });
+    const seen = Date.now() - t0;
+    // When the Runner's board took the move (stamped by the page itself, same machine clock). The
+    // poll above can only read the page between frames, and headless Chromium draws the phone
+    // project (844x390 at 3x) in software at ~150 ms a frame while the move animates, so `seen`
+    // measures the test machine's renderer, not the game (CI flake, architect review Sprint 8).
+    const shownAt = await runner.page.evaluate(() => window.__overclock!.online()!.shownAt);
+    const ms = Math.round(shownAt - t0);
+    test.info().annotations.push({ type: 'opponent-move-ms', description: String(ms) }, { type: 'opponent-move-seen-ms', description: String(seen) });
+    expect(ms).toBeGreaterThan(0);
     expect(ms).toBeLessThan(1000);
+    // Still on screen promptly by the slow-drawing poll too (a real stall would show here).
+    expect(seen).toBeLessThan(3000);
 
     // The Runner's turn hasn't come: tapping the Stack draws nothing.
     const rl = await layoutOf(runner);

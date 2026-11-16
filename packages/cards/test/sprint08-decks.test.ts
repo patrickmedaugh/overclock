@@ -171,6 +171,16 @@ describe('S-08-5 AC4 / Sprint 8 card data', () => {
     for (const c of CORP_CARDS) expect(c.onInstall, c.id).toBeUndefined();
   });
 
+  it('P1: Corp install triggers/discounts never filter on a hidden type (only any type, or ICE)', () => {
+    // A Corp `whenYouInstall` / `installDiscount` limited to e.g. agendas would fire (or change the
+    // price) only for that type, telling the Runner what a face-down card is (architect review, Sprint 8).
+    for (const c of CORP_CARDS) {
+      for (const types of [c.whenYouInstall?.types, c.installDiscount?.types]) {
+        if (types !== undefined) expect(types.every((t) => t === 'ice'), c.id).toBe(true);
+      }
+    }
+  });
+
   it('only Corp cards have onRez; only Runner cards trashPrevention; only identities have deck limits', () => {
     for (const c of ALL_CARDS) {
       if (c.onRez) expect(c.side, c.id).toBe('corp');

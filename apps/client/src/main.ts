@@ -192,6 +192,8 @@ async function start(): Promise<void> {
   });
   window.addEventListener('online', wake);
 
+  /** Test hook: wall-clock ms (`Date.now()` scale) when the board last took a presentation; 0 before. */
+  let shownAt = 0;
   /** Plays `session` on the board (from the start screen, or at once with `?play=here`). */
   const play = (session: Session): void => {
     game = session;
@@ -217,6 +219,9 @@ async function start(): Promise<void> {
     let shownDecision = session.decision()?.seat ?? null;
     session.onPresent((p) => {
       board.show(p);
+      // Test hook: when the board last took a new view (wall clock), so specs can time a move's
+      // arrival without counting the test machine's (software) drawing of the frames after it.
+      if (__TEST_HOOK__) shownAt = performance.timeOrigin + performance.now();
       if (coverOn && session.kind === 'hotseat') {
         const cover = coverFor(p, shownDecision);
         if (cover) board.setCover(cover);
@@ -250,7 +255,7 @@ async function start(): Promise<void> {
         frameSpeed: (mode) => forceFrameSpeed(mode),
         online: () =>
           online && game === online
-            ? { code: online.gameCode, seat: online.seat, phase: online.phase.kind, ...online.status(), busy: online.busy }
+            ? { code: online.gameCode, seat: online.seat, phase: online.phase.kind, ...online.status(), busy: online.busy, shownAt }
             : null,
       };
     }

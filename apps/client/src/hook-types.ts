@@ -396,6 +396,12 @@ export interface OverclockTestHook {
     connection: 'local' | 'connecting' | 'open' | 'reconnecting' | 'closed';
     opponent: 'none' | 'here' | 'away';
     busy: boolean;
+    /**
+     * Wall-clock ms (`Date.now()` scale, from `performance.timeOrigin`) when the board last took a
+     * new view (`board.show`, synchronous on the server's message); 0 before the first. Times a
+     * move's arrival without the test machine's software drawing of the following frames.
+     */
+    shownAt: number;
   } | null;
   /** S-05-3: pins whether drawn frames count as slow (slow: the carousel jumps instead of sliding). */
   frameSpeed(mode: 'fast' | 'slow' | 'measured'): void;
