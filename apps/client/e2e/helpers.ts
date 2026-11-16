@@ -421,7 +421,7 @@ export function expectCleanLayout(l: LayoutSnapshot): void {
 
 /**
  * QA-S7-1/2: on every installed card, the credits pill and the advancement tag sit on
- * the card and never cover its name, type label or cost; the two markers never
+ * the card and never cover its name or type label; the two markers never
  * overlap each other and look different (colour and icon).
  */
 export function expectMarkersClear(l: LayoutSnapshot): void {
@@ -433,7 +433,7 @@ export function expectMarkersClear(l: LayoutSnapshot): void {
     for (const [mn, mb] of marks) {
       expect(inside(mb, c.box), `${mn} ${JSON.stringify(mb)} is on ${c.cardId ?? 'card back'} ${JSON.stringify(c.box)}`).toBe(true);
       if (!c.face) continue;
-      for (const [fn, fb] of [['name', c.face.name], ['type', c.face.type], ['cost', c.face.cost]] as const) {
+      for (const [fn, fb] of [['name', c.face.name], ['type', c.face.type]] as const) {
         expect(overlaps(mb, fb), `${mn} ${JSON.stringify(mb)} covers the ${fn} of ${c.cardId} ${JSON.stringify(fb)}`).toBe(false);
       }
     }

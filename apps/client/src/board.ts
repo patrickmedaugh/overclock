@@ -1403,11 +1403,16 @@ export class Board {
     const th = Math.ceil(card.hostedText.height);
     const def = card.faceUp && card.cardId ? getCard(card.cardId) : undefined;
     const f = def ? smallFaceLayout(def, u, uh) : null;
-    // Face up (not sideways): the band between the cost bubble and the name; the pill fits in it.
-    const lo = f ? f.cost.y + f.cost.height + 1 : 0;
-    const hi = f ? f.name.y - 1 : 0;
-    const h = f && card.zone !== 'ice' ? Math.max(th, Math.min(th + 4, Math.floor(hi - lo))) : th + 4;
-    const coin = Math.round(Math.min(h, th) * 0.26);
+    // Face up (not sideways): the band above the name, below the cost bubble when there is room
+    // (an installed card's cost no longer matters, so tiny cards past the busy board may cover it).
+    // Never over the name or type (QA-S7-1). Bounds include the stroke: 1 px each side.
+    const fontPx = card.hostedText.style.fontSize as number;
+    const minH = Math.round(fontPx * 1.05);
+    const hi = f ? f.name.y - 2 : 0;
+    const belowCost = f ? f.cost.y + f.cost.height + 2 : 0;
+    const lo = f && hi - belowCost >= minH ? belowCost : -uh / 2 + 2;
+    const h = f && card.zone !== 'ice' ? Math.max(minH, Math.min(th + 4, Math.floor(hi - lo))) : th + 4;
+    const coin = Math.max(4, Math.round(Math.min(h, th) * 0.26));
     const w = Math.round(3 + coin * 2 + 2 + card.hostedText.width + 5);
     const key = `${text}:${h}`;
     if (card.hostedKey !== key) {

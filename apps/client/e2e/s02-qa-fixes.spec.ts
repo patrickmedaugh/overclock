@@ -106,7 +106,8 @@ test.describe('QA-S2-3 long card names fit on small cards', () => {
     const l = await waitIdle(page);
     const hand = l.hand[0]!.box;
     const unit = l.servers.find((s) => s.id === 'hq')!.root!;
-    const longest = [...ALL_CARDS].sort((a, b) => b.name.length - a.name.length)[0]!;
+    // Sprint 8: identities (longer titles) sit in their own slot and are read by holding them (s08-identity).
+    const longest = ALL_CARDS.filter((c) => c.type !== 'identity').sort((a, b) => b.name.length - a.name.length)[0]!;
     expect(longest.name).toBe('Private Security Force');
     const sizes = [
       ['hand', hand.width, hand.height],
