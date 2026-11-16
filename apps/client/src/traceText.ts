@@ -80,16 +80,13 @@ export function traceStepLabel(c: TraceChoice, mine: boolean): string {
 export function traceLines(c: TraceChoice, bid: number, mine: boolean): string[] {
   const t = c.trace;
   if (c.kind === 'trace_corp') {
-    const lines = mine ? [`${TERMS.trace} ${t.base} + ${bid} → ${TERMS.strength.toLowerCase()} ${t.base + bid}`] : [`${TERMS.trace} ${t.base}`];
-    lines.push(`${SIDE_NAME.runner} ${TERMS.link.toLowerCase()} ${t.link} · can add up to ${t.runnerMaxBid}`);
-    return lines;
+    // The Corp sees what the Runner can answer with (link + his most).
+    const runner = `${SIDE_NAME.runner}: ${TERMS.link.toLowerCase()} ${t.link}, up to +${t.runnerMaxBid}`;
+    return mine ? [`${TERMS.trace} ${t.base} + ${bid} → ${TERMS.strength.toLowerCase()} ${t.base + bid}`, runner] : [`${TERMS.trace} ${t.base}`, runner];
   }
-  const lines = [`${TERMS.trace} ${TERMS.strength.toLowerCase()} ${t.strength}${t.corpBid !== null ? ` (${SIDE_NAME.corp} bid ${t.corpBid})` : ''}`];
-  if (mine) {
-    const total = t.link + bid;
-    lines.push(`${TERMS.link} ${t.link} + ${bid} = ${total}: ${total >= t.strength ? 'you escape' : `${t.strength - total} short`}`);
-  } else lines.push(`${SIDE_NAME.runner} ${TERMS.link.toLowerCase()} ${t.link}`);
-  return lines;
+  if (!mine) return [`${TERMS.trace} ${TERMS.strength.toLowerCase()} ${t.strength} vs ${TERMS.link.toLowerCase()} ${t.link}`];
+  const total = t.link + bid;
+  return [`${TERMS.link} ${t.link} + ${bid} = ${total}: ${total >= t.strength ? 'you escape' : `${t.strength - total} short`}`];
 }
 
 /** The small line under the big bid number: "strength 5" (Corp) / "link 5 · escape" (Runner). */

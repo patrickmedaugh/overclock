@@ -1438,7 +1438,10 @@ export class Board {
     const ph = Math.ceil(w.linkText.height) + 2;
     w.linkBg.clear();
     w.linkBg.roundRect(-pw / 2, -ph / 2, pw, ph, ph / 2).fill({ color: theme.runner, alpha: 0.95 }).stroke({ width: 1.5, color: theme.ink });
-    w.link.position.set(0, uh / 2 - ph / 2 - 3);
+    // In the art window (the name and type stay readable).
+    const def = getCard(w.cardId);
+    const f = def ? smallFaceLayout(def, u, uh) : null;
+    w.link.position.set(0, f ? Math.min(f.art.y + f.art.height - ph / 2, f.name.y - ph / 2 - 1) : uh / 2 - ph / 2 - 3);
   }
 
   /** QA-S7-2: the advancement tag (green, chevron, dark digits) in the card's top-right corner. */
@@ -1641,7 +1644,8 @@ export class Board {
     } else if (this.runPicking) {
       helpText = `Tap a lit server to run on it.\nTap ${TERMS.run} again to cancel.`;
     } else if (this.pickedInstalled !== null) {
-      helpText = 'Tap a lit button.\nTap the card again to cancel.';
+      // Sprint 9: the tag marker / score pill picked: "Tap it again".
+      helpText = this.pickedInstalled === TAGS_PICK || isScoredUid(this.pickedInstalled) ? 'Tap a lit button.\nTap it again to cancel.' : 'Tap a lit button.\nTap the card again to cancel.';
     } else if (pending > 0) {
       const k = pending - this.marked.size;
       main.text = k > 0 ? `Discard ${k}` : 'Tap Confirm';
@@ -2900,7 +2904,7 @@ export class Board {
   private placeBuildLabel(layout: BoardLayout): void {
     const t = this.buildText;
     // QA-S8-2: sideways, the run panel uses the build date's line while a run is on.
-    t.visible = !(layout.mode === 'landscape' && this.view?.run);
+    t.visible = !(layout.mode === 'landscape' && panelUp(this.view));
     const when = this.callbacks.buildTime;
     const rail = layout.mode === 'landscape';
     const text = rail ? when : `Built ${when}`;
@@ -3131,7 +3135,7 @@ export class Board {
   /** Opens the hand view on hand card `index` (`from`: where it grows from; default its strip slot). */
   private openHandView(index: number, from?: Box): void {
     const view = this.view;
-    if (!view || view.run) return;
+    if (!view || panelUp(view)) return;
     const hand = this.hands[view.viewer];
     const ids = hand.ids;
     const cardId = ids[index];

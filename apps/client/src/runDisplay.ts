@@ -422,7 +422,8 @@ export class RunDisplay {
     const step = trace ? traceStepLabel(trace, options.length > 0) : choice ? choiceStepLabel(choice, rig, !elsewhere) : elsewhere ? decidingText(deciding) : stepLabel(panel, deciding);
     const lines = trace ? traceLines(trace, this.bid?.amount ?? 0, options.length > 0) : infoLines(panel, rig);
     // The passed ICE keeps its list at Continue, so a just-broken subroutine is seen crossed out.
-    const showSubs = panel.step !== 'access';
+    // Sprint 9: a trace window keeps the panel to the bid's numbers (readable in the 640x360 rail).
+    const showSubs = panel.step !== 'access' && !trace;
     const subs = showSubs ? (panel.ice?.subroutines ?? []).map((s) => ({ text: s.text, broken: s.broken })) : [];
     const infoKey = JSON.stringify([title, step, lines, subs, deciding, layout.runInfo]);
     if (infoKey !== this.infoKey) {

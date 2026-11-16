@@ -72,15 +72,16 @@ describe('S-09-1 trace words', () => {
   it('Corp: "Trace 3: add credits?" and the strength as the bid changes (3 + bid)', () => {
     const c = traceChoice('trace_corp', {}, bids('corp', 4));
     expect(traceStepLabel(c, true)).toBe('Trace 3: add credits?');
-    expect(traceLines(c, 2, true)).toEqual(['Trace 3 + 2 → strength 5', 'Runner link 1 · can add up to 5']);
+    expect(traceLines(c, 2, true)).toEqual(['Trace 3 + 2 → strength 5', 'Runner: link 1, up to +5']);
     expect(bidCaption(c, 2)).toBe('strength 5');
   });
 
   it('Runner: "Trace strength 5 · your link 1 · spend 4 to stop it" (needed from the engine)', () => {
     const c = traceChoice('trace_runner', { strength: 5, corpBid: 2, needed: 4 }, bids('runner', 6));
     expect(traceStepLabel(c, true)).toBe('Trace strength 5 · your link 1 · spend 4 to stop it');
-    expect(traceLines(c, 3, true)).toEqual(['Trace strength 5 (Corp bid 2)', 'Link 1 + 3 = 4: 1 short']);
-    expect(traceLines(c, 4, true)[1]).toBe('Link 1 + 4 = 5: you escape');
+    expect(traceLines(c, 3, true)).toEqual(['Link 1 + 3 = 4: 1 short']);
+    expect(traceLines(c, 4, true)).toEqual(['Link 1 + 4 = 5: you escape']);
+    expect(traceLines(c, 0, false)).toEqual(['Trace strength 5 vs link 1']);
     expect(bidCaption(c, 4)).toBe('link 5 · escape');
     expect(bidCaption(c, 1)).toBe('link 2 · short');
   });
