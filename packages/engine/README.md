@@ -515,6 +515,8 @@ maxHandSize(state, side) = 5 − brainDamage    // exported
 
 Everything in the Sprint 1–8 interfaces still holds unless noted. Tech plan: `docs/sprints/sprint-09-tech-plan.md`. No engine or client code checks a card id. `RULES_VERSION = 3` (live online games expire on deploy). `PROTOCOL_VERSION` stays 1.
 
+**E6 status:** `lastSuccessfulRunTurn` is set at every `run_successful` (a Bank Job run counts); SEA Source and Ichi 1.0 work (nothing cut).
+
 **E5 status:** `meat_damage` (shared net/brain damage code; flatline when more than the Grip), `scoredAbilities` usable through `activate` with a scored uid `score:corp:<i>` (Corp score area only), listed in the Corp's `installedOptions` under that key. Private Security Force works.
 
 **E4 status:** tags work: `remove_tag`, `trash_resource` (`rig_card_trashed{cause:'tagged'}`), Runner `basicOptions`, Corp `installedOptions` per rig resource while tagged; tags never reset.

@@ -293,9 +293,11 @@ export function accessReplacements(state: GameState): { uid: string; ability: nu
  * The run is successful. Sprint 7: on a remote with a usable `replacesAccess` ability the run
  * stops at step `success` (the Runner picks it or Access cards); otherwise access starts.
  */
-function succeed(state: GameState, events: Events): GameState {
-  const run = theRun(state);
+function succeed(state0: GameState, events: Events): GameState {
+  const run = theRun(state0);
   events.push({ type: 'run_successful', server: run.server });
+  // Sprint 9: SEA Source ("a successful run during his last turn"); a Bank Job run that replaces access counts.
+  const state: GameState = { ...state0, lastSuccessfulRunTurn: state0.turn };
   if (fromOf(run.server) === 'remote' && accessReplacements(state).length > 0) {
     return setRun(state, { position: -1, step: 'success' });
   }
