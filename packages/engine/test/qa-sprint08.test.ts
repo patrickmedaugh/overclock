@@ -83,6 +83,11 @@ const CORE_2012: Record<string, { name: string; faction: string; inf: number; co
   r15: { name: 'Magnum Opus', faction: 'shaper', inf: 2, cost: 5, type: 'program', mu: 2 },
   r16: { name: 'Pipeline', faction: 'shaper', inf: 1, cost: 3, type: 'program', sub: 'breaker_sentry', str: 1, mu: 1 },
   r17: { name: 'Battering Ram', faction: 'shaper', inf: 2, cost: 5, type: 'program', sub: 'breaker_barrier', str: 3, mu: 2 },
+  // Sprint 9 (engine-dev, from netrunner-cards-json core.json).
+  c20: { name: 'Hunter', faction: 'neutral', inf: 0, cost: 1, type: 'ice', sub: 'sentry', str: 4 },
+  c21: { name: 'Ichi 1.0', faction: 'haas_bioroid', inf: 2, cost: 5, type: 'ice', sub: 'sentry', str: 4 },
+  c22: { name: 'SEA Source', faction: 'nbn', inf: 2, cost: 2, type: 'operation' },
+  r18: { name: 'Access to Globalsec', faction: 'neutral', inf: 0, cost: 1, type: 'resource' },
 };
 
 // QA's own reading of the printed 2012 text of the new cards (symbols as words, as the project writes them).
@@ -139,11 +144,13 @@ describe('QA S-08-5 card data vs the 2012 Core Set (QA table)', () => {
 describe('QA S-08-5 the two 30-card decks (QA count, not checkDeck)', () => {
   const count = (cards: readonly string[]) => cards.reduce<Record<string, number>>((m, id) => ({ ...m, [id]: (m[id] ?? 0) + 1 }), {});
 
-  it('Corp: 30 cards, the proposal table with Rototurret x2 for 1 Wall of Static + 1 Enigma; Hostile Takeover gone', () => {
+  // Sprint 9 (S-09-4) swapped cards: −Anonymous Tip +SEA Source, −PAD −Neural Katana +2 Hunter, −Rototurret +Ichi 1.0;
+  // Runner −Easy Mark −Inside Job +2 Access to Globalsec. Tables updated by engine-dev.
+  it('Corp: 30 cards, the proposal table (Sprint 9 swaps); Hostile Takeover gone', () => {
     expect(CORP_CORE_DECK.identity).toBe('c13');
     expect(CORP_CORE_DECK.cards).toHaveLength(30);
     expect(count(CORP_CORE_DECK.cards)).toEqual({
-      c01: 3, c02: 1, c12: 1, c16: 1, c03: 3, c14: 2, c15: 2, c11: 1, c05: 2, c04: 1, c06: 1, c19: 2, c07: 1, c17: 2, c18: 1, c10: 3, c09: 3,
+      c01: 3, c22: 1, c12: 1, c16: 1, c03: 2, c14: 2, c15: 2, c11: 1, c05: 2, c04: 1, c06: 1, c20: 2, c19: 1, c21: 1, c17: 2, c18: 1, c10: 3, c09: 3,
     });
   });
 
@@ -151,12 +158,12 @@ describe('QA S-08-5 the two 30-card decks (QA count, not checkDeck)', () => {
     expect(RUNNER_CORE_DECK.identity).toBe('r13');
     expect(RUNNER_CORE_DECK.cards).toHaveLength(30);
     expect(count(RUNNER_CORE_DECK.cards)).toEqual({
-      r14: 3, r01: 2, r03: 3, r02: 2, r10: 1, r15: 2, r07: 3, r11: 2, r04: 1, r05: 2, r16: 2, r17: 2, r09: 2, r08: 2, r12: 1,
+      r14: 3, r01: 1, r03: 3, r02: 2, r10: 1, r18: 2, r15: 2, r07: 3, r11: 1, r04: 1, r05: 2, r16: 2, r17: 2, r09: 2, r08: 2, r12: 1,
     });
   });
 
-  it('deck rules by QA arithmetic: <= 3 copies, own-faction/neutral agendas, influence from the QA table (Corp 9, Runner 14 of 15), 15 agenda points', () => {
-    for (const [deck, faction, inf] of [[CORP_CORE_DECK, 'haas_bioroid', 9], [RUNNER_CORE_DECK, 'shaper', 14]] as const) {
+  it('deck rules by QA arithmetic: <= 3 copies, own-faction/neutral agendas, influence from the QA table (Sprint 9: Corp 8, Runner 10 of 15), 15 agenda points', () => {
+    for (const [deck, faction, inf] of [[CORP_CORE_DECK, 'haas_bioroid', 8], [RUNNER_CORE_DECK, 'shaper', 10]] as const) {
       for (const n of Object.values(count(deck.cards))) expect(n).toBeLessThanOrEqual(3);
       const used = deck.cards.reduce((sum, id) => sum + (CORE_2012[id]!.faction === faction ? 0 : CORE_2012[id]!.inf), 0);
       expect(used).toBe(inf);

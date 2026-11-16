@@ -217,10 +217,13 @@ export type StepGoal =
   | 'viktor_encounter'
   | 'heimdall_corroder_encounter'
   | 'heimdall_ram_encounter'
+  /** Sprint 9: unreachable (Neural Katana left the core deck); `planToStep` throws. Use `pipeline_hunter_encounter`. */
   | 'pipeline_katana_encounter'
   | 'runner_magnum_opus'
   | 'runner_sure_gamble'
-  | 'rototurret_two_programs';
+  | 'rototurret_two_programs'
+  /** Sprint 9: replaces `pipeline_katana_encounter` (Pipeline pumps 3 times to break Hunter). */
+  | 'pipeline_hunter_encounter';
 
 export const STEP_GOALS: readonly StepGoal[] = [
   'corp_rez_prompt',
@@ -264,8 +267,9 @@ export const STEP_GOALS: readonly StepGoal[] = [
  *   `info: {server, iceUid, breakerUid}`.
  * - `heimdall_ram_encounter`: … a rezzed Heimdall 1.0, Battering Ram installed, ≥ 5 credits.
  *   `info: {server, iceUid, breakerUid}`.
- * - `pipeline_katana_encounter`: … a rezzed Neural Katana, Pipeline installed, ≥ 5 credits, ≥ 4
- *   Grip cards. `info: {server, iceUid, breakerUid}`.
+ * - `pipeline_katana_encounter`: Sprint 9: **retired** (Neural Katana left the core deck); `planToStep` throws.
+ * - `pipeline_hunter_encounter` (Sprint 9, replaces it): … a rezzed Hunter, Pipeline installed, ≥ 7 credits
+ *   (3 × 2 to reach strength 4, then 1 to break). `info: {server, iceUid, breakerUid}`.
  * - `runner_magnum_opus`: Runner's action step (no run), ≥ 1 click, Magnum Opus installed. `info: {uid}`.
  * - `runner_sure_gamble`: Runner's action step, ≥ 1 click, exactly 5 credits, Sure Gamble in the
  *   Grip. `info: {handIndex}`.
@@ -284,7 +288,7 @@ export const SPRINT8_GOALS: readonly StepGoal[] = [
   'viktor_encounter',
   'heimdall_corroder_encounter',
   'heimdall_ram_encounter',
-  'pipeline_katana_encounter',
+  'pipeline_hunter_encounter',
   'runner_magnum_opus',
   'runner_sure_gamble',
   'rototurret_two_programs',
@@ -596,7 +600,7 @@ const CORE_ENCOUNTER: Partial<Record<StepGoal, CoreEncounter>> = {
   viktor_encounter: { ice: 'c17', rig: [], credits: 0, hand: 2 },
   heimdall_corroder_encounter: { ice: 'c18', rig: ['r04'], credits: 7, hand: 0 },
   heimdall_ram_encounter: { ice: 'c18', rig: ['r17'], credits: 5, hand: 0 },
-  pipeline_katana_encounter: { ice: 'c07', rig: ['r16'], credits: 5, hand: 4 },
+  pipeline_hunter_encounter: { ice: 'c20', rig: ['r16'], credits: 7, hand: 0 },
   rototurret_two_programs: { ice: 'c19', rig: [], programs: 2, credits: 0, hand: 0 },
 };
 
@@ -1281,6 +1285,9 @@ export function goalDeckSet(goal: StepGoal): DeckSet {
  * defaults to `goalDeckSet(goal)` (legacy goals: `'starter'`); `plan.deckSet` says which.
  */
 export function planToStep(seed: number, goal: StepGoal, maxActions = 1500, options?: Partial<GameOptions>): StepPlan {
+  if (goal === 'pipeline_katana_encounter') {
+    throw new Error('planToStep: pipeline_katana_encounter is retired (Sprint 9: Neural Katana left the core deck); use pipeline_hunter_encounter');
+  }
   const deckSet = options?.deckSet ?? goalDeckSet(goal);
   const match = new LocalMatch(seed, { ...options, deckSet });
   for (let n = 0; n < maxActions; n++) {
@@ -1304,5 +1311,10 @@ export function planToStep(seed: number, goal: StepGoal, maxActions = 1500, opti
     const rejected = u[side].events.find((e) => e.type === 'action_rejected');
     if (rejected) throw new Error(`planToStep(${seed}, ${goal}): ${JSON.stringify(action)} rejected: ${JSON.stringify(rejected)}`);
   }
-  throw new Error(`planToStep(${seed}, ${goal}): not reached`);
+  const end = match.view('runner');
+  throw new Error(
+    `planToStep(${seed}, ${goal}): not reached (turn ${end.turn}, phase ${end.phase}, result ${JSON.stringify(end.result)}, ` +
+      `Runner hand ${JSON.stringify(end.players.runner.hand)}, rig ${JSON.stringify(end.rig.map((c) => c.cardId))}, credits ${end.players.runner.credits}, ` +
+      `deck ${end.players.runner.deckCount}, heap ${JSON.stringify(end.players.runner.discard)})`,
+  );
 }
