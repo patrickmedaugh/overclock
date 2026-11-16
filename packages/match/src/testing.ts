@@ -223,7 +223,19 @@ export type StepGoal =
   | 'runner_sure_gamble'
   | 'rototurret_two_programs'
   /** Sprint 9: replaces `pipeline_katana_encounter` (Pipeline pumps 3 times to break Hunter). */
-  | 'pipeline_hunter_encounter';
+  | 'pipeline_hunter_encounter'
+  // Sprint 9 (core decks; `SPRINT9_GOALS`)
+  | 'hunter_encounter'
+  | 'hunter_corp_broke'
+  | 'trace_tie'
+  | 'runner_tagged_corp_turn'
+  | 'runner_tagged_own_turn'
+  | 'psf_scored_tagged'
+  | 'ichi_two_programs'
+  | 'sea_source_ready'
+  | 'sea_source_not_ready'
+  | 'globalsec_installed'
+  | 'globalsec_two_installed';
 
 export const STEP_GOALS: readonly StepGoal[] = [
   'corp_rez_prompt',
@@ -303,6 +315,43 @@ export const SPRINT7_GOALS: readonly StepGoal[] = [
   'runner_bank_job_remote',
   'corp_ice_wall',
   'remote_last_card',
+];
+
+/**
+ * Sprint 9 goals (core decks; seeds in the README). Hunter is always alone on a new remote; the
+ * Runner (Kate, link 1) runs only that server, so nothing else is stolen.
+ * - `hunter_encounter`: the Runner encounters a rezzed Hunter, no sentry breaker, link 1, ≥ 4 credits;
+ *   the Corp has ≥ 2 credits (let it fire → the Corp's bid window). `info: {server, iceUid, corpCredits, runnerCredits}`.
+ * - `hunter_corp_broke`: the same with the Corp at exactly 0 credits and the Runner at ≥ 2 (let it fire →
+ *   the Corp bids 0 at once, straight to the Runner's window). Same `info`.
+ * - `trace_tie`: Hunter's trace waits on the Runner's bid (`trace_runner` in the run) with 1 ≤ needed ≤
+ *   his max: bidding `needed` ties (escapes), one less gets him tagged. `info: {server, iceUid, needed, strength, link}`.
+ * - `runner_tagged_corp_turn`: Corp's action step with 3 clicks and ≥ 2 credits, the Runner tagged with
+ *   Armitage Codebusting installed. `info: {armitageUid, tags}`.
+ * - `runner_tagged_own_turn`: Runner's action step (no run), tagged, ≥ 1 click, ≥ 2 credits. `info: {tags}`.
+ * - `psf_scored_tagged`: Corp's action step with 3 clicks, Private Security Force in its score area, the
+ *   Runner tagged. `info: {uid, grip}`: `uid` = `score:corp:<i>`; `grip` = the Runner's Grip size ('0' = the next use flatlines).
+ * - `ichi_two_programs`: the Runner encounters a rezzed Ichi 1.0 with ≥ 2 programs installed. `info: {server,
+ *   iceUid, programs, construct}` (as `rototurret_two_programs`).
+ * - `sea_source_ready`: Corp's action step with 3 clicks and ≥ 3 credits, SEA Source in HQ and playable (a
+ *   successful run last turn). `info: {handIndex}`.
+ * - `sea_source_not_ready`: the same, but the Runner made no successful run last turn (dimmed). `info: {handIndex}`.
+ * - `globalsec_installed` / `globalsec_two_installed`: Runner's action step, ≥ 1 click, exactly 1 / 2 Access to
+ *   Globalsec installed (link 2 / 3), Hunter installed on a remote the Corp can rez (or face up).
+ *   `info: {uids, link, hunterServer}`.
+ */
+export const SPRINT9_GOALS: readonly StepGoal[] = [
+  'hunter_encounter',
+  'hunter_corp_broke',
+  'trace_tie',
+  'runner_tagged_corp_turn',
+  'runner_tagged_own_turn',
+  'psf_scored_tagged',
+  'ichi_two_programs',
+  'sea_source_ready',
+  'sea_source_not_ready',
+  'globalsec_installed',
+  'globalsec_two_installed',
 ];
 
 export interface StepPlan {
@@ -602,6 +651,7 @@ const CORE_ENCOUNTER: Partial<Record<StepGoal, CoreEncounter>> = {
   heimdall_ram_encounter: { ice: 'c18', rig: ['r17'], credits: 5, hand: 0 },
   pipeline_hunter_encounter: { ice: 'c20', rig: ['r16'], credits: 7, hand: 0 },
   rototurret_two_programs: { ice: 'c19', rig: [], programs: 2, credits: 0, hand: 0 },
+  ichi_two_programs: { ice: 'c21', rig: [], programs: 2, credits: 0, hand: 0 },
 };
 
 const isProgram = (id: string | null | undefined) => typeOf(id ?? '') === 'program';
@@ -626,6 +676,7 @@ function coreEncounterReached(goal: StepGoal, corp: PlayerView, runner: PlayerVi
 function coreReached(goal: StepGoal, views: Views): boolean {
   const { corp, runner } = views;
   if (CORE_ENCOUNTER[goal]) return coreEncounterReached(goal, corp, runner);
+  if (SPRINT9_GOALS.includes(goal)) return s9Reached(goal, views);
   const hand = (v: PlayerView) => v.players[v.viewer].hand ?? [];
   switch (goal) {
     case 'corp_first_install':
@@ -666,12 +717,13 @@ function bioticPlay(corp: PlayerView) {
 
 function coreInfo(goal: StepGoal, views: Views): Record<string, string> {
   const { corp, runner } = views;
+  if (SPRINT9_GOALS.includes(goal) && !CORE_ENCOUNTER[goal]) return s9Info(goal, views);
   if (CORE_ENCOUNTER[goal]) {
     const r = runner.run!;
     const info: Record<string, string> = { server: r.server, iceUid: r.iceUid ?? '' };
     const breaker = CORE_ENCOUNTER[goal]!.rig[0];
     if (breaker) info.breakerUid = rigCard(runner, breaker)!.uid;
-    if (goal === 'rototurret_two_programs') {
+    if (goal === 'rototurret_two_programs' || goal === 'ichi_two_programs') {
       info.programs = runner.rig.filter((c) => isProgram(c.cardId)).map((c) => c.uid).join(',');
       info.construct = rigCard(runner, 'r12')?.uid ?? '';
     }
@@ -1116,7 +1168,7 @@ function runnerSprint7Move(goal: StepGoal, v: PlayerView, views: Views): Action 
 }
 
 function corpMoveFor(goal: StepGoal, v: PlayerView): Action {
-  if (SPRINT8_GOALS.includes(goal)) {
+  if (SPRINT8_GOALS.includes(goal) || CORE_ENCOUNTER[goal]) {
     if (v.choice) return choiceAnswer(v);
     if (v.run) {
       const rezIt = v.run.options.find((o) => o.action.type === 'rez' && o.reject === null);
@@ -1208,7 +1260,7 @@ function corpMoveFor(goal: StepGoal, v: PlayerView): Action {
 
 function runnerMoveFor(goal: StepGoal, v: PlayerView, views: Views): Action {
   const me = v.players.runner;
-  if (SPRINT8_GOALS.includes(goal)) {
+  if (SPRINT8_GOALS.includes(goal) || CORE_ENCOUNTER[goal]) {
     if (v.choice) return choiceAnswer(v);
     if (v.run) return defaultRunMove(v);
     return runnerCoreMove(goal, v, views);
@@ -1306,7 +1358,14 @@ export function planToStep(seed: number, goal: StepGoal, maxActions = 1500, opti
     if (views.corp.phase === 'over') break;
     const side = decider(views.corp);
     const v = views[side];
-    const action = side === 'corp' ? corpMoveFor(goal, v) : runnerMoveFor(goal, v, views);
+    const action =
+      SPRINT9_GOALS.includes(goal) && !CORE_ENCOUNTER[goal]
+        ? side === 'corp'
+          ? s9CorpMove(goal, v)
+          : s9RunnerMove(goal, v, views)
+        : side === 'corp'
+          ? corpMoveFor(goal, v)
+          : runnerMoveFor(goal, v, views);
     const u = match.submit(side, action);
     const rejected = u[side].events.find((e) => e.type === 'action_rejected');
     if (rejected) throw new Error(`planToStep(${seed}, ${goal}): ${JSON.stringify(action)} rejected: ${JSON.stringify(rejected)}`);
@@ -1317,4 +1376,233 @@ export function planToStep(seed: number, goal: StepGoal, maxActions = 1500, opti
       `Runner hand ${JSON.stringify(end.players.runner.hand)}, rig ${JSON.stringify(end.rig.map((c) => c.cardId))}, credits ${end.players.runner.credits}, ` +
       `deck ${end.players.runner.deckCount}, heap ${JSON.stringify(end.players.runner.discard)})`,
   );
+}
+
+// ---- Sprint 9 (core decks): traces, tags, Private Security Force, SEA Source, Access to Globalsec ----
+
+const HUNTER = 'c20';
+const PSF = 'c09';
+const SEA = 'c22';
+const GLOBALSEC = 'r18';
+const ARMITAGE = 'r02';
+
+/** Goals that need Hunter installed on a new remote (alone). */
+const S9_HUNTER: readonly StepGoal[] = [
+  'hunter_encounter',
+  'hunter_corp_broke',
+  'trace_tie',
+  'runner_tagged_corp_turn',
+  'runner_tagged_own_turn',
+  'psf_scored_tagged',
+  'globalsec_installed',
+  'globalsec_two_installed',
+];
+/** Goals where the Runner runs Hunter to get tagged. */
+const S9_TAG: readonly StepGoal[] = ['runner_tagged_corp_turn', 'runner_tagged_own_turn', 'psf_scored_tagged'];
+
+/** The installed Hunter (Corp view), if any. */
+const hunterOf = (corp: PlayerView) => corpInstalled(corp).find((c) => c.zone === 'ice' && c.cardId === HUNTER);
+
+/** Credits the Corp should hold before the Runner comes, per goal (Hunter face down: + its rez cost 1). */
+function s9CorpCredits(goal: StepGoal, corp: PlayerView): { min: number; exact?: number } {
+  const h = hunterOf(corp);
+  const rez = h && !h.faceUp ? 1 : 0;
+  if (goal === 'hunter_corp_broke') return { min: rez, exact: rez };
+  if (goal === 'hunter_encounter' || goal === 'trace_tie') return { min: 2 + rez };
+  if (goal === 'runner_tagged_corp_turn') return { min: 2 + rez };
+  if (goal === 'sea_source_ready') return { min: 3 };
+  return { min: rez };
+}
+
+/** The Runner's view at an encounter with a rezzed `iceId`, `pass` offered (and the Corp's view agrees). */
+function encounterWith(corp: PlayerView, runner: PlayerView, iceId: string): boolean {
+  const r = runner.run;
+  return (
+    r?.step === 'encounter' &&
+    r.ice?.cardId === iceId &&
+    corp.run?.iceUid === r.iceUid &&
+    runner.choice === null &&
+    r.options.some((o) => o.action.type === 'pass' && o.reject === null)
+  );
+}
+
+const sentryBreaker = (v: PlayerView) => v.rig.some((c) => card(c.cardId)?.subtype === 'breaker_sentry');
+const globalsecs = (v: PlayerView) => v.rig.filter((c) => c.cardId === GLOBALSEC);
+const scoredPsf = (corp: PlayerView) => corp.players.corp.scored.indexOf(PSF);
+/** Corp view: SEA Source's hand index and its play option. */
+function seaOption(corp: PlayerView) {
+  const i = (corp.players.corp.hand ?? []).indexOf(SEA);
+  return i < 0 ? undefined : { i, opt: corp.handOptions[i]?.find((o) => o.action.type === 'play') };
+}
+
+function s9Reached(goal: StepGoal, views: Views): boolean {
+  const { corp, runner } = views;
+  const rp = runner.players.runner;
+  const cp = corp.players.corp;
+  switch (goal) {
+    case 'hunter_encounter':
+      return encounterWith(corp, runner, HUNTER) && !sentryBreaker(runner) && rp.link === 1 && rp.credits >= 4 && cp.credits >= 2;
+    case 'hunter_corp_broke':
+      return encounterWith(corp, runner, HUNTER) && !sentryBreaker(runner) && rp.link === 1 && rp.credits >= 2 && cp.credits === 0;
+    case 'trace_tie': {
+      const c = runner.choice;
+      const t = c?.trace;
+      return c?.kind === 'trace_runner' && c.cardId === HUNTER && runner.run !== null && t !== undefined && t.needed >= 1 && t.needed <= t.runnerMaxBid;
+    }
+    case 'runner_tagged_corp_turn':
+      return corpAction(corp) && cp.clicks === 3 && cp.credits >= 2 && rp.tags >= 1 && rigCard(corp, ARMITAGE) !== undefined;
+    case 'runner_tagged_own_turn':
+      return runnerAction(runner) && rp.clicks >= 1 && rp.credits >= 2 && rp.tags >= 1;
+    case 'psf_scored_tagged':
+      return corpAction(corp) && cp.clicks === 3 && rp.tags >= 1 && scoredPsf(corp) >= 0;
+    case 'sea_source_ready': {
+      const sea = seaOption(corp);
+      return corpAction(corp) && cp.clicks === 3 && cp.credits >= 3 && sea?.opt?.reject === null;
+    }
+    case 'sea_source_not_ready': {
+      const sea = seaOption(corp);
+      return corpAction(corp) && cp.clicks === 3 && sea?.opt?.reject === 'condition_not_met';
+    }
+    case 'globalsec_installed':
+    case 'globalsec_two_installed': {
+      const want = goal === 'globalsec_installed' ? 1 : 2;
+      const h = hunterOf(corp);
+      return runnerAction(runner) && rp.clicks >= 1 && globalsecs(runner).length === want && h !== undefined && (h.faceUp || cp.credits >= 1);
+    }
+    default:
+      return false;
+  }
+}
+
+function s9Info(goal: StepGoal, views: Views): Record<string, string> {
+  const { corp, runner } = views;
+  switch (goal) {
+    case 'hunter_encounter':
+    case 'hunter_corp_broke': {
+      const r = runner.run!;
+      return { server: r.server, iceUid: r.iceUid ?? '', corpCredits: String(corp.players.corp.credits), runnerCredits: String(runner.players.runner.credits) };
+    }
+    case 'trace_tie': {
+      const t = runner.choice!.trace!;
+      const r = runner.run!;
+      return { server: r.server, iceUid: r.iceUid ?? '', needed: String(t.needed), strength: String(t.strength), link: String(t.link) };
+    }
+    case 'runner_tagged_corp_turn':
+      return { armitageUid: rigCard(corp, ARMITAGE)!.uid, tags: String(runner.players.runner.tags) };
+    case 'runner_tagged_own_turn':
+      return { tags: String(runner.players.runner.tags) };
+    case 'psf_scored_tagged':
+      return { uid: `score:corp:${scoredPsf(corp)}`, grip: String(runner.players.runner.handCount) };
+    case 'sea_source_ready':
+    case 'sea_source_not_ready':
+      return { handIndex: String(seaOption(corp)!.i) };
+    case 'globalsec_installed':
+    case 'globalsec_two_installed':
+      return { uids: globalsecs(runner).map((c) => c.uid).join(','), link: String(runner.players.runner.link), hunterServer: hunterOf(corp)!.server };
+    default:
+      return {};
+  }
+}
+
+/** A trace bid from the offered options: `want` clamped to what is offered (0 if nothing else). */
+function bidOf(v: PlayerView, want: number): Action {
+  const opts = (v.choice?.options ?? []).filter((o) => o.reject === null).map((o) => o.action);
+  const max = Math.max(0, ...opts.map((a) => (a.type === 'trace_bid' ? a.credits : 0)));
+  const n = Math.max(0, Math.min(want, max));
+  return opts.find((a) => a.type === 'trace_bid' && a.credits === n) ?? opts[0] ?? { type: 'pass', player: v.viewer };
+}
+
+/** Sprint 9 Corp policies. */
+function s9CorpMove(goal: StepGoal, v: PlayerView): Action {
+  const me = v.players.corp;
+  if (v.choice) {
+    if (v.choice.kind === 'trace_corp') {
+      // trace_tie: a bid that leaves the Runner able to tie (needed ≤ his max); else bid 0.
+      const t = v.choice.trace!;
+      return bidOf(v, goal === 'trace_tie' ? Math.min(2, t.runnerMaxBid + t.link - t.base) : 0);
+    }
+    return choiceAnswer(v);
+  }
+  if (v.run) {
+    const rezIt = v.run.options.find((o) => o.action.type === 'rez' && o.reject === null);
+    if (rezIt && v.run.ice?.cardId === HUNTER) return rezIt.action;
+    return defaultRunMove(v);
+  }
+  const keep = (id: string) => (id === HUNTER || id === SEA ? 3 : id === PSF ? 2 : isAgendaId(id) ? 1 : 0);
+  if (v.phase === 'discard') return discardKeeping(v, keep);
+  const end: Action = { type: 'end_turn', player: 'corp' };
+  if (me.clicks === 0) return end;
+  const gain: Action = { type: 'gain_credit', player: 'corp' };
+  const draw = (margin: number): Action => basicMove(v, margin);
+  const installNewOf = (pred: (id: string) => boolean): Action | undefined => {
+    const i = handIdx(v, pred);
+    return i >= 0 ? installNew(v, i) : undefined;
+  };
+  if (goal === 'sea_source_ready' || goal === 'sea_source_not_ready') {
+    // Agendas go into new remotes (never run), so none is discarded to Archives (the Runner runs Archives).
+    const agenda = installNewOf(isAgendaId);
+    if (agenda) return agenda;
+    if (handIdx(v, (x) => x === SEA) < 0) return draw(1);
+    return me.credits < 3 ? gain : end;
+  }
+  if (!S9_HUNTER.includes(goal)) return end;
+  const hunter = hunterOf(v);
+  if (!hunter) return installNewOf((x) => x === HUNTER) ?? draw(2);
+  const want = s9CorpCredits(goal, v);
+  if (goal === 'psf_scored_tagged' && scoredPsf(v) < 0) {
+    const psf = corpInstalled(v).find((c) => c.cardId === PSF);
+    if (!psf) return installNewOf((x) => x === PSF) ?? draw(2);
+    if (psf.advancements >= 4) return { type: 'score', player: 'corp', uid: psf.uid };
+    if (me.credits >= want.min + 1) return { type: 'advance', player: 'corp', uid: psf.uid };
+    return gain;
+  }
+  if (want.exact !== undefined && me.credits > want.exact) {
+    // hunter_corp_broke: burn credits by advancing an installed agenda (never scored; the Runner never runs it).
+    const agenda = agendas(v)[0];
+    if (agenda) return { type: 'advance', player: 'corp', uid: agenda.uid };
+    return installNewOf(isAgendaId) ?? draw(2);
+  }
+  if (me.credits < want.min) return gain;
+  return end;
+}
+
+/** Sprint 9 Runner policies. */
+function s9RunnerMove(goal: StepGoal, v: PlayerView, views: Views): Action {
+  const me = v.players.runner;
+  if (v.choice) return v.choice.kind === 'trace_runner' ? bidOf(v, 0) : choiceAnswer(v);
+  if (v.run) return defaultRunMove(v);
+  const hand = me.hand ?? [];
+  const wantRig: string[] = goal === 'runner_tagged_corp_turn' ? [ARMITAGE] : goal === 'globalsec_installed' ? [GLOBALSEC] : goal === 'globalsec_two_installed' ? [GLOBALSEC, GLOBALSEC] : [];
+  const keep = (id: string) => (wantRig.includes(id) ? 3 : id === 'r14' || id === 'r01' ? 1 : 0);
+  if (v.phase === 'discard') return discardKeeping(v, keep);
+  const end: Action = { type: 'end_turn', player: 'runner' };
+  if (me.clicks === 0) return end;
+  const draw: Action = me.deckCount > 0 ? { type: 'draw', player: 'runner' } : end;
+  const gain: Action = { type: 'gain_credit', player: 'runner' };
+  const corp = views.corp;
+  // Install the rig the goal needs (Armitage / Access to Globalsec), drawing until found.
+  const have = (id: string) => v.rig.filter((c) => c.cardId === id).length;
+  for (const id of new Set(wantRig)) {
+    if (have(id) >= wantRig.filter((x) => x === id).length) continue;
+    const i = hand.indexOf(id);
+    if (i < 0) return draw;
+    return installNew(v, i) ?? gain;
+  }
+  if (goal === 'sea_source_ready') return me.clicks >= 1 ? { type: 'run', player: 'runner', server: 'archives' } : end;
+  if (goal === 'sea_source_not_ready' || goal === 'globalsec_installed' || goal === 'globalsec_two_installed') return end;
+  const hunter = hunterOf(corp);
+  if (!hunter) return end;
+  const cp = corp.players.corp;
+  const want = s9CorpCredits(goal, corp);
+  const corpReady = want.exact !== undefined ? cp.credits === want.exact : cp.credits >= want.min;
+  const runHunter: Action = { type: 'run', player: 'runner', server: hunter.server };
+  if (S9_TAG.includes(goal)) {
+    if (me.tags > 0) return end; // tagged: wait for the Corp's turn (own-turn goal is reached before this)
+    if (me.clicks < 2 || me.credits < 2) return me.credits < 2 ? gain : end;
+    return corpReady ? runHunter : end;
+  }
+  // Hunter encounter goals: enough credits for the Runner's window, then run when the Corp is ready.
+  const credits = goal === 'hunter_corp_broke' ? 2 : 4;
+  if (me.credits < credits) return gain;
+  return corpReady ? runHunter : end;
 }

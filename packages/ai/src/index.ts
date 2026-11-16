@@ -52,7 +52,7 @@ function chooseTraceBid(view: PlayerView, offered: readonly Action[]): Action | 
  * action, or null when it has nothing to do. In a free-rez choice it rezzes
  * the costliest offered ICE, else skips; Sprint 8: in a `trash_target` choice it
  * trashes the costliest program, in a `prevent_trash` choice it saves the card; Sprint 9: trace bids
- * (`chooseTraceBid`).
+ * (`chooseTraceBid`) and tag actions (`chooseTagAction`: PSF, trash a resource, remove a tag).
  */
 export function chooseAction(view: PlayerView): Action | null {
   if (view.choice && view.choice.options.length > 0) {
@@ -62,5 +62,29 @@ export function chooseAction(view: PlayerView): Action | null {
     if (view.choice.kind === 'trace_corp' || view.choice.kind === 'trace_runner') return chooseTraceBid(view, offered);
     return chooseFreeRez(view, offered);
   }
-  return view.legalActions[0] ?? null;
+  return chooseTagAction(view) ?? view.legalActions[0] ?? null;
+}
+
+/** Credits needed to keep before removing a tag (the 2-credit cost plus a 2-credit cushion). */
+const REMOVE_TAG_MIN_CREDITS = 4;
+
+/**
+ * Sprint 9, tags (action phase only, from the legal actions in the view). Corp: use a scored agenda's
+ * ability (Private Security Force: meat damage) first, else trash the Runner's costliest resource
+ * (first listed on a tie). Runner: remove a tag while he has ≥ 4 credits and a click.
+ */
+function chooseTagAction(view: PlayerView): Action | null {
+  const legal = view.legalActions;
+  if (view.viewer === 'corp') {
+    const scored = legal.find((a) => a.type === 'activate' && a.uid.startsWith('score:'));
+    if (scored) return scored;
+    const costOf = (uid: string) => getCard(view.rig.find((c) => c.uid === uid)?.cardId ?? '')?.cost ?? 0;
+    let best: Action | null = null;
+    for (const a of legal) {
+      if (a.type === 'trash_resource' && (best === null || (best.type === 'trash_resource' && costOf(a.uid) > costOf(best.uid)))) best = a;
+    }
+    return best;
+  }
+  const remove = legal.find((a) => a.type === 'remove_tag');
+  return remove && view.players.runner.credits >= REMOVE_TAG_MIN_CREDITS ? remove : null;
 }

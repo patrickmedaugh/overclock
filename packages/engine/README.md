@@ -515,6 +515,8 @@ maxHandSize(state, side) = 5 − brainDamage    // exported
 
 Everything in the Sprint 1–8 interfaces still holds unless noted. Tech plan: `docs/sprints/sprint-09-tech-plan.md`. No engine or client code checks a card id. `RULES_VERSION = 3` (live online games expire on deploy). `PROTOCOL_VERSION` stays 1.
 
+**E7 status:** hidden-information allowlists (trace events / trace choices name the face-up card that started the trace; a scored agenda's `ability_triggered`), 300-game Sprint 9 property test, AI (trace bids, PSF, trash the costliest resource, remove a tag with ≥ 4 credits), room parity tests, `SPRINT9_GOALS` (below). Sprint 9 engine work is complete.
+
 **E6 status:** `lastSuccessfulRunTurn` is set at every `run_successful` (a Bank Job run counts); SEA Source and Ichi 1.0 work (nothing cut).
 
 **E5 status:** `meat_damage` (shared net/brain damage code; flatline when more than the Grip), `scoredAbilities` usable through `activate` with a scored uid `score:corp:<i>` (Corp score area only), listed in the Corp's `installedOptions` under that key. Private Security Force works.
@@ -665,6 +667,19 @@ The planner answers a free-rez choice it did not aim for with Skip.
 - `runner_bank_job_remote` — Runner's action step, ≥ 1 click, Bank Job with 8 credits, a remote with no ICE holding a card. `info: {bankJobUid, server, credits: '8'}`. A run there stops at step `success`.
 - `corp_ice_wall` — Corp's action step, ≥ 2 clicks and ≥ 3 credits, a face-down Ice Wall (no counters) alone on a remote, the Runner has Corroder and ≥ 2 credits (S-07-5 AC1 + AC2: advance twice, end turn, the Runner runs, the Corp rezzes, strength 3). `info: {uid, server, breakerUid}`.
 - `remote_last_card` — Runner's action step, ≥ 1 click, ≥ 2 remotes, one with no ICE holding exactly one agenda whose steal does not win (S-07-1). `info: {server, uid, cardId, otherServer}`. Stealing it → `run_ended`, `server_removed {server}`.
+
+**Test-only (Sprint 9):** eleven `planToStep` goals on the **core decks** (`SPRINT9_GOALS`; `plan.deckSet === 'core'`). **All work for seeds 1-100 and 12345, pass-the-phone and online (`{rezWindow: 'always'}`)**; tests pin 1, 7, 42, 12345. Hunter is always alone on a new remote and the Runner (Kate, link 1) runs only that server.
+- `hunter_encounter` — the Runner encounters a rezzed Hunter, no sentry breaker (no Pipeline), link 1, Runner ≥ 4 credits, Corp ≥ 2 credits. `info: {server, iceUid, corpCredits, runnerCredits}`. Let it fire → `trace_corp` (Corp's phone); Corp bids 2 → `trace_runner` with `needed: 4`.
+- `hunter_corp_broke` — the same with the Corp at **0 credits** and the Runner ≥ 2. Let it fire → `trace_bid{corp, 0, auto}` and straight to `trace_runner` (no Corp hand-off). Same `info`.
+- `trace_tie` — Hunter's trace waits on the Runner's bid (`trace_runner`, in the run) with 1 ≤ `needed` ≤ his max. `info: {server, iceUid, needed, strength, link}`. Bid `needed` → escaped (tie); `needed − 1` → tagged.
+- `runner_tagged_corp_turn` — Corp's action step, 3 clicks, ≥ 2 credits, Runner tagged with Armitage Codebusting installed. `info: {armitageUid, tags}`. `installedOptions[armitageUid]` = `[{trash_resource, cost 2, clicks 1}]`.
+- `runner_tagged_own_turn` — Runner's action step (no run), tagged, ≥ 1 click, ≥ 2 credits. `info: {tags}`. `basicOptions` = `[{remove_tag, cost 2, clicks 1}]`.
+- `psf_scored_tagged` — Corp's action step, 3 clicks, Private Security Force in the Corp score area, Runner tagged. `info: {uid: 'score:corp:<i>', grip}`; `grip` is the Runner's Grip size (never '0' on seeds 1-100/12345, so the flatline is engine-tested with fixtures).
+- `ichi_two_programs` — the Runner encounters a rezzed Ichi 1.0 with ≥ 2 programs. `info: {server, iceUid, programs, construct}` (as `rototurret_two_programs`). **With Sacrificial Construct** on seeds 11, 16, 20, 27, 30, 32, 35, 42, 43, 48, 51, 54, 56, 59, 62, 65, 67, 69, 92, 95 (the same as Rototurret's); none on e.g. 1, 7, 12345.
+- `sea_source_ready` — Corp's action step, 3 clicks, ≥ 3 credits, SEA Source in HQ and playable (the Runner ran Archives successfully last turn). `info: {handIndex}`.
+- `sea_source_not_ready` — the same, but no successful run last turn: the play option has `reject: 'condition_not_met'`. `info: {handIndex}`.
+- `globalsec_installed` / `globalsec_two_installed` — Runner's action step, ≥ 1 click, exactly 1 / 2 Access to Globalsec installed (link 2 / 3), Hunter installed on a remote the Corp can rez (or face up). `info: {uids, link, hunterServer}`. A run on `hunterServer` starts the trace with that link.
+- Retired: `pipeline_katana_encounter` (throws; Neural Katana left the deck) → `pipeline_hunter_encounter` (in `SPRINT8_GOALS`).
 
 The client and AI may import only the public index of engine/cards/match. The client may not import `apply`, `newGame`, `legalActions`, `viewFor` or `replay` (it goes through the match).
 
