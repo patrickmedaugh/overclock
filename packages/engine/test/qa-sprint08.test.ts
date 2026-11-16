@@ -736,3 +736,111 @@ describe('QA Sprint 8 sweep: random core-deck games with QA bookkeeping', () => 
     for (const k of ['hb', 'kate', 'brain', 'adonisTaken', 'melange', 'biotic', 'trashTarget', 'preventTrash'] as const) expect(tally[k], k).toBeGreaterThan(0);
   }, 180_000);
 });
+
+// ---- Round 2: RunView.breakAll (QA-S8-2 fix) -------------------------------------------------
+
+describe('QA round 2: breakAll price and hidden information', () => {
+  /** QA's own price from card data: pumps to reach the ICE's strength, then breaks of the unbroken subs. */
+  function formula(s: GameState, uid: string, breakerStrength: number): number | null {
+    const run = s.run!;
+    const ice = s.servers.find((sv) => sv.id === run.server)!.ice[run.position]!;
+    const ic = getCard(ice.cardId)!;
+    const bc = getCard(s.rig.find((c) => c.uid === uid)!.cardId)!;
+    const brk = bc.abilities?.find((a) => a.op === 'break') as { cost: number; count: number; iceType: string } | undefined;
+    const pump = bc.abilities?.find((a) => a.op === 'strength') as { cost: number; amount: number } | undefined;
+    if (!brk || brk.iceType !== ic.subtype) return null;
+    const iceStr = (ic.strength ?? 0) + ice.advancements * (ic.strengthPerAdvancement ?? 0);
+    const need = Math.max(0, iceStr - breakerStrength);
+    if (need > 0 && !pump) return null;
+    const pumps = need > 0 ? Math.ceil(need / pump!.amount) : 0;
+    const unbroken = ic.subroutines!.length - run.broken.length;
+    return pumps * (pump?.cost ?? 0) + Math.ceil(unbroken / brk.count) * brk.cost;
+  }
+
+  /** Same game with different hidden Corp information: HQ, R&D order, face-down card ids elsewhere. */
+  function perturb(s: GameState): GameState {
+    const swap: Record<string, string> = { c01: 'c03', c03: 'c01', c09: 'c10', c10: 'c09', c14: 'c15', c15: 'c14', c05: 'c04', c04: 'c05' };
+    const run = s.run!;
+    const servers = s.servers.map((sv) => ({
+      ...sv,
+      content: sv.content.map((c) => (c.rezzed ? c : { ...c, cardId: swap[c.cardId] ?? c.cardId })),
+      ice: sv.ice.map((c, i) => (c.rezzed || (sv.id === run.server && i === run.position) ? c : { ...c, cardId: swap[c.cardId] ?? c.cardId })),
+    }));
+    return {
+      ...s,
+      servers,
+      players: { ...s.players, corp: { ...s.players.corp, hand: s.players.corp.hand.map((id) => swap[id] ?? id), deck: [...s.players.corp.deck].reverse() } },
+    };
+  }
+
+  it('random core-deck games: Corp view and unrezzed ICE give []; each entry = QA formula; absent only when unaffordable; hidden changes never change it', () => {
+    const tally = { encounters: 0, entries: 0, pumped: 0, perturbed: 0, unrezzed: 0, unaffordable: 0 };
+    for (let game = 1; game <= 120; game++) {
+      const pick = prng(game * 104729 + 1);
+      // Half the games give the Runner 40 credits, so more full breaks are affordable.
+      let s = coreGame(game, game % 2 ? { rezWindow: 'always' } : {});
+      if (game % 3 !== 0) s = withPlayer(s, 'runner', { credits: 40 });
+      for (let i = 0; i < 900 && s.phase !== 'over'; i++) {
+        const where = `game ${game} step ${i}`;
+        if (s.run) {
+          expect(viewFor('corp', s).run?.breakAll ?? [], `${where}: corp`).toEqual([]);
+          const rv = viewFor('runner', s).run!;
+          if (s.run.step !== 'encounter') expect(rv.breakAll, where).toEqual([]);
+          else {
+            const ice = s.servers.find((sv) => sv.id === s.run!.server)!.ice[s.run.position]!;
+            if (!ice.rezzed) {
+              tally.unrezzed++;
+              expect(rv.breakAll, `${where}: face-down ICE`).toEqual([]);
+            } else if (s.choice === null) {
+              tally.encounters++;
+              const money = s.players.runner.credits + s.run.tempCredits + s.rig.reduce((n, c) => n + c.hostedCredits, 0);
+              for (const c of s.rig) {
+                const f = formula(s, c.uid, rv.breakerStrength[c.uid] ?? getCard(c.cardId)!.strength ?? 0);
+                const entry = rv.breakAll.find((b) => b.uid === c.uid);
+                if (entry) {
+                  tally.entries++;
+                  expect(entry.credits, `${where}: ${c.cardId}`).toBe(f);
+                  expect(entry.strengthCredits + entry.breakCredits).toBe(entry.credits);
+                  if (entry.strengthCredits > 0) tally.pumped++;
+                } else if (f !== null && f > 0) {
+                  // Missing only when he can't pay it (QA's upper bound includes every card credit).
+                  if (f <= s.players.runner.credits + s.run.tempCredits) expect.fail(`${where}: ${c.cardId} affordable (${f}) but no breakAll`);
+                  if (f > money) tally.unaffordable++;
+                }
+              }
+              for (const b of rv.breakAll) expect(s.rig.some((c) => c.uid === b.uid), where).toBe(true);
+            }
+            const p = perturb(s);
+            expect(viewFor('runner', p).run!.breakAll, `${where}: hidden info changed breakAll`).toEqual(rv.breakAll);
+            tally.perturbed++;
+          }
+        }
+        const seat = waitingOn(s)!;
+        const legal = legalActions(s, seat);
+        const runs = legal.filter((a) => a.type === 'run' || a.type === 'use_ability' || a.type === 'rez' || a.type === 'install');
+        const a = runs.length > 0 && pick(3) !== 0 ? runs[pick(runs.length)]! : legal[pick(legal.length)]!;
+        s = apply(s, a).state;
+      }
+    }
+    console.log('QA round 2 breakAll probe', JSON.stringify(tally));
+    expect(tally.entries).toBeGreaterThan(50);
+    expect(tally.pumped).toBeGreaterThan(5);
+    // (Face-down ICE is never encountered: it is passed at approach, so `unrezzed` stays 0; the check stays as a guard.)
+  }, 180_000);
+
+  it('Heimdall: Corroder 4 + 3 = 7; Battering Ram 3 + 4 = 7; with 6 credits Corroder is absent; the real state is untouched', () => {
+    const s = act(coreBoard({ servers: { hq: { ice: ['+c18'] } }, rig: ['r04', 'r17'], runnerCredits: 7, runnerHand: ['r01'] }), runOn('hq')).state;
+    const frozen = JSON.stringify(s);
+    const ba = viewFor('runner', s).run!.breakAll;
+    expect(ba).toEqual([
+      { uid: 'i1', credits: 7, strengthCredits: 4, breakCredits: 3 },
+      { uid: 'i2', credits: 7, strengthCredits: 3, breakCredits: 4 },
+    ]);
+    expect(JSON.stringify(s)).toBe(frozen);
+    const poor = withPlayer(s, 'runner', { credits: 6 });
+    expect(viewFor('runner', poor).run!.breakAll).toEqual([]);
+    // After one Ram pump (for the run) the plan counts only the rest.
+    const r = act(s, pump('i2')).state;
+    expect(viewFor('runner', r).run!.breakAll.find((b) => b.uid === 'i2')).toEqual({ uid: 'i2', credits: 6, strengthCredits: 2, breakCredits: 4 });
+  });
+});

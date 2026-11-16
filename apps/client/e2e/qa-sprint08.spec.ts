@@ -307,8 +307,8 @@ test.describe('QA S-08-2 Haas-Bioroid money cards', () => {
     expect(m.view.players.corp.clicks).toBe(0);
   });
 
-  // QA-S8-1 (open bug, marked as expected to fail so CI stays green; it flips to "unexpected pass" once fixed):
-  // with 2 clicks left the dim Melange button must not say "No clicks left".
+  // QA-S8-1 (fixed in 3b74ab5, verified in QA round 2): with 2 clicks left the dim Melange button
+  // says "Needs 3 clicks", not "No clicks left"; a tap gives the same words and changes nothing.
   test('QA-S8-1: Melange with 2 clicks says it needs 3 clicks, not "No clicks left"', async ({ page }) => {
     await core(page);
     const plan = await toStep(page, 1, 'corp_melange');
@@ -316,7 +316,17 @@ test.describe('QA S-08-2 Haas-Bioroid money cards', () => {
     const l = await tapInstalled(page, plan.info['uid']!);
     const dim = targetOf(l, 'activate');
     expect(dim.lit).toBe(false);
-    expect(dim.note).not.toBe('No clicks left');
+    expect(dim.note).toBe('Needs 3 clicks');
+    const before = JSON.stringify(await getView(page));
+    await tap(page, dim.box);
+    const after = await waitIdle(page);
+    expect(after.hint?.text).toBe('Needs 3 clicks');
+    expect(JSON.stringify(await getView(page))).toBe(before);
+    // At 0 clicks it still says "No clicks left".
+    await dispatchAll(page, [{ type: 'gain_credit', player: 'corp' }, { type: 'gain_credit', player: 'corp' }]);
+    const l0 = await tapInstalled(page, plan.info['uid']!);
+    expect(targetOf(l0, 'activate')).toMatchObject({ lit: false, note: 'No clicks left' });
+    await shot(page, '36-round2-melange-needs-3-clicks');
   });
 
   test('Biotic Labor: the click counter goes to 4 and all 4 can be used', async ({ page }) => {
@@ -386,13 +396,27 @@ test.describe('QA S-08-3 brain damage', () => {
     const breaks = l.run!.buttons.filter((b) => /Break "/.test(b.label));
     expect(breaks).toHaveLength(3);
     for (const b of breaks) expect(b).toMatchObject({ lit: false, reject: 'too_weak' });
+    // QA-S8-2 (round 2): the panel adds the price up.
+    expect(l.run!.lines).toContain('Break all: 4 + 3 = 7 credits');
+    test.info().annotations.push({ type: 'run-panel-font', description: String(l.run!.infoFontPx) });
+    // Every line is inside the info panel.
+    expect(l.run!.infoFontPx).toBeGreaterThan(0);
     await shot(page, '16-heimdall-corroder-prices');
+    // QA-S8-3 (round 2): a toast during a run never covers the run panel or its buttons.
+    await tap(page, breaks[0]!.box);
+    l = await waitIdle(page);
+    expect(l.hint?.text).toBe('Raise strength first');
+    expect(overlaps(l.hint!.box, l.run!.infoBox), 'toast over the run panel').toBe(false);
+    for (const b of l.run!.buttons) expect(overlaps(l.hint!.box, b.box), `toast over ${b.label}`).toBe(false);
+    await shot(page, '37-round2-toast-clear-of-run-panel');
     const c0 = (await getView(page)).players.runner.credits;
     for (let i = 0; i < 4; i++) {
       await tap(page, runButtonOf(l, /^\+1 strength/).box);
       l = await waitIdle(page);
     }
     expect(l.run!.lines).toContain('Corroder 6');
+    // After the pumps the total is only the breaks.
+    expect(l.run!.lines).toContain('Break all: 3 credits');
     for (let i = 0; i < 3; i++) {
       const b = l.run!.buttons.find((x) => /Break "/.test(x.label) && x.lit)!;
       await tap(page, b.box);
@@ -560,6 +584,8 @@ test.describe('QA S-08-7 Rototurret and Sacrificial Construct', () => {
     const programs = plan.info['programs']!.split(',');
     expect([...l.run!.choice!.lit].sort()).toEqual([...programs].sort());
     for (const b of l.run!.buttons) expect(Math.min(b.box.width, b.box.height)).toBeGreaterThanOrEqual(44);
+    // QA-S8-3 (round 2): the "Rototurret: Trash 1 program" note, if still up, is clear of the run panel.
+    if (l.hint) expect(overlaps(l.hint.box, l.run!.infoBox), 'note over the run panel').toBe(false);
     await shot(page, '25-rototurret-corp-picks');
     const pick = l.run!.buttons[0]!;
     const picked = pick.action.type === 'choose' ? pick.action.uid : '';
