@@ -46,6 +46,11 @@ export function runnerEventLeaks(events: readonly GameEvent[], after: GameState)
       if (e.cardId !== after.players.corp.identity) out.push(`ability_triggered names ${e.cardId}, not the Corp identity`);
       continue;
     }
+    if (e.type === 'ability_triggered' && e.uid.startsWith('score:corp:')) {
+      // Sprint 9 (spec change): a scored agenda's ability (Private Security Force) names that face-up agenda.
+      if (after.players.corp.scoreArea[Number(e.uid.split(':')[2])] !== e.cardId) out.push(`ability_triggered names ${e.cardId}, not the scored agenda ${e.uid}`);
+      continue;
+    }
     if (e.type === 'card_rezzed' || e.type === 'ability_triggered') {
       // Sprint 7: may name a Corp card only once it is face up (installed, rezzed, same id).
       const corp = after.servers.flatMap((sv) => [...sv.ice, ...sv.content]).find((c) => c.uid === e.uid);

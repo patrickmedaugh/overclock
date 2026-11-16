@@ -23,6 +23,7 @@ import {
   installDiscounts,
   installTargetCheck,
   openRunEffect,
+  ownScoredCard,
   playCost,
   rejectionFor,
   rezCost,
@@ -57,6 +58,7 @@ import {
   endGame,
   maxHandSize,
   opponentOf,
+  scoredUid,
   startTurn,
   withPlayer,
   type GameState,
@@ -470,7 +472,8 @@ function abilityOption(state: GameState, action: ActionOf<'activate'>, c: Instal
  * Corp (servers in order; ICE innermost first, then content): agenda `advance` (cost 1) and, once it
  * has enough counters, `score`; unrezzed asset/upgrade `rez` (cost = rez cost, Sprint 7); click
  * abilities of rezzed cards. Runner (Sprint 7, rig order): one `activate` per `click` ability.
- * Sprint 9 (Corp): while the Runner is tagged, one `trash_resource` (cost 2, `clicks: 1`) per rig resource
+ * Sprint 9 (Corp): per scored agenda with `scoredAbilities` (key `score:corp:<i>`) its `activate` options;
+ * while the Runner is tagged, one `trash_resource` (cost 2, `clicks: 1`) per rig resource
  * (the only options on the other side's cards).
  */
 export function installedOptions(state: GameState, player: Side): Record<string, CardOption[]> {
@@ -500,6 +503,14 @@ export function installedOptions(state: GameState, player: Side): Record<string,
       if (opts.length > 0) out[c.uid] = opts;
     }
   }
+  // Sprint 9: scored agendas with abilities (Private Security Force), always listed with the reason.
+  state.players.corp.scoreArea.forEach((cardId, i) => {
+    const abilities = getCard(cardId)?.scoredAbilities ?? [];
+    if (abilities.length === 0) return;
+    const uid = scoredUid('corp', i);
+    const pseudo = ownScoredCard(state, 'corp', uid) as Installed;
+    out[uid] = abilities.map((ab, ability) => abilityOption(state, { type: 'activate', player, uid, ability }, pseudo, ab));
+  });
   // Sprint 9: while the Runner is tagged, trash any of his resources (1 click + 2 credits).
   if (state.players.runner.tags > 0) {
     for (const c of state.rig) {

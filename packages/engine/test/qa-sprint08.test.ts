@@ -691,7 +691,11 @@ describe('QA Sprint 8 sweep: random core-deck games with QA bookkeeping', () => 
           expect(JSON.stringify(v)).not.toContain('installedThisTurn');
         }
         if (a.type === 'use_ability' && (a as { subs?: number[] }).subs?.length === 2) tally.ramPairs++;
-        if (a.type === 'activate' && a.player === 'corp') {
+        // Sprint 9 (engine-dev): Private Security Force is the other Corp `activate` (a scored uid, 1 click).
+        if (a.type === 'activate' && a.player === 'corp' && a.uid.startsWith('score:')) {
+          expect(before.players.corp.clicks - s.players.corp.clicks).toBe(1);
+          expect(r.events.some((e) => e.type === 'meat_damage')).toBe(true);
+        } else if (a.type === 'activate' && a.player === 'corp') {
           tally.melange++;
           expect(before.players.corp.clicks - s.players.corp.clicks).toBe(3);
           expect(s.players.corp.credits - before.players.corp.credits).toBe(7);

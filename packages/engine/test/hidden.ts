@@ -46,6 +46,11 @@ export function expectRunnerEventsClean(events: readonly GameEvent[], where: str
       expect(e.cardId, `${where}: Corp identity trigger`).toBe(after.players.corp.identity);
       continue;
     }
+    if (e.type === 'ability_triggered' && e.uid.startsWith('score:corp:')) {
+      // Sprint 9 (spec change): a scored agenda's ability (Private Security Force) names that face-up agenda.
+      expect(after.players.corp.scoreArea[Number(e.uid.split(':')[2])], `${where}: scored ability names its agenda`).toBe(e.cardId);
+      continue;
+    }
     if (e.type === 'card_rezzed' || e.type === 'ability_triggered') {
       // Sprint 7 (spec change): may name a Corp card only once it is face up: the uid is an
       // installed Corp card with that id, rezzed, after the action. Otherwise (a rig card) no Corp id.

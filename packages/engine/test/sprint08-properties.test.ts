@@ -100,7 +100,12 @@ function checkState(s: GameState, where: string): void {
   expect(s.players.runner.brainDamage, where).toBeGreaterThanOrEqual(0);
   if (s.phase === 'choice') {
     expect(s.choice, where).not.toBeNull();
-    if (s.choice!.kind !== 'free_rez') {
+    // Sprint 9 (engine-dev): a trace from an operation (SEA Source) is a choice outside a run (resume 'action').
+    const actionTrace = (s.choice!.kind === 'trace_corp' || s.choice!.kind === 'trace_runner') && s.run === null;
+    if (actionTrace) {
+      expect(s.choice!.resume, where).toBe('action');
+      expect(viewFor(s.choice!.player, s).choice!.options.length, where).toBeGreaterThan(0);
+    } else if (s.choice!.kind !== 'free_rez') {
       // An in-run choice keeps the run; the sub being resolved is recorded; the deciding side has a move.
       expect(s.choice!.resume, where).toBe('run');
       expect(s.run?.step, where).toBe('encounter');

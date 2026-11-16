@@ -56,8 +56,10 @@ function checkFrames(side: Side, ups: Update[], state: GameState, where: string)
       void grip;
     }
     // In-run choice: options only for the deciding seat; the run stays visible to both.
+    // Sprint 9 (engine-dev, spec change; QA reviews): a trace from an operation (SEA Source) happens outside a run.
+    const actionTrace = (u.view.choice?.kind === 'trace_corp' || u.view.choice?.kind === 'trace_runner') && state.run === null;
     if (u.view.choice && u.view.choice.kind !== 'free_rez') {
-      expect(u.view.run, `${where}: run kept during ${u.view.choice.kind}`).not.toBeNull();
+      if (!actionTrace) expect(u.view.run, `${where}: run kept during ${u.view.choice.kind}`).not.toBeNull();
       if (u.view.choice.waitingOn !== side) expect(u.view.choice.options, where).toEqual([]);
       else expect(u.view.choice.options.length, where).toBeGreaterThan(0);
     }
