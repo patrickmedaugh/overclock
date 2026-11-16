@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { type Page, expect, test } from '@playwright/test';
 import type { CardOption, ChoiceView, GameEvent, PlayerView, RunView, TraceView } from '@overclock/engine';
 import type { LayoutSnapshot } from '../src/hook-types';
-import { expectCleanLayout, getView, layout, openBoard, passTurn, pickHand, tap, targetOf, toStep, waitIdle } from './helpers';
+import { dismissReport, expectCleanLayout, getView, layout, openBoard, passTurn, pickHand, tap, targetOf, toStep, waitIdle } from './helpers';
 
 const SHOTS = join(dirname(fileURLToPath(import.meta.url)), '../../../docs/sprints/sprint-09-screens');
 const SEED = 1;
@@ -168,6 +168,76 @@ test.describe('S-09-1 trace bid panel', () => {
     expect(l.hint?.text).toContain('SEA Source: trace 3 vs link 1: Runner tagged');
     expect(l.hint?.text).not.toContain('Runner gets 1 tag');
     expect((await page.evaluate(() => window.__overclock!.anims())).some((a) => a.kind === 'tags_changed' && a.scheduledMs <= 600)).toBe(true);
+  });
+});
+
+test.describe('S-09-1 Hunter trace through the pass-the-phone cover (real engine)', () => {
+  /** Taps the cover away (if up) and waits for the board. */
+  async function lift(page: Page): Promise<LayoutSnapshot> {
+    const l = await layout(page);
+    if (l.cover) {
+      await tap(page, { x: l.viewport.width / 2 - 5, y: l.viewport.height - 40, width: 10, height: 10 });
+      await page.waitForFunction(() => window.__overclock!.layout().cover === null);
+    }
+    return waitIdle(page);
+  }
+
+  test('Runner lets Hunter fire -> cover -> Corp bids 2 -> cover -> Runner bids; the report says both totals', async ({ page }) => {
+    await page.goto(`./?seed=${SEED}&play=here`);
+    await page.waitForFunction(() => document.body.dataset.ready === 'true' && !!window.__overclock);
+    await toStep(page, SEED, 'pipeline_hunter_encounter');
+    let l = await lift(page);
+    expect(l.viewer).toBe('runner');
+    const fire = l.run!.buttons.find((b) => /^Let it fire/.test(b.label))!;
+    expect(fire.label).toContain('trace 3');
+    await tap(page, fire.box);
+    l = await layout(page);
+    expect(l.cover).toMatchObject({ to: 'corp', title: 'Pass to the Corp — tap when ready' });
+    expect(l.trace?.deciding).toBe('corp');
+    await shot(page, 's09-1-cover-to-corp');
+    l = await lift(page);
+    expect(l.trace).toMatchObject({ kind: 'trace_corp', mine: true, stepLabel: 'Trace 3: add credits?' });
+    expectBigControl(l);
+    await tap(page, l.trace!.control!.buttons.plus.box);
+    await tap(page, l.trace!.control!.buttons.plus.box);
+    l = await layout(page);
+    expect(l.trace!.control).toMatchObject({ bid: 2, caption: 'strength 5' });
+    await tap(page, l.trace!.control!.buttons.bid.box);
+    l = await waitIdle(page);
+    const corp = (await page.evaluate(() => window.__overclock!.lastEvents())).find((e) => e.type === 'trace_bid');
+    expect(corp).toMatchObject({ player: 'corp', credits: 2, total: 5 });
+    if (l.cover) {
+      // The Runner can answer: the device comes back to him with his own bid control.
+      expect(l.cover).toMatchObject({ to: 'runner', title: 'Pass back to the Runner — tap when ready' });
+      l = await lift(page);
+      expect(l.trace).toMatchObject({ kind: 'trace_runner', mine: true });
+      expect(l.trace!.stepLabel).toMatch(/^Trace strength 5 · your link 1 · spend 4 to stop it$/);
+      await shot(page, 's09-1-runner-answers-hunter');
+      await tap(page, l.trace!.control!.buttons.bid.box);
+      l = await waitIdle(page);
+    }
+    // The Runner bid 0 (or could not answer): strength 5 beats link 1.
+    expect(l.report?.text).toMatch(/^Hunter: trace 5 vs link 1: you got 1 tag\./);
+    expect(l.runnerStatus.tagged?.text).toBe('Tagged 1');
+    await shot(page, 's09-1-hunter-report');
+    await dismissReport(page);
+    // S-09-2 (real engine): jack out, then the Runner removes the tag from his marker.
+    l = await waitIdle(page);
+    await tap(page, l.run!.buttons.find((b) => b.label === 'Jack out')!.box);
+    l = await lift(page);
+    expect(l.run).toBeNull();
+    await tap(page, l.runnerStatus.tagged!.hit);
+    l = await layout(page);
+    const remove = targetOf(l, 'remove_tag');
+    expect(remove).toMatchObject({ label: 'Remove 1 tag · 1 click + 2 credits', lit: true });
+    const credits = (await getView(page)).players.runner.credits;
+    await tap(page, remove.box);
+    l = await waitIdle(page);
+    const v = await getView(page);
+    expect(v.players.runner.tags).toBe(0);
+    expect(v.players.runner.credits).toBe(credits - 2);
+    expect(l.runnerStatus.tagged).toBeNull();
+    expect(l.hint?.text).toContain('Runner removed 1 tag');
   });
 });
 
