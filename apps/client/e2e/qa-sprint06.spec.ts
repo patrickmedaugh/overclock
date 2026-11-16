@@ -239,7 +239,9 @@ test.describe('QA S-06-2 not your turn', () => {
     // answer is not sent, so it got no hint on a slow runner), and the hint is read from the animation
     // log once the answer is in, not from the live screen (where it could have faded already).
     const hintsSince = () => runner.page.evaluate(() => window.__overclock!.anims().filter((a) => a.kind === 'hint').map((a) => a.text));
-    const idle = () => runner.page.waitForFunction(() => !window.__overclock!.online()!.busy); // ui-dev, flake fix; QA reviews
+    // Architect (Sprint 9 review; QA reviews): the answer must still come back promptly: within 2 s, well under the
+    // client's 5 s ack wait (the old 150 ms check timed an online round trip on a shared CI runner).
+    const idle = () => runner.page.waitForFunction(() => !window.__overclock!.online()!.busy, undefined, { timeout: 2000 }); // ui-dev, flake fix; QA reviews
     for (const b of boxes) {
       await idle();
       await runner.page.evaluate(() => window.__overclock!.clearAnims()); // ui-dev, flake fix; QA reviews
