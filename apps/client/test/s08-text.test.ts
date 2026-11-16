@@ -66,6 +66,17 @@ describe('S-08-7 Rototurret', () => {
   it('the report says a program was trashed', () => {
     const batch: GameEvent[] = [{ type: 'subroutine_resolved', iceUid: 'i1', cardId: 'c19', outcome: { sub: 0, op: 'trash_installed', amount: 1 } }];
     expect(iceReport(batch)).toBe('Rototurret: a program was trashed.');
+    const named: GameEvent[] = [
+      { type: 'rig_card_trashed', uid: 'p1', cardId: 'r04' },
+      { type: 'subroutine_resolved', iceUid: 'i1', cardId: 'c19', outcome: { sub: 0, op: 'trash_installed', amount: 1 } },
+    ];
+    expect(iceReport(named)).toBe('Rototurret: Corroder was trashed.');
+    const saved: GameEvent[] = [
+      { type: 'rig_card_trashed', uid: 'sc', cardId: 'r12' },
+      { type: 'trash_prevented', uid: 'p1', cardId: 'r04', byUid: 'sc', byCardId: 'r12' },
+      { type: 'subroutine_resolved', iceUid: 'i1', cardId: 'c19', outcome: { sub: 0, op: 'trash_installed', amount: 0 } },
+    ];
+    expect(iceReport(saved)).toBe('Sacrificial Construct was trashed instead of Corroder.');
   });
 
   it('choice panels: the Corp picks; the Runner may trash Sacrificial Construct instead', () => {

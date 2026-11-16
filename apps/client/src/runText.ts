@@ -349,14 +349,23 @@ export function iceReport(batch: readonly GameEvent[]): string | null {
   const order: string[] = [];
   const said = new Map<string, string[]>();
   let last: string | null = null;
+  // S-08-7: the program Rototurret trashed (named), and a Sacrificial Construct that saved one.
+  let trashed: string | null = null;
+  const saved: string[] = [];
   for (const e of batch) {
+    if (e.type === 'rig_card_trashed') trashed = e.cardId;
+    if (e.type === 'trash_prevented') {
+      saved.push(`${nameOf(e.byCardId, 'A card')} was trashed instead of ${nameOf(e.cardId, 'a card')}.`);
+      trashed = null;
+    }
     if (e.type !== 'subroutine_resolved') continue;
     last = e.cardId;
     if (!said.has(e.cardId)) {
       said.set(e.cardId, []);
       order.push(e.cardId);
     }
-    const t = outcomeText(e.outcome, 'did');
+    const t = e.outcome.op === 'trash_installed' && e.outcome.amount > 0 && trashed ? `${nameOf(trashed, 'a program')} was trashed` : outcomeText(e.outcome, 'did');
+    if (e.outcome.op === 'trash_installed') trashed = null;
     if (t) said.get(e.cardId)!.push(t);
   }
   if (last === null) return null;
@@ -366,6 +375,7 @@ export function iceReport(batch: readonly GameEvent[]): string | null {
     const parts = said.get(id)!;
     if (parts.length > 0) out.push(`${nameOf(id)}: ${parts.join(', ')}.`);
   }
+  out.push(...saved);
   if (end?.outcome === 'ended_by_ice') out.push(`${nameOf(last)} ended your ${TERMS.run.toLowerCase()}.`);
   else if (end?.outcome === 'flatline') out.push(`You flatlined: the ${SIDE_NAME.corp} wins.`);
   if (out.length === 0) out.push(`${nameOf(last)}: nothing happened.`);

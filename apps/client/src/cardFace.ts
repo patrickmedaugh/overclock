@@ -493,7 +493,7 @@ function drawCardFace(
   }
 
   const nameSize = detail === 'full' ? w * 0.068 : Math.max(7, w * 0.125) * nameK;
-  const nameX = detail === 'full' ? ccx + cr + w * 0.04 : left + w * 0.06;
+  const nameX = detail === 'full' && hasCost ? ccx + cr + w * 0.04 : left + w * 0.06;
   const nameWrap = left + w - nameX - w * 0.05;
   const name = new Text({
     text: card.name,
@@ -512,6 +512,11 @@ function drawCardFace(
   if (detail === 'full') {
     name.anchor.set(0, 0.5);
     name.position.set(nameX, ccy);
+    // A long name on two lines (an identity: "Haas-Bioroid: Engineering the Future") hangs from the top edge.
+    if (name.y - name.height / 2 < top + h * 0.02) {
+      name.anchor.set(0, 0);
+      name.position.set(nameX, top + h * 0.02);
+    }
   } else {
     name.position.set(nameX, artY + artH + h * 0.03);
   }
