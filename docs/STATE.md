@@ -243,3 +243,7 @@ Phase BUILD for Sprint 9 on branch sprint-09. Ignore the external Workers Builds
 - Architect approved (324d0b7 client tie wording now from engine `needed`; b0296fb qa-sprint07-android reference uses core decks). CI fully green on b0296fb (external Workers Builds ignored).
 - Follow-ups: flaky qa-sprint06.spec.ts:229 desktop hint (pre-Sprint 9); QA to review marked edits to its specs; client should use parseScoredUid; note in TESTING.md that the app bundle ignores decks=.
 - Not covered in real-play e2e (stub/engine only): PSF dimmed when untagged, remove-tag dimmed for credits/clicks, Runner 0-credit skip, empty-Grip flatline.
+
+## Sprint 9 QA round 1 — 2026-11-16
+- Report docs/sprints/sprint-09-qa.md (bed0ec6, ca0db8f): 25/25 criteria PASS, 0 fail. CI green on b0296fb (1143 e2e) and bed0ec6 (1160 e2e, 1 old flake). QA accepted all marked edits to its specs and the hidden-info allowlists.
+- Low bugs: QA-S9-1 skipped-bid note + trace result run together in one narrow bubble at 640×360; QA-S9-2 PSF button stays behind the game-over box after flatline ("1 meat damage wins" overlap on desktop); QA-S9-3 old flaky qa-sprint06.spec.ts:229 (test-only). Sending to ui-dev for one quick fix round.
