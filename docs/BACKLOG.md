@@ -110,6 +110,14 @@ Sprint 8 demo: `docs/sprints/sprint-08-demo.md` (QA 36/36 after round 2). **Spri
   - **P3 — One copy of the "no hidden cards leak" checks** (today the engine's tests and `@overclock/match/testing` each have their own copy).
     - Given the hidden-information checks, when they change, then they change in one place, and engine, server and screen tests all use it. (automated check)
 
+## Owner feedback in chat during Sprint 9 BUILD (2026-11-16)
+- **P1 — Bug: server lanes shift oddly when a remote empties (Archives / Server 2 / Server 3).** Owner: *"I did a run on server one and then trashed it and then it didn't move it just changed from server one to archives … I think archive should already be there like having open swim lane and we add cards to it as they get trashed otherwise it's just sort of looks weird when it goes archives then server 2 then server 3."* What this means: Archives must always be its own fixed lane (with its pile) from the start; when a remote empties, its column folds away without another lane (e.g. Archives) sliding into its place or the labels appearing to rename; trashed cards visibly go into the Archives lane.
+  - Given a remote is emptied by a trash or steal, when its column folds away, then Archives stays where it was and no lane appears to change its name.
+- **P1 — Discard step: tap the hand to open it, like everywhere else.** Owner: *"when you have to discard cards you no longer click your hand to go into it you have to hold it down … you should just click into it so it can be consistent."* The discard picker still uses the old hold-and-slide strip (Sprint 7 kept it); make it open with a tap like the hand view.
+- **P2 — Smooth animation when moving from card to card in the hand view.** Owner: "not super high priority". Slide the cards when browsing instead of jumping.
+- **P2 — Show multi-click costs compactly (Melange Mining Corp. "click, click, click").** Owner: *"we might do it slightly different way to show that instead of writing out click, click, click."* E.g. a click icon with "×3" on the card face and the button ("3 clicks").
+- **Answered:** run panel text with Heimdall at 640×360 is OK (owner, Sprint 8 demo Q2 → A).
+
 ## Owner feedback in chat after the Sprint 5 demo went up (2026-11-13)
 - ~~**P1 — Hand: tap to open, long-press to light targets, drag to play.**~~ **Done in Sprint 7 as S-07-6 (owner chose 1B; accepted 2026-11-15).** Owner: *"tap to bring up the hand and then long press on a card and it highlights where it can be played. Drag a card to the location you want to play it. Release long press to go back to the hand view. Tap outside the hand to minimize."* What this means (his chosen design, replacing both the Sprint 5 question options):
   1. Tap the hand → the hand opens as a big view of your cards.
