@@ -2756,6 +2756,15 @@ export class Board {
   }
 
   private showGameOver(layout: BoardLayout, lines: { title: string; reason: string }, winner: Side, animate: boolean): void {
+    // QA-S9-6: a notice still showing (or waiting for the cover) goes: the game-over box says what happened.
+    this.pendingNotices = [];
+    this.pendingWide = false;
+    if (this.hint) {
+      this.ui.cancel(this.hint.root);
+      this.hint.root.destroy({ children: true });
+      this.hint = null;
+      this.syncHelp();
+    }
     const b = layout.gameOver;
     const s = Math.min(layout.scale, 1.2);
     const color = sideColor(winner);
@@ -2951,6 +2960,11 @@ export class Board {
 
   /** Where the toast goes: the hint slot, or (sideways, during a run) End turn's slot, clear of the run panel. */
   private hintSlot(layout: BoardLayout, wide = false): Box {
+    const slot = this.baseHintSlot(layout, wide);
+    return this.gameOver ? this.clearOfGameOver(layout, slot) : slot;
+  }
+
+  private baseHintSlot(layout: BoardLayout, wide: boolean): Box {
     // QA-S9-1: a wide notice (a trace's result) sits over the middle of the table, never over a run / bid panel.
     if (wide && !this.runNoticeSlot(layout, this.view) && !panelUp(this.view)) {
       const b = layout.board;
@@ -2960,6 +2974,29 @@ export class Board {
       return { x: Math.round(b.x + (b.width - w) / 2), y: Math.round(b.y + b.height * 0.4 - h / 2), width: w, height: h };
     }
     return this.runNoticeSlot(layout, this.view) ?? layout.hintArea;
+  }
+
+  /**
+   * QA-S9-6: while the game-over box shows, a toast (e.g. "The game is over" after a tap) never
+   * covers it: a slot that would overlap it moves to a strip of the board right below the box
+   * (or above it, when there is no room below).
+   */
+  private clearOfGameOver(layout: BoardLayout, slot: Box): Box {
+    const g = layout.gameOver;
+    const hit = slot.x < g.x + g.width && g.x < slot.x + slot.width && slot.y < g.y + g.height && g.y < slot.y + slot.height;
+    if (!hit) return slot;
+    const b = layout.board;
+    const gap = Math.max(4, Math.round(6 * layout.scale));
+    const h = Math.min(slot.height, Math.round(64 * Math.min(layout.scale, 1.2)));
+    const below = g.y + g.height + gap;
+    const roomBelow = b.y + b.height - below;
+    const roomAbove = g.y - gap - b.y;
+    if (roomBelow >= h) return { x: g.x, y: below, width: g.width, height: h };
+    // Too little room either side (not on any target screen): keep the usual slot rather than a sliver.
+    if (Math.max(roomBelow, roomAbove) < 32) return slot;
+    if (roomBelow >= roomAbove) return { x: g.x, y: below, width: g.width, height: roomBelow };
+    const ha = Math.min(h, roomAbove);
+    return { x: g.x, y: g.y - gap - ha, width: g.width, height: ha };
   }
 
   private positionHint(hint: { root: Container; box: Box; wide?: boolean }): void {
