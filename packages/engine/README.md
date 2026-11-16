@@ -496,6 +496,8 @@ maxHandSize(state, side) = 5 − brainDamage    // exported
 - `ChoiceView` += `target?`. Options: `trash_target` = one `choose` per candidate (rig order); `prevent_trash` = one `choose` per preventer (rig order), then `pass`. `view.run` stays set while an in-run choice is open (its `options` are empty then; `choice.options` has the moves).
 - `installedOptions` (Corp) lists rezzed cards' click abilities (Melange: `activate`, `clicks: 3`, `gain: 7`). Breaker options for `count: 2`: one `use_ability` per subset of unbroken subs of size 1–2 (ascending; Heimdall: 6).
 
+- **QA-S8-2 (added in QA round 1, ui-dev):** `RunView.breakAll: BreakAllView[]` — `{uid, credits, strengthCredits, breakCredits}` per icebreaker that can break every unbroken subroutine of the encountered rezzed ICE with the Runner's credits now. Computed like `letFire`: the breaker's own offered options are played on throw-away states (a break when one is accepted, the one breaking the most first; else a strength pump). Runner's view at `encounter` only; `[]` otherwise, for the Corp, when nothing is left to break, or when no breaker can do it all. Tests: `test/sprint08-break-all.test.ts`.
+
 ### Engine rulings within the interface (Sprint 8, engine-dev)
 - `install_discount` is reported once per applying source, before `credits_spent` (and before `card_installed`). A Corp first install: `card_installed` → (`hosted_credits_changed` for recurring/onInstall, none on Corp cards) → `ability_triggered{id:corp, install}` → `credit_gained`. The just-installed card is never its own source.
 - Breaker options for a `count: 2` break: every single subroutine (ascending), then every pair (ascending), e.g. Heimdall `[0] [1] [2] [0,1] [0,2] [1,2]`. All cost the ability's price.

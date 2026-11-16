@@ -16,6 +16,7 @@ const base: RunView = {
   options: [],
   tempCredits: 0,
   letFire: null,
+  breakAll: [],
 };
 const opt = (action: CardOption['action'], cost = 0, reject: CardOption['reject'] = null): CardOption => ({ action, cost, reject });
 const rig = { i5: 'r05', i6: 'r04' };

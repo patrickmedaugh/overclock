@@ -30,6 +30,7 @@ export type {
   ChoiceView,
   InstalledView,
   LastRunView,
+  BreakAllView,
   LetFireView,
   PlayerSideView,
   PlayerView,
