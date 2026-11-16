@@ -86,11 +86,13 @@ export default defineConfig({
       },
     },
     {
-      // Android Chrome sideways with the address bar showing (~915x330 CSS px).
+      // Android Chrome sideways with the address bar showing: the owner's phone
+      // (Galaxy S23, DPR 2.625) measures 891x296 CSS px. Must stay at a size where
+      // the short-screen rail rule actually kicks in (height <= ~313; 915x330 does not).
       name: 'phone-short',
       testMatch: SHORT_SPECS,
       use: {
-        viewport: { width: 915, height: 330 },
+        viewport: { width: 891, height: 296 },
         deviceScaleFactor: 2.625,
         isMobile: true,
         hasTouch: true,
