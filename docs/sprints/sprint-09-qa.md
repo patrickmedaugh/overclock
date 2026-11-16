@@ -112,3 +112,37 @@ QA's tests and screenshots were added in **bed0ec6** (no product code changed). 
 - **The flaky test** is an old QA test, not Sprint 9: `qa-sprint06.spec.ts:229` "QA S-06-2 not your turn … real taps" on `desktop`. It failed once and passed on the retry. It expected the "Not your turn" hint 150 ms after a tap and saw no hint. Most likely the hint had not shown or had already faded on a slow CI runner. Logged as **QA-S9-3 (test-only, low)**: QA will make that check read the animation log instead of the live screen (as the Sprint 9 specs do). Not counted against Sprint 9.
 
 This report's own commit only changes this file.
+
+## Round 2 (2026-11-16)
+
+Fixes checked: **fe56e3a** (ui-dev: QA-S9-1, QA-S9-2, QA-S9-3) and **eaed05e** (architect: 2-second cap on the qa-sprint06 wait). Code checked at **eaed05e**.
+
+**Summary: the 25 criteria still PASS. QA-S9-1, QA-S9-2 and QA-S9-3 are fixed. Round 2 found 1 new low bug (QA-S9-4, desktop only) and 1 very small cosmetic note (QA-S9-5).**
+
+**CI on eaed05e** (the full-suite evidence; QA did not re-run the whole suite):
+- `checks` passed: lint, typecheck, **2041 unit tests**.
+- e2e, all 4 parts: **1164 passed / 6 skipped / 0 failed / 0 flaky** (parts: 291 / 290 / 291 / 292).
+- `guard-mutation`, `android`, `deploy`, `server` passed. ("Workers Builds" ignored.)
+- No regression on S-09-1..4. Every developer and QA test behind the 25 criteria is in that run.
+
+QA's own screen tests were re-run locally on all 3 sizes, with the stronger round-2 checks below: **21 passed, including the 1 expected failure for QA-S9-4**. QA also ran `qa-sprint06.spec.ts` locally on all 3 sizes: it passed. Screenshots `*-09` and `*-12` were refreshed, and `*-18` is new.
+
+| Bug | Round 2 result | Evidence |
+|---|---|---|
+| QA-S9-1 skipped bid + result run together | **Fixed** | QA e2e seed 25, real play, all sizes: the toast is now the single sentence **"SEA Source: trace 4 vs link 1: Runner tagged (Runner bid 0)"**. There is no separate "Runner bid 0" line, the text is ≥ 12 px, it is at most 2 lines, and it stays inside the screen (`phone-small-09`, `phone-09`, `desktop-09`). |
+| QA-S9-2 leftovers on the game-over box | **Fixed** | QA e2e seed 3, real play: after the flatlining tap there is no button, no picked card and no new toast. An earlier "1 meat damage: …" toast that is still fading sits clear of the box. "Corp wins · Runner flatlined" reads cleanly (`desktop-12`, `phone-small-12`). |
+| QA-S9-3 flaky qa-sprint06 test | **Fixed; edits accepted** | See the review below. 0 flaky in CI on eaed05e. |
+
+**Review of the edits to QA's `qa-sprint06.spec.ts` (lines marked "QA reviews"): accepted.**
+- The "Not your turn" refusal comes back from the online service, so the old "hint visible 150 ms after the tap" check was really timing a network round trip on a shared CI runner. That is not the game's tap budget.
+- The new check still asks for exactly one "Not your turn" hint per tap, read from the animation log. It also requires the answer within 2 s, well inside the client's 5 s wait. It still checks that nothing was sent and nothing changed.
+- What it gives up is the "under 150 ms" timing. For online refusals QA thinks that is right. Local taps keep the < 100 ms budget, which QA's Sprint 9 tests measure.
+
+**New in round 2:**
+
+| ID | Severity | What | Repro |
+|---|---|---|---|
+| QA-S9-4 | Low | **Desktop only (1280×800):** the new wide trace toast is centred over the middle of the table, and its right end covers the left part of the Corp's **End turn** button (the toast spans x 431–849, End turn x 824–949). It is drawn on top of the button for as long as the toast shows. 844×390 and 640×360 are clear. | QA e2e "QA-S9-4: SEA Source result toast…" on `desktop`. It is marked "expected to fail" while open, so CI will report "unexpected pass" once fixed. Screenshot `desktop-18-qa-s9-4-toast-vs-end-turn.png` (also `desktop-09`). |
+| QA-S9-5 | Very low (cosmetic) | Desktop: the small "Built 2026-11-16 …" date line shows inside the left edge of the "Corp wins" box. | `desktop-12-psf-empty-grip-flatline.png`. Not a Sprint 9 rule. Seen only because the box is now clean. |
+
+**Round 2 totals: 25 / 25 criteria PASS.** QA-S9-1, 2 and 3 are fixed. QA-S9-4 (low) and QA-S9-5 (very low) are open; neither blocks the demo.

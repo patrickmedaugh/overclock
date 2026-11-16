@@ -249,9 +249,16 @@ test.describe('QA S-09-1 AC6: a Runner with 0 credits is never asked to bid', ()
     expect(l.trace).toBeNull();
     expect(l.viewer).toBe('corp');
     const n = await notices(page);
-    expect(n.some((t) => t.includes('Runner bid 0'))).toBe(true);
-    expect(n.some((t) => t.includes('SEA Source: trace 4 vs link 1: Runner tagged'))).toBe(true);
-    // The Runner's status note reads "Tagged 1" first (this random game also left him at hand max 1).
+    // QA round 2 (QA-S9-1 fix): one sentence, the skipped bid in brackets, in a bubble wide enough to read.
+    expect(n).toContain('SEA Source: trace 4 vs link 1: Runner tagged (Runner bid 0)');
+    expect(n.some((t) => /^Runner bid 0$/m.test(t)), 'no separate "Runner bid 0" line').toBe(false);
+    const toast = (await page.evaluate(() => window.__overclock!.anims())).find((a) => a.kind === 'notice' && a.text?.startsWith('SEA Source'))!;
+    expect(toast.fontPx!, 'toast text >= 12 px').toBeGreaterThanOrEqual(12);
+    expect(toast.box!.height, 'at most 2 lines').toBeLessThanOrEqual(toast.fontPx! * 2 * 1.3 + 20);
+    expect(toast.box!.x).toBeGreaterThanOrEqual(0);
+    expect(toast.box!.y).toBeGreaterThanOrEqual(0);
+    expect(toast.box!.x + toast.box!.width).toBeLessThanOrEqual(l.viewport.width);
+    expect(toast.box!.y + toast.box!.height).toBeLessThanOrEqual(l.viewport.height);
     expect(l.runnerStatus.tagged?.text).toMatch(/^Tagged 1( ·|$)/);
     const v = await getView(page);
     expect(v.activePlayer).toBe('corp');
@@ -310,10 +317,22 @@ test.describe('QA S-09-3 Private Security Force and S-09-2 untagged', () => {
         await tap(page, l.score.corp.box);
         l = await layout(page);
       }
+      if (k === 2) await page.evaluate(() => window.__overclock!.clearAnims());
       await tap(page, targetOf(l, 'activate').box);
     }
     await page.waitForFunction(() => window.__overclock!.layout().gameOver !== null);
     l = await waitIdle(page);
+    // QA round 2 (QA-S9-2 fix): nothing left over the game-over box: no button, no picked card, no toast.
+    expect(l.targets).toEqual([]);
+    expect(l.selectedInstalled).toBeNull();
+    expect((await page.evaluate(() => window.__overclock!.anims())).filter((a) => a.kind === 'notice'), 'no toast from the flatlining tap').toEqual([]);
+    // An earlier toast may still be fading out, but never over the game-over box.
+    if (l.hint) {
+      const a = l.hint.box;
+      const b = l.gameOver!.box;
+      expect(a.x + a.width <= b.x || b.x + b.width <= a.x || a.y + a.height <= b.y || b.y + b.height <= a.y, 'toast off the game-over box').toBe(true);
+    }
+    expect(l.gameOver).toMatchObject({ title: 'Corp wins', reason: 'Runner flatlined' });
     expect((await getView(page)).result).toEqual({ winner: 'corp', reason: 'flatline' });
     expect(l.gameOver!.text + ' ' + l.gameOver!.title + ' ' + l.gameOver!.reason).toMatch(/Corp/);
     await shot(page, '12-psf-empty-grip-flatline');
@@ -432,5 +451,28 @@ test.describe('QA S-09-1 online', () => {
     expect(m.view('corp').players.runner.tags).toBe(1);
     await shot(runner.page, '17-online-runner-result');
     await Promise.all([host.context.close(), guest.context.close()]);
+  });
+});
+
+test.describe('QA round 2: the wide trace toast', () => {
+  test('QA-S9-4: SEA Source result toast (seed 25) is clear of the Corp\'s End turn button and credits', async ({ page }) => {
+    test.fail(test.info().project.name === 'desktop', 'QA-S9-4 (open): on desktop the wide toast covers the left end of End turn');
+    await core(page, SEA_BROKE.seed, false);
+    await dispatchAll(page, SEA_BROKE.actions);
+    const i = (await getView(page)).players.corp.hand!.indexOf('c22');
+    let l = await pickHand(page, i);
+    await tap(page, targetOf(l, 'play').box);
+    l = await waitIdle(page);
+    l = await bidTap(page, 'plus');
+    await page.evaluate(() => window.__overclock!.clearAnims());
+    await tap(page, l.trace!.control!.buttons.bid.box);
+    l = await waitIdle(page);
+    const toast = (await page.evaluate(() => window.__overclock!.anims())).find((a) => a.kind === 'notice' && a.text?.startsWith('SEA Source'))!;
+    expect(toast.box).toBeTruthy();
+    await shot(page, '18-qa-s9-4-toast-vs-end-turn');
+    for (const b of [l.corp.credits, ...(l.endTurn ? [l.endTurn.box] : [])]) {
+      const a = toast.box!;
+      expect(a.x + a.width <= b.x || b.x + b.width <= a.x || a.y + a.height <= b.y || b.y + b.height <= a.y, 'toast clear of credits / End turn').toBe(true);
+    }
   });
 });
