@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { type Page, expect, test } from '@playwright/test';
 import type { CardOption, ChoiceView, GameEvent, PlayerView, RunView, TraceView } from '@overclock/engine';
 import type { LayoutSnapshot } from '../src/hook-types';
-import { dismissReport, expectCleanLayout, getView, layout, openBoard, passTurn, pickHand, tap, targetOf, toStep, waitIdle } from './helpers';
+import { dismissReport, expectCleanLayout, overlaps, getView, layout, openBoard, passTurn, pickHand, tap, targetOf, toStep, waitIdle } from './helpers';
 
 const SHOTS = join(dirname(fileURLToPath(import.meta.url)), '../../../docs/sprints/sprint-09-screens');
 const SEED = 1;
@@ -266,8 +266,9 @@ test.describe('S-09-2 tags and link', () => {
     const tagged = l.runnerStatus.tagged!;
     expect(tagged.text).toBe('Tagged 2');
     expect(Math.min(tagged.hit.width, tagged.hit.height)).toBeGreaterThanOrEqual(44);
-    // The hit area never reaches the credits pill under the note.
-    expect(tagged.hit.y + tagged.hit.height).toBeLessThanOrEqual(l.runner.credits.y + 0.5);
+    // The hit area never covers the credits / clicks pills next to the note.
+    expect(overlaps(tagged.hit, l.runner.credits)).toBe(false);
+    expect(overlaps(tagged.hit, l.runner.clicks)).toBe(false);
     await tap(page, tagged.hit);
     l = await layout(page);
     expect(l.selectedInstalled).toBe('basic:tags');
