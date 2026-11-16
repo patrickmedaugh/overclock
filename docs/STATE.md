@@ -1,6 +1,6 @@
 # Project state
 
-phase: QA
+phase: DEMO
 running_since: 2026-11-16 12:35 UTC
 sprint: 9
 open_pr: (none — PR #21 Sprint 09 proposal merged 2026-11-16 after owner approved in chat)
@@ -247,3 +247,7 @@ Phase BUILD for Sprint 9 on branch sprint-09. Ignore the external Workers Builds
 ## Sprint 9 QA round 1 — 2026-11-16
 - Report docs/sprints/sprint-09-qa.md (bed0ec6, ca0db8f): 25/25 criteria PASS, 0 fail. CI green on b0296fb (1143 e2e) and bed0ec6 (1160 e2e, 1 old flake). QA accepted all marked edits to its specs and the hidden-info allowlists.
 - Low bugs: QA-S9-1 skipped-bid note + trace result run together in one narrow bubble at 640×360; QA-S9-2 PSF button stays behind the game-over box after flatline ("1 meat damage wins" overlap on desktop); QA-S9-3 old flaky qa-sprint06.spec.ts:229 (test-only). Sending to ui-dev for one quick fix round.
+
+## Sprint 9 QA round 2 — 2026-11-16
+- Fixes fe56e3a (ui-dev) + eaed05e (architect, 2 s cap on qa-sprint06 wait; approved). QA round 2 (0823ac7): 25/25 PASS; QA-S9-1/2/3 fixed and verified; QA accepted the qa-sprint06 edits. CI green on eaed05e and 0823ac7 (e2e 1167 pass / 6 skipped / 0 flaky).
+- Low, to backlog: QA-S9-4 desktop only — wide trace toast covers left end of Corp End turn button (expected-fail test in qa-sprint09.spec.ts); QA-S9-5 "Built …" date inside the "Corp wins" box on desktop. Architect follow-ups: instant "Not your turn" for online taps from the view; client use parseScoredUid; TESTING.md note (app bundle ignores decks=).
