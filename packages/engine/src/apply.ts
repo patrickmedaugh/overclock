@@ -41,6 +41,7 @@ import {
   doRez,
   doRun,
   doSteal,
+  doTraceBid,
   doTrash,
   doUseAbility,
   pruneEmptyRemotes,
@@ -292,8 +293,9 @@ export function apply(state: GameState, action: Action): ApplyResult {
       return doActivate(state, action);
     case 'choose':
       return doChoose(state, action);
-    // Sprint 9 E1 stubs: the rules table refuses these (`not_implemented`) until E3/E4.
     case 'trace_bid':
+      return doTraceBid(state, action);
+    // Sprint 9 E1 stubs: the rules table refuses these (`not_implemented`) until E4.
     case 'remove_tag':
     case 'trash_resource':
       return { state, events: [{ type: 'action_rejected', reason: 'not_implemented' }] };

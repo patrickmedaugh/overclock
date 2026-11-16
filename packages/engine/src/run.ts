@@ -22,6 +22,7 @@ import {
   currentIce,
   findServer,
   rezCost,
+  traceMaxBid,
   trashCandidates,
   trashCost,
   trashPreventers,
@@ -34,6 +35,7 @@ import {
   endGame,
   maxHandSize,
   pointsOf,
+  runnerLink,
   withPlayer,
   type AccessCard,
   type AccessFrom,
@@ -45,6 +47,7 @@ import {
   type RunState,
   type ServerId,
   type Side,
+  type TraceState,
 } from './state';
 
 type Events = GameEvent[];
@@ -194,6 +197,8 @@ function outcomeAmount(state: GameState, effect: Effect, owner: Side): number {
     case 'gain_credits':
     case 'bad_publicity':
     case 'gain_clicks':
+    case 'give_tags':
+    case 'meat_damage':
       return effect.amount;
     case 'trash_installed':
       // Only used when no choice opens: 0 candidates → 0, one unprotected candidate → 1.
@@ -218,11 +223,14 @@ function letThrough(state: GameState, events: Events, from = 0): GameState {
     if (theRun(s).broken.includes(i)) continue;
     const effect = (subs[i] as { effect: Effect }).effect;
     const outcome: SubOutcome = { sub: i, op: effect.op, amount: outcomeAmount(s, effect, 'corp') };
+    const start = events.length;
     let reported = false;
     const report = () => {
       if (reported) return;
       reported = true;
-      events.push({ type: 'subroutine_resolved', iceUid: ice.uid, cardId: ice.cardId, outcome });
+      // Sprint 9: a trace's amount is known only once it resolved (1 = success, 0 = failed).
+      const amount = effect.op === 'trace' ? traceAmount(events.slice(start)) : outcome.amount;
+      events.push({ type: 'subroutine_resolved', iceUid: ice.uid, cardId: ice.cardId, outcome: { ...outcome, amount } });
     };
     events.push({ type: 'subroutine_fired', iceUid: ice.uid, sub: i });
     s = resolveEffect(setRun(s, { firing: i }), effect, 'corp', events, { cardId: ice.cardId, beforeEnd: report });
@@ -518,12 +526,133 @@ export function resolveEffect(state: GameState, effect: Effect, owner: Side, eve
       events.push({ type: 'choice_opened', kind: 'trash_target', player: 'corp', cardId });
       return { ...state, phase: 'choice', choice: { kind: 'trash_target', player: 'corp', cardId, resume: state.run ? 'run' : 'action' } };
     }
-    // Sprint 9 (E1 stubs, no card uses them yet): trace (E3), give_tags (E4), meat_damage (E5).
     case 'trace':
+      return startTrace(state, effect.base, effect.onSuccess, ctx, events);
     case 'give_tags':
+      return giveTags(state, effect.amount, events);
+    // Sprint 9 (E1 stub): meat_damage (E5).
     case 'meat_damage':
       return state;
   }
+}
+
+// ---- Sprint 9: traces and tags --------------------------------------------------------
+
+/** Sprint 9: `subroutine_resolved.amount` of a trace subroutine: 1 if its `trace_resolved` succeeded, else 0. */
+function traceAmount(events: readonly GameEvent[]): number {
+  const r = events.find((e) => e.type === 'trace_resolved');
+  return r?.type === 'trace_resolved' && r.success ? 1 : 0;
+}
+
+/** Sprint 9: the Runner takes `amount` tags (`tags_changed`). */
+function giveTags(state: GameState, amount: number, events: Events): GameState {
+  if (amount <= 0) return state;
+  const tags = state.players.runner.tags + amount;
+  events.push({ type: 'tags_changed', amount, tags });
+  return withPlayer(state, 'runner', { tags });
+}
+
+/** Sprint 9: where a trace goes on when it is done: the run it fired in (ICE subroutine), or the action phase. */
+const traceResume = (s: GameState): 'run' | 'action' => (s.run ? 'run' : 'action');
+
+/**
+ * Sprint 9: a trace begins (`trace_started`). The Corp is asked to bid (`trace_corp`) only when its bid
+ * can matter: it has credits and base + all of them would beat the Runner's link; otherwise it bids 0
+ * at once (`trace_bid{auto}`) and the Runner's side follows.
+ */
+function startTrace(state: GameState, base: number, onSuccess: TraceState['onSuccess'], ctx: EffectContext, events: Events): GameState {
+  const cardId = ctx.cardId as string;
+  const link = runnerLink(state);
+  events.push({ type: 'trace_started', cardId, base, link });
+  const credits = state.players.corp.credits;
+  const trace: TraceState = { base, strength: null, corpBid: null, onSuccess };
+  if (credits > 0 && base + credits > link) {
+    events.push({ type: 'choice_opened', kind: 'trace_corp', player: 'corp', cardId });
+    return { ...state, phase: 'choice', choice: { kind: 'trace_corp', player: 'corp', cardId, resume: traceResume(state), trace } };
+  }
+  events.push({ type: 'trace_bid', player: 'corp', credits: 0, total: base, auto: true });
+  return runnerTraceStep(state, cardId, { ...trace, strength: base, corpBid: 0 }, ctx, events);
+}
+
+/**
+ * Sprint 9: the Corp's strength is known. The Runner is asked (`trace_runner`) only when his bid can
+ * matter: 0 < strength − link ≤ his max bid; otherwise he bids 0 at once and the trace resolves.
+ */
+function runnerTraceStep(state: GameState, cardId: string, trace: TraceState, ctx: EffectContext, events: Events): GameState {
+  const strength = trace.strength as number;
+  const link = runnerLink(state);
+  const needed = strength - link;
+  if (needed > 0 && needed <= traceMaxBid(state, 'runner')) {
+    events.push({ type: 'choice_opened', kind: 'trace_runner', player: 'runner', cardId });
+    return { ...state, phase: 'choice', choice: { kind: 'trace_runner', player: 'runner', cardId, resume: traceResume(state), trace } };
+  }
+  events.push({ type: 'trace_bid', player: 'runner', credits: 0, total: link, auto: true });
+  return resolveTrace(state, cardId, trace, 0, ctx, events);
+}
+
+/**
+ * Sprint 9: both bids are in: `trace_resolved` (success iff strength > link + Runner bid), then on
+ * success the `onSuccess` effects in order (stopping if the game ends). `ctx.beforeEnd` reports an
+ * ICE subroutine before a flatline ends the run / game.
+ */
+function resolveTrace(state: GameState, cardId: string, trace: TraceState, runnerBid: number, ctx: EffectContext, events: Events): GameState {
+  const strength = trace.strength as number;
+  const total = runnerLink(state) + runnerBid;
+  const success = strength > total;
+  events.push({ type: 'trace_resolved', cardId, strength, total, success });
+  let s = state;
+  if (!success) return s;
+  for (const effect of trace.onSuccess) {
+    s = resolveEffect(s, effect, 'corp', events, { cardId, ...(ctx.beforeEnd ? { beforeEnd: ctx.beforeEnd } : {}) });
+    if (s.phase === 'over') break;
+  }
+  return s;
+}
+
+/**
+ * Sprint 9: answers an open trace choice (validated): `choice_closed`, the bid is paid (`credits_spent`;
+ * the Runner pays run-only credits first), `trace_bid`, then the Runner's window / the resolution. A
+ * trace subroutine is then reported (`subroutine_resolved{op: 'trace', amount: 1 | 0}`, before any
+ * `run_ended` / `game_over`) and the ICE's remaining subroutines fire.
+ */
+export function doTraceBid(state: GameState, a: ActionOf<'trace_bid'>): { state: GameState; events: GameEvent[] } {
+  const events: Events = [];
+  const choice = state.choice as ChoiceState;
+  const trace = choice.trace as TraceState;
+  let s = closeChoice(state, false, events);
+  if (a.player === 'corp') {
+    if (a.credits > 0) {
+      events.push({ type: 'credits_spent', player: 'corp', amount: a.credits });
+      s = withPlayer(s, 'corp', { credits: s.players.corp.credits - a.credits });
+    }
+  } else if (s.run) {
+    s = payRunner(s, a.credits, events);
+  } else if (a.credits > 0) {
+    events.push({ type: 'credits_spent', player: 'runner', amount: a.credits });
+    s = withPlayer(s, 'runner', { credits: s.players.runner.credits - a.credits });
+  }
+  // In a run: report the trace subroutine once (before a flatline ends the run / game, or after the trace).
+  const firing = s.run?.firing ?? null;
+  const ice = currentIce(s);
+  const start = events.length;
+  let reported = firing === null;
+  const report = () => {
+    if (reported || !ice) return;
+    reported = true;
+    events.push({ type: 'subroutine_resolved', iceUid: ice.uid, cardId: ice.cardId, outcome: { sub: firing as number, op: 'trace', amount: traceAmount(events.slice(start)) } });
+  };
+  const ctx: EffectContext = { cardId: choice.cardId, beforeEnd: report };
+  if (a.player === 'corp') {
+    const strength = trace.base + a.credits;
+    events.push({ type: 'trace_bid', player: 'corp', credits: a.credits, total: strength });
+    s = runnerTraceStep(s, choice.cardId, { ...trace, strength, corpBid: a.credits }, ctx, events);
+  } else {
+    events.push({ type: 'trace_bid', player: 'runner', credits: a.credits, total: runnerLink(s) + a.credits });
+    s = resolveTrace(s, choice.cardId, trace, a.credits, ctx, events);
+  }
+  if (s.phase !== 'run' || firing === null) return { state: s, events }; // waits on the Runner's bid, game over, or SEA Source done
+  report();
+  return { state: letThrough(setRun(s, { firing: null }), events, firing + 1), events };
 }
 
 // ---- Sprint 7: turn start -----------------------------------------------------------

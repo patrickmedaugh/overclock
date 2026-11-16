@@ -686,7 +686,7 @@ export const RULES: RuleTable = {
   activate: [playerShape, activateShape, notOver, decides, activateTargetCheck, activatePhase, activateClicks, activateCondition, activateCredits],
   choose: [playerShape, chooseShape, notOver, decides, choosePhase, chooseTarget],
   // Sprint 9 (E1): checks in their pinned order; `notBuiltYet` refuses until E3/E4 implement them.
-  trace_bid: [playerShape, traceBidShape, notOver, decides, tracePhase, traceBidAffordable, notBuiltYet],
+  trace_bid: [playerShape, traceBidShape, notOver, decides, tracePhase, traceBidAffordable],
   remove_tag: [playerShape, notOver, yourTurn, inPhase('action'), hasClick, runnerTagged, canAffordBasic, notBuiltYet],
   trash_resource: [
     playerShape,

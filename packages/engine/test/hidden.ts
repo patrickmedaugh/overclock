@@ -55,6 +55,13 @@ export function expectRunnerEventsClean(events: readonly GameEvent[], where: str
       else expect(JSON.stringify(e), where).not.toMatch(CORP_ID);
       continue;
     }
+    if (e.type === 'trace_started' || e.type === 'trace_resolved') {
+      // Sprint 9 (spec change): names the card that started the trace: the rezzed ICE (in a run) or the
+      // played operation, face up in Archives (SEA Source).
+      const ice = after.servers.flatMap((sv) => sv.ice).find((c) => c.rezzed && c.cardId === e.cardId);
+      expect(ice !== undefined || archivesUp.includes(e.cardId), `${where}: ${e.type} names face-up ${e.cardId}`).toBe(true);
+      continue;
+    }
     if (e.type === 'subroutine_resolved') {
       // Sprint 5 (spec change): names the ICE whose subroutine fired; it must be installed and rezzed (face up).
       const ice = after.servers.flatMap((sv) => sv.ice).find((c) => c.uid === e.iceUid);
@@ -101,7 +108,9 @@ export function expectRunnerViewClean(s: GameState, where: string): void {
   // (spec change): an in-run choice names the rezzed ICE whose subroutine opened it.
   if (v.choice) {
     const ice = s.run ? s.servers.find((sv) => sv.id === s.run!.server)?.ice[s.run.position] : undefined;
-    const ok = s.players.corp.scoreArea.includes(v.choice.cardId) || (ice?.rezzed === true && ice.cardId === v.choice.cardId);
+    // Sprint 9 (spec change): a trace from an operation (SEA Source) names it; it lies face up in Archives.
+    const played = s.run === null && s.players.corp.discard.at(-1)?.faceUp === true && s.players.corp.discard.at(-1)?.cardId === v.choice.cardId;
+    const ok = s.players.corp.scoreArea.includes(v.choice.cardId) || (ice?.rezzed === true && ice.cardId === v.choice.cardId) || played;
     expect(ok, `${where}: choice names ${v.choice.cardId}`).toBe(true);
   }
   // Nothing else names a Corp card.
