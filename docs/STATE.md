@@ -232,3 +232,8 @@ Details: docs/sprints/sprint-00-tech-plan.md, sprint-00-qa.md, sprint-00-demo.md
 
 ## Next run
 Phase BUILD for Sprint 9 on branch sprint-09. Ignore the external Workers Builds check (owner). Follow docs/TESTING.md when delegating anything that runs tests.
+
+## Sprint 9 BUILD progress — 2026-11-16 (run from 12:35 UTC; the 04:35 run died after the tech plan)
+- Engine E1–E7 (651e086..98c7397): traces, tags, link, remove tag / trash resource, meat damage, PSF score-area ability, SEA Source, Ichi 1.0, Hunter, Access to Globalsec, deck swaps (Corp inf 8, Runner 10), SPRINT9_GOALS, 300-game property test, AI. Nothing cut.
+- UI U1–U4 merged (4c6dbd2): bid panel, Tagged marker/link, trace in run panel + Corp-turn panel with covers, remove-tag / trash / PSF buttons, meat damage, SEA Source dim text.
+- Unit tests all green on 4c6dbd2. Next: U5 story e2e + fix s08/qa-sprint08 specs broken by deck change (Katana goal retired, Construct seeds moved), then architect review.
