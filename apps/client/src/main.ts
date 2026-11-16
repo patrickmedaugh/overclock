@@ -86,8 +86,11 @@ async function start(): Promise<void> {
     if (group) updateRenderGroupTransforms(group, true);
   };
 
+  // Test hook: every action the board sent (Sprint 9 stub checks).
+  const sent: Action[] = [];
   const dispatch = (action: Action): GameEvent[] => {
     if (!game) return [];
+    if (__TEST_HOOK__) sent.push(action);
     game.submit(action);
     return game.lastEvents();
   };
@@ -237,6 +240,11 @@ async function start(): Promise<void> {
       window.__overclock = {
         getView: () => session.view(),
         decision: () => session.decision(),
+        stub: (view, events, decision) => {
+          board.show({ kind: 'same', view, events, decision });
+          invalidate();
+        },
+        sent: () => sent.slice(),
         dispatch,
         lastEvents: () => session.lastEvents(),
         layout: () => board.snapshot(),

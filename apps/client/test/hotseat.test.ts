@@ -91,17 +91,17 @@ describe('HotSeat during a run (Q1 A: the Corp decides on the shared board)', ()
     expect(v.run?.ice?.cardId ?? null).toBeNull();
     const d = h.decision();
     expect(d?.seat).toBe('corp');
-    expect(d?.run.iceUid).toBe(plan.info.iceUid);
-    expect(d?.run.ice?.cardId).toBeTruthy();
-    expect(d?.run.options.map((o) => o.action.type)).toEqual(['rez', 'pass']);
-    expect(d?.run.options.every((o) => o.action.player === 'corp')).toBe(true);
+    expect(d?.run?.iceUid).toBe(plan.info.iceUid);
+    expect(d?.run?.ice?.cardId).toBeTruthy();
+    expect(d?.run?.options.map((o) => o.action.type)).toEqual(['rez', 'pass']);
+    expect(d?.run?.options.every((o) => o.action.player === 'corp')).toBe(true);
     // The decision is a separate object: the Runner's view was not merged with it.
-    expect(JSON.stringify(v)).not.toContain(JSON.stringify(d?.run.ice?.cardId));
+    expect(JSON.stringify(v)).not.toContain(JSON.stringify(d?.run?.ice?.cardId));
   });
 
   it('a Corp decision animates the Runner seat\'s projection and keeps the Runner at the bottom', () => {
     const { h } = hotSeatAt(1, 'corp_rez_prompt');
-    const rez = h.decision()!.run.options.find((o) => o.action.type === 'rez')!;
+    const rez = h.decision()!.run!.options.find((o) => o.action.type === 'rez')!;
     const p = h.submit(rez.action);
     expect(p.kind).toBe('same');
     if (p.kind !== 'same') return;

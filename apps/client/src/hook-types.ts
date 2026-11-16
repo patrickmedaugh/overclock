@@ -1,6 +1,6 @@
 // Types for the Playwright test hook (`window.__overclock`).
 // Shared by the client (src) and the e2e specs, so keep this file type-only.
-import type { Action, GameEvent, PlayerView, RunStep, RunView, Side } from '@overclock/engine';
+import type { Action, ChoiceView, GameEvent, PlayerView, RunStep, RunView, Side } from '@overclock/engine';
 
 /** Axis-aligned box in CSS pixels, relative to the page viewport. */
 export interface Box {
@@ -68,7 +68,7 @@ export interface TargetSnapshot {
    * free_rez / skip (S-04-4): the Corp's free-rez choice after scoring Priority Requisition
    * (each offered ICE, with `uid`; Skip in the Play slot).
    */
-  kind: 'server' | 'new_server' | 'install' | 'play' | 'run' | 'advance' | 'score' | 'free_rez' | 'skip' | 'rez' | 'activate';
+  kind: 'server' | 'new_server' | 'install' | 'play' | 'run' | 'advance' | 'score' | 'free_rez' | 'skip' | 'rez' | 'activate' | 'remove_tag' | 'trash_resource';
   /** For server targets (and run / server-named play targets). */
   server?: string;
   /** For advance / score: the installed card. */
@@ -100,7 +100,7 @@ export interface PanelButtonSnapshot {
    * subroutine (`sub`, `picked`), `confirm` breaks the picked ones, `back` closes the pick.
    * Absent for a plain option.
    */
-  role?: 'multi' | 'toggle' | 'confirm' | 'back';
+  role?: 'multi' | 'toggle' | 'confirm' | 'back' | 'bid_dec' | 'bid_inc' | 'bid_max' | 'bid_go';
   sub?: number;
   picked?: boolean;
 }
@@ -112,7 +112,7 @@ export interface RunSnapshot {
   /** The seat the buttons act for (the Corp at approach, otherwise the Runner). */
   deciding: Side;
   /** S-08-7: an open in-run choice: its kind, the lit (choosable) rig uids, and the card about to be trashed. */
-  choice: { kind: 'trash_target' | 'prevent_trash' | 'free_rez'; lit: string[]; target: string | null } | null;
+  choice: { kind: 'trash_target' | 'prevent_trash' | 'free_rez' | 'trace_corp' | 'trace_runner'; lit: string[]; target: string | null } | null;
   /** Panel title, e.g. "Run on Server 1", and the step line, e.g. "Rez Wall of Static?". */
   title: string;
   stepLabel: string;
@@ -133,6 +133,56 @@ export interface RunSnapshot {
   buttons: PanelButtonSnapshot[];
   /** Accessed cards, drawn large. */
   access: { cards: { cardId: string | null; stolen: boolean; box: Box }[] } | null;
+}
+
+/** Sprint 9: one button of the trace bid control. */
+export interface BidButtonSnapshot {
+  label: string;
+  lit: boolean;
+  box: Box;
+  fontPx: number;
+}
+
+/**
+ * Sprint 9 (S-09-1): an open trace bid window, in a run (Hunter, Ichi 1.0) or on the
+ * Corp's turn (SEA Source). `mine`: the deciding seat's options are on this board
+ * (its bid control shows); otherwise the step line says who is bidding.
+ */
+export interface TraceSnapshot {
+  kind: 'trace_corp' | 'trace_runner';
+  deciding: Side;
+  cardId: string;
+  mine: boolean;
+  title: string;
+  /** "Trace 3: add credits?" / "Trace strength 5 · your link 1 · spend 4 to stop it" / "Corp is choosing its trace bid…". */
+  stepLabel: string;
+  lines: string[];
+  infoBox: Box;
+  infoFontPx: number;
+  /** The bid control (deciding seat only): the shown bid, its limits (from the offered bids) and the buttons. */
+  control: {
+    bid: number;
+    /** The lowest and highest offered bids. */
+    low: number;
+    high: number;
+    /** "strength 5" (Corp) / "link 5 · escape" (Runner). */
+    caption: string;
+    tile: Box;
+    numberPx: number;
+    captionPx: number;
+    buttons: { minus: BidButtonSnapshot; plus: BidButtonSnapshot; max: BidButtonSnapshot; bid: BidButtonSnapshot };
+    /** What Bid sends now, and the engine's refusal for it (null = accepted). */
+    action: Action;
+    reject: string | null;
+  } | null;
+}
+
+/** Sprint 9: the Runner's tag marker and link readout (both seats). */
+export interface TaggedSnapshot {
+  /** "Tagged 1", or null while untagged. */
+  tagged: { text: string; box: Box; hit: Box } | null;
+  /** "Link 1" (the engine's link), or null with no identity. */
+  link: { text: string; box: Box } | null;
 }
 
 export interface ScoreSnapshot {
@@ -197,6 +247,10 @@ export interface LayoutSnapshot {
   status: { text: string; box: Box } | null;
   /** The run tracker and its buttons, while a run is on. */
   run: RunSnapshot | null;
+  /** Sprint 9: the open trace bid window (in a run or on the Corp's turn), or null. */
+  trace: TraceSnapshot | null;
+  /** Sprint 9: the Runner's tag marker and link readout. */
+  runnerStatus: TaggedSnapshot;
   /** The Runner's Run button (rail), when the view offers runs; `picking` while servers are lit. */
   runButton: { box: Box; label: string; lit: boolean; picking: boolean } | null;
   /** Both sides' points, shown to both seats. */
@@ -293,6 +347,10 @@ export type AnimKind =
   | 'net_damage'
   /** S-08-3: brain damage cards fly to the Heap (as net damage). */
   | 'brain_damage'
+  /** Sprint 9: meat damage cards fly to the Heap (as net damage). */
+  | 'meat_damage'
+  /** Sprint 9: the Runner's tags changed ("Tagged N" pops, "+1 tag" floats). */
+  | 'tags_changed'
   /** S-08-2: Biotic Labor's extra clicks. */
   | 'clicks_gained'
   /** S-08-2: an emptied Corp card (Adonis) flies to Archives. */
@@ -369,7 +427,15 @@ export interface OverclockTestHook {
   /** The bottom seat's view. */
   getView(): PlayerView;
   /** The other seat's run view while the game waits on it mid-run (the Corp's rez choice), else null. */
-  decision(): { seat: Side; run: RunView } | null;
+  decision(): { seat: Side; run: RunView | null; choice: ChoiceView | null } | null;
+  /**
+   * Sprint 9 (test builds only): shows a made-up view on the board as if the session had
+   * presented it (stub views for the bid panel and tag marker while the engine's traces were
+   * being built). The next real change replaces it.
+   */
+  stub(view: PlayerView, events: GameEvent[], decision: { seat: Side; run: RunView | null; choice: ChoiceView | null } | null): void;
+  /** Sprint 9: every action the board sent (dispatch), oldest first. */
+  sent(): Action[];
   /** Submits as seat `action.player`; returns that seat's projected events. */
   dispatch(action: Action): GameEvent[];
   lastEvents(): GameEvent[];

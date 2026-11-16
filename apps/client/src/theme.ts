@@ -19,6 +19,8 @@ export const theme = {
   /** QA-S7-2: advancement counters (a different colour from credits on cards). */
   advance: 0x8cff5a,
   ink: 0x140a00,
+  /** Sprint 9: the Runner is tagged (his status note turns red). */
+  tagged: 0xff3b4a,
   fontFamily: '"Segoe UI", Roboto, "Helvetica Neue", Arial, system-ui, sans-serif',
   monoFamily: 'ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace',
 } as const;

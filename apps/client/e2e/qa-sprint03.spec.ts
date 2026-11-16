@@ -105,7 +105,7 @@ test.describe('QA hidden info during a run', () => {
   test('the Runner seat never receives the name of an unrezzed ICE or any face-down Corp card, at any step', async ({ page }) => {
     await openBoard(page, 1);
     const plan = await toStep(page, 1, 'corp_rez_prompt');
-    const corpRun = (await page.evaluate(() => window.__overclock!.decision()))!.run;
+    const corpRun = (await page.evaluate(() => window.__overclock!.decision()))!.run!;
     const iceId = corpRun.ice!.cardId!;
     expect(iceId).toMatch(/^c\d\d$/);
     // At the rez prompt.

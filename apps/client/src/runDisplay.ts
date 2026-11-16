@@ -9,11 +9,12 @@ import { getCard } from '@overclock/cards';
 import type { CardOption, PlayerView, RunView, Side } from '@overclock/engine';
 import { Container, Graphics, Rectangle, Text } from 'pixi.js';
 import { createCardBack, createCardFace, glowRoundRect } from './cardFace';
-import type { Box, RunSnapshot } from './hook-types';
+import type { Box, RunSnapshot, TraceSnapshot } from './hook-types';
 import type { Decision } from './session';
-import { type BoardLayout, accessSlots, buttonGrid } from './layout';
-import { type RigIds, choiceOptionLabel, choiceStepLabel, decidingText, infoLines, isRunChoice, optionLabel, runTitle, stepLabel } from './runText';
+import { type BoardLayout, accessSlots, bidLayout, buttonGrid } from './layout';
+import { type RigIds, choiceOptionLabel, choiceStepLabel, decidingText, infoLines, isRunChoice, nameOf, optionLabel, runTitle, stepLabel } from './runText';
 import { TERMS, priceText, serverLabel } from './terms';
+import { type TraceChoice, bidAmounts, bidButtonLabel, bidCaption, bidOption, clampBid, isTraceChoice, maxBid, stepBid, traceLines, traceStepLabel } from './traceText';
 import { sideColor, theme } from './theme';
 import type { Tweens } from './tween';
 import { PanelButton, fitText } from './widgets';
@@ -37,7 +38,7 @@ export interface TableBoxes {
 interface Shown {
   option: CardOption;
   label: string;
-  role?: 'multi' | 'toggle' | 'confirm' | 'back';
+  role?: 'multi' | 'toggle' | 'confirm' | 'back' | 'bid_dec' | 'bid_inc' | 'bid_max' | 'bid_go';
   key?: string;
   sub?: number;
   picked?: boolean;
@@ -76,6 +77,18 @@ export class RunDisplay {
   private accessBoxes: { cardId: string | null; box: Box }[] = [];
   private accessDetachers: (() => void)[] = [];
   private snap: RunSnapshot | null = null;
+  /** Sprint 9: the bid shown in the trace bid control (UI state only; `key` = which window). */
+  private bid: { key: string; amount: number } | null = null;
+  /** The offered bids of the open trace window (empty when none is shown). */
+  private bidAmounts: number[] = [];
+  /** What `drawBid` drew last (for the snapshot). */
+  private lastBid: { boxes: ReturnType<typeof bidLayout>; amount: number; caption: string; lo: number; hi: number } | null = null;
+  /** Sprint 9: the big bid number between − and + (in `buttons`). */
+  private readonly tile = new Container();
+  private readonly tileBg = new Graphics();
+  private readonly tileNum: Text;
+  private readonly tileCaption: Text;
+  private traceSnap: TraceSnapshot | null = null;
   /** The smallest text size in the info panel as drawn (after any shrink to fit). */
   private infoFontPx = 0;
 
@@ -89,6 +102,15 @@ export class RunDisplay {
     // The access view swallows taps on the table under it.
     this.access.eventMode = 'static';
     this.access.label = 'run:access';
+    this.tile.label = 'trace:bid';
+    this.tile.eventMode = 'none';
+    this.tileNum = new Text({ text: '0', style: { fontFamily: theme.monoFamily, fontSize: 28, fontWeight: '800', fill: theme.text } });
+    this.tileNum.anchor.set(0.5);
+    this.tileCaption = new Text({ text: '', style: { fontFamily: theme.fontFamily, fontSize: 11, fontWeight: '700', fill: theme.textDim } });
+    this.tileCaption.anchor.set(0.5);
+    this.tile.addChild(this.tileBg, this.tileNum, this.tileCaption);
+    this.tile.visible = false;
+    this.buttons.addChild(this.tile);
     this.setLayout(layout);
     this.hide();
   }
@@ -102,6 +124,11 @@ export class RunDisplay {
 
   get snapshot(): RunSnapshot | null {
     return this.snap;
+  }
+
+  /** Sprint 9: the open trace bid panel (in a run or on the Corp's turn), or null. */
+  get traceSnapshot(): TraceSnapshot | null {
+    return this.traceSnap;
   }
 
   /** The options the buttons show, in button order. */
@@ -137,6 +164,16 @@ export class RunDisplay {
         if (!b.lit) return null;
         this.multi = null;
         return b.option.action;
+      case 'bid_dec':
+      case 'bid_inc':
+      case 'bid_max': {
+        // Sprint 9: − / + / Max move the shown bid through the engine's offered bids.
+        const bid = this.bid;
+        if (!bid) return null;
+        const amounts = this.bidAmounts;
+        bid.amount = b.role === 'bid_max' ? maxBid(amounts) : stepBid(amounts, bid.amount, b.role === 'bid_inc' ? 1 : -1);
+        return null;
+      }
       default:
         return b.option.action;
     }
@@ -216,9 +253,132 @@ export class RunDisplay {
     this.marks.clear();
     this.marks.visible = false;
     this.access.visible = false;
+    this.tile.visible = false;
     this.shown = [];
     this.snap = null;
+    this.traceSnap = null;
+    this.bid = null;
     this.stepKey = '';
+  }
+
+  /**
+   * Sprint 9 (S-09-1): the bid control for an open trace window, deciding seat only:
+   * −, the bid (big) with what it makes, +, Max, Bid. The shown bid starts at the
+   * lowest offered bid (0) for each new window; every limit is the engine's offered
+   * `trace_bid` options.
+   */
+  private drawBid(trace: TraceChoice, color: number, animate: boolean, newStep: boolean): void {
+    const options = trace.options;
+    const amounts = bidAmounts(options);
+    this.bidAmounts = amounts;
+    const key = `${trace.kind}:${trace.cardId}:${trace.waitingOn}:${trace.trace.strength}:${maxBid(amounts)}`;
+    if (!this.bid || this.bid.key !== key) this.bid = { key, amount: amounts[0] ?? 0 };
+    const amount = clampBid(amounts, this.bid.amount);
+    this.bid.amount = amount;
+    const go = bidOption(options, amount) ?? options[0]!;
+    const lo = amounts[0] ?? 0;
+    const hi = maxBid(amounts);
+    this.shown = [
+      { option: go, label: '−', role: 'bid_dec', lit: amount > lo },
+      { option: go, label: '+', role: 'bid_inc', lit: amount < hi },
+      { option: go, label: `Max ${hi}`, role: 'bid_max', lit: amount < hi },
+      { option: go, label: bidButtonLabel(amount), role: 'bid_go' },
+    ];
+    const boxes = bidLayout(this.layout.runButtons, this.layout.scale);
+    const places = [boxes.dec, boxes.inc, boxes.max, boxes.go];
+    this.shown.forEach((x, i) => {
+      const b = this.button(i);
+      b.root.visible = true;
+      b.set(places[i]!, x.label, x.lit ?? x.option.reject === null, color, x.role === 'bid_go' && go.reject === null, x.role === 'bid_dec' || x.role === 'bid_inc');
+      if (animate && newStep) b.pop(this.ui);
+    });
+    for (let i = this.shown.length; i < this.pool.length; i++) this.pool[i]!.root.visible = false;
+    // The big number and what it makes ("strength 5" / "link 5 · escape").
+    const t = boxes.tile;
+    const caption = bidCaption(trace, amount);
+    this.tileBg.clear();
+    this.tileBg.roundRect(t.x, t.y, t.width, t.height, Math.min(12, t.height / 4)).fill({ color: 0x05040a, alpha: 0.92 }).stroke({ width: 2, color, alpha: 0.9 });
+    this.tileNum.style.fontSize = Math.max(22, Math.round(t.height * 0.5));
+    this.tileNum.text = String(amount);
+    fitText(this.tileNum, t.width - 8, t.height * 0.62);
+    this.tileNum.position.set(t.x + t.width / 2, t.y + t.height * 0.4);
+    this.tileCaption.style.fontSize = Math.max(11, Math.round(t.height * 0.19));
+    this.tileCaption.text = caption;
+    fitText(this.tileCaption, t.width - 6);
+    this.tileCaption.position.set(t.x + t.width / 2, t.y + t.height * 0.8);
+    this.tile.visible = true;
+    this.lastBid = { boxes, amount, caption, lo, hi };
+  }
+
+  private makeTraceSnap(trace: TraceChoice, title: string, step: string, lines: string[], mine: boolean): TraceSnapshot {
+    const lb = this.lastBid;
+    const btn = (i: number) => {
+      const x = this.shown[i]!;
+      return { label: x.label, lit: x.lit ?? x.option.reject === null, box: { ...this.pool[i]!.box }, fontPx: this.pool[i]!.fontPx };
+    };
+    return {
+      kind: trace.kind,
+      deciding: trace.waitingOn,
+      cardId: trace.cardId,
+      mine,
+      title,
+      stepLabel: step,
+      lines,
+      infoBox: { ...this.layout.runInfo },
+      infoFontPx: this.infoFontPx,
+      control:
+        mine && lb
+          ? {
+              bid: lb.amount,
+              low: lb.lo,
+              high: lb.hi,
+              caption: lb.caption,
+              tile: { ...lb.boxes.tile },
+              numberPx: (this.tileNum.style.fontSize as number) * this.tileNum.scale.y,
+              captionPx: (this.tileCaption.style.fontSize as number) * this.tileCaption.scale.y,
+              buttons: { minus: btn(0), plus: btn(1), max: btn(2), bid: btn(3) },
+              action: this.shown[3]!.option.action,
+              reject: this.shown[3]!.option.reject,
+            }
+          : null,
+    };
+  }
+
+  /**
+   * Sprint 9: a trace outside a run (SEA Source, on the Corp's turn): the same panel,
+   * titled with the card ("Trace · SEA Source"), and the bid control.
+   */
+  private updateTrace(trace: TraceChoice, animate: boolean): boolean {
+    const layout = this.layout;
+    const mine = trace.options.length > 0;
+    const deciding = trace.waitingOn;
+    const title = `${TERMS.trace} · ${nameOf(trace.cardId, 'Card')}`;
+    const step = traceStepLabel(trace, mine);
+    const stepKey = `trace:${trace.kind}:${deciding}:${trace.cardId}`;
+    const newStep = stepKey !== this.stepKey;
+    this.stepKey = stepKey;
+    const color = sideColor(deciding);
+    if (mine) this.drawBid(trace, color, animate, newStep);
+    else {
+      this.shown = [];
+      this.bid = null;
+      this.tile.visible = false;
+      for (const b of this.pool) b.root.visible = false;
+    }
+    const lines = traceLines(trace, this.bid?.amount ?? 0, mine);
+    const infoKey = JSON.stringify([title, step, lines, deciding, layout.runInfo]);
+    if (infoKey !== this.infoKey) {
+      this.infoKey = infoKey;
+      this.drawInfo(layout.runInfo, title, step, lines, [], deciding);
+    }
+    this.info.visible = true;
+    this.buttons.visible = true;
+    this.marks.clear();
+    this.marks.visible = false;
+    this.access.visible = false;
+    this.snap = null;
+    this.traceSnap = this.makeTraceSnap(trace, title, step, lines, mine);
+    return newStep;
   }
 
   /**
@@ -227,26 +387,40 @@ export class RunDisplay {
    */
   update(view: PlayerView, decision: Decision | null, table: TableBoxes, animate: boolean): boolean {
     const run = view.run;
-    if (!run || view.result) {
+    // S-08-7: a choice inside the run (Rototurret): its options are the buttons, the run's own are none.
+    const choiceSrc = decision ? decision.choice : view.choice;
+    // Sprint 9: a trace bid window (in a run: Hunter, Ichi 1.0; on the Corp's turn: SEA Source).
+    const trace = isTraceChoice(choiceSrc) ? choiceSrc : null;
+    if ((!run && !trace) || view.result) {
       this.hide();
       return false;
     }
+    if (!run) return this.updateTrace(trace!, animate);
     // While the other seat decides, its own run view supplies the ICE and the options.
     const panel: RunView = decision?.run ?? run;
-    // S-08-7: a choice inside the run (Rototurret): its options are the buttons, the run's own are none.
-    const choiceSrc = decision ? decision.choice : view.choice;
     const choice = isRunChoice(choiceSrc) ? choiceSrc : null;
-    const deciding: Side = choice?.waitingOn ?? decision?.seat ?? run.waitingOn;
+    const deciding: Side = trace?.waitingOn ?? choice?.waitingOn ?? decision?.seat ?? run.waitingOn;
     const rig: RigIds = Object.fromEntries(view.rig.map((c) => [c.uid, c.cardId]));
     const layout = this.layout;
-    const options = choice ? choice.options : panel.options;
+    const options = trace ? trace.options : choice ? choice.options : panel.options;
 
     // Info panel.
     const title = runTitle(run);
     // Online, the other phone decides: its choice is not on this board ("Corp is deciding…").
     const elsewhere = decision === null && deciding !== view.viewer && options.length === 0;
-    const step = choice ? choiceStepLabel(choice, rig, !elsewhere) : elsewhere ? decidingText(deciding) : stepLabel(panel, deciding);
-    const lines = infoLines(panel, rig);
+    const stepKey = `${run.step}:${run.position}:${run.iceUid}:${deciding}:${run.access?.cards.length ?? 0}:${trace?.kind ?? choice?.kind ?? ''}`;
+    const newStep = stepKey !== this.stepKey;
+    if (newStep) this.multi = null;
+    this.stepKey = stepKey;
+    const color = sideColor(deciding);
+    // Sprint 9: the bid control replaces the buttons while a trace window is open here.
+    if (trace && options.length > 0) this.drawBid(trace, color, animate, newStep);
+    else {
+      this.tile.visible = false;
+      this.bid = null;
+    }
+    const step = trace ? traceStepLabel(trace, options.length > 0) : choice ? choiceStepLabel(choice, rig, !elsewhere) : elsewhere ? decidingText(deciding) : stepLabel(panel, deciding);
+    const lines = trace ? traceLines(trace, this.bid?.amount ?? 0, options.length > 0) : infoLines(panel, rig);
     // The passed ICE keeps its list at Continue, so a just-broken subroutine is seen crossed out.
     const showSubs = panel.step !== 'access';
     const subs = showSubs ? (panel.ice?.subroutines ?? []).map((s) => ({ text: s.text, broken: s.broken })) : [];
@@ -258,27 +432,31 @@ export class RunDisplay {
     this.info.visible = true;
 
     // Buttons.
-    const labels = options.map((o) => (choice ? choiceOptionLabel(o, choice, rig) : optionLabel(o, panel, options, rig)));
-    this.shown = choice ? options.map((option, i) => ({ option, label: labels[i]! })) : this.arrange(options, labels, panel);
-    const s = layout.scale;
-    const boxes = buttonGrid(layout.runButtons, this.shown.length, {
-      gap: Math.max(4, Math.round(6 * s)),
-      minW: Math.max(76, Math.round(84 * Math.min(s, 1.2))),
-      maxW: Math.round(200 * Math.min(s, 1.3)),
-      maxH: Math.max(44, Math.round(64 * Math.min(s, 1.2))),
-    });
-    const stepKey = `${run.step}:${run.position}:${run.iceUid}:${deciding}:${run.access?.cards.length ?? 0}:${choice?.kind ?? ''}`;
-    const newStep = stepKey !== this.stepKey;
-    if (newStep) this.multi = null;
-    this.stepKey = stepKey;
-    const color = sideColor(deciding);
-    this.shown.forEach((x, i) => {
-      const b = this.button(i);
-      b.root.visible = true;
-      b.set(boxes[i]!, x.label, x.lit ?? x.option.reject === null, color);
-      if (animate && newStep) b.pop(this.ui);
-    });
-    for (let i = this.shown.length; i < this.pool.length; i++) this.pool[i]!.root.visible = false;
+    let boxes: Box[];
+    if (trace) {
+      if (options.length === 0) {
+        this.shown = [];
+        for (const b of this.pool) b.root.visible = false;
+      }
+      boxes = this.shown.map((_, i) => ({ ...this.pool[i]!.box }));
+    } else {
+      const labels = options.map((o) => (choice ? choiceOptionLabel(o, choice, rig) : optionLabel(o, panel, options, rig)));
+      this.shown = choice ? options.map((option, i) => ({ option, label: labels[i]! })) : this.arrange(options, labels, panel);
+      const s = layout.scale;
+      boxes = buttonGrid(layout.runButtons, this.shown.length, {
+        gap: Math.max(4, Math.round(6 * s)),
+        minW: Math.max(76, Math.round(84 * Math.min(s, 1.2))),
+        maxW: Math.round(200 * Math.min(s, 1.3)),
+        maxH: Math.max(44, Math.round(64 * Math.min(s, 1.2))),
+      });
+      this.shown.forEach((x, i) => {
+        const b = this.button(i);
+        b.root.visible = true;
+        b.set(boxes[i]!, x.label, x.lit ?? x.option.reject === null, color);
+        if (animate && newStep) b.pop(this.ui);
+      });
+      for (let i = this.shown.length; i < this.pool.length; i++) this.pool[i]!.root.visible = false;
+    }
     this.buttons.visible = true;
 
     // Tracker: the server's column outlined, the current ICE (or the server at access) highlighted.
@@ -317,7 +495,7 @@ export class RunDisplay {
       server: run.server,
       step: run.step,
       deciding,
-      choice: choice ? { kind: choice.kind, lit, target: choice.target ?? null } : null,
+      choice: choice ? { kind: choice.kind, lit, target: choice.target ?? null } : trace ? { kind: trace.kind, lit: [], target: null } : null,
       title,
       stepLabel: step,
       lines,
@@ -330,7 +508,7 @@ export class RunDisplay {
       buttons: this.shown.map((x, i) => ({
         label: x.label,
         lit: x.lit ?? x.option.reject === null,
-        reject: x.role === 'toggle' || x.role === 'back' ? null : x.option.reject,
+        reject: x.role === 'toggle' || x.role === 'back' || x.role === 'bid_dec' || x.role === 'bid_inc' || x.role === 'bid_max' ? null : x.option.reject,
         box: { ...boxes[i]! },
         action: x.option.action,
         fontPx: this.pool[i]!.fontPx,
@@ -339,6 +517,7 @@ export class RunDisplay {
       })),
       access: cards.length > 0 ? { cards: cards.map((c, i) => ({ cardId: c.cardId, stolen: c.stolen, box: { ...this.accessBoxes[i]!.box } })) } : null,
     };
+    this.traceSnap = trace ? this.makeTraceSnap(trace, title, step, lines, options.length > 0) : null;
     return newStep;
   }
 

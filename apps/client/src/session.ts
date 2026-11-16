@@ -7,11 +7,14 @@ import type { Action, ChoiceView, GameEvent, PlayerView, RunView, Side } from '@
 /**
  * A run decision that belongs to the seat *not* at the bottom (the Corp's rez
  * choice while the Runner is on screen): that seat's own run view, whose
- * `options` the board shows as buttons and submits as `seat`.
+ * `options` the board shows as buttons and submits as `seat`. Sprint 9: also a
+ * choice outside a run that waits on the other seat (SEA Source's trace: the
+ * Runner bids on the Corp's turn).
  */
 export interface Decision {
   seat: Side;
-  run: RunView;
+  /** That seat's run view; null for a choice outside a run (Sprint 9: the Runner's trace bid on the Corp's turn). */
+  run: RunView | null;
   /** S-08-7: that seat's open in-run choice (Rototurret's "pick a program"), with its options; else null. */
   choice: ChoiceView | null;
 }
