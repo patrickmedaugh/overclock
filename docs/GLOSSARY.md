@@ -26,6 +26,10 @@
 - **Points** — agenda points in a player's score area, shown as "Corp 1 point" / "Runner 2 points". 7 points wins.
 - **Net damage** — the Runner discards that many random cards from the Grip to the Heap.
 - **Brain damage** — like net damage (random cards from the Grip to the Heap), and the Runner's hand limit also goes down by 1 for each point, for the rest of the game (shown as "Hand max 4").
+- **Meat damage** — like net damage: the Runner discards that many random cards from the Grip to the Heap. The Corp can usually only do it while the Runner is tagged.
+- **Trace** — a bidding contest started by a card ("Trace 3"). The Corp adds credits to the trace's strength, then the Runner adds credits to his link. If the Corp's total is higher, the card's effect happens; a tie goes to the Runner.
+- **Link** — the Runner's number for traces: his identity's printed link plus link cards (Kate has 1; Access to Globalsec adds 1). Shown as "Link 1".
+- **Tag / Tagged** — the Corp has found the Runner. Tags stay until he removes one (1 click + 2 credits each). While tagged (shown as "Tagged 1") the Corp may trash his resources (1 click + 2 credits) and use cards like Private Security Force.
 - **Flatline** — the Runner takes more damage than cards in the Grip: the Corp wins at once ("Runner flatlined").
 - **Server** — a place where the Corp keeps cards. Three are built in (HQ, R&D, Archives); the Corp can open remote servers.
 - **HQ** — the Corp's hand (its headquarters).

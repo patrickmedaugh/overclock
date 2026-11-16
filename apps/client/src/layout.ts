@@ -794,6 +794,46 @@ export function buttonGrid(area: Box, count: number, opts: { gap: number; minW: 
   return out;
 }
 
+/** Sprint 9: the trace bid control's parts, left to right: −, the bid, +, Max, Bid. */
+export interface BidBoxes {
+  dec: Box;
+  tile: Box;
+  inc: Box;
+  max: Box;
+  go: Box;
+}
+
+/**
+ * Sprint 9 (S-09-1, owner answer 2A): the bid control in `area` (the run panel's
+ * button strip): − and + square buttons either side of the big number, then Max
+ * and Bid. Every button is at least 44 px each way (the strip is >= 72 px tall
+ * on the smallest phone); the group is centred and shrinks only down to 44 px.
+ */
+export function bidLayout(area: Box, scale: number): BidBoxes {
+  const units = { dec: 1, tile: 1.7, inc: 1, max: 1.25, go: 1.9 };
+  const sum = units.dec + units.tile + units.inc + units.max + units.go;
+  const gap = Math.max(4, Math.round(6 * Math.min(scale, 1.2)));
+  const wide = gap * 3;
+  const gaps = 3 * gap + wide;
+  const maxH = Math.max(MIN_TOUCH, Math.round(64 * Math.min(scale, 1.2)));
+  const h = Math.max(MIN_TOUCH, Math.min(maxH, area.height, Math.floor((area.width - gaps) / sum)));
+  const w = (k: number) => Math.round(h * k);
+  const total = w(units.dec) + w(units.tile) + w(units.inc) + w(units.max) + w(units.go) + gaps;
+  const y = Math.round(area.y + (area.height - h) / 2);
+  let x = Math.round(area.x + Math.max(0, (area.width - total) / 2));
+  const next = (k: number, after: number): Box => {
+    const b = box(x, y, w(k), h);
+    x += b.width + after;
+    return b;
+  };
+  const dec = next(units.dec, gap);
+  const tile = next(units.tile, gap);
+  const inc = next(units.inc, wide);
+  const max = next(units.max, gap);
+  const go = next(units.go, 0);
+  return { dec, tile, inc, max, go };
+}
+
 /**
  * Card boxes for `count` accessed cards shown large in `area`, in as many rows as
  * gives the biggest cards (QA-S3-1: a late-game Archives of 12 cards wraps instead of

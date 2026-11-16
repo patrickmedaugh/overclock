@@ -1,7 +1,8 @@
 // Plain-language hints for actions the engine refused (its RejectReason),
 // shown in the small hint toast. Pure, so every reason is unit tested.
+import { getCard } from '@overclock/cards';
 import type { CardOption, PlayerView, RejectReason } from '@overclock/engine';
-import { TERMS } from './terms';
+import { SIDE_NAME, TERMS } from './terms';
 
 /** S-04-4: what to do while the Corp's free-rez choice is open. */
 export const CHOICE_HINT = 'Rez one ICE for free, or tap Skip';
@@ -10,7 +11,62 @@ export const RUN_CHOICE_HINT = 'Tap one of the lit buttons first';
 
 /** The hint for an open choice (free rez, or one inside a run). */
 export function choiceHint(choice: PlayerView['choice'] | undefined): string {
+  if (choice && (choice.kind === 'trace_corp' || choice.kind === 'trace_runner')) return TRACE_HINT;
   return choice && choice.kind !== 'free_rez' ? RUN_CHOICE_HINT : CHOICE_HINT;
+}
+
+/** Sprint 9: what to do while a trace bid window is open. */
+export const TRACE_HINT = 'Pick your trace bid first';
+
+/** Sprint 9: `condition_not_met` in words, keyed on the card's data (`playIf` / ability `requires`). */
+export const CONDITION_TEXT = {
+  runner_ran_last_turn: 'Only after the Runner made a run',
+  runner_successful_run_last_turn: `${SIDE_NAME.runner} made no successful run last turn`,
+  hosted_credits: 'No credits left on it',
+  runner_tagged: `${SIDE_NAME.runner} isn't ${TERMS.tagged.toLowerCase()}`,
+} as const;
+
+type ConditionView = Pick<PlayerView, 'viewer' | 'players' | 'corpServers' | 'rig'>;
+
+/** The card id behind an installed or scored uid (`score:corp:0`), as `view` sees it. */
+function cardOfUid(view: ConditionView, uid: string): string | null {
+  const scored = /^score:(corp|runner):(\d+)$/.exec(uid);
+  if (scored) return view.players[scored[1] as 'corp' | 'runner'].scored[Number(scored[2])] ?? null;
+  for (const srv of view.corpServers) for (const c of [...srv.ice, ...srv.content]) if (c.uid === uid) return c.cardId;
+  return view.rig.find((c) => c.uid === uid)?.cardId ?? null;
+}
+
+/**
+ * Sprint 9: why an option's condition does not hold, from card data: SEA Source
+ * "Runner made no successful run last turn", Private Security Force "Runner isn't
+ * tagged", an emptied Armitage "No credits left on it". Null when unknown.
+ */
+export function conditionText(option: Pick<CardOption, 'action'> | null | undefined, view: ConditionView | null | undefined): string | null {
+  const a = option?.action;
+  if (!a || !view) return null;
+  if (a.type === 'play') {
+    const id = view.players[view.viewer].hand?.[a.handIndex];
+    const cond = id ? getCard(id)?.playIf : undefined;
+    return cond ? CONDITION_TEXT[cond] : null;
+  }
+  if (a.type === 'activate') {
+    const id = cardOfUid(view, a.uid);
+    const def = id ? getCard(id) : undefined;
+    const ability = a.uid.startsWith('score:') ? def?.scoredAbilities?.[a.ability] : def?.cardAbilities?.[a.ability];
+    return ability?.requires ? CONDITION_TEXT[ability.requires] : null;
+  }
+  if (a.type === 'trash_resource') return CONDITION_TEXT.runner_tagged;
+  if (a.type === 'remove_tag') return `No ${TERMS.tag.toLowerCase()}s to remove`;
+  return null;
+}
+
+/** A refusal in words: `hintFor`, with `condition_not_met` said from the option's card (Sprint 9). */
+export function rejectText(reason: RejectReason, view: (HintView & Partial<ConditionView>) | null, option?: Pick<CardOption, 'clicks' | 'action'> | null): string {
+  if (reason === 'condition_not_met' && view?.players && view.corpServers && view.rig) {
+    const t = conditionText(option, view as ConditionView);
+    if (t) return t;
+  }
+  return hintFor(reason, view, option);
 }
 
 /**
