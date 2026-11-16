@@ -356,6 +356,35 @@ test.describe('S-09-3 Private Security Force, S-09-4 SEA Source', () => {
     await shot(page, 'qa-s9-2-flatline-clean');
   });
 
+  test('QA-S9-6: a meat-damage notice still showing when the Runner flatlines goes; a later toast sits clear of the game-over box', async ({ page }) => {
+    await openBoard(page, { seed: SEED, decks: 'core' });
+    const v = await getView(page);
+    const scored = { ...v.players.corp, scored: ['c09'], points: 2 };
+    const tagged = { ...v.players.runner, tags: 1 };
+    // The second PSF tap: its notice is on screen.
+    let l = await stub(page, { ...v, players: { ...v.players, corp: scored, runner: tagged } }, [{ type: 'meat_damage', amount: 1, cardIds: ['r03'] }]);
+    expect(l.hint?.text).toContain('1 meat damage: Diesel to the Heap');
+    // The third tap flatlines the Runner while that notice still shows.
+    const handOptions = v.handOptions.map((os) => os.map((o) => ({ ...o, reject: 'game_over' as const })));
+    const over: PlayerView = { ...v, phase: 'over', result: { winner: 'corp', reason: 'flatline' }, players: { ...v.players, corp: scored, runner: tagged }, handOptions, legalActions: [] };
+    await page.evaluate(({ v: ov }) => window.__overclock!.stub(ov, [{ type: 'meat_damage', amount: 1, cardIds: [] }, { type: 'game_over', winner: 'corp', reason: 'flatline' }], null), { v: over });
+    // Checked the frame the box opens (the notice would still be up then, ~1.4s life).
+    await page.waitForFunction(() => window.__overclock!.layout().gameOver !== null, undefined, { polling: 'raf' });
+    expect((await layout(page)).hint, 'the earlier notice is gone').toBeNull();
+    l = await waitIdle(page);
+    expect(l.gameOver).toMatchObject({ title: 'Corp wins', reason: 'Runner flatlined' });
+    expect(l.hint, 'no notice comes back').toBeNull();
+    // A tap after the game is over still says why, but off the game-over box.
+    await page.evaluate(() => window.__overclock!.clearAnims());
+    l = await pickHand(page, 0);
+    const hint = (await page.evaluate(() => window.__overclock!.anims())).find((a) => a.kind === 'hint');
+    expect(hint?.text).toBe('The game is over');
+    expect(hint?.box, 'the toast was shown').toBeTruthy();
+    expect(overlaps(hint!.box!, l.gameOver!.box), `toast ${JSON.stringify(hint!.box)} off the game-over box`).toBe(false);
+    if (l.hint) expect(overlaps(l.hint.box, l.gameOver!.box), 'toast off the game-over box').toBe(false);
+    await shot(page, 'qa-s9-6-flatline-toast-clear');
+  });
+
   test('meat damage flies a Grip card to the Heap and names it', async ({ page }) => {
     await openBoard(page, { seed: SEED, decks: 'core' });
     const v = await getView(page);
