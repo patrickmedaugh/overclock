@@ -146,3 +146,30 @@ QA's own screen tests were re-run locally on all 3 sizes, with the stronger roun
 | QA-S9-5 | Very low (cosmetic) | Desktop: the small "Built 2026-11-16 …" date line shows inside the left edge of the "Corp wins" box. | `desktop-12-psf-empty-grip-flatline.png`. Not a Sprint 9 rule. Seen only because the box is now clean. |
 
 **Round 2 totals: 25 / 25 criteria PASS.** QA-S9-1, 2 and 3 are fixed. QA-S9-4 (low) and QA-S9-5 (very low) are open; neither blocks the demo.
+
+---
+
+## Round 3 — owner's short-screen Score bug (2026-11-16)
+
+**What was checked:** the fix for the owner's Galaxy S23 bug. In Chrome with the address bar showing, the screen is about 891×296, and the Score button was squashed to 25 px, so the owner could never score an agenda or reach Private Security Force (S-09-3). The fix is in commits f2efa19, ec07fa2, 437d555, 57c322b and a5108fc. QA checked commit **a5108fc**. QA did not write this fix.
+
+**QA's own checks:**
+- New QA spec `apps/client/e2e/qa-sprint09-r3.spec.ts`. It uses real taps, touch input and DPR 2.625 at 891×296, and also runs at 844×390, 640×360 and desktop. Local result: **6 passed**. The other 6 are skipped on purpose, because the short-screen tests run only once.
+- **The test can catch the bug.** QA put back the old `layout.ts` and `board.ts` (from e95a432) and ran the short-screen tests again. C1 fails with "Score height" and C3 fails with "build date hidden". So these tests would have caught the owner's bug.
+- **Layout comparison** (a one-off unit check, not committed): QA compared `computeLayout` at e95a432 and at a5108fc. At 844×390, 640×360, 1280×800, 1366×768, 1920×1080 and upright 390×844, with and without safe-area insets, for both Corp and Runner, the result is **identical**. At 891×296 the second button grows from **25 px to 44 px**. The credits pill stays **44 px**, the clicks pill slims to 40 px and End turn stays 44 px. Only the build date is hidden.
+
+| # | Criterion | Result | Evidence |
+|---|---|---|---|
+| 1 | 891×296: on a Corp agenda with enough advancements, Advance and Score are both fully visible, at least 44 px, and not overlapped. Tapping Score scores the agenda. | **PASS** | QA test "C1: Advance + Score full size, Score scores" checks: inside the screen, ≥ 44 px, clear of every board element and target, and `expectCleanLayout`. Points go up by the agenda's points, and the game updates in under 100 ms. Screens: `sprint-09-qa/short-01-score.png`, `short-02-scored.png`. |
+| 2 | 891×296: with PSF scored, the Runner tagged and the Corp's turn, tapping PSF shows "Do 1 meat damage · 1 click" in full. Tapping it sends a random Runner card to the Heap and shows the notice. | **PASS** | QA test "C2: PSF …" checks: the button is lit and full size with the label drawn. After the tap there is a `meat_damage` event, the grip is 1 smaller, the Heap is 1 bigger, the lost card is the top of the Heap, the Corp has 1 fewer click, and the notice "1 meat damage: Magnum Opus to the Heap" shows. The game updates in under 100 ms. Screens: `short-03-psf-button.png`, `short-04-psf-notice.png`. |
+| 3 | 891×296: End turn and the credits pill are still visible and tappable. Nothing important is hidden except the build date. | **PASS** | QA test "C3: …" checks: End turn is 44 px and works (the turn passes). The credits pill is full size (44 px), and tapping it gives +1 credit in under 100 ms. The clicks and credits text are still drawn. The build date is the only thing hidden. Screens: `short-05-rail-idle.png`, `short-06-after-end-turn.png`. |
+| 4 | 844×390, 640×360 and desktop look the same as before. | **PASS** | The layout is the same as before the fix at every size (see the layout comparison above). The QA test "C4: Score, PSF and rail flows" passed at all 3 sizes, and the build date still shows there. Screens `r3-{phone,phone-small,desktop}-01…06-*.png` match the earlier Sprint 9 screens; for example, `r3-phone-small-03-psf-button.png` and `phone-small-10-psf-button.png` have the same rail and positions. |
+| 5 | CI on the head commit | **FAIL (red), not caused by this fix** | On a5108fc: `checks` passed (lint, typecheck, unit tests). `build`, `deploy`, `publish` and `guard-mutation` passed. e2e shards 1/2/3 passed (298 / 296 / 296). **Shard 4/4 failed: 296 passed, 1 failed (also failed on retry), 0 flaky.** All 8 `phone-short` `short-rail.spec.ts` tests passed in that shard, including 891×296. ("Workers Builds" was ignored as the owner asked.) |
+
+**The CI failure is QA-S9-6, a new bug that was already in the code before this fix.**
+
+| ID | Severity | What | Repro |
+|---|---|---|---|
+| QA-S9-6 | Low (desktop) | When the Corp flatlines the Runner with Private Security Force, the earlier "1 meat damage: Akamatsu Mem Chip to the Heap" notice can still be showing. It is drawn over the "Corp wins" title of the game-over box (toast x 399–748, y 292–324; box x 331–949, y 273–406). This is the QA-S9-2 symptom again, for a toast that was already showing. It depends on timing. CI passed this test on e95a432 but failed it twice on a5108fc. **Locally it fails every time, including on a clean checkout of e95a432 (before the fix)**, so the short-screen fix did not cause it. | `cd apps/client && npx playwright test e2e/qa-sprint09.spec.ts --project=desktop --retries=0 -g "seed 3: three meat"`. It fails at line 333, "toast off the game-over box". Screenshot: `sprint-09-qa/r3-desktop-07-toast-over-game-over.png`. Fix idea for the developers: clear or hide any notice that is still showing when the game-over box opens. |
+
+**Round 3 totals: 4 / 5 criteria PASS. Criterion 5 (CI green) FAILS** because of QA-S9-6, which was already there before the fix. The owner's Score bug itself is fixed at 891×296. Before the CI criterion can pass, QA-S9-6 must be fixed (or ruled on) and CI must be green on the new head.
