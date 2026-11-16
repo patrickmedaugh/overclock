@@ -511,6 +511,96 @@ maxHandSize(state, side) = 5 − brainDamage    // exported
 - Test-mode `create.test.deckSet?: 'core' | 'starter'` (production ignores `test`; always `'core'`). `PROTOCOL_VERSION` stays 1. `ONLINE_OPTIONS = {rezWindow: 'always', deckSet: 'core'}`.
 - `@overclock/match/testing`: `planToStep(seed, goal, maxActions?, options?)` plans on `options.deckSet ?? goalDeckSet(goal)` (Sprint 3–7 goals: `'starter'`; Sprint 8 goals: `'core'`) and returns `plan.deckSet`; `planBusyBoard(seed, goal?, maxActions?, deckSet = 'starter')` returns `deckSet`. Create the page's game with the plan's `deckSet`.
 
+## Sprint 9 interface (pinned: implement exactly this; changes go through the architect)
+
+Everything in the Sprint 1–8 interfaces still holds unless noted. Tech plan: `docs/sprints/sprint-09-tech-plan.md`. No engine or client code checks a card id. `RULES_VERSION = 3` (live online games expire on deploy). `PROTOCOL_VERSION` stays 1.
+
+**E7 status:** hidden-information allowlists (trace events / trace choices name the face-up card that started the trace; a scored agenda's `ability_triggered`), 300-game Sprint 9 property test, AI (trace bids, PSF, trash the costliest resource, remove a tag with ≥ 4 credits), room parity tests, `SPRINT9_GOALS` (below). Sprint 9 engine work is complete.
+
+**E6 status:** `lastSuccessfulRunTurn` is set at every `run_successful` (a Bank Job run counts); SEA Source and Ichi 1.0 work (nothing cut).
+
+**E5 status:** `meat_damage` (shared net/brain damage code; flatline when more than the Grip), `scoredAbilities` usable through `activate` with a scored uid `score:corp:<i>` (Corp score area only), listed in the Corp's `installedOptions` under that key. Private Security Force works.
+
+**E4 status:** tags work: `remove_tag`, `trash_resource` (`rig_card_trashed{cause:'tagged'}`), Runner `basicOptions`, Corp `installedOptions` per rig resource while tagged; tags never reset.
+
+**E3 status:** traces work (`trace` effect, both windows with the skip rules, `trace_bid`, in-run resume and action resume, `give_tags`); the stub AI bids (Corp: least that beats the Runner's best answer, else 0; Runner: `needed`).
+
+**E1 status:** every type below exists; the new actions are validated in the pinned check order and then refused `not_implemented` (stub check `notBuiltYet`, removed in E3/E4); the `trace` / `give_tags` / `meat_damage` effects are no-ops until E3–E5; `basicOptions` is `[]` and scored abilities are not offered until E4/E5; `lastSuccessfulRunTurn` is set from E6. Views are complete (tags, link, `choice.trace`, trace bid options).
+
+### Card DSL v4 (`@overclock/cards`, additive)
+```ts
+type Effect = ...
+  | { op: 'trace'; base: number; onSuccess: Effect[] }   // last effect of an onPlay; onSuccess ops ⊆ TRACE_SUCCESS_OPS
+  | { op: 'give_tags'; amount: number }
+  | { op: 'meat_damage'; amount: number };
+const TRACE_SUCCESS_OPS = ['give_tags', 'brain_damage', 'net_damage', 'meat_damage', 'gain_credits'] as const;  // exported
+type TraceSuccessOp = (typeof TRACE_SUCCESS_OPS)[number];
+type CardAbilityRequirement = 'hosted_credits' | 'runner_tagged';   // CardAbility.requires
+type PlayCondition = 'runner_ran_last_turn' | 'runner_successful_run_last_turn';
+// CardDef.link?: number           now also Runner rig cards (Access to Globalsec: 1)
+// CardDef.scoredAbilities?: CardAbility[]   Corp agendas only, when: 'click' only (Private Security Force)
+```
+- New ids (E2): c20 Hunter, c21 Ichi 1.0, c22 SEA Source, r18 Access to Globalsec; c09 PSF gets `scoredAbilities: [{label: 'Do 1 meat damage', when: 'click', clicks: 1, credits: 0, requires: 'runner_tagged', effects: [{op: 'meat_damage', amount: 1}]}]`.
+
+### State
+```ts
+// PlayerState += tags: number                       Runner; always 0 for the Corp
+// GameState  += lastSuccessfulRunTurn: number | null   set at every run_successful
+type ChoiceKind = 'free_rez' | 'trash_target' | 'prevent_trash' | 'trace_corp' | 'trace_runner';
+interface TraceState {
+  base: number;
+  strength: number | null;   // base + Corp bid; null while the Corp bids
+  corpBid: number | null;
+  onSuccess: Effect[];
+}
+// ChoiceState += trace?: TraceState   cardId = the ICE or operation; in a run resume: 'run' + run.firing = the sub; SEA Source resume: 'action'
+scoredUid(side, index) => `score:${side}:${index}`      // exported
+parseScoredUid(uid) => {side, index} | null              // exported
+runnerLink(state) = identity link + Σ rig cards' link     // exported
+BASIC_ACTION_COST = 2                                     // exported (remove_tag, trash_resource; + 1 click)
+```
+
+### Trace flow
+- `trace_started{cardId, base, link}` → Corp window (`trace_corp`) → Runner window (`trace_runner`) → `trace_resolved` → `onSuccess` effects → (in a run) `subroutine_resolved{op: 'trace', amount: 1 success / 0 fail}` (before any `run_ended` / `game_over`, via `beforeEnd`) → remaining subs.
+- **Success iff strength > link + Runner bid** (ties: Runner).
+- Windows open only when the bid can matter (all inputs public): Corp iff credits > 0 **and** base + credits > link; Runner iff 0 < strength − link ≤ Runner max bid. A skipped side bids 0: `trace_bid{player, credits: 0, total, auto: true}`, no `choice_opened`.
+- Max bids: Corp = its credits; Runner = credits + `run.tempCredits` (paid temp-first). Recurring credits are not used.
+- Hunter in a run: `subroutine_fired` → `trace_started` → (`choice_opened{trace_corp}` → `choice_closed` → `credits_spent`)? → `trace_bid{corp}` → (`choice_opened{trace_runner}` → `choice_closed` → `credits_spent`)? → `trace_bid{runner}` → `trace_resolved` → `tags_changed` → `subroutine_resolved` → `ice_passed` …
+
+### Actions
+```ts
+| { type: 'trace_bid'; player: Side; credits: number }
+//   invalid_action (non-negative integer) → game_over → not_your_turn (waitingOn) → wrong_phase (no open trace choice) → no_credits (> max)
+//   `pass` in a trace choice = bad_target (bid 0 is the default)
+| { type: 'remove_tag'; player: Side }                 // Runner, 1 click + 2 credits
+//   invalid_action → game_over → not_your_turn → wrong_phase (own action phase) → no_clicks → condition_not_met (0 tags) → no_credits
+| { type: 'trash_resource'; player: Side; uid: string }  // Corp, 1 click + 2 credits → rig_card_trashed{cause: 'tagged'}
+//   invalid_action → game_over → not_your_turn → wrong_phase → no_clicks → condition_not_met (untagged) → bad_target (not a rig resource) → no_credits
+```
+- `activate.uid` may be a scored uid `score:corp:<i>`: `ability` indexes that agenda's `scoredAbilities` (Corp, own action phase); `requires: 'runner_tagged'` untagged → `condition_not_met`.
+- A Corp sending `remove_tag` gets `condition_not_met` (the Corp never has tags); a Runner sending `trash_resource` is `not_your_turn` on the Corp's turn, else `bad_target` once tagged.
+
+### Events (all public)
+- `trace_started{cardId, base, link}` · `trace_bid{player, credits, total, auto?: true}` (after its `credits_spent`; `total` = strength for the Corp, link + bid for the Runner) · `trace_resolved{cardId, strength, total, success}` · `tags_changed{amount /* +n or −1 */, tags}` · `meat_damage{amount, cardIds}` (flatline as net damage) · `rig_card_trashed.cause?: 'tagged'` · `choice_opened` / `choice_closed` with the new kinds.
+
+### View
+```ts
+// PlayerSideView += tags: number; link: number      (Corp: 0, 0)
+interface TraceView {            // ChoiceView.trace?, both viewers
+  base: number;
+  strength: number;              // base until the Corp has bid
+  corpBid: number | null;
+  link: number;
+  runnerMaxBid: number;
+  corpMaxBid: number;
+  needed: number;                // max(0, strength − link): Runner credits to tie = escape
+}
+// ChoiceView options (deciding viewer only): one trace_bid per amount 0..max, cost = amount
+// PlayerView += basicOptions: CardOption[]   Runner: remove_tag (cost 2, clicks: 1) while tagged, with reject; Corp: []
+```
+- Corp `installedOptions` += per rig resource uid a `trash_resource` option (cost 2, `clicks: 1`) **only while the Runner is tagged**; += per scored agenda with `scoredAbilities` (key `score:corp:<i>`) its `activate` options, always listed (reject `condition_not_met` when untagged).
+- `RunView.letFire` stops where a trace opens (as Rototurret's choice).
+
 ## `@overclock/match` (host; `packages/match`)
 Owns one game's `GameState` and talks to seats only through projections. It is the same contract a network server will expose later.
 
@@ -563,10 +653,11 @@ The planner answers a free-rez choice it did not aim for with Skip.
 - `viktor_encounter` — encounter with a rezzed Viktor 1.0 alone on a remote, no code gate breaker, ≥ 2 Grip cards. `info: {server, iceUid}`. Pass → `brain_damage{maxHandSize: 4}`, run ended.
 - `heimdall_corroder_encounter` — rezzed Heimdall 1.0, Corroder (strength 2), ≥ 7 credits. `info: {server, iceUid, breakerUid}`.
 - `heimdall_ram_encounter` — rezzed Heimdall 1.0, Battering Ram (strength 3), ≥ 5 credits. `info: {server, iceUid, breakerUid}`. 3 pumps, then 6 break picks.
-- `pipeline_katana_encounter` — rezzed Neural Katana, Pipeline (strength 1), ≥ 5 credits, ≥ 4 Grip cards. `info: {server, iceUid, breakerUid}`.
+- ~~`pipeline_katana_encounter`~~ — **retired in Sprint 9** (Neural Katana left the core deck; `planToStep` throws). Use `pipeline_hunter_encounter`: rezzed Hunter, Pipeline (strength 1), ≥ 7 credits (3 pumps of 2 to strength 4, then 1 to break). `info: {server, iceUid, breakerUid}`.
 - `runner_magnum_opus` — Runner's action step, ≥ 1 click, Magnum Opus installed. `info: {uid}`.
 - `runner_sure_gamble` — Runner's action step, ≥ 1 click, exactly 5 credits, Sure Gamble in the Grip. `info: {handIndex}`.
-- `rototurret_two_programs` — encounter with a rezzed Rototurret, ≥ 2 programs installed. `info: {server, iceUid, programs: 'uidA,uidB', construct: uid | ''}`. Pass → `trash_target` (Corp). **With Sacrificial Construct installed** (then `prevent_trash` follows the Corp's pick) on seeds 2, 6, 7, 9, 15, 16, 19, 23, 24, 27, 33, 34, 44, 46, 59, 60, 62, 71, 74, 99, 100, 12345; the other seeds of 1-100 have none (e.g. 1, 3, 42).
+- `rototurret_two_programs` — encounter with a rezzed Rototurret, ≥ 2 programs installed. `info: {server, iceUid, programs: 'uidA,uidB', construct: uid | ''}`. Pass → `trash_target` (Corp). **With Sacrificial Construct installed** (then `prevent_trash` follows the Corp's pick), Sprint 9 decks: seeds 11, 16, 20, 27, 30, 32, 35, 42, 43, 48, 51, 54, 56, 59, 62, 65, 67, 69, 92, 95; the other seeds of 1-100 and 12345 have none (e.g. 1, 2, 7). (Sprint 8 decks were 2, 6, 7, …, 12345.)
+- Sprint 9 decks: `heimdall_corroder_encounter` fails on seed 80 (Heimdall 1.0 is the bottom card of R&D); every other Sprint 8 goal works on seeds 1-100 and 12345.
 
 **Test-only (Sprint 7):** seven more `planToStep` goals (all work for seeds 1-100 and 12345, pass-the-phone and online; `planToStep(seed, goal, maxActions?, options?)` takes the game options, e.g. `{rezWindow: 'always'}` for an online prelude — pass the same options to the game). `SPRINT7_GOALS` lists them.
 - `corp_rez_asset` — Corp's action step, a face-down PAD Campaign with Rez legal (≥ 2 credits). `info: {uid, cardId: 'c03', server, cost: '2'}`. Rez → `credits_spent 2`, `card_rezzed`; at the next Corp turn start `ability_triggered` + `credit_gained 1`.
@@ -576,6 +667,19 @@ The planner answers a free-rez choice it did not aim for with Skip.
 - `runner_bank_job_remote` — Runner's action step, ≥ 1 click, Bank Job with 8 credits, a remote with no ICE holding a card. `info: {bankJobUid, server, credits: '8'}`. A run there stops at step `success`.
 - `corp_ice_wall` — Corp's action step, ≥ 2 clicks and ≥ 3 credits, a face-down Ice Wall (no counters) alone on a remote, the Runner has Corroder and ≥ 2 credits (S-07-5 AC1 + AC2: advance twice, end turn, the Runner runs, the Corp rezzes, strength 3). `info: {uid, server, breakerUid}`.
 - `remote_last_card` — Runner's action step, ≥ 1 click, ≥ 2 remotes, one with no ICE holding exactly one agenda whose steal does not win (S-07-1). `info: {server, uid, cardId, otherServer}`. Stealing it → `run_ended`, `server_removed {server}`.
+
+**Test-only (Sprint 9):** eleven `planToStep` goals on the **core decks** (`SPRINT9_GOALS`; `plan.deckSet === 'core'`). **All work for seeds 1-100 and 12345, pass-the-phone and online (`{rezWindow: 'always'}`)**; tests pin 1, 7, 42, 12345. Hunter is always alone on a new remote and the Runner (Kate, link 1) runs only that server.
+- `hunter_encounter` — the Runner encounters a rezzed Hunter, no sentry breaker (no Pipeline), link 1, Runner ≥ 4 credits, Corp ≥ 2 credits. `info: {server, iceUid, corpCredits, runnerCredits}`. Let it fire → `trace_corp` (Corp's phone); Corp bids 2 → `trace_runner` with `needed: 4`.
+- `hunter_corp_broke` — the same with the Corp at **0 credits** and the Runner ≥ 2. Let it fire → `trace_bid{corp, 0, auto}` and straight to `trace_runner` (no Corp hand-off). Same `info`.
+- `trace_tie` — Hunter's trace waits on the Runner's bid (`trace_runner`, in the run) with 1 ≤ `needed` ≤ his max. `info: {server, iceUid, needed, strength, link}`. Bid `needed` → escaped (tie); `needed − 1` → tagged.
+- `runner_tagged_corp_turn` — Corp's action step, 3 clicks, ≥ 2 credits, Runner tagged with Armitage Codebusting installed. `info: {armitageUid, tags}`. `installedOptions[armitageUid]` = `[{trash_resource, cost 2, clicks 1}]`.
+- `runner_tagged_own_turn` — Runner's action step (no run), tagged, ≥ 1 click, ≥ 2 credits. `info: {tags}`. `basicOptions` = `[{remove_tag, cost 2, clicks 1}]`.
+- `psf_scored_tagged` — Corp's action step, 3 clicks, Private Security Force in the Corp score area, Runner tagged. `info: {uid: 'score:corp:<i>', grip}`; `grip` is the Runner's Grip size (never '0' on seeds 1-100/12345, so the flatline is engine-tested with fixtures).
+- `ichi_two_programs` — the Runner encounters a rezzed Ichi 1.0 with ≥ 2 programs. `info: {server, iceUid, programs, construct}` (as `rototurret_two_programs`). **With Sacrificial Construct** on seeds 11, 16, 20, 27, 30, 32, 35, 42, 43, 48, 51, 54, 56, 59, 62, 65, 67, 69, 92, 95 (the same as Rototurret's); none on e.g. 1, 7, 12345.
+- `sea_source_ready` — Corp's action step, 3 clicks, ≥ 3 credits, SEA Source in HQ and playable (the Runner ran Archives successfully last turn). `info: {handIndex}`.
+- `sea_source_not_ready` — the same, but no successful run last turn: the play option has `reject: 'condition_not_met'`. `info: {handIndex}`.
+- `globalsec_installed` / `globalsec_two_installed` — Runner's action step, ≥ 1 click, exactly 1 / 2 Access to Globalsec installed (link 2 / 3), Hunter installed on a remote the Corp can rez (or face up). `info: {uids, link, hunterServer}`. A run on `hunterServer` starts the trace with that link.
+- Retired: `pipeline_katana_encounter` (throws; Neural Katana left the deck) → `pipeline_hunter_encounter` (in `SPRINT8_GOALS`).
 
 The client and AI may import only the public index of engine/cards/match. The client may not import `apply`, `newGame`, `legalActions`, `viewFor` or `replay` (it goes through the match).
 

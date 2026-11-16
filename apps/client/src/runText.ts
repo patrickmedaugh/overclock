@@ -6,6 +6,7 @@
 import { getCard } from '@overclock/cards';
 import type { Action, CardOption, ChoiceView, GameEvent, LetFireView, RunView, Side, SubOutcome } from '@overclock/engine';
 import { SIDE_NAME, TERMS, plural, priceText, serverLabel } from './terms';
+import { traceReportText } from './traceText';
 
 /** A card's name, or `fallback` for a card the viewer can't see. */
 export function nameOf(cardId: string | null | undefined, fallback = 'face-down ICE'): string {
@@ -331,6 +332,14 @@ export function outcomeText(o: SubOutcome, tense: 'will' | 'did'): string | null
     case 'trash_installed':
       // S-08-7: the Corp picks which program (amount 1 = one was trashed; 0 = none, or saved).
       return will ? 'a program is trashed' : 'a program was trashed';
+    case 'give_tags':
+      // Sprint 9.
+      return `${will ? 'you get' : 'you got'} ${plural(n, 'tag', 'tags')}`;
+    case 'meat_damage':
+      return `${will ? 'take' : 'you took'} ${n} ${TERMS.meatDamage.toLowerCase()}`;
+    case 'trace':
+      // Sprint 9: amount 1 = the trace succeeded, 0 = the Runner escaped (the report names the totals).
+      return will ? 'a trace' : 'the trace succeeded';
     default:
       return null;
   }
@@ -369,7 +378,10 @@ export function iceReport(batch: readonly GameEvent[]): string | null {
   // S-08-7: the program Rototurret trashed (named), and a Sacrificial Construct that saved one.
   let trashed: string | null = null;
   const saved: string[] = [];
-  for (const e of batch) {
+  // Sprint 9: the last trace's result ("trace 5 vs link 3: you got 1 tag"), said with its subroutine.
+  let traced: string | null = null;
+  for (const [i, e] of batch.entries()) {
+    if (e.type === 'trace_resolved') traced = traceReportText(batch, i);
     if (e.type === 'rig_card_trashed') trashed = e.cardId;
     if (e.type === 'trash_prevented') {
       saved.push(`${nameOf(e.byCardId, 'A card')} was trashed instead of ${nameOf(e.cardId, 'a card')}.`);
@@ -381,8 +393,14 @@ export function iceReport(batch: readonly GameEvent[]): string | null {
       said.set(e.cardId, []);
       order.push(e.cardId);
     }
-    const t = e.outcome.op === 'trash_installed' && e.outcome.amount > 0 && trashed ? `${nameOf(trashed, 'a program')} was trashed` : outcomeText(e.outcome, 'did');
+    const t =
+      e.outcome.op === 'trace' && traced
+        ? traced
+        : e.outcome.op === 'trash_installed' && e.outcome.amount > 0 && trashed
+          ? `${nameOf(trashed, 'a program')} was trashed`
+          : outcomeText(e.outcome, 'did');
     if (e.outcome.op === 'trash_installed') trashed = null;
+    if (e.outcome.op === 'trace') traced = null;
     if (t) said.get(e.cardId)!.push(t);
   }
   if (last === null) return null;

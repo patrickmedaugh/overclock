@@ -46,6 +46,11 @@ export function expectRunnerEventsClean(events: readonly GameEvent[], where: str
       expect(e.cardId, `${where}: Corp identity trigger`).toBe(after.players.corp.identity);
       continue;
     }
+    if (e.type === 'ability_triggered' && e.uid.startsWith('score:corp:')) {
+      // Sprint 9 (spec change): a scored agenda's ability (Private Security Force) names that face-up agenda.
+      expect(after.players.corp.scoreArea[Number(e.uid.split(':')[2])], `${where}: scored ability names its agenda`).toBe(e.cardId);
+      continue;
+    }
     if (e.type === 'card_rezzed' || e.type === 'ability_triggered') {
       // Sprint 7 (spec change): may name a Corp card only once it is face up: the uid is an
       // installed Corp card with that id, rezzed, after the action. Otherwise (a rig card) no Corp id.
@@ -53,6 +58,13 @@ export function expectRunnerEventsClean(events: readonly GameEvent[], where: str
       if (corp) expect(corp.rezzed && corp.cardId === e.cardId, `${where}: ${e.type} names face-up ${e.uid}`).toBe(true);
       else if (trashed.has(e.uid)) expect(trashed.get(e.uid), `${where}: ${e.type} names ${e.uid}, trashed face up`).toBe(e.cardId);
       else expect(JSON.stringify(e), where).not.toMatch(CORP_ID);
+      continue;
+    }
+    if (e.type === 'trace_started' || e.type === 'trace_resolved') {
+      // Sprint 9 (spec change): names the card that started the trace: the rezzed ICE (in a run) or the
+      // played operation, face up in Archives (SEA Source).
+      const ice = after.servers.flatMap((sv) => sv.ice).find((c) => c.rezzed && c.cardId === e.cardId);
+      expect(ice !== undefined || archivesUp.includes(e.cardId), `${where}: ${e.type} names face-up ${e.cardId}`).toBe(true);
       continue;
     }
     if (e.type === 'subroutine_resolved') {
@@ -101,7 +113,9 @@ export function expectRunnerViewClean(s: GameState, where: string): void {
   // (spec change): an in-run choice names the rezzed ICE whose subroutine opened it.
   if (v.choice) {
     const ice = s.run ? s.servers.find((sv) => sv.id === s.run!.server)?.ice[s.run.position] : undefined;
-    const ok = s.players.corp.scoreArea.includes(v.choice.cardId) || (ice?.rezzed === true && ice.cardId === v.choice.cardId);
+    // Sprint 9 (spec change): a trace from an operation (SEA Source) names it; it lies face up in Archives.
+    const played = s.run === null && s.players.corp.discard.at(-1)?.faceUp === true && s.players.corp.discard.at(-1)?.cardId === v.choice.cardId;
+    const ok = s.players.corp.scoreArea.includes(v.choice.cardId) || (ice?.rezzed === true && ice.cardId === v.choice.cardId) || played;
     expect(ok, `${where}: choice names ${v.choice.cardId}`).toBe(true);
   }
   // Nothing else names a Corp card.

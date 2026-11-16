@@ -51,7 +51,7 @@ function scenario(type: S1Type, reason: RejectReason): { state: GameState; actio
 describe('validation table (rules.ts)', () => {
   it('has an entry for every action type', () => {
     expect(Object.keys(RULES).sort()).toEqual(
-      [...TYPES, 'install', 'play', 'run', 'rez', 'pass', 'jack_out', 'use_ability', 'steal', 'trash', 'advance', 'score', 'activate', 'choose'].sort(),
+      [...TYPES, 'install', 'play', 'run', 'rez', 'pass', 'jack_out', 'use_ability', 'steal', 'trash', 'advance', 'score', 'activate', 'choose', 'trace_bid', 'remove_tag', 'trash_resource'].sort(),
     );
   });
 

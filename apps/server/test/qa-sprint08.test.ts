@@ -46,12 +46,20 @@ function checkFrames(side: Side, ups: Update[], state: GameState, where: string)
       expect(u.view.players.runner.hand, where).toBeNull();
       // Runner draws reach the Corp without a card id.
       for (const e of u.events) if (e.type === 'card_drawn' && e.player === 'runner') expect(e.cardId, where).toBeUndefined();
-      for (const k of Object.keys(u.view.installedOptions)) expect(state.rig.some((c) => c.uid === k), `${where}: Corp option on a rig card`).toBe(false);
+      // Sprint 9 (engine-dev, spec change; QA reviews): while the Runner is tagged the Corp may trash his
+      // resources, so a rig resource carries exactly the Corp's `trash_resource` option; nothing else on rig cards.
+      for (const [k, opts] of Object.entries(u.view.installedOptions)) {
+        if (!state.rig.some((c) => c.uid === k)) continue;
+        expect(state.players.runner.tags, `${where}: Corp option on a rig card while untagged`).toBeGreaterThan(0);
+        expect(opts.map((o) => o.action), `${where}: Corp option on a rig card`).toEqual([{ type: 'trash_resource', player: 'corp', uid: k }]);
+      }
       void grip;
     }
     // In-run choice: options only for the deciding seat; the run stays visible to both.
+    // Sprint 9 (engine-dev, spec change; QA reviews): a trace from an operation (SEA Source) happens outside a run.
+    const actionTrace = (u.view.choice?.kind === 'trace_corp' || u.view.choice?.kind === 'trace_runner') && state.run === null;
     if (u.view.choice && u.view.choice.kind !== 'free_rez') {
-      expect(u.view.run, `${where}: run kept during ${u.view.choice.kind}`).not.toBeNull();
+      if (!actionTrace) expect(u.view.run, `${where}: run kept during ${u.view.choice.kind}`).not.toBeNull();
       if (u.view.choice.waitingOn !== side) expect(u.view.choice.options, where).toEqual([]);
       else expect(u.view.choice.options.length, where).toBeGreaterThan(0);
     }

@@ -458,27 +458,29 @@ test.describe('QA S-08-4 Kate cards', () => {
     await shot(page, '19-ram-two-broken');
   });
 
-  test('Pipeline on Neural Katana: 2 credits twice for +2, then 1 credit breaks; strength stays', async ({ page }) => {
+  // ui-dev, deck change (Sprint 9); QA reviews: Neural Katana left the core deck, Pipeline meets Hunter (strength 4):
+  // three pumps of 2 credits, then 1 credit breaks (was two pumps on Katana, total 5).
+  test('Pipeline on Hunter: 2 credits three times for +3, then 1 credit breaks; strength stays', async ({ page }) => {
     await core(page);
-    await toStep(page, 1, 'pipeline_katana_encounter');
+    await toStep(page, 1, 'pipeline_hunter_encounter'); // ui-dev, deck change (Sprint 9); QA reviews
     let l = await layout(page);
     const c = (await getView(page)).players.runner.credits;
     const pumpBtn = runButtonOf(l, /\+1 strength/);
     expect(pumpBtn.label).toMatch(/2 credits/);
-    for (let i = 0; i < 2; i++) {
+    for (let i = 0; i < 3; i++) {
       await tap(page, runButtonOf(l, /\+1 strength/).box);
       l = await waitIdle(page);
     }
-    expect(l.run!.lines).toContain('Pipeline 3');
+    expect(l.run!.lines).toContain('Pipeline 4');
     const brk = l.run!.buttons.find((b) => /Break "/.test(b.label))!;
     expect(brk).toMatchObject({ lit: true });
     expect(brk.label).toMatch(/1 credit$/);
-    await shot(page, '20-pipeline-katana');
+    await shot(page, '20-pipeline-hunter');
     await tap(page, brk.box);
     l = await waitIdle(page);
-    expect(c - (await getView(page)).players.runner.credits).toBe(5);
-    // Still strength 3 after the break (for the remainder of this run).
-    if (l.run?.step === 'encounter') expect(l.run.lines).toContain('Pipeline 3');
+    expect(c - (await getView(page)).players.runner.credits).toBe(7);
+    // Still strength 4 after the break (for the remainder of this run).
+    if (l.run?.step === 'encounter') expect(l.run.lines).toContain('Pipeline 4');
   });
 
   test('Magnum Opus: Gain 2 credits · 1 click, used every click; its name and PROGRAM line readable', async ({ page }) => {
@@ -562,8 +564,9 @@ test.describe('QA S-08-7 Rototurret and Sacrificial Construct', () => {
   }
 
   test('pass-and-play with the cover: Runner lets it fire -> cover -> Corp picks -> cover -> Runner saves with the Construct', async ({ page }) => {
-    await core(page, 7, 'play=here');
-    const plan = await toStep(page, 7, 'rototurret_two_programs');
+    // ui-dev, deck change (Sprint 9); QA reviews: seed 11 has Sacrificial Construct with the Sprint 9 decks (was 7).
+    await core(page, 11, 'play=here');
+    const plan = await toStep(page, 11, 'rototurret_two_programs');
     const construct = plan.info['construct']!;
     expect(construct).not.toBe('');
     let l = await lift(page);
@@ -611,7 +614,7 @@ test.describe('QA S-08-7 Rototurret and Sacrificial Construct', () => {
 
   test('online: the Corp picks on its device, the Runner lets it be trashed on his; same as pass-and-play; no hidden card in any frame', async ({ browser }) => {
     test.setTimeout(90_000);
-    const seed = 9;
+    const seed = 16; // ui-dev, deck change (Sprint 9); QA reviews: a Sacrificial Construct seed with the Sprint 9 decks (was 9).
     const plan = planToStep(seed, 'rototurret_two_programs', undefined, ONLINE_CORE);
     expect(plan.info['construct']).not.toBe('');
     const host = await openPhone(browser);

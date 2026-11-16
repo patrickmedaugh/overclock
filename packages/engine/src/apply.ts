@@ -6,6 +6,7 @@ import {
   abilityGain,
   activeSources,
   ADVANCE_COST,
+  BASIC_ACTION_COST,
   advanceTarget,
   breakerPayment,
   breakerCard,
@@ -22,10 +23,12 @@ import {
   installDiscounts,
   installTargetCheck,
   openRunEffect,
+  ownScoredCard,
   playCost,
   rejectionFor,
   rezCost,
   trashCost,
+  traceMaxBid,
   unrezzedIce,
   unstolenAgendaShown,
   waitingOn,
@@ -39,8 +42,11 @@ import {
   doPass,
   doRez,
   doRun,
+  doRemoveTag,
   doSteal,
+  doTraceBid,
   doTrash,
+  doTrashResource,
   doUseAbility,
   pruneEmptyRemotes,
   resolveEffect,
@@ -52,6 +58,7 @@ import {
   endGame,
   maxHandSize,
   opponentOf,
+  scoredUid,
   startTurn,
   withPlayer,
   type GameState,
@@ -291,6 +298,12 @@ export function apply(state: GameState, action: Action): ApplyResult {
       return doActivate(state, action);
     case 'choose':
       return doChoose(state, action);
+    case 'trace_bid':
+      return doTraceBid(state, action);
+    case 'remove_tag':
+      return doRemoveTag(state);
+    case 'trash_resource':
+      return doTrashResource(state, action);
   }
 }
 
@@ -322,6 +335,7 @@ export function legalActions(state: GameState, player: Side): Action[] {
       ...installed,
       ...runStepOptions(state, player),
       ...choiceOptions(state, player),
+      ...basicOptions(state, player),
     ]
       .filter((o) => o.reject === null)
       .map((o) => o.action),
@@ -424,6 +438,11 @@ export function choiceOptions(state: GameState, player: Side): CardOption[] {
     const rezzes = unrezzedIce(state).map((c) => option(state, { type: 'rez', player, uid: c.uid }, 0));
     return [...rezzes, option(state, { type: 'pass', player }, 0)];
   }
+  if (kind === 'trace_corp' || kind === 'trace_runner') {
+    // Sprint 9: one bid per amount 0..max (`cost` = amount).
+    const max = traceMaxBid(state, player);
+    return Array.from({ length: max + 1 }, (_, credits) => option(state, { type: 'trace_bid', player, credits }, credits));
+  }
   const chooses = chooseTargets(state).map((uid) => option(state, { type: 'choose', player, uid }, 0));
   return kind === 'prevent_trash' ? [...chooses, option(state, { type: 'pass', player }, 0)] : chooses;
 }
@@ -453,7 +472,9 @@ function abilityOption(state: GameState, action: ActionOf<'activate'>, c: Instal
  * Corp (servers in order; ICE innermost first, then content): agenda `advance` (cost 1) and, once it
  * has enough counters, `score`; unrezzed asset/upgrade `rez` (cost = rez cost, Sprint 7); click
  * abilities of rezzed cards. Runner (Sprint 7, rig order): one `activate` per `click` ability.
- * The other side's cards are never listed.
+ * Sprint 9 (Corp): per scored agenda with `scoredAbilities` (key `score:corp:<i>`) its `activate` options;
+ * while the Runner is tagged, one `trash_resource` (cost 2, `clicks: 1`) per rig resource
+ * (the only options on the other side's cards).
  */
 export function installedOptions(state: GameState, player: Side): Record<string, CardOption[]> {
   const out: Record<string, CardOption[]> = {};
@@ -482,7 +503,32 @@ export function installedOptions(state: GameState, player: Side): Record<string,
       if (opts.length > 0) out[c.uid] = opts;
     }
   }
+  // Sprint 9: scored agendas with abilities (Private Security Force), always listed with the reason.
+  state.players.corp.scoreArea.forEach((cardId, i) => {
+    const abilities = getCard(cardId)?.scoredAbilities ?? [];
+    if (abilities.length === 0) return;
+    const uid = scoredUid('corp', i);
+    const pseudo = ownScoredCard(state, 'corp', uid) as Installed;
+    out[uid] = abilities.map((ab, ability) => abilityOption(state, { type: 'activate', player, uid, ability }, pseudo, ab));
+  });
+  // Sprint 9: while the Runner is tagged, trash any of his resources (1 click + 2 credits).
+  if (state.players.runner.tags > 0) {
+    for (const c of state.rig) {
+      if (getCard(c.cardId)?.type !== 'resource') continue;
+      out[c.uid] = [{ ...option(state, { type: 'trash_resource', player, uid: c.uid }, BASIC_ACTION_COST), clicks: 1 }];
+    }
+  }
   return out;
+}
+
+/**
+ * Sprint 9: `player`'s basic actions not tied to a card, listed off-turn too with `reject`. Runner:
+ * `remove_tag` (cost 2, `clicks: 1`) while tagged; Corp: none (its `trash_resource` is per rig card, in
+ * `installedOptions`).
+ */
+export function basicOptions(state: GameState, player: Side): CardOption[] {
+  if (player !== 'runner' || state.players.runner.tags <= 0) return [];
+  return [{ ...option(state, { type: 'remove_tag', player }, BASIC_ACTION_COST), clicks: 1 }];
 }
 
 /** Every install/play action the card at `handIndex` could take, before checking turn, clicks or money. */

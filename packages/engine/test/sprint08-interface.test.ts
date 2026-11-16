@@ -5,8 +5,8 @@ import { DEFAULT_OPTIONS, IDENTITY_UID, RULES_VERSION, newGame as engineNewGame,
 import { newGame } from './helpers';
 
 describe('Sprint 8 interface', () => {
-  it('RULES_VERSION is 2; the default deck set is core', () => {
-    expect(RULES_VERSION).toBe(2);
+  it('RULES_VERSION is 3 (Sprint 9); the default deck set is core', () => {
+    expect(RULES_VERSION).toBe(3);
     expect(DEFAULT_OPTIONS).toEqual({ rezWindow: 'affordable', deckSet: 'core' });
     expect(engineNewGame(1).options).toEqual({ rezWindow: 'affordable', deckSet: 'core' });
     expect(engineNewGame(1, { deckSet: 'starter' }).options.deckSet).toBe('starter');

@@ -236,13 +236,14 @@ test.describe('S-08-4 new breakers and events', () => {
     await shot(page, 's08-3-heimdall-corroder-break-all-7');
   });
 
-  test('Pipeline on Neural Katana: pump and break', async ({ page }) => {
+  // Sprint 9: Neural Katana left the core deck (E2); Pipeline meets Hunter (strength 4) instead.
+  test('Pipeline on Hunter: pump and break', async ({ page }) => {
     await core(page);
-    await toStep(page, SEED, 'pipeline_katana_encounter');
+    await toStep(page, SEED, 'pipeline_hunter_encounter');
     let l = await layout(page);
-    expect(l.run!.stepLabel).toBe('Encounter: Neural Katana');
-    // The total comes from the engine's plan (Pipeline: 2 + 2 to reach 3, then 1).
-    expect(l.run!.lines).toContain('Break all: 4 + 1 = 5 credits');
+    expect(l.run!.stepLabel).toBe('Encounter: Hunter');
+    // The total comes from the engine's plan (Pipeline: 2 + 2 + 2 to reach 4, then 1).
+    expect(l.run!.lines).toContain('Break all: 6 + 1 = 7 credits');
     for (let i = 0; i < 6; i++) {
       const brk = l.run!.buttons.find((b) => /Break "/.test(b.label));
       if (brk?.lit) break;
@@ -308,8 +309,9 @@ test.describe('S-08-7 Rototurret: the Corp picks a program; Sacrificial Construc
   });
 
   test('with Sacrificial Construct: after the Corp picks, the Runner may trash the Construct instead', async ({ page }) => {
-    await core(page, 2);
-    const plan = await toStep(page, 2, 'rototurret_two_programs');
+    await core(page, 11);
+    // Sprint 9 decks: seed 11 has Sacrificial Construct installed (was 2).
+    const plan = await toStep(page, 11, 'rototurret_two_programs');
     const construct = plan.info['construct']!;
     expect(construct).not.toBe('');
     const programs = plan.info['programs']!.split(',');
@@ -350,9 +352,10 @@ test.describe('S-08-7 Rototurret through the pass-the-phone cover', () => {
   }
 
   test('Runner -> Corp (pick) -> Runner (save or not): a cover at each hand-over, nothing shown under it', async ({ page }) => {
-    await page.goto('./?seed=2&play=here');
+    // Sprint 9 decks: seed 11 has Sacrificial Construct installed (was 2).
+    await page.goto('./?seed=11&play=here');
     await page.waitForFunction(() => document.body.dataset.ready === 'true' && !!window.__overclock);
-    const plan = await toStep(page, 2, 'rototurret_two_programs');
+    const plan = await toStep(page, 11, 'rototurret_two_programs');
     let l = await lift(page);
     expect(l.viewer).toBe('runner');
     await tap(page, runButtonOf(l, /^Let it fire/).box);

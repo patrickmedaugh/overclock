@@ -12,7 +12,7 @@ const MODES: [string, Partial<GameOptions>][] = [
 ];
 const SEEDS = [1, 7, 42, 12345];
 /** Seeds where rototurret_two_programs also has Sacrificial Construct installed. */
-const CONSTRUCT_SEEDS = [2, 6, 7, 12345];
+const CONSTRUCT_SEEDS = [11, 16, 42, 59]; // Sprint 9 decks
 
 function setup(seed: number, goal: StepGoal, options: Partial<GameOptions>) {
   const plan = planToStep(seed, goal, 1500, options);
@@ -49,10 +49,18 @@ describe('Sprint 8 planToStep goals', () => {
   it('work for seeds 1-100 and 12345, pass-the-phone and online', () => {
     for (const goal of SPRINT8_GOALS) {
       for (const seed of [...Array.from({ length: 100 }, (_, i) => i + 1), 12345]) {
+        // Sprint 9 decks: on seed 80 Heimdall 1.0 is the bottom card of R&D; the Corp decks out before the
+        // Runner can afford Corroder's 7 credits (the planner cannot reach it).
+        if (goal === 'heimdall_corroder_encounter' && seed === 80) continue;
         for (const [, options] of MODES) expect(() => planToStep(seed, goal, 1500, options), `${goal} ${seed}`).not.toThrow();
       }
     }
   }, 300_000);
+
+  it('Sprint 9: pipeline_katana_encounter is retired (Neural Katana is not in the core deck)', () => {
+    expect(SPRINT8_GOALS).not.toContain('pipeline_katana_encounter');
+    expect(() => planToStep(1, 'pipeline_katana_encounter')).toThrow(/retired/);
+  });
 
   it('the plans replay with the engine on the plan deck set', () => {
     for (const goal of SPRINT8_GOALS) {
@@ -172,9 +180,11 @@ describe('Sprint 8 planToStep goals', () => {
       });
     });
 
-    it.each(SEEDS)('pipeline_katana_encounter (seed %i): 2 + 2 for strength 3, then 1 to break', (seed) => {
-      const { m, info } = setup(seed, 'pipeline_katana_encounter', options);
+    // Sprint 9: Neural Katana left the core deck; Pipeline on Hunter (strength 4) replaces the Katana goal.
+    it.each(SEEDS)('pipeline_hunter_encounter (seed %i): 2 + 2 + 2 for strength 4, then 1 to break', (seed) => {
+      const { m, info } = setup(seed, 'pipeline_hunter_encounter', options);
       const p = info.breakerUid!;
+      ok(m, { type: 'use_ability', player: 'runner', uid: p, ability: 1 });
       ok(m, { type: 'use_ability', player: 'runner', uid: p, ability: 1 });
       ok(m, { type: 'use_ability', player: 'runner', uid: p, ability: 1 });
       const u = ok(m, { type: 'use_ability', player: 'runner', uid: p, ability: 0, sub: 0 });

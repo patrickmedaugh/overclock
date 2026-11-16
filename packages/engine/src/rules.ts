@@ -22,6 +22,7 @@ import {
   MAX_HAND_SIZE,
   MEMORY_LIMIT,
   maxHandSize,
+  parseScoredUid,
   type GameState,
   type AccessCard,
   type Installed,
@@ -141,9 +142,13 @@ export const installTargetCheck = (s: GameState, a: ActionOf<'install'>): Reject
 const builtYet = (s: GameState, a: ActionOf<'install' | 'play'>): RejectReason | null =>
   handCard(s, a.player, a.handIndex)?.needs ? 'not_implemented' : null;
 
-/** Card `playIf` conditions. `runner_ran_last_turn`: a run was started in the previous turn (the Runner's). */
+/**
+ * Card `playIf` conditions. `runner_ran_last_turn`: a run was started in the previous turn (the Runner's).
+ * Sprint 9 `runner_successful_run_last_turn`: a run was successful in the previous turn (SEA Source).
+ */
 const PLAY_CONDITIONS: Readonly<Record<PlayCondition, (s: GameState) => boolean>> = {
   runner_ran_last_turn: (s) => s.lastRunTurn !== null && s.lastRunTurn === s.turn - 1,
+  runner_successful_run_last_turn: (s) => s.lastSuccessfulRunTurn !== null && s.lastSuccessfulRunTurn === s.turn - 1,
 };
 
 const playCondition = (s: GameState, a: ActionOf<'play'>): RejectReason | null => {
@@ -307,12 +312,17 @@ const atStepOrChoice =
   (s: GameState): RejectReason | null =>
     s.phase === 'choice' && s.choice ? null : atStep(...steps)(s);
 
+/** Sprint 9: the open choice is a trace bid (`trace_corp` / `trace_runner`). */
+export function isTraceChoice(s: GameState): boolean {
+  return s.phase === 'choice' && (s.choice?.kind === 'trace_corp' || s.choice?.kind === 'trace_runner');
+}
+
 /**
  * Leave it / Done is refused while an agenda that must be stolen is shown. Sprint 8: `pass` in a
- * `trash_target` choice is refused too (the Corp must pick).
+ * `trash_target` choice is refused too (the Corp must pick). Sprint 9: and in a trace choice (bid 0 instead).
  */
 const passAllowed = (s: GameState): RejectReason | null => {
-  if (s.phase === 'choice') return s.choice?.kind === 'trash_target' ? 'bad_target' : null;
+  if (s.phase === 'choice') return s.choice?.kind === 'trash_target' || isTraceChoice(s) ? 'bad_target' : null;
   return s.run?.step === 'access' && unstolenAgendaShown(s) ? 'bad_target' : null;
 };
 
@@ -572,11 +582,26 @@ export function ownFaceUpCard(s: GameState, player: Side, uid: unknown): Install
   return c?.rezzed ? c : undefined;
 }
 
-/** Sprint 7: the card and ability an `activate` names, when both exist (own face-up card). */
+/**
+ * Sprint 9: the Corp's own scored agenda at scored uid `uid` (`score:corp:<i>`) as a face-up pseudo
+ * installed card (uid = the scored uid, no counters, no credits), or undefined. `scoredAbilities` work
+ * only in the Corp's score area (an agenda the Runner stole does nothing for him).
+ */
+export function ownScoredCard(s: GameState, player: Side, uid: unknown): Installed | undefined {
+  const at = typeof uid === 'string' ? parseScoredUid(uid) : null;
+  const cardId = at && player === 'corp' && at.side === player ? s.players[player].scoreArea[at.index] : undefined;
+  return cardId === undefined ? undefined : { uid: uid as string, cardId, rezzed: true, advancements: 0, hostedCredits: 0 };
+}
+
+/**
+ * Sprint 7: the card and ability an `activate` names, when both exist (own face-up card).
+ * Sprint 9: or an own scored agenda (scored uid) and one of its `scoredAbilities`.
+ */
 export function activateTarget(s: GameState, a: ActionOf<'activate'>): { installed: Installed; card: CardDef; ability: CardAbility } | undefined {
-  const installed = ownFaceUpCard(s, a.player, a.uid);
+  const scored = ownScoredCard(s, a.player, a.uid);
+  const installed = scored ?? ownFaceUpCard(s, a.player, a.uid);
   const card = installed && getCard(installed.cardId);
-  const ability = card?.cardAbilities?.[a.ability];
+  const ability = scored ? card?.scoredAbilities?.[a.ability] : card?.cardAbilities?.[a.ability];
   return installed && card && ability ? { installed, card, ability } : undefined;
 }
 
@@ -592,14 +617,16 @@ const activatePhase = (s: GameState, a: ActionOf<'activate'>): RejectReason | nu
 const activateClicks = (s: GameState, a: ActionOf<'activate'>): RejectReason | null =>
   s.players[a.player].clicks >= activateTarget(s, a)!.ability.clicks ? null : 'no_clicks';
 
-/** `requires: 'hosted_credits'`: only while the card holds credits. */
-export function abilityUsable(installed: Installed, ability: CardAbility): boolean {
-  return ability.requires !== 'hosted_credits' || installed.hostedCredits > 0;
+/** `requires: 'hosted_credits'`: only while the card holds credits; Sprint 9 `'runner_tagged'`: only while the Runner has a tag. */
+export function abilityUsable(s: GameState, installed: Installed, ability: CardAbility): boolean {
+  if (ability.requires === 'hosted_credits') return installed.hostedCredits > 0;
+  if (ability.requires === 'runner_tagged') return s.players.runner.tags > 0;
+  return true;
 }
 
 const activateCondition = (s: GameState, a: ActionOf<'activate'>): RejectReason | null => {
   const t = activateTarget(s, a)!;
-  return abilityUsable(t.installed, t.ability) ? null : 'condition_not_met';
+  return abilityUsable(s, t.installed, t.ability) ? null : 'condition_not_met';
 };
 
 const activateCredits = (s: GameState, a: ActionOf<'activate'>): RejectReason | null =>
@@ -676,6 +703,20 @@ export const RULES: RuleTable = {
   score: [playerShape, uidShape, notOver, yourTurn, inPhase('action'), ownAgenda, enoughCounters],
   activate: [playerShape, activateShape, notOver, decides, activateTargetCheck, activatePhase, activateClicks, activateCondition, activateCredits],
   choose: [playerShape, chooseShape, notOver, decides, choosePhase, chooseTarget],
+  // Sprint 9 (E1): checks in their pinned order; `notBuiltYet` refuses until E3/E4 implement them.
+  trace_bid: [playerShape, traceBidShape, notOver, decides, tracePhase, traceBidAffordable],
+  remove_tag: [playerShape, notOver, yourTurn, inPhase('action'), hasClick, runnerTagged, canAffordBasic],
+  trash_resource: [
+    playerShape,
+    trashResourceShape,
+    notOver,
+    yourTurn,
+    inPhase('action'),
+    hasClick,
+    runnerTagged,
+    trashResourceTarget,
+    canAffordBasic,
+  ],
 };
 
 /** Memory used by the Runner's installed programs (card data `memory`). */
@@ -734,6 +775,54 @@ function choosePhase(s: GameState): RejectReason | null {
 
 function chooseTarget(s: GameState, a: ActionOf<'choose'>): RejectReason | null {
   return chooseTargets(s).includes(a.uid) ? null : 'bad_target';
+}
+
+// ---- Sprint 9: traces, tags, basic actions ------------------------------------------------
+
+/** Sprint 9: credits a basic action costs (remove 1 tag, trash a resource while tagged), plus 1 click. */
+export const BASIC_ACTION_COST = 2;
+
+/** Sprint 9: the most `player` may bid in the open trace (Corp: credits; Runner: credits + run-only credits). */
+export function traceMaxBid(s: GameState, player: Side): number {
+  return player === 'corp' ? s.players.corp.credits : runnerSpendable(s);
+}
+
+/** Sprint 9: the Runner's installed resource `uid`, or undefined. */
+export function rigResource(s: GameState, uid: unknown): Installed | undefined {
+  const c = s.rig.find((x) => x.uid === uid);
+  return c && getCard(c.cardId)?.type === 'resource' ? c : undefined;
+}
+
+function traceBidShape(_s: GameState, a: ActionOf<'trace_bid'>): RejectReason | null {
+  return Number.isInteger(a.credits) && a.credits >= 0 ? null : 'invalid_action';
+}
+
+function tracePhase(s: GameState): RejectReason | null {
+  return isTraceChoice(s) ? null : 'wrong_phase';
+}
+
+function traceBidAffordable(s: GameState, a: ActionOf<'trace_bid'>): RejectReason | null {
+  return a.credits <= traceMaxBid(s, a.player) ? null : 'no_credits';
+}
+
+/**
+ * `remove_tag`: the acting player has a tag (the Corp never does); `trash_resource`: the Runner is tagged.
+ */
+function runnerTagged(s: GameState, a: ActionOf<'remove_tag' | 'trash_resource'>): RejectReason | null {
+  const who: Side = a.type === 'remove_tag' ? a.player : 'runner';
+  return s.players[who].tags > 0 ? null : 'condition_not_met';
+}
+
+function trashResourceShape(_s: GameState, a: ActionOf<'trash_resource'>): RejectReason | null {
+  return typeof a.uid === 'string' ? null : 'invalid_action';
+}
+
+function trashResourceTarget(s: GameState, a: ActionOf<'trash_resource'>): RejectReason | null {
+  return a.player === 'corp' && rigResource(s, a.uid) ? null : 'bad_target';
+}
+
+function canAffordBasic(s: GameState, a: Action): RejectReason | null {
+  return s.players[a.player].credits >= BASIC_ACTION_COST ? null : 'no_credits';
 }
 
 function isKnownType(t: unknown): t is ActionType {

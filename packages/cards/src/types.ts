@@ -70,7 +70,17 @@ export type Effect =
   /** Sprint 8: brain damage to the Runner (hand size −amount for good, then random discards). */
   | { readonly op: 'brain_damage'; readonly amount: number }
   /** Sprint 8: trash 1 installed Runner card of one of `types` (Corp chooses). */
-  | { readonly op: 'trash_installed'; readonly types: readonly RunnerCardType[] };
+  | { readonly op: 'trash_installed'; readonly types: readonly RunnerCardType[] }
+  /** Sprint 9: a trace (Corp bids, then Runner); `onSuccess` resolves if the Corp wins. */
+  | { readonly op: 'trace'; readonly base: number; readonly onSuccess: readonly Effect[] }
+  /** Sprint 9: the Runner takes `amount` tags. */
+  | { readonly op: 'give_tags'; readonly amount: number }
+  /** Sprint 9: meat damage to the Runner (random Grip cards; more than the Grip = flatline). */
+  | { readonly op: 'meat_damage'; readonly amount: number };
+
+/** Sprint 9: the only ops allowed in a trace's `onSuccess` (none of them opens a choice). */
+export const TRACE_SUCCESS_OPS = ['give_tags', 'brain_damage', 'net_damage', 'meat_damage', 'gain_credits'] as const;
+export type TraceSuccessOp = (typeof TRACE_SUCCESS_OPS)[number];
 
 /** One ICE subroutine: its printed text (without "Subroutine:") and what it does when it fires. */
 export interface Subroutine {
@@ -96,6 +106,7 @@ export type BreakerAbility =
  * - `when: 'successful_run_remote'`: after a successful run on a remote server, before access
  *   (run step `success`); with `replacesAccess` using it ends the run with nothing accessed.
  * `requires: 'hosted_credits'`: only while the card holds credits (`condition_not_met` otherwise).
+ * Sprint 9: `requires: 'runner_tagged'`: only while the Runner has at least 1 tag.
  * `label` is the button text; `{gain}` is filled in by the client from `CardOption.gain`.
  */
 export interface CardAbility {
@@ -103,10 +114,13 @@ export interface CardAbility {
   readonly when: 'click' | 'successful_run_remote';
   readonly clicks: number;
   readonly credits: number;
-  readonly requires?: 'hosted_credits';
+  readonly requires?: CardAbilityRequirement;
   readonly replacesAccess?: true;
   readonly effects: readonly Effect[];
 }
+
+/** Sprint 7 `'hosted_credits'`; Sprint 9 `'runner_tagged'`. */
+export type CardAbilityRequirement = 'hosted_credits' | 'runner_tagged';
 
 /** Sprint 7: recurring credits, placed on install and refilled to `amount` at its owner's turn start. */
 export interface RecurringCredits {
@@ -141,8 +155,11 @@ export interface TrashPrevention {
   readonly types: readonly CardType[];
 }
 
-/** A play condition checked before paying (`condition_not_met` when false). */
-export type PlayCondition = 'runner_ran_last_turn';
+/**
+ * A play condition checked before paying (`condition_not_met` when false).
+ * Sprint 9: `'runner_successful_run_last_turn'` = the Runner made a successful run during his last turn (SEA Source).
+ */
+export type PlayCondition = 'runner_ran_last_turn' | 'runner_successful_run_last_turn';
 
 /** A system the card's effect needs that is not built yet; the engine refuses it with `not_implemented`. */
 export type CardNeeds = 'runs';
@@ -216,7 +233,10 @@ export interface CardDef {
   readonly minDeckSize?: number;
   /** Identities: influence allowed for other-faction cards. */
   readonly influenceLimit?: number;
-  /** Identities: base link (shown only; traces come later). */
+  /**
+   * Identities: base link. Sprint 9: also Runner rig cards (Access to Globalsec: 1); the Runner's link =
+   * identity link + the sum over face-up installed rig cards (`runnerLink` in the engine).
+   */
   readonly link?: number;
   /** Active source: something happens the first time its side installs a card each turn. */
   readonly whenYouInstall?: InstallTrigger;
@@ -226,6 +246,12 @@ export interface CardDef {
   readonly onRez?: readonly Effect[];
   /** Runner cards: may be trashed instead of an installed card of these types. */
   readonly trashPrevention?: TrashPrevention;
+  // ---- Sprint 9 (DSL v4) ----
+  /**
+   * Corp agendas: abilities usable while the card is in the Corp's score area (`when: 'click'` only;
+   * `activate.uid` = `scoredUid('corp', index)`, `activate.ability` indexes this). Private Security Force.
+   */
+  readonly scoredAbilities?: readonly CardAbility[];
 }
 
 /** A deck list is an ordered list of card ids; duplicates mean extra copies. */

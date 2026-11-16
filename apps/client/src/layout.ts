@@ -181,6 +181,8 @@ export interface LayoutOptions {
 export const MIN_TOUCH = 44;
 /** One line of the build-date label (CSS px). */
 export const BUILD_LINE = 11;
+/** The smallest a rail pill (credits / clicks) slims to on short screens (the Counter's compact look). */
+export const COMPACT_PILL = 30;
 /** Card aspect ratio (height / width). */
 export const CARD_RATIO = 1.4;
 /** Room kept for the busy board (S-02-5). */
@@ -488,9 +490,23 @@ function landscapeLayout(vw: number, vh: number, insets: Insets, safe: Box, view
   const pillH = clamp(Math.round(44 * s), MIN_TOUCH, 52);
   const banner = box(railX, top, railW, Math.max(24, Math.round(28 * s)));
   const endTurn = box(railX, bottom - pillH, railW, pillH);
-  const clicks = box(railX, endTurn.y - rg - pillH, railW, pillH);
-  const credits = box(railX, clicks.y - rg - pillH, railW, pillH);
   const lineH = Math.max(11, Math.round(12 * s));
+  const subY = banner.y + banner.height + rg;
+  // One tiny line for the build date ("2026-11-13 14:32 UTC").
+  // Short screens (a phone in Chrome with its address bar showing, ~300px tall): a
+  // picked card's two buttons (Advance + Score) must fit at full size below the banner.
+  // Lower-priority rail items give way first: the build date hides, then the clicks
+  // pill slims (it is not tappable), then the credits pill (down to the compact size).
+  const twoButtonsEnd = subY + 2 * pillH + rg;
+  const fullRoomEnd = endTurn.y - 3 * rg - 2 * pillH - 2 * (lineH + rg) - (BUILD_LINE + rg);
+  let deficit = Math.max(0, twoButtonsEnd - fullRoomEnd);
+  const buildH = deficit > 0 ? 0 : BUILD_LINE;
+  if (deficit > 0) deficit = Math.max(0, deficit - (BUILD_LINE + rg));
+  const clicksH = pillH - Math.min(deficit, pillH - COMPACT_PILL);
+  deficit -= pillH - clicksH;
+  const creditsH = pillH - Math.min(deficit, pillH - COMPACT_PILL);
+  const clicks = box(railX, endTurn.y - rg - clicksH, railW, clicksH);
+  const credits = box(railX, clicks.y - rg - creditsH, railW, creditsH);
   // The viewer's status note sits right above its credits pill, the name above that.
   const railTag = box(railX, credits.y - rg - lineH, railW, lineH);
   const railLabel = box(railX, railTag.y - rg - lineH, railW, lineH);
@@ -498,11 +514,9 @@ function landscapeLayout(vw: number, vh: number, insets: Insets, safe: Box, view
   // (a short-lived toast) uses the help text's room below the Play button and
   // hides the help text while it shows, so long hints wrap at a readable size
   // instead of shrinking into a short slot (QA-S2-1).
-  const subY = banner.y + banner.height + rg;
-  // One tiny line for the build date ("2026-11-13 14:32 UTC").
-  const buildH = BUILD_LINE;
-  const buildLabel = box(railX, railLabel.y - rg - buildH, railW, buildH);
-  const sub = box(railX, subY, railW, Math.max(0, buildLabel.y - rg - subY));
+  // Hidden build date: a zero-height line right above the name (no gap kept for it).
+  const buildLabel = box(railX, buildH > 0 ? railLabel.y - rg - buildH : railLabel.y, railW, buildH);
+  const sub = box(railX, subY, railW, Math.max(0, (buildH > 0 ? buildLabel.y : railLabel.y) - rg - subY));
   const action = box(railX, subY, railW, Math.min(sub.height, pillH));
   const hintY = action.y + action.height + rg;
   const hintArea = box(railX, hintY, railW, Math.max(0, sub.y + sub.height - hintY));
@@ -792,6 +806,46 @@ export function buttonGrid(area: Box, count: number, opts: { gap: number; minW: 
     for (let i = 0; i < inRow; i++) out.push(box(left + i * (w + gap), top + r * (h + gap), w, h));
   }
   return out;
+}
+
+/** Sprint 9: the trace bid control's parts, left to right: −, the bid, +, Max, Bid. */
+export interface BidBoxes {
+  dec: Box;
+  tile: Box;
+  inc: Box;
+  max: Box;
+  go: Box;
+}
+
+/**
+ * Sprint 9 (S-09-1, owner answer 2A): the bid control in `area` (the run panel's
+ * button strip): − and + square buttons either side of the big number, then Max
+ * and Bid. Every button is at least 44 px each way (the strip is >= 72 px tall
+ * on the smallest phone); the group is centred and shrinks only down to 44 px.
+ */
+export function bidLayout(area: Box, scale: number): BidBoxes {
+  const units = { dec: 1, tile: 1.7, inc: 1, max: 1.25, go: 1.9 };
+  const sum = units.dec + units.tile + units.inc + units.max + units.go;
+  const gap = Math.max(4, Math.round(6 * Math.min(scale, 1.2)));
+  const wide = gap * 3;
+  const gaps = 3 * gap + wide;
+  const maxH = Math.max(MIN_TOUCH, Math.round(64 * Math.min(scale, 1.2)));
+  const h = Math.max(MIN_TOUCH, Math.min(maxH, area.height, Math.floor((area.width - gaps) / sum)));
+  const w = (k: number) => Math.round(h * k);
+  const total = w(units.dec) + w(units.tile) + w(units.inc) + w(units.max) + w(units.go) + gaps;
+  const y = Math.round(area.y + (area.height - h) / 2);
+  let x = Math.round(area.x + Math.max(0, (area.width - total) / 2));
+  const next = (k: number, after: number): Box => {
+    const b = box(x, y, w(k), h);
+    x += b.width + after;
+    return b;
+  };
+  const dec = next(units.dec, gap);
+  const tile = next(units.tile, gap);
+  const inc = next(units.inc, wide);
+  const max = next(units.max, gap);
+  const go = next(units.go, 0);
+  return { dec, tile, inc, max, go };
 }
 
 /**

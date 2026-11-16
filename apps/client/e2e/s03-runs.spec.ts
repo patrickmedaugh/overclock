@@ -98,7 +98,7 @@ test.describe('S-03-3 the Corp rezzes on the shared board', () => {
     expect(l.run!.highlight).toEqual(ice.box);
     // The Runner's own view still doesn't know the ICE; the Corp's choice names it (Q1 A).
     expect(ice).toMatchObject({ cardId: null, faceUp: false });
-    const corpRun = (await page.evaluate(() => window.__overclock!.decision()))!.run;
+    const corpRun = (await page.evaluate(() => window.__overclock!.decision()))!.run!;
     const name = getCard(corpRun.ice!.cardId!)!.name;
     const cost = getCard(corpRun.ice!.cardId!)!.cost;
     expect(l.run!.buttons.map((b) => [b.label, b.lit])).toEqual([

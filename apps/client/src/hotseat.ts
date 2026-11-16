@@ -41,10 +41,13 @@ export class HotSeat implements Session {
    * it (the Corp's Rez / Don't rez during the Runner's run); otherwise null.
    */
   decision(): Decision | null {
-    const waiting = this.match.view(this.bottom).run?.waitingOn;
+    const mine = this.match.view(this.bottom);
+    // Sprint 9: outside a run, a choice may wait on the other seat (SEA Source: the Runner's trace bid).
+    const waiting = mine.run ? mine.run.waitingOn : (mine.choice?.waitingOn ?? null);
     if (!waiting || waiting === this.bottom) return null;
     const theirs = this.match.view(waiting);
-    return theirs.run ? { seat: waiting, run: theirs.run, choice: theirs.choice } : null;
+    if (mine.run) return theirs.run ? { seat: waiting, run: theirs.run, choice: theirs.choice } : null;
+    return theirs.choice ? { seat: waiting, run: null, choice: theirs.choice } : null;
   }
 
   /** The events of the last submit, as the submitting seat saw them. */

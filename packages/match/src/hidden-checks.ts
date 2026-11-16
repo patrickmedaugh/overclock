@@ -46,6 +46,11 @@ export function runnerEventLeaks(events: readonly GameEvent[], after: GameState)
       if (e.cardId !== after.players.corp.identity) out.push(`ability_triggered names ${e.cardId}, not the Corp identity`);
       continue;
     }
+    if (e.type === 'ability_triggered' && e.uid.startsWith('score:corp:')) {
+      // Sprint 9 (spec change): a scored agenda's ability (Private Security Force) names that face-up agenda.
+      if (after.players.corp.scoreArea[Number(e.uid.split(':')[2])] !== e.cardId) out.push(`ability_triggered names ${e.cardId}, not the scored agenda ${e.uid}`);
+      continue;
+    }
     if (e.type === 'card_rezzed' || e.type === 'ability_triggered') {
       // Sprint 7: may name a Corp card only once it is face up (installed, rezzed, same id).
       const corp = after.servers.flatMap((sv) => [...sv.ice, ...sv.content]).find((c) => c.uid === e.uid);
@@ -53,6 +58,12 @@ export function runnerEventLeaks(events: readonly GameEvent[], after: GameState)
       if (!corp && trashed.has(e.uid)) {
         if (trashed.get(e.uid) !== e.cardId) out.push(`${e.type} names ${e.cardId}, not the card trashed from ${e.uid}`);
       } else if (!corp && CORP_ID.test(JSON.stringify(e))) out.push(`${e.type} names a Corp card not installed: ${JSON.stringify(e)}`);
+      continue;
+    }
+    if (e.type === 'trace_started' || e.type === 'trace_resolved') {
+      // Sprint 9 (spec change): names the rezzed ICE (in a run) or the played operation, face up in Archives.
+      const ice = after.servers.flatMap((sv) => sv.ice).find((c) => c.rezzed && c.cardId === e.cardId);
+      if (!ice && !archivesUp.includes(e.cardId)) out.push(`${e.type} names ${e.cardId}, neither rezzed ICE nor face up in Archives`);
       continue;
     }
     if (e.type === 'subroutine_resolved') {
@@ -96,8 +107,11 @@ export function runnerViewLeaks(s: GameState, v: PlayerView = viewFor('runner', 
   if (v.choice) {
     // Sprint 8 (spec change): an in-run choice names the rezzed ICE whose subroutine opened it.
     const ice = s.run ? s.servers.find((sv) => sv.id === s.run!.server)?.ice[s.run.position] : undefined;
-    const ok = s.players.corp.scoreArea.includes(v.choice.cardId) || (ice?.rezzed === true && ice.cardId === v.choice.cardId);
-    check(ok, 'choice names a card neither in the score area nor the rezzed current ICE');
+    // Sprint 9 (spec change): a trace from an operation (SEA Source) names it; it lies face up on top of Archives.
+    const top = s.players.corp.discard.at(-1);
+    const played = s.run === null && top?.faceUp === true && top.cardId === v.choice.cardId;
+    const ok = s.players.corp.scoreArea.includes(v.choice.cardId) || (ice?.rezzed === true && ice.cardId === v.choice.cardId) || played;
+    check(ok, 'choice names a card neither in the score area, the rezzed current ICE nor the operation just played');
   }
   // Sprint 7: installed-card options only for the Runner's own rig cards.
   const rigUids = new Set(s.rig.map((c) => c.uid));

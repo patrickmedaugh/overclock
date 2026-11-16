@@ -269,6 +269,18 @@ export const RUNNER_CARDS: readonly CardDef[] = [
       { op: 'strength', cost: 1, amount: 1, until: 'run' },
     ],
   },
+  // ---- Sprint 9: link. Numbers and wording checked against netrunner-cards-json (DECISIONS 2026-11-16). ----
+  {
+    id: 'r18',
+    name: 'Access to Globalsec',
+    side: 'runner',
+    type: 'resource',
+    faction: 'neutral',
+    cost: 1,
+    link: 1,
+    text: '+1 link.',
+    art: 'glyph:relay-mast',
+  },
 ];
 
 /** 15-card starter deck: one of each, plus an extra Easy Mark, Armitage Codebusting and Diesel. */
@@ -280,18 +292,21 @@ export const RUNNER_STARTER_DECK: DeckList = [
   'r03',
 ];
 
-/** Sprint 8: the 30-card Kate core deck (proposal S-08 table). Influence 14 of 15. */
+/**
+ * The 30-card Kate core deck (proposal S-08 table; Sprint 9: −1 Easy Mark −1 Inside Job +2 Access to
+ * Globalsec). Influence 10 of 15.
+ */
 export const RUNNER_CORE_DECK: DeckDef = {
   identity: 'r13',
   cards: [
     ...['r14', 'r14', 'r14'], // Sure Gamble
-    ...['r01', 'r01'], // Easy Mark
+    'r01', // Easy Mark
     ...['r03', 'r03', 'r03'], // Diesel
     ...['r02', 'r02'], // Armitage Codebusting
     'r10', // Bank Job
     ...['r15', 'r15'], // Magnum Opus
     ...['r07', 'r07', 'r07'], // The Maker's Eye
-    ...['r11', 'r11'], // Inside Job
+    'r11', // Inside Job
     'r04', // Corroder
     ...['r05', 'r05'], // Gordian Blade
     ...['r16', 'r16'], // Pipeline
@@ -299,5 +314,6 @@ export const RUNNER_CORE_DECK: DeckDef = {
     ...['r09', 'r09'], // Akamatsu Mem Chip
     ...['r08', 'r08'], // Cyberfeeder
     'r12', // Sacrificial Construct
+    ...['r18', 'r18'], // Access to Globalsec
   ],
 };

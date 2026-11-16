@@ -1,12 +1,13 @@
 import type { Action } from './actions';
-import { apply, choiceOptions, handOptions, installedOptions, legalActions, runStartOptions, runStepOptions } from './apply';
+import { apply, basicOptions, choiceOptions, handOptions, installedOptions, legalActions, runStartOptions, runStepOptions } from './apply';
 import type { GameEvent, RejectReason, SubOutcome } from './events';
 import { getCard } from '@overclock/cards';
-import { breakerCard, breakerStrength, currentIce, discardCount, iceStrength, memoryLimit, memoryUsed, waitingOn } from './rules';
+import { breakerCard, breakerStrength, currentIce, discardCount, iceStrength, memoryLimit, memoryUsed, traceMaxBid, waitingOn } from './rules';
 import {
   IDENTITY_UID,
   maxHandSize,
   pointsOf,
+  runnerLink,
   type AccessFrom,
   type ChoiceKind,
   type GameResult,
@@ -16,6 +17,7 @@ import {
   type PlayerState,
   type RunStep,
   type ServerId,
+  type TraceState,
   type Side,
   type WinReason,
 } from './state';
@@ -40,6 +42,10 @@ export interface PlayerSideView {
   readonly maxHandSize: number;
   /** Sprint 8: brain damage taken (Runner; 0 for the Corp). */
   readonly brainDamage: number;
+  /** Sprint 9: tags (Runner; 0 for the Corp). Public. */
+  readonly tags: number;
+  /** Sprint 9: link (Runner: identity + rig cards' link; 0 for the Corp). Public. */
+  readonly link: number;
 }
 
 /** An installed card as one player sees it. */
@@ -165,6 +171,24 @@ export interface LastRunView {
   readonly cards: readonly { readonly cardId: string; readonly from: AccessFrom }[];
 }
 
+/** Sprint 9: an open trace (`trace_corp` / `trace_runner`), as both players see it (all public). */
+export interface TraceView {
+  /** Printed trace strength. */
+  readonly base: number;
+  /** Trace strength: `base` until the Corp has bid, then base + the Corp's bid. */
+  readonly strength: number;
+  /** The Corp's bid; null while the Corp bids. */
+  readonly corpBid: number | null;
+  /** The Runner's link. */
+  readonly link: number;
+  /** The most the Runner may bid (credits + run-only credits). */
+  readonly runnerMaxBid: number;
+  /** The most the Corp may bid (its credits). */
+  readonly corpMaxBid: number;
+  /** Credits the Runner must bid to tie `strength` (= escape): max(0, strength − link). */
+  readonly needed: number;
+}
+
 /** An open choice (phase 'choice'), as one player sees it. */
 export interface ChoiceView {
   readonly kind: ChoiceKind;
@@ -174,11 +198,14 @@ export interface ChoiceView {
   readonly cardId: string;
   /** Sprint 8, `prevent_trash` only: the rig card that would be trashed. */
   readonly target?: string;
+  /** Sprint 9, `trace_corp` / `trace_runner` only: the trace (public). */
+  readonly trace?: TraceView;
   /**
    * The deciding viewer's options: `free_rez` = one `rez` (cost 0) per unrezzed installed ICE uid
    * (servers in `corpServers` order, then ICE index order), then `pass` (= Skip). Sprint 8:
    * `trash_target` = one `choose` per candidate (rig order); `prevent_trash` = one `choose` per
-   * preventer (rig order), then `pass` (let it be trashed). Empty for the other player.
+   * preventer (rig order), then `pass` (let it be trashed). Sprint 9: `trace_corp` / `trace_runner` =
+   * one `trace_bid` per amount 0..max (`cost` = amount). Empty for the other player.
    */
   readonly options: readonly CardOption[];
 }
@@ -211,6 +238,11 @@ export interface PlayerView {
    * Never lists anything for the other side's cards.
    */
   readonly installedOptions: Readonly<Record<string, readonly CardOption[]>>;
+  /**
+   * Sprint 9: the viewer's basic actions not tied to a card. Runner: `remove_tag` (cost 2, `clicks: 1`)
+   * while tagged, with `reject`; Corp: `[]`.
+   */
+  readonly basicOptions: readonly CardOption[];
   /** The run in progress, or null. */
   readonly run: RunView | null;
   /** The Corp's bad publicity (both players see it). */
@@ -242,6 +274,8 @@ function sideView(state: GameState, side: Side, viewer: Side): PlayerSideView {
     identity: p.identity !== null ? { uid: IDENTITY_UID[side], cardId: p.identity } : null,
     maxHandSize: maxHandSize(state, side),
     brainDamage: p.brainDamage,
+    tags: p.tags,
+    link: side === 'runner' ? runnerLink(state) : 0,
   };
 }
 
@@ -382,7 +416,23 @@ function choiceView(state: GameState, viewer: Side): ChoiceView | null {
     waitingOn: c.player,
     cardId: c.cardId,
     ...(c.target !== undefined ? { target: c.target } : {}),
+    ...(c.trace !== undefined ? { trace: traceView(state, c.trace) } : {}),
     options: choiceOptions(state, viewer),
+  };
+}
+
+/** Sprint 9: the public numbers of an open trace. */
+function traceView(state: GameState, t: TraceState): TraceView {
+  const strength = t.strength ?? t.base;
+  const link = runnerLink(state);
+  return {
+    base: t.base,
+    strength,
+    corpBid: t.corpBid,
+    link,
+    runnerMaxBid: traceMaxBid(state, 'runner'),
+    corpMaxBid: traceMaxBid(state, 'corp'),
+    needed: Math.max(0, strength - link),
   };
 }
 
@@ -419,6 +469,7 @@ export function viewFor(player: Side, state: GameState): PlayerView {
     handOptions: handOptions(state, player),
     runOptions: runStartOptions(state, player),
     installedOptions: installedOptions(state, player),
+    basicOptions: basicOptions(state, player),
     run: runView(state, player),
     badPublicity: state.badPublicity,
     choice: choiceView(state, player),
