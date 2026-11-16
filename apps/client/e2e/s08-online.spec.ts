@@ -125,7 +125,8 @@ test.describe('Sprint 8 online: both phones show the same result as pass-the-pho
   });
 
   test('S-08-7: Rototurret: the Corp picks on its phone, the Runner sees "Corp is choosing…", then saves with Sacrificial Construct', async ({ browser }) => {
-    const { plan, corp, runner, close } = await twoPhones(browser, 2, 'rototurret_two_programs', 'runner');
+    // Sprint 9 decks: seed 11 has Sacrificial Construct installed (was 2).
+    const { plan, corp, runner, close } = await twoPhones(browser, 11, 'rototurret_two_programs', 'runner');
     expect(plan.info['construct']).not.toBe('');
     let rl = await layoutOf(runner);
     const fire = runButtonOf(rl, /^Let it fire/);
@@ -146,7 +147,7 @@ test.describe('Sprint 8 online: both phones show the same result as pass-the-pho
     expect(cl.run!.stepLabel).toBe('Runner is choosing…');
     const save = rl.run!.buttons[0]!;
     await tap(runner.page, save.box);
-    await expectSame({ corp, runner }, local(2, plan, [fire.action, pick.action, save.action]));
+    await expectSame({ corp, runner }, local(11, plan, [fire.action, pick.action, save.action]));
     await close();
   });
 });
