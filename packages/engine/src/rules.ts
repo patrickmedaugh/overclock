@@ -22,6 +22,7 @@ import {
   MAX_HAND_SIZE,
   MEMORY_LIMIT,
   maxHandSize,
+  parseScoredUid,
   type GameState,
   type AccessCard,
   type Installed,
@@ -581,11 +582,26 @@ export function ownFaceUpCard(s: GameState, player: Side, uid: unknown): Install
   return c?.rezzed ? c : undefined;
 }
 
-/** Sprint 7: the card and ability an `activate` names, when both exist (own face-up card). */
+/**
+ * Sprint 9: the Corp's own scored agenda at scored uid `uid` (`score:corp:<i>`) as a face-up pseudo
+ * installed card (uid = the scored uid, no counters, no credits), or undefined. `scoredAbilities` work
+ * only in the Corp's score area (an agenda the Runner stole does nothing for him).
+ */
+export function ownScoredCard(s: GameState, player: Side, uid: unknown): Installed | undefined {
+  const at = typeof uid === 'string' ? parseScoredUid(uid) : null;
+  const cardId = at && player === 'corp' && at.side === player ? s.players[player].scoreArea[at.index] : undefined;
+  return cardId === undefined ? undefined : { uid: uid as string, cardId, rezzed: true, advancements: 0, hostedCredits: 0 };
+}
+
+/**
+ * Sprint 7: the card and ability an `activate` names, when both exist (own face-up card).
+ * Sprint 9: or an own scored agenda (scored uid) and one of its `scoredAbilities`.
+ */
 export function activateTarget(s: GameState, a: ActionOf<'activate'>): { installed: Installed; card: CardDef; ability: CardAbility } | undefined {
-  const installed = ownFaceUpCard(s, a.player, a.uid);
+  const scored = ownScoredCard(s, a.player, a.uid);
+  const installed = scored ?? ownFaceUpCard(s, a.player, a.uid);
   const card = installed && getCard(installed.cardId);
-  const ability = card?.cardAbilities?.[a.ability];
+  const ability = scored ? card?.scoredAbilities?.[a.ability] : card?.cardAbilities?.[a.ability];
   return installed && card && ability ? { installed, card, ability } : undefined;
 }
 
@@ -601,14 +617,16 @@ const activatePhase = (s: GameState, a: ActionOf<'activate'>): RejectReason | nu
 const activateClicks = (s: GameState, a: ActionOf<'activate'>): RejectReason | null =>
   s.players[a.player].clicks >= activateTarget(s, a)!.ability.clicks ? null : 'no_clicks';
 
-/** `requires: 'hosted_credits'`: only while the card holds credits. */
-export function abilityUsable(installed: Installed, ability: CardAbility): boolean {
-  return ability.requires !== 'hosted_credits' || installed.hostedCredits > 0;
+/** `requires: 'hosted_credits'`: only while the card holds credits; Sprint 9 `'runner_tagged'`: only while the Runner has a tag. */
+export function abilityUsable(s: GameState, installed: Installed, ability: CardAbility): boolean {
+  if (ability.requires === 'hosted_credits') return installed.hostedCredits > 0;
+  if (ability.requires === 'runner_tagged') return s.players.runner.tags > 0;
+  return true;
 }
 
 const activateCondition = (s: GameState, a: ActionOf<'activate'>): RejectReason | null => {
   const t = activateTarget(s, a)!;
-  return abilityUsable(t.installed, t.ability) ? null : 'condition_not_met';
+  return abilityUsable(s, t.installed, t.ability) ? null : 'condition_not_met';
 };
 
 const activateCredits = (s: GameState, a: ActionOf<'activate'>): RejectReason | null =>

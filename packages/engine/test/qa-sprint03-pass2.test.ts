@@ -163,6 +163,11 @@ function checkRunnerEvents(before: GameState, after: GameState, events: readonly
           expect(e.cardId, `${where}: Corp identity trigger`).toBe(after.players.corp.identity);
           break;
         }
+        // Sprint 9 (engine-dev, spec change; QA reviews): a scored agenda's ability names that face-up agenda.
+        if (e.type === 'ability_triggered' && e.uid.startsWith('score:corp:')) {
+          expect(after.players.corp.scoreArea[Number(e.uid.split(':')[2])], `${where}: scored ability names its agenda`).toBe(e.cardId);
+          break;
+        }
         const c = after.servers.flatMap((sv) => [...sv.ice, ...sv.content]).find((x) => x.uid === e.uid);
         const trashed = events.some((x) => x.type === 'corp_card_trashed' && x.uid === e.uid && x.cardId === e.cardId);
         expect((c?.rezzed === true && c.cardId === e.cardId) || (!c && trashed), `${where}: ${e.type} names face-up ${e.uid}`).toBe(true);

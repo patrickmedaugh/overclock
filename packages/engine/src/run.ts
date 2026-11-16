@@ -283,7 +283,7 @@ export function accessReplacements(state: GameState): { uid: string; ability: nu
   const out: { uid: string; ability: number }[] = [];
   for (const c of state.rig) {
     (getCard(c.cardId)?.cardAbilities ?? []).forEach((ab, ability) => {
-      if (ab.when === 'successful_run_remote' && ab.replacesAccess && abilityUsable(c, ab)) out.push({ uid: c.uid, ability });
+      if (ab.when === 'successful_run_remote' && ab.replacesAccess && abilityUsable(state, c, ab)) out.push({ uid: c.uid, ability });
     });
   }
   return out;
@@ -398,15 +398,21 @@ const groupDone = (s: GameState) => (theRun(s).access as AccessState).cards.ever
 // ---- effects ----------------------------------------------------------------------
 
 /**
- * Net damage (Sprint 8: and brain damage) to the Runner: random cards from the Grip to the Heap;
+ * Net damage (Sprint 8: and brain damage; Sprint 9: and meat damage) to the Runner: random cards from the Grip to the Heap;
  * more than the Grip holds flatlines it. Brain damage first lowers the maximum hand size by `amount`
  * for good (`brain_damage.maxHandSize` = the new maximum).
  */
-function damage(state: GameState, kind: 'net' | 'brain', amount: number, events: Events, ctx: EffectContext): GameState {
+function damage(state: GameState, kind: 'net' | 'brain' | 'meat', amount: number, events: Events, ctx: EffectContext): GameState {
   const base = kind === 'brain' ? withPlayer(state, 'runner', { brainDamage: state.players.runner.brainDamage + amount }) : state;
   const runner = base.players.runner;
   const report = (cardIds: string[]) =>
-    events.push(kind === 'brain' ? { type: 'brain_damage', amount, cardIds, maxHandSize: maxHandSize(base, 'runner') } : { type: 'net_damage', amount, cardIds });
+    events.push(
+      kind === 'brain'
+        ? { type: 'brain_damage', amount, cardIds, maxHandSize: maxHandSize(base, 'runner') }
+        : kind === 'meat'
+          ? { type: 'meat_damage', amount, cardIds }
+          : { type: 'net_damage', amount, cardIds },
+    );
   if (amount > runner.hand.length) {
     let s = withPlayer(base, 'runner', {
       hand: [],
@@ -531,9 +537,8 @@ export function resolveEffect(state: GameState, effect: Effect, owner: Side, eve
       return startTrace(state, effect.base, effect.onSuccess, ctx, events);
     case 'give_tags':
       return giveTags(state, effect.amount, events);
-    // Sprint 9 (E1 stub): meat_damage (E5).
     case 'meat_damage':
-      return state;
+      return damage(state, 'meat', effect.amount, events, ctx);
   }
 }
 
