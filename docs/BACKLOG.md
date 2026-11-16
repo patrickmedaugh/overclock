@@ -118,6 +118,12 @@ Sprint 8 demo: `docs/sprints/sprint-08-demo.md` (QA 36/36 after round 2). **Spri
 - **P2 — Show multi-click costs compactly (Melange Mining Corp. "click, click, click").** Owner: *"we might do it slightly different way to show that instead of writing out click, click, click."* E.g. a click icon with "×3" on the card face and the button ("3 clicks").
 - **Answered:** run panel text with Heimdall at 640×360 is OK (owner, Sprint 8 demo Q2 → A).
 
+## Owner feedback in chat during Sprint 9 review (2026-11-16)
+- **P1 — Show the Runner's link next to the memory counter, not on his identity card.** Owner: *"Maybe link is something we can show next to memory instead of on the identity card?"* Owner chose: next sprint (Sprint 9 stays as it is for review). What this means: the "Link 1" pill (Sprint 9) moves off the bottom of Kate's identity card into a small counter beside the memory counter at the end of the Runner's row, so the identity card art isn't covered and his numbers sit together.
+  - Given the Runner has 1 link, when the board shows, then "Link 1" sits next to the memory counter and nothing is drawn over the identity card.
+  - Given link changes (e.g. Access to Globalsec installed), when the board updates, then the counter beside memory shows the new number.
+  - Given 844×390 and 640×360 landscape, when the Runner's row is full, then the link counter, memory counter and installed cards don't overlap.
+
 ## Owner feedback in chat after the Sprint 5 demo went up (2026-11-13)
 - ~~**P1 — Hand: tap to open, long-press to light targets, drag to play.**~~ **Done in Sprint 7 as S-07-6 (owner chose 1B; accepted 2026-11-15).** Owner: *"tap to bring up the hand and then long press on a card and it highlights where it can be played. Drag a card to the location you want to play it. Release long press to go back to the hand view. Tap outside the hand to minimize."* What this means (his chosen design, replacing both the Sprint 5 question options):
   1. Tap the hand → the hand opens as a big view of your cards.
