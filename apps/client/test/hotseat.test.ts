@@ -141,8 +141,8 @@ describe('seedFromUrl', () => {
   });
 
   it("S-08-7: Rototurret mid-run: the Corp's pick shows as its decision (with options), then the Runner may save with Sacrificial Construct", () => {
-    // Seed 2: two programs and Sacrificial Construct installed.
-    const { h, plan } = hotSeatAt(2, 'rototurret_two_programs');
+    // Seed 11 (Sprint 9 decks; was 2): two programs and Sacrificial Construct installed.
+    const { h, plan } = hotSeatAt(11, 'rototurret_two_programs');
     expect(plan.deckSet).toBe('core');
     expect(h.seat).toBe('runner');
     expect(plan.info['construct']).not.toBe('');

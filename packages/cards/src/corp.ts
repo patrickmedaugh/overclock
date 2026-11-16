@@ -129,6 +129,10 @@ export const CORP_CARDS: readonly CardDef[] = [
     agendaPoints: 2,
     text: 'If the Runner is tagged, Private Security Force gains: "Click: Do 1 meat damage."',
     art: 'glyph:towers',
+    // Sprint 9: usable from the Corp's score area while the Runner is tagged.
+    scoredAbilities: [
+      { label: 'Do 1 meat damage', when: 'click', clicks: 1, credits: 0, requires: 'runner_tagged', effects: [{ op: 'meat_damage', amount: 1 }] },
+    ],
   },
   {
     id: 'c10',
@@ -275,6 +279,64 @@ export const CORP_CARDS: readonly CardDef[] = [
       { text: 'End the run', effect: { op: 'end_run' } },
     ],
   },
+  // ---- Sprint 9: trace cards. Numbers and 2012 wording checked against netrunner-cards-json (DECISIONS 2026-11-16). ----
+  {
+    id: 'c20',
+    name: 'Hunter',
+    side: 'corp',
+    type: 'ice',
+    subtype: 'sentry',
+    faction: 'neutral',
+    cost: 1,
+    strength: 4,
+    text: 'Subroutine: Trace 3 – If successful, give the Runner 1 tag.',
+    art: 'glyph:crosshair',
+    subroutines: [
+      { text: 'Trace 3 – If successful, give the Runner 1 tag', effect: { op: 'trace', base: 3, onSuccess: [{ op: 'give_tags', amount: 1 }] } },
+    ],
+  },
+  {
+    id: 'c21',
+    name: 'Ichi 1.0',
+    side: 'corp',
+    type: 'ice',
+    subtype: 'sentry',
+    faction: 'haas_bioroid',
+    influence: 2,
+    cost: 5,
+    strength: 4,
+    text:
+      'Subroutine: Trash 1 program.\nSubroutine: Trash 1 program.\nSubroutine: Trace 1 – If successful, give the Runner 1 tag and do 1 brain damage.',
+    art: 'glyph:bioroid-blade',
+    subroutines: [
+      { text: 'Trash 1 program', effect: { op: 'trash_installed', types: ['program'] } },
+      { text: 'Trash 1 program', effect: { op: 'trash_installed', types: ['program'] } },
+      {
+        text: 'Trace 1 – If successful, give the Runner 1 tag and do 1 brain damage',
+        effect: {
+          op: 'trace',
+          base: 1,
+          onSuccess: [
+            { op: 'give_tags', amount: 1 },
+            { op: 'brain_damage', amount: 1 },
+          ],
+        },
+      },
+    ],
+  },
+  {
+    id: 'c22',
+    name: 'SEA Source',
+    side: 'corp',
+    type: 'operation',
+    faction: 'nbn',
+    influence: 2,
+    cost: 2,
+    text: 'Play only if the Runner made a successful run during his or her last turn.\nTrace 3 – If successful, give the Runner 1 tag.',
+    art: 'glyph:radar-sweep',
+    playIf: 'runner_successful_run_last_turn',
+    onPlay: [{ op: 'trace', base: 3, onSuccess: [{ op: 'give_tags', amount: 1 }] }],
+  },
 ];
 
 /**
@@ -294,25 +356,27 @@ export const CORP_STARTER_DECK: DeckList = [
 ];
 
 /**
- * Sprint 8: the 30-card Haas-Bioroid core deck (proposal S-08 table, Rototurret ×2 in place of
- * 1 Wall of Static + 1 Enigma: DECISIONS 2026-11-15). 15 agenda points; influence 9 of 15.
+ * The 30-card Haas-Bioroid core deck. Sprint 8 list (DECISIONS 2026-11-15), Sprint 9 swaps (proposal S-09
+ * table): −1 Anonymous Tip +1 SEA Source, −1 PAD Campaign +1 Hunter, −1 Neural Katana +1 Hunter,
+ * −1 Rototurret +1 Ichi 1.0. 15 agenda points; influence 8 of 15.
  */
 export const CORP_CORE_DECK: DeckDef = {
   identity: 'c13',
   cards: [
     ...['c01', 'c01', 'c01'], // Hedge Fund
-    'c02', // Anonymous Tip
+    'c22', // SEA Source
     'c12', // Neural EMP
     'c16', // Biotic Labor
-    ...['c03', 'c03', 'c03'], // PAD Campaign
+    ...['c03', 'c03'], // PAD Campaign
     ...['c14', 'c14'], // Adonis Campaign
     ...['c15', 'c15'], // Melange Mining Corp.
     'c11', // Akitaro Watanabe
     ...['c05', 'c05'], // Ice Wall
     'c04', // Wall of Static
     'c06', // Enigma
-    ...['c19', 'c19'], // Rototurret
-    'c07', // Neural Katana
+    ...['c20', 'c20'], // Hunter
+    'c19', // Rototurret
+    'c21', // Ichi 1.0
     ...['c17', 'c17'], // Viktor 1.0
     'c18', // Heimdall 1.0
     ...['c10', 'c10', 'c10'], // Priority Requisition

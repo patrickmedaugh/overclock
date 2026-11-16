@@ -14,7 +14,6 @@ import {
 } from '../src/index';
 
 const count = (deck: DeckDef, id: string) => deck.cards.filter((x) => x === id).length;
-const byName = (n: string) => ALL_CARDS.find((c) => c.name === n);
 
 describe('S-08-5: the two 30-card decks are legal', () => {
   it.each([
@@ -42,13 +41,13 @@ describe('S-08-5: the two 30-card decks are legal', () => {
     expect(getCard(RUNNER_CORE_DECK.identity)).toMatchObject({ name: 'Kate "Mac" McCaffrey: Digital Tinker', type: 'identity', faction: 'shaper', minDeckSize: 45, influenceLimit: 15, link: 1 });
   });
 
-  it('only Haas-Bioroid or neutral agendas in the Corp deck; influence within 15 (Corp 9, Runner 14)', () => {
+  it('only Haas-Bioroid or neutral agendas in the Corp deck; influence within 15 (Sprint 9: Corp 8, Runner 10)', () => {
     for (const id of CORP_CORE_DECK.cards) {
       const c = getCard(id)!;
       if (c.type === 'agenda') expect(['haas_bioroid', 'neutral'], id).toContain(c.faction);
     }
-    expect(deckInfluence(CORP_CORE_DECK)).toBe(9);
-    expect(deckInfluence(RUNNER_CORE_DECK)).toBe(14);
+    expect(deckInfluence(CORP_CORE_DECK)).toBe(8);
+    expect(deckInfluence(RUNNER_CORE_DECK)).toBe(10);
   });
 
   it('S-08-5 AC3: 15 agenda points: 3 Priority Requisition and 3 Private Security Force', () => {
@@ -57,39 +56,7 @@ describe('S-08-5: the two 30-card decks are legal', () => {
     expect(agendas.sort()).toEqual(['c09', 'c09', 'c09', 'c10', 'c10', 'c10']);
   });
 
-  it('the copies match the proposal table (Rototurret ×2 replacing 1 Wall of Static and 1 Enigma)', () => {
-    const corp: Record<string, number> = {
-      'Hedge Fund': 3, 'Anonymous Tip': 1, 'Neural EMP': 1, 'Biotic Labor': 1, 'PAD Campaign': 3, 'Adonis Campaign': 2,
-      'Melange Mining Corp.': 2, 'Akitaro Watanabe': 1, 'Ice Wall': 2, 'Wall of Static': 1, Enigma: 1, Rototurret: 2,
-      'Neural Katana': 1, 'Viktor 1.0': 2, 'Heimdall 1.0': 1, 'Priority Requisition': 3, 'Private Security Force': 3,
-    };
-    const runner: Record<string, number> = {
-      'Sure Gamble': 3, 'Easy Mark': 2, Diesel: 3, 'Armitage Codebusting': 2, 'Bank Job': 1, 'Magnum Opus': 2,
-      "The Maker's Eye": 3, 'Inside Job': 2, Corroder: 1, 'Gordian Blade': 2, Pipeline: 2, 'Battering Ram': 2,
-      'Akamatsu Mem Chip': 2, Cyberfeeder: 2, 'Sacrificial Construct': 1,
-    };
-    for (const [deck, table] of [[CORP_CORE_DECK, corp], [RUNNER_CORE_DECK, runner]] as const) {
-      const got: Record<string, number> = {};
-      for (const id of deck.cards) got[getCard(id)!.name] = (got[getCard(id)!.name] ?? 0) + 1;
-      expect(got).toEqual(table);
-    }
-    // Left the decks (real deck rules, owner Q3 A), still in the game.
-    expect(count(CORP_CORE_DECK, byName('Hostile Takeover')!.id)).toBe(0);
-    expect(count(RUNNER_CORE_DECK, byName('Ninja')!.id)).toBe(0);
-  });
-
-  it("the Battering Ram cut fallback (−2 Ram −1 Easy Mark +1 Corroder +1 Magnum Opus +1 Akamatsu) is legal at exactly 15; the proposal's second Corroder is not", () => {
-    const without = (ids: string[], drop: string[]) => {
-      const out = [...ids];
-      for (const d of drop) out.splice(out.indexOf(d), 1);
-      return out;
-    };
-    const fallback: DeckDef = { identity: 'r13', cards: [...without([...RUNNER_CORE_DECK.cards], ['r17', 'r17', 'r01']), 'r04', 'r15', 'r09'] };
-    expect(checkDeck(fallback, { minDeckSize: 30 })).toEqual([]);
-    expect(deckInfluence(fallback)).toBe(15);
-    const proposal: DeckDef = { identity: 'r13', cards: [...without([...RUNNER_CORE_DECK.cards], ['r17']), 'r04'] };
-    expect(checkDeck(proposal, { minDeckSize: 30 })).toEqual([{ kind: 'influence', used: 16, limit: 15 }]);
-  });
+  // The copies table and the cut fallbacks moved to sprint09-decks.test.ts (the decks changed in Sprint 9).
 });
 
 describe('checkDeck catches each broken rule', () => {
@@ -138,25 +105,25 @@ describe('S-08-5 AC4 / Sprint 8 card data', () => {
     'Easy Mark', 'Armitage Codebusting', 'Diesel', 'Corroder', 'Gordian Blade', 'Ninja', "The Maker's Eye", 'Cyberfeeder',
     'Akamatsu Mem Chip', 'Bank Job', 'Inside Job', 'Sacrificial Construct', 'Kate "Mac" McCaffrey: Digital Tinker',
     'Sure Gamble', 'Magnum Opus', 'Pipeline', 'Battering Ram',
+    // Sprint 9 (checked against netrunner-cards-json core.json).
+    'Hunter', 'Ichi 1.0', 'SEA Source', 'Access to Globalsec',
   ]);
 
   it('every card is a real Core Set card (no invented card left)', () => {
-    expect(ALL_CARDS).toHaveLength(36);
+    expect(ALL_CARDS).toHaveLength(40);
     for (const c of ALL_CARDS) expect(CORE_SET_TITLES.has(c.name), c.name).toBe(true);
   });
 
-  it('every card in both decks has its text as data, except Private Security Force (needs tags)', () => {
+  it('Sprint 9: every card in both decks has its text as data (Private Security Force too)', () => {
     const behaviour = (id: string) => {
       const c = getCard(id)!;
       return !!(
         c.onPlay || c.subroutines || c.abilities || c.cardAbilities || c.onTurnStart || c.onScore || c.onRez || c.recurringCredits ||
-        c.memoryBonus || c.iceRezDiscount || c.trashPrevention || c.onInstall
+        c.memoryBonus || c.iceRezDiscount || c.trashPrevention || c.onInstall || c.scoredAbilities || c.link
       );
     };
     const missing = [...new Set([...CORP_CORE_DECK.cards, ...RUNNER_CORE_DECK.cards])].filter((id) => !behaviour(id));
-    expect(missing).toEqual(['c09']);
-    // Agendas with no "when scored" text just score points: Private Security Force is the only "partly" card.
-    expect(getCard('c09')!.text).toMatch(/tagged/);
+    expect(missing).toEqual([]);
   });
 
   it('every card has a faction; influence only on cards with pips; identities have none', () => {
@@ -185,7 +152,9 @@ describe('S-08-5 AC4 / Sprint 8 card data', () => {
     for (const c of ALL_CARDS) {
       if (c.onRez) expect(c.side, c.id).toBe('corp');
       if (c.trashPrevention) expect(c.side, c.id).toBe('runner');
-      if (c.minDeckSize !== undefined || c.influenceLimit !== undefined || c.link !== undefined) expect(c.type, c.id).toBe('identity');
+      if (c.minDeckSize !== undefined || c.influenceLimit !== undefined) expect(c.type, c.id).toBe('identity');
+      // Sprint 9: link on identities and Runner rig cards (Access to Globalsec).
+      if (c.link !== undefined) expect(c.type === 'identity' || (c.side === 'runner' && ['program', 'hardware', 'resource'].includes(c.type)), c.id).toBe(true);
     }
   });
 
