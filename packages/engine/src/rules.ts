@@ -687,7 +687,7 @@ export const RULES: RuleTable = {
   choose: [playerShape, chooseShape, notOver, decides, choosePhase, chooseTarget],
   // Sprint 9 (E1): checks in their pinned order; `notBuiltYet` refuses until E3/E4 implement them.
   trace_bid: [playerShape, traceBidShape, notOver, decides, tracePhase, traceBidAffordable],
-  remove_tag: [playerShape, notOver, yourTurn, inPhase('action'), hasClick, runnerTagged, canAffordBasic, notBuiltYet],
+  remove_tag: [playerShape, notOver, yourTurn, inPhase('action'), hasClick, runnerTagged, canAffordBasic],
   trash_resource: [
     playerShape,
     trashResourceShape,
@@ -698,7 +698,6 @@ export const RULES: RuleTable = {
     runnerTagged,
     trashResourceTarget,
     canAffordBasic,
-    notBuiltYet,
   ],
 };
 
@@ -806,11 +805,6 @@ function trashResourceTarget(s: GameState, a: ActionOf<'trash_resource'>): Rejec
 
 function canAffordBasic(s: GameState, a: Action): RejectReason | null {
   return s.players[a.player].credits >= BASIC_ACTION_COST ? null : 'no_credits';
-}
-
-/** Sprint 9 E1 stub: the action is typed and validated but not built yet (removed in E3/E4). */
-function notBuiltYet(): RejectReason | null {
-  return 'not_implemented';
 }
 
 function isKnownType(t: unknown): t is ActionType {

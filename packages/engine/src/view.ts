@@ -1,5 +1,5 @@
 import type { Action } from './actions';
-import { apply, choiceOptions, handOptions, installedOptions, legalActions, runStartOptions, runStepOptions } from './apply';
+import { apply, basicOptions, choiceOptions, handOptions, installedOptions, legalActions, runStartOptions, runStepOptions } from './apply';
 import type { GameEvent, RejectReason, SubOutcome } from './events';
 import { getCard } from '@overclock/cards';
 import { breakerCard, breakerStrength, currentIce, discardCount, iceStrength, memoryLimit, memoryUsed, traceMaxBid, waitingOn } from './rules';
@@ -469,8 +469,7 @@ export function viewFor(player: Side, state: GameState): PlayerView {
     handOptions: handOptions(state, player),
     runOptions: runStartOptions(state, player),
     installedOptions: installedOptions(state, player),
-    // Sprint 9 (E1 stub): remove_tag options arrive with E4.
-    basicOptions: [],
+    basicOptions: basicOptions(state, player),
     run: runView(state, player),
     badPublicity: state.badPublicity,
     choice: choiceView(state, player),

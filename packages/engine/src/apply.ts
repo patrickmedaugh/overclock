@@ -6,6 +6,7 @@ import {
   abilityGain,
   activeSources,
   ADVANCE_COST,
+  BASIC_ACTION_COST,
   advanceTarget,
   breakerPayment,
   breakerCard,
@@ -40,9 +41,11 @@ import {
   doPass,
   doRez,
   doRun,
+  doRemoveTag,
   doSteal,
   doTraceBid,
   doTrash,
+  doTrashResource,
   doUseAbility,
   pruneEmptyRemotes,
   resolveEffect,
@@ -295,10 +298,10 @@ export function apply(state: GameState, action: Action): ApplyResult {
       return doChoose(state, action);
     case 'trace_bid':
       return doTraceBid(state, action);
-    // Sprint 9 E1 stubs: the rules table refuses these (`not_implemented`) until E4.
     case 'remove_tag':
+      return doRemoveTag(state);
     case 'trash_resource':
-      return { state, events: [{ type: 'action_rejected', reason: 'not_implemented' }] };
+      return doTrashResource(state, action);
   }
 }
 
@@ -330,6 +333,7 @@ export function legalActions(state: GameState, player: Side): Action[] {
       ...installed,
       ...runStepOptions(state, player),
       ...choiceOptions(state, player),
+      ...basicOptions(state, player),
     ]
       .filter((o) => o.reject === null)
       .map((o) => o.action),
@@ -466,7 +470,8 @@ function abilityOption(state: GameState, action: ActionOf<'activate'>, c: Instal
  * Corp (servers in order; ICE innermost first, then content): agenda `advance` (cost 1) and, once it
  * has enough counters, `score`; unrezzed asset/upgrade `rez` (cost = rez cost, Sprint 7); click
  * abilities of rezzed cards. Runner (Sprint 7, rig order): one `activate` per `click` ability.
- * The other side's cards are never listed.
+ * Sprint 9 (Corp): while the Runner is tagged, one `trash_resource` (cost 2, `clicks: 1`) per rig resource
+ * (the only options on the other side's cards).
  */
 export function installedOptions(state: GameState, player: Side): Record<string, CardOption[]> {
   const out: Record<string, CardOption[]> = {};
@@ -495,7 +500,24 @@ export function installedOptions(state: GameState, player: Side): Record<string,
       if (opts.length > 0) out[c.uid] = opts;
     }
   }
+  // Sprint 9: while the Runner is tagged, trash any of his resources (1 click + 2 credits).
+  if (state.players.runner.tags > 0) {
+    for (const c of state.rig) {
+      if (getCard(c.cardId)?.type !== 'resource') continue;
+      out[c.uid] = [{ ...option(state, { type: 'trash_resource', player, uid: c.uid }, BASIC_ACTION_COST), clicks: 1 }];
+    }
+  }
   return out;
+}
+
+/**
+ * Sprint 9: `player`'s basic actions not tied to a card, listed off-turn too with `reject`. Runner:
+ * `remove_tag` (cost 2, `clicks: 1`) while tagged; Corp: none (its `trash_resource` is per rig card, in
+ * `installedOptions`).
+ */
+export function basicOptions(state: GameState, player: Side): CardOption[] {
+  if (player !== 'runner' || state.players.runner.tags <= 0) return [];
+  return [{ ...option(state, { type: 'remove_tag', player }, BASIC_ACTION_COST), clicks: 1 }];
 }
 
 /** Every install/play action the card at `handIndex` could take, before checking turn, clicks or money. */

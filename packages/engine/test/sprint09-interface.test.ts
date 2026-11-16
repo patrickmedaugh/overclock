@@ -135,11 +135,11 @@ describe('Sprint 9 interface (E1)', () => {
     expect(reject(withPlayer(tagged, 'corp', { credits: BASIC_ACTION_COST - 1 }), a)).toBe('no_credits');
   });
 
-  it('E3: a valid bid is accepted and listed (one per amount); E1 stub: remove_tag still not_implemented', () => {
+  it('E3/E4: valid new actions are accepted (bids listed one per amount; remove_tag works)', () => {
     const bid = withTrace('trace_corp', null);
     expect(reject(bid, { type: 'trace_bid', player: 'corp', credits: 0 })).toBeNull();
     expect(legalActions(bid, 'corp')).toHaveLength(bid.players.corp.credits + 1);
     const runnerTurn = withPlayer(finishTurn(engineNewGame(11)).state, 'runner', { tags: 1 });
-    expect(reject(runnerTurn, { type: 'remove_tag', player: 'runner' })).toBe('not_implemented');
+    expect(reject(runnerTurn, { type: 'remove_tag', player: 'runner' })).toBeNull();
   });
 });

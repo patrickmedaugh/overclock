@@ -515,6 +515,8 @@ maxHandSize(state, side) = 5 − brainDamage    // exported
 
 Everything in the Sprint 1–8 interfaces still holds unless noted. Tech plan: `docs/sprints/sprint-09-tech-plan.md`. No engine or client code checks a card id. `RULES_VERSION = 3` (live online games expire on deploy). `PROTOCOL_VERSION` stays 1.
 
+**E4 status:** tags work: `remove_tag`, `trash_resource` (`rig_card_trashed{cause:'tagged'}`), Runner `basicOptions`, Corp `installedOptions` per rig resource while tagged; tags never reset.
+
 **E3 status:** traces work (`trace` effect, both windows with the skip rules, `trace_bid`, in-run resume and action resume, `give_tags`); the stub AI bids (Corp: least that beats the Runner's best answer, else 0; Runner: `needed`).
 
 **E1 status:** every type below exists; the new actions are validated in the pinned check order and then refused `not_implemented` (stub check `notBuiltYet`, removed in E3/E4); the `trace` / `give_tags` / `meat_damage` effects are no-ops until E3–E5; `basicOptions` is `[]` and scored abilities are not offered until E4/E5; `lastSuccessfulRunTurn` is set from E6. Views are complete (tags, link, `choice.trace`, trace bid options).

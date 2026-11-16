@@ -17,6 +17,7 @@ import {
   breakerPayment,
   breakerCard,
   breakerStrength,
+  BASIC_ACTION_COST,
   breakSubs,
   corpInstalled,
   currentIce,
@@ -655,6 +656,28 @@ export function doTraceBid(state: GameState, a: ActionOf<'trace_bid'>): { state:
   return { state: letThrough(setRun(s, { firing: null }), events, firing + 1), events };
 }
 
+/** Sprint 9: Runner basic action (validated): 1 click + 2 credits, remove 1 tag (`credits_spent`, `tags_changed{-1}`). */
+export function doRemoveTag(state: GameState): { state: GameState; events: GameEvent[] } {
+  const me = state.players.runner;
+  const tags = me.tags - 1;
+  const events: Events = [
+    { type: 'credits_spent', player: 'runner', amount: BASIC_ACTION_COST },
+    { type: 'tags_changed', amount: -1, tags },
+  ];
+  return { state: withPlayer(state, 'runner', { clicks: me.clicks - 1, credits: me.credits - BASIC_ACTION_COST, tags }), events };
+}
+
+/**
+ * Sprint 9: Corp basic action (validated): 1 click + 2 credits, trash the tagged Runner's resource `uid`
+ * (`credits_spent`, `rig_card_trashed{cause: 'tagged'}`; face up to the Heap).
+ */
+export function doTrashResource(state: GameState, a: ActionOf<'trash_resource'>): { state: GameState; events: GameEvent[] } {
+  const me = state.players.corp;
+  const events: Events = [{ type: 'credits_spent', player: 'corp', amount: BASIC_ACTION_COST }];
+  const s = withPlayer(state, 'corp', { clicks: me.clicks - 1, credits: me.credits - BASIC_ACTION_COST });
+  return { state: trashRigCard(s, a.uid, events, 'tagged'), events };
+}
+
 // ---- Sprint 7: turn start -----------------------------------------------------------
 
 /** Replaces installed card `uid` (rig, or any server's ICE / content) with `patch` applied. */
@@ -714,11 +737,14 @@ export function trashIfEmpty(state: GameState, uid: string, events: Events): Gam
   return withPlayer(s, 'corp', { discard: [...s.players.corp.discard, { cardId: card.cardId, faceUp: true }] });
 }
 
-/** Moves rig card `uid` face up to the Heap (`rig_card_trashed`); Sprint 8: its breaker boosts are dropped. */
-export function trashRigCard(state: GameState, uid: string, events: Events): GameState {
+/**
+ * Moves rig card `uid` face up to the Heap (`rig_card_trashed`); Sprint 8: its breaker boosts are dropped.
+ * Sprint 9: `cause: 'tagged'` = the Corp's `trash_resource` basic action.
+ */
+export function trashRigCard(state: GameState, uid: string, events: Events, cause?: 'tagged'): GameState {
   const card = state.rig.find((c) => c.uid === uid);
   if (!card) return state;
-  events.push({ type: 'rig_card_trashed', uid, cardId: card.cardId });
+  events.push(cause ? { type: 'rig_card_trashed', uid, cardId: card.cardId, cause } : { type: 'rig_card_trashed', uid, cardId: card.cardId });
   let s: GameState = { ...state, rig: state.rig.filter((c) => c.uid !== uid) };
   if (s.run && (uid in s.run.encounterBoost || uid in s.run.runBoost)) {
     const { [uid]: _e, ...encounterBoost } = s.run.encounterBoost;
