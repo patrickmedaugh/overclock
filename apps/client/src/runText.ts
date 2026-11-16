@@ -179,15 +179,18 @@ export function stepLabel(run: RunView, deciding: Side): string {
 
 /**
  * QA-S8-2: the whole price of breaking the ICE, from the engine's `breakAll`: "Break all:
- * 4 + 3 = 7 credits" (strength first, then the breaks). Several breakers: one line each, named.
+ * 4 + 3 = 7 credits" (strength first, then the breaks). Several breakers: only the cheapest
+ * (first on a tie), named — one line at most, so the run panel keeps its text size at 640x360.
  * Nothing when no breaker can break it all with the credits there are.
  */
 export function breakAllLines(run: RunView, rig: RigIds): string[] {
   const all = run.breakAll ?? [];
-  // One short line each, the sum written out: "Break all: 4 + 3 = 7 credits".
-  const sum = (b: (typeof all)[number]) => (b.strengthCredits > 0 ? `${b.strengthCredits} + ${b.breakCredits} = ${plural(b.credits, 'credit', 'credits')}` : plural(b.credits, 'credit', 'credits'));
-  if (all.length === 1) return [`Break all: ${sum(all[0]!)}`];
-  return all.map((b) => `${nameOf(rig[b.uid] ?? null, 'Breaker')}, all: ${sum(b)}`);
+  const best = all.reduce<(typeof all)[number] | null>((m, b) => (m === null || b.credits < m.credits ? b : m), null);
+  if (!best) return [];
+  // The sum written out: "Break all: 4 + 3 = 7 credits".
+  const total = plural(best.credits, 'credit', 'credits');
+  const sum = best.strengthCredits > 0 ? `${best.strengthCredits} + ${best.breakCredits} = ${total}` : total;
+  return [all.length === 1 ? `Break all: ${sum}` : `Break all: ${sum} (${nameOf(rig[best.uid] ?? null, 'Breaker')})`];
 }
 
 /** Info lines under the step line: ICE strength, the breakers that can act and their strength, the next stop. */

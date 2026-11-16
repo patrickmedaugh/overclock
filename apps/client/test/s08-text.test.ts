@@ -98,7 +98,7 @@ describe('S-08-7 Rototurret', () => {
 
 describe('QA-S8-2 break-all price', () => {
   const base = { server: 'hq', position: 0, step: 'encounter', waitingOn: 'runner', iceUid: 'i2', ice: null, breakerStrength: {}, access: null, extraAccess: 0, bypassPending: false, options: [], tempCredits: 0, letFire: null } as const;
-  it('one breaker: the sum written out; none: nothing; several: one named line each', () => {
+  it('one breaker: the sum written out; none: nothing; several: only the cheapest, named (first on a tie)', () => {
     expect(breakAllLines({ ...base, breakAll: [{ uid: 'i1', credits: 7, strengthCredits: 4, breakCredits: 3 }] }, { i1: 'r04' })).toEqual(['Break all: 4 + 3 = 7 credits']);
     expect(breakAllLines({ ...base, breakAll: [{ uid: 'i1', credits: 1, strengthCredits: 0, breakCredits: 1 }] }, { i1: 'r04' })).toEqual(['Break all: 1 credit']);
     expect(breakAllLines({ ...base, breakAll: [] }, {})).toEqual([]);
@@ -113,6 +113,18 @@ describe('QA-S8-2 break-all price', () => {
         },
         { i1: 'r04', i3: 'r17' },
       ),
-    ).toEqual(['Corroder, all: 4 + 3 = 7 credits', 'Battering Ram, all: 3 + 4 = 7 credits']);
+    ).toEqual(['Break all: 4 + 3 = 7 credits (Corroder)']);
+    expect(
+      breakAllLines(
+        {
+          ...base,
+          breakAll: [
+            { uid: 'i1', credits: 7, strengthCredits: 4, breakCredits: 3 },
+            { uid: 'i3', credits: 5, strengthCredits: 1, breakCredits: 4 },
+          ],
+        },
+        { i1: 'r04', i3: 'r17' },
+      ),
+    ).toEqual(['Break all: 1 + 4 = 5 credits (Battering Ram)']);
   });
 });
