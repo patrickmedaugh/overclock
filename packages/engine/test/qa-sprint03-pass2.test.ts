@@ -127,8 +127,20 @@ function checkRunnerEvents(before: GameState, after: GameState, events: readonly
         // Sprint 8 (engine-dev, spec change; QA reviews): or, for an in-run choice, the rezzed current ICE.
         const run = after.run;
         const ice = run && run.position >= 0 ? after.servers.find((x) => x.id === run.server)?.ice[run.position] : undefined;
-        const ok = events.some((x) => x.type === 'agenda_scored' && x.cardId === e.cardId) || (e.kind !== 'free_rez' && ice?.rezzed === true && ice.cardId === e.cardId);
+        // Sprint 9 (engine-dev, spec change; QA reviews): a trace from an operation names it, face up on top of Archives.
+        const top = after.players.corp.discard.at(-1);
+        const played = (e.kind === 'trace_corp' || e.kind === 'trace_runner') && !after.run && top?.faceUp === true && top.cardId === e.cardId;
+        const ok = events.some((x) => x.type === 'agenda_scored' && x.cardId === e.cardId) || (e.kind !== 'free_rez' && ice?.rezzed === true && ice.cardId === e.cardId) || played;
         expect(ok, `${where}: choice names the scored agenda or the rezzed current ICE`).toBe(true);
+        break;
+      }
+      case 'trace_started':
+      case 'trace_resolved': {
+        // Sprint 9 (engine-dev, spec change; QA reviews): the card that started the trace is face up: a rezzed
+        // ICE (in a run; the run may have ended in this action) or the played operation, face up in Archives.
+        const ice = after.servers.flatMap((sv) => sv.ice).some((c) => c.rezzed && c.cardId === e.cardId);
+        const played = after.players.corp.discard.some((d) => d.faceUp && d.cardId === e.cardId);
+        expect(ice || played, `${where}: ${e.type} names face-up ${e.cardId}`).toBe(true);
         break;
       }
       case 'corp_card_trashed':
