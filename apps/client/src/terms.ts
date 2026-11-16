@@ -44,6 +44,12 @@ export const TERMS = {
   badPublicity: 'Bad publicity',
   forThisRun: 'for this run',
   skip: 'Skip',
+  // Sprint 9: traces, tags, link, meat damage.
+  trace: 'Trace',
+  link: 'Link',
+  tag: 'Tag',
+  tagged: 'Tagged',
+  meatDamage: 'Meat damage',
 } as const;
 
 /** S-08-3: the Runner's hand size after brain damage: "Hand max 4". */

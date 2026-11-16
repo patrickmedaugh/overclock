@@ -21,7 +21,8 @@ import { Hand, type HandCard } from './hand';
 import { DROP_WAIT_MS, LIFT_MS, RETURN_MS, SWIPE_TOLERANCE, VIEW_FADE_MS, type ViewHit, ghostCenter, swipeIndex, targetAt, viewHit } from './handGesture';
 import type { AnimRecord, Box, EndTurnClock, InstalledSnapshot, Insets, LayoutSnapshot, SideLayout, TargetSnapshot } from './hook-types';
 import type { Decision, Presentation } from './session';
-import { choiceHint, hintFor } from './hints';
+import { choiceHint, conditionText, hintFor, rejectText } from './hints';
+import { basicOptionLabel, bidWaitText, isTraceChoice, linkText, meatDamageText, tagsChangedText, taggedText, taggedTrashText, traceNotices } from './traceText';
 import { attachPress, inputTime, noteRelease } from './input';
 import type { FederatedPointerEvent } from 'pixi.js';
 import { BUILD_LINE, type BoardLayout, type BoardShape, CARD_RATIO, type SideRow, computeLayout } from './layout';
@@ -77,10 +78,29 @@ function targetKey(kind: TargetSnapshot['kind'], where: { server?: string; uid?:
  */
 function runnerNote(view: PlayerView): string | null {
   const parts: string[] = [];
+  // Sprint 9 (S-09-2): "Tagged 1" comes first (the note turns red while tagged).
+  const tags = view.players.runner.tags ?? 0;
+  if (tags > 0) parts.push(taggedText(tags));
   const max = view.players.runner.maxHandSize;
   if (max < 5) parts.push(handMaxText(max));
   if (view.run && view.run.tempCredits > 0) parts.push(tempCreditsText(view.run.tempCredits));
   return parts.length > 0 ? parts.join(' · ') : null;
+}
+
+/**
+ * Sprint 9: the bid panel (or the run panel) takes the hand's room: during a run, and
+ * while a trace bid window is open outside one (SEA Source; no hand shows to the other seat).
+ */
+function panelUp(view: PlayerView | null): boolean {
+  return !!view && (!!view.run || isTraceChoice(view.choice));
+}
+
+/** Sprint 9: the key a picked tag marker uses in place of an installed card's uid (Remove 1 tag). */
+const TAGS_PICK = 'basic:tags';
+
+/** Sprint 9: a scored agenda's uid (`score:corp:0`), whose abilities show from the score pill. */
+function isScoredUid(uid: string): boolean {
+  return uid.startsWith('score:');
 }
 
 function handText(side: Side, n: number): string {
@@ -143,6 +163,11 @@ interface IdentityWidget {
   root: Container;
   box: Box;
   detach: () => void;
+  /** Sprint 9: the Runner's link ("Link 1"), a pill along the card's bottom edge. */
+  link: Container;
+  linkText: Text;
+  linkBg: Graphics;
+  linkKey: string;
 }
 
 /** One side's name, hand count, credits and clicks, for one position (top / bottom). */
@@ -477,9 +502,18 @@ export class Board {
    * on the next frame. A tap on the cover lifts it.
    */
   setCover(text: CoverText | null): void {
+    const wasUp = this.cover !== null;
     this.cover?.destroy();
     this.cover = null;
     if (text) {
+      // Sprint 9: a notice just shown (SEA Source's "trace 3 vs link 1: Runner tagged") would fade
+      // unseen under the cover: it shows again once the cover lifts (notices only say public things).
+      if (this.hint?.kind === 'notice' && !wasUp) {
+        this.pendingNotices.unshift(this.hint.text);
+        this.ui.cancel(this.hint.root);
+        this.hint.root.destroy({ children: true });
+        this.hint = null;
+      }
       this.closeZoom(true);
       this.stopPredraw();
       this.closeLastRun();
@@ -588,7 +622,7 @@ export class Board {
     else if (this.zoom?.view) {
       const ids = view.players[view.viewer].hand ?? [];
       const same = this.view?.viewer === view.viewer && ids.length === this.hands[view.viewer].ids.length && ids.every((id, i) => id === this.hands[view.viewer].ids[i]);
-      if (!same || view.run || view.pendingDiscard > 0) this.closeZoom(true);
+      if (!same || panelUp(view) || view.pendingDiscard > 0) this.closeZoom(true);
     }
     const prev = this.view;
     if (prev?.choice && prev.choice.kind === 'free_rez') this.lastChoiceCard = prev.choice.cardId;
@@ -620,9 +654,12 @@ export class Board {
       this.runPicking = false;
       // A card's own ability (Take 2 credits) stays picked too: tap again to take more.
       const advanced = events.some((e) => (e.type === 'card_advanced' || (e.type === 'ability_triggered' && e.trigger === 'click')) && e.uid === this.pickedInstalled);
-      if (!advanced) this.pickedInstalled = null;
+      // Sprint 9: the tag marker stays picked after Remove 1 tag (remove another with one tap); PSF after its use.
+      const basic = this.pickedInstalled === TAGS_PICK && events.some((e) => e.type === 'tags_changed');
+      const scored = this.pickedInstalled !== null && isScoredUid(this.pickedInstalled) && events.some((e) => e.type === 'meat_damage');
+      if (!advanced && !basic && !scored) this.pickedInstalled = null;
     }
-    if (this.pickedInstalled !== null && !(view.installedOptions[this.pickedInstalled]?.length)) this.pickedInstalled = null;
+    if (this.pickedInstalled !== null && this.pickedOptions(view, this.pickedInstalled).length === 0) this.pickedInstalled = null;
     // Where things were before this action moved them (for the flights).
     const before = this.boxesBefore(events);
     const prevRun = prevDecision?.run ?? prev.run;
@@ -650,13 +687,16 @@ export class Board {
       this.animateBonusEvent(e, notices);
       if (e.type === 'credit_gained' && e.player === viewer) this.creditFloat(e.amount);
       if (e.type === 'action_rejected') {
-        this.showHint(hintFor(e.reason, view, this.tappedOption));
+        this.showHint(rejectText(e.reason, view, this.tappedOption));
         if (e.reason === 'no_clicks') this.seatAt('bottom')?.clicks.shake();
       }
       this.animateRunEvent(e, layout, before, prevRun, reportText ? [] : notices, events);
     }
     this.tappedOption = null;
     notices.push(...installNotices(events), ...turnStartNotices(events));
+    // Sprint 9: "Corp bid 0" for a skipped window, and the trace's result with both totals
+    // (in a run the ICE report says it instead).
+    if (!reportText) notices.push(...traceNotices(events));
     if (newStep && view.run) this.stepFlash();
     // A fired subroutine already says what happened: no extra "loses 1 click" / "Run ended" lines.
     const fired = events.some((e) => e.type === 'subroutine_fired');
@@ -790,6 +830,15 @@ export class Board {
       gameOver: this.gameOver && layout ? { text: this.gameOver.text, title: this.gameOver.title, reason: this.gameOver.reason, box: layout.gameOver, button: this.online ? 'Back to start' : 'New game', buttonBox: { ...this.gameOver.button } } : null,
       status: this.status ? { text: this.status.text, box: { ...this.status.box } } : null,
       run: gen?.run.snapshot ?? null,
+      trace: gen?.run.traceSnapshot ?? null,
+      runnerStatus: {
+        tagged: runner && runner.tag.tagged && runner.tag.text ? { text: runner.tag.text, box: { ...runner.tag.box }, hit: runner.pos === 'bottom' ? this.tagHit(runner.tag.box) : { ...runner.tag.box } } : null,
+        link: (() => {
+          const w = gen?.identities.runner;
+          if (!w || !w.root.visible || !w.link.visible) return null;
+          return { text: w.linkText.text, box: boundsOf(w.link) };
+        })(),
+      },
       runButton:
         gen && gen.runButton.root.visible
           ? { box: { ...gen.runButton.box }, label: gen.runButton.text, lit: gen.runButton.lit, picking: this.runPicking }
@@ -1001,7 +1050,7 @@ export class Board {
     }
     const hqRoot = layout.corp.servers[0]?.root;
     if (hqRoot) placeAt(gen.hq.root, hqRoot);
-    for (const s of SIDES) this.placeIdentity(gen, layout, s, identityOf(view, s), rowOf(s).identity);
+    for (const s of SIDES) this.placeIdentity(gen, layout, s, identityOf(view, s), rowOf(s).identity, s === 'runner' ? view.players.runner.link : null);
     // The Corp's identity stands for HQ: it takes the HQ marker's slot (the hand count is in the Corp's name row).
     gen.hq.root.visible = !gen.identities.corp?.root.visible;
 
@@ -1165,10 +1214,15 @@ export class Board {
     for (const side of SIDES) {
       const pill = scores[side];
       detachers.push(
-        this.attachHoldZoom(pill.root, () => {
-          const ids = [...(this.view?.players[side].scored ?? [])];
-          return ids.length > 0 ? { ids, side: 'corp', from: pill.box } : null;
-        }),
+        this.attachHoldZoom(
+          pill.root,
+          () => {
+            const ids = [...(this.view?.players[side].scored ?? [])];
+            return ids.length > 0 ? { ids, side: 'corp', from: pill.box } : null;
+          },
+          // Sprint 9 (S-09-3): a tap on the viewer's own score shows a scored agenda's ability (Private Security Force).
+          () => this.onScoreTap(side),
+        ),
       );
       pill.root.eventMode = 'none';
     }
@@ -1246,6 +1300,8 @@ export class Board {
       if (pos === 'bottom') gen.detachers.push(this.pressFeedback(credits.root, () => this.boardTap(() => this.callbacks.onCreditsTap())));
       else credits.root.eventMode = 'none';
       const tag = new StatusTag(`tag:${side}`, side === 'corp' ? 'bad' : 'run');
+      // Sprint 9 (S-09-2): the Runner taps his own "Tagged 1" note for Remove 1 tag.
+      if (side === 'runner' && pos === 'bottom') gen.detachers.push(this.pressFeedback(tag.root, () => this.onTagTap()));
       root.addChild(label, credits.root, clicks.root, tag.root);
       this.boardLayer.addChild(root);
       w = { side, pos, root, label, name, handText: hand, credits, clicks, tag };
@@ -1337,7 +1393,7 @@ export class Board {
   }
 
   /** U2: draws (or hides) `side`'s identity card in its slot; hold it to read it. */
-  private placeIdentity(gen: Generation, layout: BoardLayout, side: Side, ref: IdentityRef | null, slot: Box | null): void {
+  private placeIdentity(gen: Generation, layout: BoardLayout, side: Side, ref: IdentityRef | null, slot: Box | null, link: number | null = null): void {
     let w = gen.identities[side];
     if (w && (!ref || w.cardId !== ref.cardId)) {
       w.detach();
@@ -1354,8 +1410,18 @@ export class Board {
       root.label = `identity:${side}`;
       root.hitArea = new Rectangle(-u / 2, -uh / 2, u, uh);
       root.addChild(createCardFace(def, u, uh, 'small'));
+      // Sprint 9: the Runner's link (the engine's number) on a pill across the bottom of his identity.
+      const linkBox = new Container();
+      linkBox.label = 'link';
+      const linkBg = new Graphics();
+      const linkLabel = new Text({ text: '', style: { fontFamily: theme.monoFamily, fontSize: Math.max(11, Math.round(u * 0.17)), fontWeight: '800', fill: theme.ink } });
+      linkLabel.anchor.set(0.5);
+      linkBox.addChild(linkBg, linkLabel);
+      linkBox.visible = false;
+      linkBox.eventMode = 'none';
+      root.addChild(linkBox);
       const cardId = ref.cardId;
-      const widget: IdentityWidget = { uid: ref.uid, cardId, root, box: slot, detach: () => {} };
+      const widget: IdentityWidget = { uid: ref.uid, cardId, root, box: slot, detach: () => {}, link: linkBox, linkText: linkLabel, linkBg, linkKey: '' };
       widget.detach = this.attachHoldZoom(root, () => ({ ids: [cardId], side, from: widget.box }));
       this.boardLayer.addChild(root);
       gen.identities[side] = widget;
@@ -1364,6 +1430,27 @@ export class Board {
     w.uid = ref.uid;
     w.box = slot;
     placeAt(w.root, slot);
+    this.setLink(w, link, layout.unit.width, layout.unit.height);
+  }
+
+  /** Sprint 9: "Link 1" across the bottom of the Runner's identity (hidden for the Corp's). */
+  private setLink(w: IdentityWidget, link: number | null, u: number, uh: number): void {
+    w.link.visible = link !== null;
+    if (link === null) return;
+    const text = linkText(link);
+    const key = `${text}:${u}`;
+    if (w.linkKey === key) return;
+    w.linkKey = key;
+    w.linkText.text = text;
+    fitText(w.linkText, u - 10);
+    const pw = Math.min(u - 4, Math.ceil(w.linkText.width) + 12);
+    const ph = Math.ceil(w.linkText.height) + 2;
+    w.linkBg.clear();
+    w.linkBg.roundRect(-pw / 2, -ph / 2, pw, ph, ph / 2).fill({ color: theme.runner, alpha: 0.95 }).stroke({ width: 1.5, color: theme.ink });
+    // In the art window (the name and type stay readable).
+    const def = getCard(w.cardId);
+    const f = def ? smallFaceLayout(def, u, uh) : null;
+    w.link.position.set(0, f ? Math.min(f.art.y + f.art.height - ph / 2, f.name.y - ph / 2 - 1) : uh / 2 - ph / 2 - 3);
   }
 
   /** QA-S7-2: the advancement tag (green, chevron, dark digits) in the card's top-right corner. */
@@ -1512,7 +1599,16 @@ export class Board {
       w.label.scale.set(Math.min(1, row.width / Math.max(1, w.handText.x + w.handText.width)));
       // The client shows the engine's numbers; it never adds run-only credits to the Runner's credits.
       const note = s === 'corp' ? (view.badPublicity > 0 ? badPublicityText(view.badPublicity) : null) : runnerNote(view);
-      w.tag.set(layout[w.pos].tag, note, layout.mode === 'landscape' && w.pos === 'bottom' ? 'center' : 'right');
+      const tagged = s === 'runner' && (p.tags ?? 0) > 0;
+      w.tag.set(layout[w.pos].tag, note, layout.mode === 'landscape' && w.pos === 'bottom' ? 'center' : 'right', tagged);
+      // Sprint 9: the Runner's own red note takes taps (a 44 px tall area reaching up from it, clear of the credits pill).
+      const tappable = tagged && w.pos === 'bottom';
+      w.tag.root.eventMode = tappable ? 'static' : 'none';
+      if (tappable) {
+        const hit = this.tagHit(w.tag.box);
+        w.tag.root.hitArea = new Rectangle(hit.x - (w.tag.box.x + w.tag.box.width / 2), hit.y - (w.tag.box.y + w.tag.box.height / 2), hit.width, hit.height);
+        w.tag.root.cursor = 'pointer';
+      }
       const mine = s === viewer;
       gen.decks[s].setActionable(mine && view.legalActions.some((a) => a.type === 'draw'));
       w.credits.setActionable(mine && view.legalActions.some((a) => a.type === 'gain_credit'));
@@ -1535,10 +1631,14 @@ export class Board {
     const help = gen.subHelp;
     main.visible = pending > 0;
     // Sideways, the run's info panel takes the help text's room in the rail.
-    help.visible = !view.result && !(view.run && layout.mode === 'landscape');
+    help.visible = !view.result && !(panelUp(view) && layout.mode === 'landscape');
     let helpText: string;
     const choiceCard = view.choice ? (getCard(view.choice.cardId)?.name ?? 'Agenda') : '';
-    if (isRunChoice(view.choice)) {
+    if (isTraceChoice(view.choice)) {
+      // Sprint 9: the bid panel says the numbers; the column says what to do.
+      const mine = view.choice.options.length > 0 || isTraceChoice(this.decision?.choice);
+      helpText = mine ? `Set your bid with − and +, then tap Bid.` : bidWaitText(view.choice.waitingOn);
+    } else if (isRunChoice(view.choice)) {
       // S-08-7: the run panel says what to pick; the column shows the same words here.
       helpText = view.choice.options.length > 0 || this.decision?.choice ? 'Tap a lit button to decide.' : `${SIDE_NAME[view.choice.waitingOn]} is choosing…`;
     } else if (view.choice && view.choice.options.length > 0) {
@@ -1553,7 +1653,8 @@ export class Board {
     } else if (this.runPicking) {
       helpText = `Tap a lit server to run on it.\nTap ${TERMS.run} again to cancel.`;
     } else if (this.pickedInstalled !== null) {
-      helpText = 'Tap a lit button.\nTap the card again to cancel.';
+      // Sprint 9: the tag marker / score pill picked: "Tap it again".
+      helpText = this.pickedInstalled === TAGS_PICK || isScoredUid(this.pickedInstalled) ? 'Tap a lit button.\nTap it again to cancel.' : 'Tap a lit button.\nTap the card again to cancel.';
     } else if (pending > 0) {
       const k = pending - this.marked.size;
       main.text = k > 0 ? `Discard ${k}` : 'Tap Confirm';
@@ -1622,7 +1723,7 @@ export class Board {
       },
       animate,
     );
-    this.hands[viewer].container.visible = !view.run;
+    this.hands[viewer].container.visible = !panelUp(view);
 
     // Run button: where Play goes, while the view offers runs and nothing is picked.
     const rb = gen.runButton;
@@ -1643,7 +1744,10 @@ export class Board {
     const pm = gen.pickMark;
     pm.clear();
     const picked = this.pickedInstalled !== null ? gen.installed.get(this.pickedInstalled) : undefined;
-    if (picked) glowRoundRect(pm, picked.box.x - 3, picked.box.y - 3, picked.box.width + 6, picked.box.height + 6, 5, theme.credit, 3, 1.4);
+    // Sprint 9: a picked tag marker or score pill is outlined the same way.
+    const pickedBox =
+      picked?.box ?? (this.pickedInstalled === TAGS_PICK ? this.seatOf('runner')?.tag.box : this.pickedInstalled && isScoredUid(this.pickedInstalled) ? gen.scores[viewer].box : undefined);
+    if (pickedBox) glowRoundRect(pm, pickedBox.x - 3, pickedBox.y - 3, pickedBox.width + 6, pickedBox.height + 6, 5, theme.credit, 3, 1.4);
     return newStep;
   }
 
@@ -1847,7 +1951,8 @@ export class Board {
         return;
       }
       case 'rig_card_trashed': {
-        // S-07-3/4: an emptied Armitage / Bank Job goes to the Heap.
+        // S-07-3/4: an emptied Armitage / Bank Job goes to the Heap. Sprint 9: or the Corp trashed it (Runner tagged).
+        if (e.cause === 'tagged') notices.push(taggedTrashText(e.cardId));
         const from = before.get(`uid:${e.uid}`);
         const pile = gen.discards.runner;
         this.callbacks.log({ kind: 'rig_trash_flight', scheduledMs: timing.runFlight, box: pile.box() });
@@ -1908,10 +2013,33 @@ export class Board {
         }
         return;
       }
+      case 'tags_changed': {
+        // Sprint 9 (S-09-2): the red "Tagged N" note pops, "+1 tag" / "-1 tag" floats from it.
+        const tag = this.seatOf('runner')?.tag;
+        const b = tag?.text ? tag.box : this.seatOf('runner')?.credits.box();
+        const text = `${e.amount > 0 ? '+' : '−'}${plural(Math.abs(e.amount), TERMS.tag.toLowerCase(), `${TERMS.tag.toLowerCase()}s`)}`;
+        this.callbacks.log({ kind: 'tags_changed', text, scheduledMs: timing.tagPop, ...(b ? { box: { ...b } } : {}) });
+        if (tag?.text) tag.pop(this.fx, timing.tagPop);
+        if (b) {
+          this.flash(b, theme.tagged, timing.tagPop);
+          this.floatText(text, b, theme.tagged, timing.tagPop);
+        }
+        // A trace's result already says "Runner tagged".
+        if (!batch.some((x) => x.type === 'trace_resolved')) notices.push(tagsChangedText(e));
+        return;
+      }
       case 'brain_damage':
+      case 'meat_damage':
       case 'net_damage': {
         // S-08-3: brain damage flies the same way as net damage and lowers the hand max.
-        notices.push(e.type === 'net_damage' ? `${e.amount} ${TERMS.netDamage.toLowerCase()}` : `${e.amount} ${TERMS.brainDamage.toLowerCase()} · ${handMaxText(e.maxHandSize)}`);
+        // Sprint 9 (S-09-3): meat damage too, naming the cards.
+        notices.push(
+          e.type === 'net_damage'
+            ? `${e.amount} ${TERMS.netDamage.toLowerCase()}`
+            : e.type === 'meat_damage'
+              ? meatDamageText(e)
+              : `${e.amount} ${TERMS.brainDamage.toLowerCase()} · ${handMaxText(e.maxHandSize)}`,
+        );
         if (e.type === 'brain_damage') {
           const tag = this.seatOf('runner')?.tag;
           if (tag?.text) tag.pop(this.fx, timing.tagPop);
@@ -2179,6 +2307,11 @@ export class Board {
     }
     // The price pill sits on the Runner's side of a Corp column (where the next ICE goes).
     const columnSide: 'top' | 'bottom' = layout.corp.outward === 'down' ? 'bottom' : 'top';
+    if (isTraceChoice(view.choice)) {
+      // Sprint 9: the bid panel is the only thing to answer.
+      this.setNewServerLabel(false);
+      return;
+    }
     if (view.choice && !isRunChoice(view.choice)) {
       // S-04-4: the free-rez choice. Only its options show: each offered ICE, and Skip where Play goes.
       for (const option of view.choice.options) {
@@ -2204,13 +2337,16 @@ export class Board {
     if (this.pickedInstalled !== null) {
       // S-07-2/3/5: a picked card on the table shows its buttons where Play goes (two at most):
       // Rez / Advance / Score / a card's own ability. Dimmed ones say why under their label.
+      // Sprint 9: also the tag marker's Remove 1 tag, the Corp's Trash on a Runner resource, and a
+      // scored agenda's ability (Private Security Force) from the score pill.
       const uid = this.pickedInstalled;
       let firstFree = true;
-      for (const option of view.installedOptions[uid] ?? []) {
+      for (const option of this.pickedOptions(view, uid)) {
         const a = option.action;
-        const kind: TargetSnapshot['kind'] | null = a.type === 'advance' || a.type === 'score' || a.type === 'rez' || a.type === 'activate' ? a.type : null;
+        const kind: TargetSnapshot['kind'] | null =
+          a.type === 'advance' || a.type === 'score' || a.type === 'rez' || a.type === 'activate' || a.type === 'remove_tag' || a.type === 'trash_resource' ? a.type : null;
         if (!kind) continue;
-        const label = installedOptionLabel(option, this.installedCardId(uid));
+        const label = basicOptionLabel(option) ?? (isScoredUid(uid) ? this.scoredOptionLabel(option, uid) : installedOptionLabel(option, this.installedCardId(uid)));
         const note = option.reject !== null ? this.rejectHint(option) : '';
         // Score keeps its own slot (beside Advance); everything else takes the first free one.
         const slot = kind === 'score' || !firstFree ? layout.action2 : layout.action;
@@ -2257,7 +2393,9 @@ export class Board {
       const verb = a.type === 'play' ? TERMS.play : TERMS.install;
       // S-08-1: Kate's discount is already in the engine's price; say it was lowered ("1 credit (−1)").
       const off = option.discount ? ` (−${option.discount})` : '';
-      this.addTarget(gen, layout, kind, option, b, `${verb} · ${priceText(option.cost)}${off}`, at, server !== undefined ? { server } : {});
+      // Sprint 9: a card whose play condition does not hold says why under its price (SEA Source).
+      const note = option.reject === 'condition_not_met' ? (conditionText(option, view) ?? '') : '';
+      this.addTarget(gen, layout, kind, option, b, `${verb} · ${priceText(option.cost)}${off}`, at, server !== undefined ? { server } : {}, note);
     }
     this.setNewServerLabel(this.activeTargets.some((t) => t.kind === 'new_server'));
   }
@@ -2308,10 +2446,112 @@ export class Board {
     return view.rig.find((c) => c.uid === uid)?.cardId ?? null;
   }
 
-  /** The hint for a refused option (a card's ability with nothing left on it says so). */
+  /** The hint for a refused option (Sprint 9: a condition in the card's own words, e.g. "Runner isn't tagged"). */
   private rejectHint(option: CardOption): string {
-    if (option.reject === 'condition_not_met' && option.action.type === 'activate') return 'No credits left on it';
-    return option.reject ? hintFor(option.reject, this.view, option) : '';
+    return option.reject ? rejectText(option.reject, this.view, option) : '';
+  }
+
+  /**
+   * The buttons of a picked thing: an installed card's options; Sprint 9: the tag marker's
+   * `basicOptions` (Remove 1 tag), a scored agenda's options (`score:corp:0`).
+   */
+  private pickedOptions(view: PlayerView, key: string): readonly CardOption[] {
+    if (key === TAGS_PICK) return view.basicOptions ?? [];
+    return view.installedOptions[key] ?? [];
+  }
+
+  /** Sprint 9: the viewer's scored agendas with abilities (`score:corp:<i>` keys in installedOptions), one per card. */
+  private scoredKeys(view: PlayerView): string[] {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const [key, options] of Object.entries(view.installedOptions)) {
+      if (!isScoredUid(key) || options.length === 0) continue;
+      const m = /^score:(corp|runner):(\d+)$/.exec(key);
+      const id = m ? view.players[m[1] as Side].scored[Number(m[2])] : undefined;
+      if (id === undefined || seen.has(id)) continue;
+      seen.add(id);
+      out.push(key);
+    }
+    return out;
+  }
+
+  /** Sprint 9: a scored agenda's ability button: "Do 1 meat damage · 1 click" (words from card data, price from the engine). */
+  private scoredOptionLabel(option: CardOption, key: string): string {
+    const a = option.action;
+    if (a.type !== 'activate') return installedOptionLabel(option, null);
+    const m = /^score:(corp|runner):(\d+)$/.exec(key);
+    const id = m && this.view ? this.view.players[m[1] as Side].scored[Number(m[2])] : undefined;
+    const label = (id ? getCard(id)?.scoredAbilities?.[a.ability]?.label : undefined) ?? 'Use';
+    const parts = [label.replace('{gain}', String(option.gain ?? 0))];
+    if (option.clicks) parts.push(plural(option.clicks, 'click', 'clicks'));
+    if (option.cost > 0) parts.push(priceText(option.cost));
+    return parts.join(' · ');
+  }
+
+  /** Sprint 9: where the Runner's tag note takes taps: 44 px tall, reaching up from the note (never over his credits). */
+  private tagHit(b: Box): Box {
+    const h = Math.max(44, b.height);
+    const w = Math.max(44, b.width);
+    return { x: b.x + b.width / 2 - w / 2, y: b.y + b.height - h, width: w, height: h };
+  }
+
+  /** Sprint 9 (S-09-2): the Runner taps his "Tagged 1" note: Remove 1 tag shows where Play goes (dim with the reason). */
+  private onTagTap(): void {
+    const view = this.view;
+    if (!view || this.flipPending) {
+      this.fx.finishAll();
+      return;
+    }
+    if (this.pickedInstalled === TAGS_PICK) {
+      this.cancelSelection();
+      return;
+    }
+    const options = view.basicOptions ?? [];
+    if (options.length === 0 || panelUp(view) || view.choice) {
+      if (view.choice) this.showHint(view.choice.options.length > 0 ? choiceHint(view.choice) : `${SIDE_NAME[view.choice.waitingOn]} is choosing`);
+      return;
+    }
+    const first = options[0]!.reject;
+    if (first !== null && first !== 'no_clicks' && first !== 'no_credits' && GATE_REASONS.has(first) && options.every((o) => o.reject === first)) {
+      this.showHint(hintFor(first, view));
+      return;
+    }
+    this.cancelSelection();
+    this.pickedInstalled = TAGS_PICK;
+    this.showTargets();
+    this.applyView(view, false);
+    this.callbacks.changed();
+  }
+
+  /** Sprint 9 (S-09-3): a tap on the viewer's own score pill shows its scored agenda's ability (Private Security Force). */
+  private onScoreTap(side: Side): void {
+    const view = this.view;
+    if (!view) return;
+    if (this.flipPending) {
+      this.fx.finishAll();
+      return;
+    }
+    const keys = side === view.viewer && !panelUp(view) && !view.choice ? this.scoredKeys(view) : [];
+    const key = keys[0];
+    if (key === undefined) {
+      this.cancelSelection();
+      return;
+    }
+    if (this.pickedInstalled === key) {
+      this.cancelSelection();
+      return;
+    }
+    const options = this.pickedOptions(view, key);
+    const first = options[0]?.reject ?? null;
+    this.cancelSelection();
+    if (first !== null && first !== 'no_clicks' && first !== 'condition_not_met' && GATE_REASONS.has(first) && options.every((o) => o.reject === first)) {
+      this.showHint(hintFor(first, view));
+      return;
+    }
+    this.pickedInstalled = key;
+    this.showTargets();
+    this.applyView(view, false);
+    this.callbacks.changed();
   }
 
   /** An installed card with options (view.installedOptions) shows its buttons; anything else drops the pick. */
@@ -2343,7 +2583,7 @@ export class Board {
     }
     const options = view.installedOptions[uid] ?? [];
     this.cancelSelection();
-    if (options.length === 0 || view.run) return;
+    if (options.length === 0 || panelUp(view)) return;
     const first = options[0]!.reject;
     // S-07-3: without clicks the buttons still show, dimmed, saying "No clicks left".
     if (first !== null && first !== 'no_clicks' && GATE_REASONS.has(first) && options.every((o) => o.reject === first)) {
@@ -2445,9 +2685,9 @@ export class Board {
    * A tap does what a tap on the empty board does (drops a pick); a hold never
    * taps. Lifting closes the zoom with nothing chosen.
    */
-  private attachHoldZoom(target: Container, list: () => { ids: string[]; side: Side; from: Box } | null): () => void {
+  private attachHoldZoom(target: Container, list: () => { ids: string[]; side: Side; from: Box } | null, onTap?: () => void): () => void {
     const detach = attachPress(target, {
-      onTap: () => this.cancelSelection(),
+      onTap: onTap ?? (() => this.cancelSelection()),
       onLongPress: () => {
         const l = list();
         const id = l?.ids.at(-1);
@@ -2673,7 +2913,7 @@ export class Board {
   private placeBuildLabel(layout: BoardLayout): void {
     const t = this.buildText;
     // QA-S8-2: sideways, the run panel uses the build date's line while a run is on.
-    t.visible = !(layout.mode === 'landscape' && this.view?.run);
+    t.visible = !(layout.mode === 'landscape' && panelUp(this.view));
     const when = this.callbacks.buildTime;
     const rail = layout.mode === 'landscape';
     const text = rail ? when : `Built ${when}`;
@@ -2687,7 +2927,7 @@ export class Board {
 
   /** QA-S8-3: sideways during a run, the End turn slot (End turn is hidden then); else null. */
   private runNoticeSlot(layout: BoardLayout, view: PlayerView | null): Box | null {
-    return layout.mode === 'landscape' && view?.run && !view.result ? layout.endTurn : null;
+    return layout.mode === 'landscape' && panelUp(view) && !view?.result ? layout.endTurn : null;
   }
 
   /** Where the toast goes: the hint slot, or (sideways, during a run) End turn's slot, clear of the run panel. */
@@ -2717,6 +2957,9 @@ export class Board {
   ): void {
     const layout = this.layout;
     if (!layout) return;
+    // Sprint 9: the other seat is deciding on this seat's board outside a run (the Runner's
+    // SEA Source bid on the Corp's board): nothing on it can be held to read (its own face-down cards).
+    if (this.decision && !this.decision.run && this.decision.seat !== this.view?.viewer) return;
     const def = cardId ? getCard(cardId) : undefined;
     this.closeZoom(true);
     const { width: vw, height: vh } = layout.viewport;
@@ -2901,7 +3144,7 @@ export class Board {
   /** Opens the hand view on hand card `index` (`from`: where it grows from; default its strip slot). */
   private openHandView(index: number, from?: Box): void {
     const view = this.view;
-    if (!view || view.run) return;
+    if (!view || panelUp(view)) return;
     const hand = this.hands[view.viewer];
     const ids = hand.ids;
     const cardId = ids[index];
@@ -3127,7 +3370,7 @@ export class Board {
     if (target && target.option.reject !== null) {
       // A dimmed place: say why, with the board in view.
       this.closeZoom(true);
-      this.showHint(hintFor(target.option.reject, view));
+      this.showHint(rejectText(target.option.reject, view, target.option));
     } else if (zoom?.view) {
       // Let go elsewhere: the hand view comes back.
       this.ui.cancel(zoom.root);

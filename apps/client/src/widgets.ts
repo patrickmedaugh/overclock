@@ -589,16 +589,21 @@ export class PanelButton {
     return (this.label.style.fontSize as number) * this.label.scale.y;
   }
 
-  /** `glow`: filled and bright (e.g. Run while servers are lit). */
-  set(b: Box, text: string, lit: boolean, color: number, glow = false): void {
+  /**
+   * `glow`: filled and bright (e.g. Run while servers are lit). `big`: a large label
+   * (Sprint 9: the bid control's − and +).
+   */
+  set(b: Box, text: string, lit: boolean, color: number, glow = false, big = false): void {
     this.box = { ...b };
     this.lit = lit;
     placeAt(this.root, b);
     const { width: w, height: h } = b;
     this.root.hitArea = new Rectangle(-w / 2, -h / 2, w, h);
-    const key = `${w}x${h}:${text}:${lit}:${color}:${glow}`;
+    const key = `${w}x${h}:${text}:${lit}:${color}:${glow}:${big}`;
     if (key === this.drawn) return;
     this.drawn = key;
+    const base = Math.max(12, Math.round(14 * Math.min(this.scale, 1.15)));
+    this.label.style.fontSize = big ? Math.round(Math.max(base * 1.9, h * 0.5)) : base;
     const r = Math.min(12 * this.scale, h / 2, 14);
     const g = this.g;
     g.clear();
@@ -706,19 +711,26 @@ export class StatusTag {
     return this.root.visible ? this.label.text : '';
   }
 
-  set(slot: Box, text: string | null, align: 'center' | 'right'): void {
+  /** Sprint 9: true while the note says the Runner is tagged (red, bold). */
+  tagged = false;
+
+  /** `tagged` (Sprint 9): drawn red ("Tagged 1 · Hand max 4"). */
+  set(slot: Box, text: string | null, align: 'center' | 'right', tagged = false): void {
     if (text === null) {
       this.root.visible = false;
       this.box = { x: 0, y: 0, width: 0, height: 0 };
       this.drawn = '';
+      this.tagged = false;
       return;
     }
     this.root.visible = true;
+    this.tagged = tagged;
     const h = slot.height;
-    const key = `${slot.width}x${h}:${text}`;
+    const key = `${slot.width}x${h}:${text}:${tagged}`;
     if (key !== this.drawn) {
       this.drawn = key;
       this.label.style.fontSize = Math.max(9, Math.round(h * 0.72));
+      this.label.style.fill = tagged ? theme.text : this.tone === 'bad' ? theme.text : theme.credit;
       this.label.text = text;
       fitText(this.label, slot.width - 8, h);
     }
@@ -727,7 +739,10 @@ export class StatusTag {
     this.box = { x, y: slot.y, width: w, height: h };
     placeAt(this.root, this.box);
     this.g.clear();
-    if (this.tone === 'bad') {
+    if (tagged) {
+      // Sprint 9: tagged: a red pill with a bright rim, so being tagged is never a surprise.
+      this.g.roundRect(-w / 2, -h / 2, w, h, h / 2).fill({ color: theme.tagged, alpha: 0.95 }).stroke({ width: 1.5, color: 0xffffff, alpha: 0.85 });
+    } else if (this.tone === 'bad') {
       // A black mark: solid black, a thin pale rim.
       this.g.roundRect(-w / 2, -h / 2, w, h, h / 2).fill({ color: 0x000000, alpha: 1 }).stroke({ width: 1, color: theme.textDim, alpha: 0.9 });
     } else {
