@@ -134,7 +134,7 @@ Sprint 8 demo: `docs/sprints/sprint-08-demo.md` (QA 36/36 after round 2). **Spri
 
 ## From the Sprint 3 record and Sprint 4 planning (2026-11-13)
 - **P2 — Fewer taps during runs, if the owner wants it.** Sprint 3 keeps Let it through / Done / Continue taps so the player sees what happened (DECISIONS 2026-11-12, auto-pass rules). Waits on the owner's open check S-03-3 AC6 ("is a run clear enough to follow?") and whether runs feel like too many taps.
-- **P2 — Save a game in progress** so it survives Android closing the app in the background. Left out of Sprint 4 (S-04-2 only covers switching away and back while the app stays open).
+- **P1 — Save a game in progress** (raised by owner 2026-11-16: *"maybe we can just save the game if they want to leave"* — instead of an online away-player timeout). Lets players stop an online or pass-and-play game and continue later; also survives Android closing the app in the background. Online auto-answer/timeout (old S-09-5) is shelved unless the owner asks again. Left out of Sprint 4 (S-04-2 only covers switching away and back while the app stays open).
   - Given a game in progress, when Android closes the app and you open it again, then the game continues where you left it.
 
 ## Owner requests in chat (2026-11-13, during Sprint 3 QA)

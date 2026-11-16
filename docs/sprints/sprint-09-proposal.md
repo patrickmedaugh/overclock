@@ -121,7 +121,7 @@ The numbers for the new cards (cost, strength, influence, link) are checked agai
 - Given every card in both decks, when its text is checked against the card data, then each one works as the table above says. (automated check)
 *Size:* M
 
-### S-09-5: Online: the game answers for a player who drops out
+### ~~S-09-5: Online: the game answers for a player who drops out~~ — DROPPED (owner, 2026-11-16: not needed now; he plays with friends and would rather save a game when someone leaves — backlog)
 *Why it matters:* today, if one device drops out at the wrong moment, the other player waits with "Waiting for the other player to come back…" and nothing happens.
 *How it behaves:* this only happens when a player's device is **away**, meaning the app is closed, the phone is locked long enough to disconnect, or the signal is lost. A player who is still connected and just thinking is never hurried. The other player sees a countdown ("The Corp is away. The game answers for them in 30 s"). If the away player comes back in time, they answer as usual. If not, the game gives a careful answer (question 4) and tells both players what it chose.
 *Acceptance criteria:*
