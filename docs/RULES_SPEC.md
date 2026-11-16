@@ -1,4 +1,4 @@
-# Rules spec (our own words) — v0
+# Rules spec (our own words) — v0 (rules version 3, Sprint 9)
 
 The engine implements this document. It is a simplified, genre-standard ruleset; extend it as sprints add mechanics. Ambiguities → simplest ruling, logged in `DECISIONS.md`.
 
@@ -8,8 +8,8 @@ The engine implements this document. It is a simplified, genre-standard ruleset;
 - *(Sprint 8)* The game uses the **core decks**: the Corp plays **Haas-Bioroid: Engineering the Future**, the Runner **Kate "Mac" McCaffrey: Digital Tinker**, each with a 30-card deck (house rule, owner Q2 A; the real minimum is 45). Identities sit face up on the table all game and never leave it. (The Sprint 2–7 starter decks, without identities, remain only as a test setup.)
 
 ## Turns
-- **Corp turn:** draw 1 card (mandatory), then spend 3 clicks. Basic actions: gain 1 credit; draw 1 card; install a card (agenda/asset/upgrade into a remote server, ICE in front of any server; installed ICE costs 1 credit per ICE already protecting that server); play an operation; advance an installed card (1 click + 1 credit); purge (3 clicks, later sprint).
-- **Runner turn:** spend 4 clicks. Basic actions: gain 1 credit; draw 1 card; install a program/hardware/resource (pay cost; programs use memory, starting limit 4); play an event; make a run; remove a tag (later sprint).
+- **Corp turn:** draw 1 card (mandatory), then spend 3 clicks. Basic actions: gain 1 credit; draw 1 card; install a card (agenda/asset/upgrade into a remote server, ICE in front of any server; installed ICE costs 1 credit per ICE already protecting that server); play an operation; advance an installed card (1 click + 1 credit); *(Sprint 9)* trash one of the Runner's installed resources while he is tagged (1 click + 2 credits); purge (3 clicks, later sprint).
+- **Runner turn:** spend 4 clicks. Basic actions: gain 1 credit; draw 1 card; install a program/hardware/resource (pay cost; programs use memory, starting limit 4); play an event; make a run; *(Sprint 9)* remove 1 tag (1 click + 2 credits).
 - **Turn order:** the Corp takes turn 1, then turns alternate. The Corp's mandatory draw happens at the start of every Corp turn, including turn 1, so the Corp starts its first turn with 6 cards. The Runner never gets a free draw.
 - **Ending a turn (house rule, owner 2026-11-12):** the active player ends their turn by choosing to (End turn). They may do this with clicks left over; leftover clicks are lost. *(Differs from the genre's standard rule, where every click must be spent.)* The turn never ends by itself when the last click is spent.
 - End of turn: discard down to maximum hand size (5; *Sprint 8:* minus the Runner's brain damage). The player picks which cards. The Runner's discards go face up to their discard pile (the Heap). The Corp's go face down to Archives: the Runner sees them only as card backs.
@@ -25,12 +25,12 @@ The engine implements this document. It is a simplified, genre-standard ruleset;
   - New remote servers are numbered Server 1, Server 2, ... in the order they are made; numbers are never reused.
 - **Install** (1 click), Runner: programs, hardware and resources go face up into the Runner's area (the rig). Pay the card's cost. Programs use memory: installed programs' memory must stay at or under the memory limit: 4, plus 1 for each installed card that raises it (Akamatsu Mem Chip: +1, Sprint 7).
 - **Play** (1 click): an operation (Corp) or event (Runner). Pay its cost, the card goes face up on top of your discard pile (Archives / Heap), then its effect happens. Card draws from an effect stop when the deck is empty; nothing is lost (only the Corp's mandatory draw can lose the game).
-- *(Sprint 2: cards whose effect needs runs could not be played yet. From Sprint 3 they work; see Runs.)* From Sprint 7 installed cards' abilities work (see "Card abilities and credits on cards"); from Sprint 8 Sacrificial Construct works too (Rototurret), so only Private Security Force still has nothing to react to (it needs tags).
+- *(Sprint 2: cards whose effect needs runs could not be played yet. From Sprint 3 they work; see Runs.)* From Sprint 7 installed cards' abilities work (see "Card abilities and credits on cards"); from Sprint 8 Sacrificial Construct works too (Rototurret), so only Private Security Force still has nothing to react to (it needs tags). *(Sprint 9: tags exist, so it works too; see "Traces, tags and link".)*
 - If several things stop an install or play, the reason given follows this order: not your turn, wrong step, no clicks, wrong card, wrong place, needs a system not built yet, its play condition is not met (e.g. Neural EMP without a run last turn), not enough credits, not enough memory.
 
 ## Identities and deck rules (Sprint 8)
 - **Haas-Bioroid: Engineering the Future:** the first time the Corp installs a card each turn (any card: ICE, agenda, asset, upgrade), it gains 1 credit, right after the install. A second install that turn gives nothing.
-- **Kate "Mac" McCaffrey: Digital Tinker:** the first program or piece of hardware the Runner installs each turn costs 1 less (never below 0). That first one uses the discount up even if it was free already. Resources and events never use it. Her printed "1 link" is shown but does nothing until traces exist.
+- **Kate "Mac" McCaffrey: Digital Tinker:** the first program or piece of hardware the Runner installs each turn costs 1 less (never below 0). That first one uses the discount up even if it was free already. Resources and events never use it. Her printed "1 link" is shown; *(Sprint 9)* it counts in traces.
 - "Each turn" means every player-turn: the counts start afresh at the start of every turn, for both sides.
 - **Deck rules** (checked automatically on both core decks): at least 30 cards (house), at most 3 copies of a card, only the identity's side, no identity in the list, agendas only of the identity's faction or neutral, other-faction cards' influence at most the identity's limit (15), and a Corp deck of 30 cards holds 14–15 agenda points.
 - **Face-down Corp cards never do anything:** their "when your turn begins", abilities and bonuses only work once rezzed.
@@ -83,17 +83,32 @@ The engine implements this document. It is a simplified, genre-standard ruleset;
 - **Inside Job:** the first piece of ICE the Runner *encounters* in the run (so the first rezzed one) is bypassed: passed without breaking, its subroutines do not happen.
 - **Neural EMP** can be played only if the Runner started a run during its previous turn.
 
+## Traces, tags and link (Sprint 9)
+- **Link** = how well the Runner hides. The Runner's link is his identity's printed link (Kate: 1) plus the link of each card in his rig (Access to Globalsec: +1 each). Both players see it.
+- **Trace** = a bidding contest a card starts ("Trace 3 – If successful, …"; the number is the trace's base strength). It is the real 2012 rule (owner, Sprint 9 Q1 A):
+  1. The **Corp bids first, openly**: it may spend any number of its credits (0 or more); each adds 1 to the trace strength.
+  2. Then the **Runner bids**, seeing the Corp's strength: he may spend credits (during a run, also his run-only bad-publicity credits, used first); each adds 1 to his link for this trace.
+  3. If the trace strength is **higher** than the Runner's link + bid, the trace **succeeds** and the "If successful" part happens. If it is **equal or lower**, nothing happens (ties go to the Runner). Credits bid are spent either way.
+  - **No pointless questions:** a player is not asked to bid when his bid cannot change the result. The Corp is not asked when it has 0 credits, or when even all its credits could not beat the Runner's link. The Runner is not asked when the trace already fails (strength at most his link) or when he cannot reach the strength even with everything he has. A player who is not asked bids 0, and both players are told the bids.
+  - In a run, a trace subroutine waits for both bids before the next subroutine happens. A trace from an operation (SEA Source) happens in the Corp's turn.
+- **Tags.** "Give the Runner 1 tag" puts a tag on him. Tags stay, also across turns, until he removes them. Both players see how many he has.
+  - **Remove a tag** (Runner basic action, on his turn outside a run): 1 click + 2 credits removes 1 tag.
+  - **Trash a resource** (Corp basic action, on its turn outside a run, only while the Runner has at least 1 tag): 1 click + 2 credits trashes one of his installed resources (it goes face up to the Heap).
+  - **Private Security Force** (scored by the Corp, in its score area): "Click: Do 1 meat damage." — usable on the Corp's turn outside a run, only while the Runner is tagged. Abilities of scored agendas work only in the **Corp's** score area; a stolen one does nothing.
+- **SEA Source** can be played only if the Runner made a successful run during his last turn (a run that reached the server; a Bank Job run where he took the credits instead of accessing still counts).
+- If several things stop a tag action, the reason given follows this order: not your turn, wrong step, no clicks, the Runner has no tag (remove a tag) / is not tagged (trash a resource), not a resource (trash a resource), not enough credits. A bid is refused if it is not a whole number of 0 or more, if it is not your bid, if no trace is waiting, or if it is more than you can spend; "pass" in a bid is refused (bid 0 instead).
+
 ## Damage (Sprint 3)
 - **Net damage:** for each point, the Runner discards a random card from its Grip to the Heap (face up). Random picks come from the game's seeded randomness.
 - **Brain damage** (Sprint 8, Viktor 1.0, Heimdall 1.0): for each point the Runner's maximum hand size drops by 1 for the rest of the game, and he discards a random card from his Grip to the Heap. More damage than cards in the Grip flatlines him (as net damage). If his maximum hand size is below 0 when his turn ends, he is flatlined (the Corp wins).
 - **Trashing Runner cards** (Sprint 8, Rototurret "Trash 1 program"): the Corp picks which of the Runner's installed programs goes to the Heap; with none nothing happens, with one there is no question. **Sacrificial Construct**: when one of the Runner's installed programs or hardware would be trashed, the Runner may trash Sacrificial Construct instead (it saves that card), or let it be trashed. Both decisions happen in the middle of the ICE; the run then goes on with the next subroutine.
 - **Breaking several at once** (Sprint 8): Battering Ram's "Break up to 2 barrier subroutines" breaks 1 or 2 subroutines (the Runner picks them) for one payment.
 - **Losing clicks:** "The Runner loses 1 click, if able" takes a click only if the Runner has one left.
-- *(Meat damage and tags come later.)*
+- **Meat damage** (Sprint 9, Private Security Force): like net damage: for each point the Runner discards a random card from his Grip to the Heap; more damage than cards in his Grip flatlines him (the Corp wins).
 
 ## Winning
 - The first player to reach **7 agenda points** wins at once, when the agenda is stolen or scored.
-- The Corp wins at once if the Runner takes more net damage than it has cards in its Grip (**flatline**).
+- The Corp wins at once if the Runner takes more net, brain *(Sprint 8)* or meat *(Sprint 9)* damage than it has cards in its Grip (**flatline**).
 - Runner wins if the Corp must draw from an empty R&D. Only the mandatory start-of-turn draw counts as "must draw"; the game ends right then.
 
 ## Starter card pool (v1, Sprint 2)
