@@ -159,9 +159,15 @@ test.describe('S-09-1 trace bid panel', () => {
       { type: 'tags_changed', amount: 1, tags: 1 },
     ];
     const l = await stub(page, { ...v, players: { ...v.players, runner: { ...v.players.runner, tags: 1 } } }, events);
-    expect(l.hint?.text).toContain('Corp bid 0');
-    expect(l.hint?.text).toContain('SEA Source: trace 3 vs link 1: Runner tagged');
-    expect(l.hint?.text).not.toContain('Runner gets 1 tag');
+    // QA-S9-1: one sentence, the skipped bids in brackets, in a wide bubble (not the rail's narrow slot).
+    expect(l.hint?.text).toBe('SEA Source: trace 3 vs link 1: Runner tagged (Corp bid 0, Runner bid 0)');
+    const hint = (await page.evaluate(() => window.__overclock!.anims())).find((a) => a.kind === 'notice' && a.text?.startsWith('SEA Source'))!;
+    expect(hint.fontPx!, 'toast text >= 12 px').toBeGreaterThanOrEqual(12);
+    expect(hint.box!.height, 'at most 2 lines').toBeLessThanOrEqual(hint.fontPx! * 2 * 1.3 + 20);
+    expect(hint.box!.width).toBeGreaterThan(l.runner.credits.width);
+    expect(hint.box!.x).toBeGreaterThanOrEqual(0);
+    expect(hint.box!.x + hint.box!.width).toBeLessThanOrEqual(l.viewport.width);
+    await shot(page, 'qa-s9-1-trace-result-toast');
     expect((await page.evaluate(() => window.__overclock!.anims())).some((a) => a.kind === 'tags_changed' && a.scheduledMs <= 600)).toBe(true);
   });
 });
@@ -328,6 +334,26 @@ test.describe('S-09-3 Private Security Force, S-09-4 SEA Source', () => {
     expect(targetOf(l, 'activate')).toMatchObject({ label: 'Do 1 meat damage · 1 click', lit: true });
     await tap(page, targetOf(l, 'activate').box);
     expect((await sent(page)).at(-1)).toEqual(psf(null).action);
+  });
+
+  test('QA-S9-2: when meat damage flatlines the Runner, no button or toast stays over the game-over box', async ({ page }) => {
+    await openBoard(page, { seed: SEED, decks: 'core' });
+    const v = await getView(page);
+    const psf: CardOption = { action: { type: 'activate', player: 'corp', uid: 'score:corp:0' as string, ability: 0 }, cost: 0, clicks: 1, reject: null };
+    const scored = { ...v.players.corp, scored: ['c09'], points: 2 };
+    const tagged = { ...v.players.runner, tags: 1 };
+    let l = await stub(page, { ...v, players: { ...v.players, corp: scored, runner: tagged }, installedOptions: { ...v.installedOptions, 'score:corp:0': [psf] } });
+    await tap(page, l.score.corp.box);
+    l = await layout(page);
+    expect(targetOf(l, 'activate').label).toBe('Do 1 meat damage · 1 click');
+    await page.evaluate(() => window.__overclock!.clearAnims());
+    const over: PlayerView = { ...v, phase: 'over', result: { winner: 'corp', reason: 'flatline' }, players: { ...v.players, corp: scored, runner: tagged }, installedOptions: { ...v.installedOptions, 'score:corp:0': [{ ...psf, reject: 'game_over' }] } };
+    l = await stub(page, over, [{ type: 'meat_damage', amount: 1, cardIds: [] }, { type: 'game_over', winner: 'corp', reason: 'flatline' }]);
+    expect(l.gameOver).toMatchObject({ title: 'Corp wins', reason: 'Runner flatlined' });
+    expect(l.targets).toEqual([]);
+    expect(l.selectedInstalled).toBeNull();
+    expect((await page.evaluate(() => window.__overclock!.anims())).filter((a) => a.kind === 'notice')).toEqual([]);
+    await shot(page, 'qa-s9-2-flatline-clean');
   });
 
   test('meat damage flies a Grip card to the Heap and names it', async ({ page }) => {

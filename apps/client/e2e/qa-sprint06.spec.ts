@@ -234,18 +234,30 @@ test.describe('QA S-06-2 not your turn', () => {
     const sentBefore = frames(runner.sent).filter((f) => f.t === 'act').length;
     const boxes = [rl.runner.credits, rl.runner.deck];
     if (rl.endTurn) boxes.push(rl.endTurn.box);
+    // ui-dev, flake fix; QA reviews (QA-S9-3): the refusal comes back from the service, so each tap waits
+    // until the phone has no move in flight (a tap made while the last one is still waiting for its
+    // answer is not sent, so it got no hint on a slow runner), and the hint is read from the animation
+    // log once the answer is in, not from the live screen (where it could have faded already).
+    const hintsSince = () => runner.page.evaluate(() => window.__overclock!.anims().filter((a) => a.kind === 'hint').map((a) => a.text));
+    const idle = () => runner.page.waitForFunction(() => !window.__overclock!.online()!.busy); // ui-dev, flake fix; QA reviews
     for (const b of boxes) {
+      await idle();
+      await runner.page.evaluate(() => window.__overclock!.clearAnims()); // ui-dev, flake fix; QA reviews
       await tap(runner.page, b);
       await runner.page.waitForTimeout(150);
+      await idle();
       // Each tap is answered at once with a plain "Not your turn".
-      expect((await layoutOf(runner)).hint?.text).toBe('Not your turn');
+      expect(await hintsSince()).toEqual(['Not your turn']); // ui-dev, flake fix; QA reviews
     }
     // S-07-6: a tap on a hand card opens the hand view (reading is fine on the other turn);
     // the tap on its big card (the pick) is answered at once with "Not your turn".
     for (const k of [0, 1]) {
+      await idle();
+      await runner.page.evaluate(() => window.__overclock!.clearAnims()); // ui-dev, flake fix; QA reviews
       await pickHand(runner.page, k);
       await runner.page.waitForTimeout(150);
-      expect((await layoutOf(runner)).hint?.text).toBe('Not your turn');
+      await idle();
+      expect(await hintsSince()).toEqual(['Not your turn']); // ui-dev, flake fix; QA reviews
     }
     const cl = await layoutOf(corp);
     expect(cl.text.help).not.toMatch(/Corp's turn/);

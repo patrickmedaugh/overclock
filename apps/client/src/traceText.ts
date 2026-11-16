@@ -154,10 +154,19 @@ export function traceReportText(batch: readonly GameEvent[], index: number): str
 /** The toast lines for traces in one action: skipped windows ("Corp bid 0") and each result. */
 export function traceNotices(batch: readonly GameEvent[]): string[] {
   const out: string[] = [];
+  // QA-S9-1: a skipped window is said inside its trace's result, one sentence:
+  // "SEA Source: trace 4 vs link 1: Runner tagged (Runner bid 0)". Alone ("Corp bid 0") only
+  // while the trace is still waiting on the other bid.
+  let autos: string[] = [];
   batch.forEach((e, i) => {
-    if (e.type === 'trace_bid' && e.auto) out.push(autoBidText(e));
-    if (e.type === 'trace_resolved') out.push(traceResultText(batch, i));
+    if (e.type === 'trace_bid' && e.auto) autos.push(autoBidText(e));
+    if (e.type === 'trace_resolved') {
+      const result = traceResultText(batch, i);
+      out.push(autos.length > 0 ? `${result} (${autos.join(', ')})` : result);
+      autos = [];
+    }
   });
+  out.push(...autos);
   return out;
 }
 

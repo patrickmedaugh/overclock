@@ -111,7 +111,10 @@ describe('S-09-1 trace words', () => {
       { type: 'tags_changed', amount: 1, tags: 1 },
     ];
     expect(traceResultText(tagged, 2)).toBe('Rototurret: trace 5 vs link 3: Runner tagged');
-    expect(traceNotices(tagged)).toEqual(['Corp bid 0', 'Rototurret: trace 5 vs link 3: Runner tagged']);
+    // QA-S9-1: one sentence, the skipped bid in brackets; alone only while the trace still waits.
+    expect(traceNotices(tagged)).toEqual(['Rototurret: trace 5 vs link 3: Runner tagged (Corp bid 0)']);
+    expect(traceNotices([tagged[0]!])).toEqual(['Corp bid 0']);
+    expect(traceNotices(tagged.slice(1))).toEqual(['Rototurret: trace 5 vs link 3: Runner tagged']);
     const tie: GameEvent[] = [{ type: 'trace_resolved', cardId: ICE, strength: 5, total: 5, success: false }];
     expect(traceResultText(tie, 0)).toBe('Rototurret: trace 5 vs link 5: Runner escaped');
     const ichi: GameEvent[] = [

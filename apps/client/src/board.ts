@@ -319,7 +319,9 @@ export class Board {
   private runPicking = false;
   /** Installed card picked for its choices (Corp agenda: Advance / Score). */
   private pickedInstalled: string | null = null;
-  private hint: { text: string; root: Container; box: Box; kind: 'hint' | 'notice'; slot: string } | null = null;
+  private hint: { text: string; root: Container; box: Box; kind: 'hint' | 'notice'; slot: string; wide: boolean } | null = null;
+  /** QA-S9-1: the notices waiting for the cover include a trace result (shown in the wide slot). */
+  private pendingWide = false;
   private zoom: {
     cardId: string | null;
     root: Container;
@@ -510,6 +512,7 @@ export class Board {
       // unseen under the cover: it shows again once the cover lifts (notices only say public things).
       if (this.hint?.kind === 'notice' && !wasUp) {
         this.pendingNotices.unshift(this.hint.text);
+        this.pendingWide = this.pendingWide || this.hint.wide;
         this.ui.cancel(this.hint.root);
         this.hint.root.destroy({ children: true });
         this.hint = null;
@@ -696,12 +699,14 @@ export class Board {
     notices.push(...installNotices(events), ...turnStartNotices(events));
     // Sprint 9: "Corp bid 0" for a skipped window, and the trace's result with both totals
     // (in a run the ICE report says it instead).
-    if (!reportText) notices.push(...traceNotices(events));
+    const traced = reportText ? [] : traceNotices(events);
+    notices.push(...traced);
     if (newStep && view.run) this.stepFlash();
     // A fired subroutine already says what happened: no extra "loses 1 click" / "Run ended" lines.
     const fired = events.some((e) => e.type === 'subroutine_fired');
     const shown = fired ? notices.filter((n) => !n.startsWith(`${SIDE_NAME.runner} loses`) && n !== RUN_END['ended_by_ice']) : notices;
-    if (shown.length > 0 && !events.some((e) => e.type === 'action_rejected')) this.showHint(shown.join('\n'), 'notice');
+    // QA-S9-2: once the game is over, the game-over box says what happened; no toast lands on it.
+    if (shown.length > 0 && !view.result && !events.some((e) => e.type === 'action_rejected')) this.showHint(shown.join('\n'), 'notice', traced.length > 0);
   }
 
   /** The End turn guard and flip timestamps (test hook). */
@@ -1685,7 +1690,7 @@ export class Board {
     fitText(help, hb.width, hb.height);
     this.syncHelp();
     // QA-S8-3: a toast shown before a run started (or ended) moves to the slot for now.
-    if (this.hint && this.hint.slot !== JSON.stringify(this.hintSlot(layout))) this.showHint(this.hint.text, this.hint.kind);
+    if (this.hint && this.hint.slot !== JSON.stringify(this.hintSlot(layout, this.hint.wide))) this.showHint(this.hint.text, this.hint.kind, this.hint.wide);
 
     const button = gen.button;
     if (view.result) {
@@ -2301,7 +2306,13 @@ export class Board {
     const view = this.view;
     this.activeTargets = [];
     if (gen) for (const m of gen.targets.values()) m.root.visible = false;
-    if (!gen || !layout || !view) {
+    if (!gen || !layout || !view || view.result) {
+      // QA-S9-2: once the game is over no buttons stay up behind the game-over box.
+      if (view?.result) {
+        this.selected = null;
+        this.pickedInstalled = null;
+        this.runPicking = false;
+      }
       this.setNewServerLabel(false);
       return;
     }
@@ -2817,12 +2828,17 @@ export class Board {
     if (this.cover || this.pendingNotices.length === 0) return;
     const text = this.pendingNotices.join('\n');
     this.pendingNotices = [];
-    this.showHint(text, 'notice');
+    const wide = this.pendingWide;
+    this.pendingWide = false;
+    this.showHint(text, 'notice', wide);
     this.callbacks.changed();
   }
 
-  /** The toast: a refusal hint (amber), or a notice of what just happened in a run (cyan). Never blocks input. */
-  private showHint(text: string, kind: 'hint' | 'notice' = 'hint'): void {
+  /**
+   * The toast: a refusal hint (amber), or a notice of what just happened in a run (cyan). Never blocks input.
+   * `wide` (QA-S9-1): a long notice (a trace's result) gets a wide bubble over the table instead of the rail's slot.
+   */
+  private showHint(text: string, kind: 'hint' | 'notice' = 'hint', wide = false): void {
     if (this.hint) {
       this.ui.cancel(this.hint.root);
       this.hint.root.destroy({ children: true });
@@ -2831,7 +2847,7 @@ export class Board {
     const layout = this.layout;
     if (!layout) return;
     const s = Math.min(layout.scale, 1.2);
-    const area = this.hintSlot(layout);
+    const area = this.hintSlot(layout, wide);
     const root = new Container();
     const padX = Math.max(6, Math.round(8 * s));
     const padY = Math.max(5, Math.round(6 * s));
@@ -2861,7 +2877,7 @@ export class Board {
     // The slot is sized so hints wrap at full size; shrink only if one ever does not fit.
     const fit = Math.min(1, (area.width - 2 * ring) / w, (area.height - 2 * ring) / h);
     root.scale.set(fit);
-    const hint = { text, root, box: { x: 0, y: 0, width: w * fit, height: h * fit }, kind, slot: JSON.stringify(area) };
+    const hint = { text, root, box: { x: 0, y: 0, width: w * fit, height: h * fit }, kind, slot: JSON.stringify(area), wide };
     this.positionHint(hint);
     root.alpha = 0;
     this.hintLayer.addChild(root);
@@ -2931,15 +2947,23 @@ export class Board {
   }
 
   /** Where the toast goes: the hint slot, or (sideways, during a run) End turn's slot, clear of the run panel. */
-  private hintSlot(layout: BoardLayout): Box {
+  private hintSlot(layout: BoardLayout, wide = false): Box {
+    // QA-S9-1: a wide notice (a trace's result) sits over the middle of the table, never over a run / bid panel.
+    if (wide && !this.runNoticeSlot(layout, this.view) && !panelUp(this.view)) {
+      const b = layout.board;
+      const s = Math.min(layout.scale, 1.2);
+      const w = Math.min(b.width - 2 * layout.pad, Math.round(560 * s));
+      const h = Math.min(b.height / 2, Math.round(110 * s));
+      return { x: Math.round(b.x + (b.width - w) / 2), y: Math.round(b.y + b.height * 0.4 - h / 2), width: w, height: h };
+    }
     return this.runNoticeSlot(layout, this.view) ?? layout.hintArea;
   }
 
-  private positionHint(hint: { root: Container; box: Box }): void {
+  private positionHint(hint: { root: Container; box: Box; wide?: boolean }): void {
     const layout = this.layout;
     if (!layout) return;
-    const a = this.hintSlot(layout);
-    const run = this.runNoticeSlot(layout, this.view) !== null;
+    const a = this.hintSlot(layout, hint.wide ?? false);
+    const run = this.runNoticeSlot(layout, this.view) !== null || (!!hint.wide && JSON.stringify(a) !== JSON.stringify(this.hintSlot(layout)));
     const cx = a.x + a.width / 2;
     // Sideways the slot is tall (the help text's room): sit at its bottom, by the viewer's name.
     const cy = layout.mode === 'landscape' && !run ? a.y + a.height - 3 - hint.box.height / 2 : a.y + a.height / 2;
