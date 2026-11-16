@@ -3,8 +3,8 @@
 // starts afresh at every run start and is cleared when the Runner's turn ends. The Runner
 // sees it only between runs and only when it has cards; the Corp never sees it.
 import { describe, expect, it } from 'vitest';
-import { apply, legalActions, newGame, replay, viewFor, waitingOn, type Action, type GameState, type ServerId } from '../src/index';
-import { act, board, run } from './helpers';
+import { apply, legalActions, viewFor, waitingOn, type Action, type GameState, type ServerId } from '../src/index';
+import { act, board, run, newGame, replay } from './helpers';
 
 const runOn = (server: ServerId): Action => ({ type: 'run', player: 'runner', server });
 const pass: Action = { type: 'pass', player: 'runner' };

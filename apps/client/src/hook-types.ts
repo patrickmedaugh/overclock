@@ -38,7 +38,11 @@ export interface InstalledSnapshot {
   /** The advancement counter drawn on it ("2"), or null when none is shown. */
   counter: string | null;
   /** S-07-3/4: the credits disc on it ("12"), or null when none is shown; `box` where it is drawn, `fontPx` its digits' size. */
-  hosted: { text: string; box: Box; fontPx: number } | null;
+  hosted: { text: string; box: Box; fontPx: number; color: number; icon: 'coin' } | null;
+  /** QA-S7-2: the advancement tag as drawn (a different colour and icon from `hosted`), or null. */
+  counterBadge: { text: string; box: Box; fontPx: number; color: number; icon: 'chevron' } | null;
+  /** Face up: where the face's name, type label and cost bubble are drawn (screen boxes) and the drawn name. */
+  face: { name: Box; type: Box; cost: Box; nameText: string } | null;
 }
 
 export interface ServerSnapshot {
@@ -91,6 +95,14 @@ export interface PanelButtonSnapshot {
   action: Action;
   /** The label's text size as drawn, after any shrink to fit (px; QA-S3-4). */
   fontPx: number;
+  /**
+   * S-08-4 Battering Ram (break up to 2): `multi` opens the pick, `toggle` picks a
+   * subroutine (`sub`, `picked`), `confirm` breaks the picked ones, `back` closes the pick.
+   * Absent for a plain option.
+   */
+  role?: 'multi' | 'toggle' | 'confirm' | 'back';
+  sub?: number;
+  picked?: boolean;
 }
 
 /** The run tracker and its decision panel. */
@@ -99,6 +111,8 @@ export interface RunSnapshot {
   step: RunStep;
   /** The seat the buttons act for (the Corp at approach, otherwise the Runner). */
   deciding: Side;
+  /** S-08-7: an open in-run choice: its kind, the lit (choosable) rig uids, and the card about to be trashed. */
+  choice: { kind: 'trash_target' | 'prevent_trash' | 'free_rez'; lit: string[]; target: string | null } | null;
   /** Panel title, e.g. "Run on Server 1", and the step line, e.g. "Rez Wall of Static?". */
   title: string;
   stepLabel: string;
@@ -137,6 +151,8 @@ export interface LayoutSnapshot {
   viewer: Side;
   corp: SideLayout;
   runner: SideLayout;
+  /** U2 (S-08-1): each side's identity card as drawn (Corp: the HQ slot; Runner: left of the Stack), or null. */
+  identities: Record<Side, { uid: string; cardId: string; box: Box } | null>;
   /** The area reserved for the viewer's hand. */
   handArea: Box;
   /** Rendered hand cards (the viewer's), in hand order. `marked` = picked for discard, `selected` = picked to play. */
@@ -275,6 +291,12 @@ export type AnimKind =
   | 'strength_pop'
   /** Net damage: Grip cards fly to the Heap. */
   | 'net_damage'
+  /** S-08-3: brain damage cards fly to the Heap (as net damage). */
+  | 'brain_damage'
+  /** S-08-2: Biotic Labor's extra clicks. */
+  | 'clicks_gained'
+  /** S-08-2: an emptied Corp card (Adonis) flies to Archives. */
+  | 'corp_trash_flight'
   /** The Runner loses clicks. */
   | 'clicks_lost'
   /** A stolen or scored agenda flies to its score. */
@@ -374,6 +396,12 @@ export interface OverclockTestHook {
     connection: 'local' | 'connecting' | 'open' | 'reconnecting' | 'closed';
     opponent: 'none' | 'here' | 'away';
     busy: boolean;
+    /**
+     * Wall-clock ms (`Date.now()` scale, from `performance.timeOrigin`) when the board last took a
+     * new view (`board.show`, synchronous on the server's message); 0 before the first. Times a
+     * move's arrival without the test machine's software drawing of the following frames.
+     */
+    shownAt: number;
   } | null;
   /** S-05-3: pins whether drawn frames count as slow (slow: the carousel jumps instead of sliding). */
   frameSpeed(mode: 'fast' | 'slow' | 'measured'): void;
@@ -396,7 +424,7 @@ declare global {
       back(): 'close_dialog' | 'close_zoom' | 'close_panel' | 'exit' | 'ask_leave';
       exitRequests(): number;
       /** Starts an online game as `side`; `test` (seed + prelude) only works against a service in test mode. */
-      startOnline(side: Side, test?: { seed: number; actions: Action[] }): void;
+      startOnline(side: Side, test?: { seed: number; actions: Action[]; deckSet?: 'core' | 'starter' }): void;
     };
   }
 }

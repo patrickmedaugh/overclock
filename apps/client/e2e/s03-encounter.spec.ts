@@ -14,7 +14,7 @@ test.describe('S-03-4 break ICE with icebreakers', () => {
     const l = await layout(page);
     expect(l.run).toMatchObject({ step: 'encounter', deciding: 'runner', stepLabel: 'Encounter: Wall of Static' });
     // ICE strength vs the breaker's, and the subroutine list.
-    expect(l.run!.lines).toEqual(['Strength 3', 'Corroder 2']);
+    expect(l.run!.lines).toEqual(['Strength 3', 'Corroder 2', 'Break all: 1 + 1 = 2 credits']);
     expect(l.run!.subroutines).toEqual([{ text: 'End the run', broken: false }]);
     expect(l.run!.buttons.map((b) => [b.label, b.lit, b.reject])).toEqual([
       [BREAK, false, 'too_weak'],
@@ -44,7 +44,7 @@ test.describe('S-03-4 break ICE with icebreakers', () => {
     expect(m.events.map((e) => e.type)).toEqual(['credits_spent', 'strength_changed']);
     expectSnappy(m, ['strength_pop', 'credit_pop']);
     let l = await waitIdle(page);
-    expect(l.run!.lines).toEqual(['Strength 3', 'Corroder 3']);
+    expect(l.run!.lines).toEqual(['Strength 3', 'Corroder 3', 'Break all: 1 credit']);
     expect(runButtonOf(l, BREAK)).toMatchObject({ lit: true, reject: null });
     m = await measureTap(page, runButtonOf(l, BREAK).box);
     expect(m.events.map((e) => e.type)).toEqual(expect.arrayContaining(['credits_spent', 'subroutine_broken', 'ice_passed']));

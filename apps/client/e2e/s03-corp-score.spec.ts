@@ -221,7 +221,7 @@ const NEEDS_RUNS_SEEDS = [1, 89, 59, 8];
 
 /** Opening hands (Corp's, then the Runner's after the Corp discards its 6th card) for a seed. */
 function openingHands(seed: number): { corp: string[]; runner: string[] } {
-  const m = new LocalMatch(seed);
+  const m = new LocalMatch(seed, { deckSet: 'starter' });
   const corp = [...m.view('corp').players.corp.hand!];
   m.submit('corp', { type: 'end_turn', player: 'corp' });
   m.submit('corp', { type: 'discard', player: 'corp', handIndices: [5] });

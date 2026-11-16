@@ -15,7 +15,8 @@ import { LocalMatch, type MatchUpdate } from '@overclock/match';
 import { encodeMsg, parseClientMsg, PROTOCOL_VERSION, type ClientMsg, type ErrorCode, type Presence, type ServerMsg } from '@overclock/protocol';
 import { base64url, sha256Hex } from './hash';
 
-export const ONLINE_OPTIONS: GameOptions = { rezWindow: 'always' };
+/** Online games: every face-down ICE approach waits on the Corp; Sprint 8: the core decks (test mode may ask for `'starter'`). */
+export const ONLINE_OPTIONS: GameOptions = { rezWindow: 'always', deckSet: 'core' };
 
 /** Cleanup: a lobby nobody joined, an idle game, a finished game. */
 export const LOBBY_TTL_MS = 2 * 60 * 60 * 1000;
@@ -225,7 +226,8 @@ export class Room {
     const now = this.deps.now();
     const test = this.deps.testMode ? msg.test : undefined;
     const seed = test ? test.seed : Math.floor(this.deps.random() * 0x100000000) >>> 0;
-    const match = new LocalMatch(seed, ONLINE_OPTIONS);
+    // Sprint 8: test mode may pick the deck set (legacy specs keep the starter decks); production is always 'core'.
+    const match = new LocalMatch(seed, { ...ONLINE_OPTIONS, deckSet: test?.deckSet ?? ONLINE_OPTIONS.deckSet });
     const accepted: Action[] = [];
     for (const a of test?.actions ?? []) {
       const u = match.submit(a.player, a);

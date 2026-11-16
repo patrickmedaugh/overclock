@@ -15,7 +15,10 @@ import { runButtonOf, tap } from './helpers';
 import { type Phone, act, frames, loseSignal, regainSignal, joinGame, layoutOf, openPhone, startGame, startTestGame, tapButton, view, waitPlaying, waitView } from './online';
 
 const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), '../../server/test/fixtures');
-const ONLINE = { rezWindow: 'always' } as const;
+const ONLINE = { rezWindow: 'always', deckSet: 'starter' } as const;
+/** Sprint 8: the server's own fixture (corp-only-pass.json) is planned on the core decks (ONLINE_OPTIONS). */
+const ONLINE_CORE = { rezWindow: 'always', deckSet: 'core' } as const;
+type GameOpts = typeof ONLINE | typeof ONLINE_CORE;
 
 /** Attached to the report; `S06_SHOTS=<dir>` also writes them there (for review). */
 async function shot(phone: Phone, name: string): Promise<void> {
@@ -25,13 +28,13 @@ async function shot(phone: Phone, name: string): Promise<void> {
 }
 
 /** The prelude the service accepts (it skips refused actions), as the room does. */
-function accepted(seed: number, actions: readonly Action[]): Action[] {
-  const m = new LocalMatch(seed, ONLINE);
+function accepted(seed: number, actions: readonly Action[], opts: GameOpts = ONLINE): Action[] {
+  const m = new LocalMatch(seed, opts);
   return actions.filter((a) => !m.submit(a.player, a)[a.player].events.some((e) => e.type === 'action_rejected'));
 }
 
 /** Two phones in one game: the host starts (with an optional test setup), the guest joins with real taps. */
-async function twoPhones(browser: Browser, hostSide: Side, setup?: { seed: number; actions: Action[] }) {
+async function twoPhones(browser: Browser, hostSide: Side, setup?: { seed: number; actions: Action[]; deckSet?: 'core' | 'starter' }) {
   const host = await openPhone(browser);
   const guest = await openPhone(browser);
   const code = setup ? await startTestGame(host, hostSide, setup) : await startGame(host, hostSide);
@@ -123,9 +126,18 @@ test.describe('S-06-2 a whole game across two phones', () => {
     const t0 = Date.now();
     await tap(corp.page, cl.corp.credits);
     await waitView(runner, (v) => v.players.corp.credits === before + 1);
-    const ms = Date.now() - t0;
-    test.info().annotations.push({ type: 'opponent-move-ms', description: String(ms) });
+    const seen = Date.now() - t0;
+    // When the Runner's board took the move (stamped by the page itself, same machine clock). The
+    // poll above can only read the page between frames, and headless Chromium draws the phone
+    // project (844x390 at 3x) in software at ~150 ms a frame while the move animates, so `seen`
+    // measures the test machine's renderer, not the game (CI flake, architect review Sprint 8).
+    const shownAt = await runner.page.evaluate(() => window.__overclock!.online()!.shownAt);
+    const ms = Math.round(shownAt - t0);
+    test.info().annotations.push({ type: 'opponent-move-ms', description: String(ms) }, { type: 'opponent-move-seen-ms', description: String(seen) });
+    expect(ms).toBeGreaterThan(0);
     expect(ms).toBeLessThan(1000);
+    // Still on screen promptly by the slow-drawing poll too (a real stall would show here).
+    expect(seen).toBeLessThan(3000);
 
     // The Runner's turn hasn't come: tapping the Stack draws nothing.
     const rl = await layoutOf(runner);
@@ -170,7 +182,7 @@ test.describe('S-06-2 a whole game across two phones', () => {
 
   test("the Corp can't pay: Rez is dim, the Runner still just sees \"Corp is deciding…\", and the game moves on by itself", async ({ browser }) => {
     const fixture = JSON.parse(readFileSync(join(FIXTURES, 'corp-only-pass.json'), 'utf8')) as { seed: number; actions: Action[] };
-    const { corp, runner } = await twoPhones(browser, 'runner', fixture);
+    const { corp, runner } = await twoPhones(browser, 'runner', { ...fixture, deckSet: 'core' });
     await waitView(runner, (v) => v.run?.waitingOn === 'corp');
     const cl = await layoutOf(corp);
     const rez = cl.run!.buttons.find((b) => b.label.startsWith('Rez '));
@@ -185,7 +197,7 @@ test.describe('S-06-2 a whole game across two phones', () => {
     const ms = Date.now() - t0;
     test.info().annotations.push({ type: 'auto-pass-ms', description: String(ms) });
     expect(ms).toBeLessThan(4000);
-    expect(checkRunnerFrames(fixture.seed, accepted(fixture.seed, fixture.actions), corp, runner)).toEqual([]);
+    expect(checkRunnerFrames(fixture.seed, accepted(fixture.seed, fixture.actions, ONLINE_CORE), corp, runner, ONLINE_CORE)).toEqual([]);
     await corp.context.close();
     await runner.context.close();
   });
@@ -322,7 +334,7 @@ function planToDeckOut(seed: number): { actions: Action[]; last: Action } {
  * accepted move: the Corp's or Runner's own acked `act`, else the service's
  * auto-pass) and checks each Runner view and event list for hidden Corp cards.
  */
-function checkRunnerFrames(seed: number, prelude: Action[], corp: Phone, runner: Phone): string[] {
+function checkRunnerFrames(seed: number, prelude: Action[], corp: Phone, runner: Phone, opts: GameOpts = ONLINE): string[] {
   const sentBy = (p: Phone) => new Map(frames(p.sent).filter((f) => f.t === 'act').map((f) => [f.id!, f.action!]));
   const corpActs = sentBy(corp);
   const runnerActs = sentBy(runner);
@@ -341,7 +353,7 @@ function checkRunnerFrames(seed: number, prelude: Action[], corp: Phone, runner:
     if (f.t !== 'rejected') seq = f.seq!;
     const moves = [...prelude];
     for (let s = prelude.length + 1; s <= seq; s++) moves.push(bySeq.get(s)!);
-    const match = LocalMatch.restore(seed, moves, ONLINE);
+    const match = LocalMatch.restore(seed, moves, opts);
     const state = match.snapshot();
     const v = f.view as PlayerView;
     for (const l of runnerViewLeaks(state, v)) out.push(`seq ${seq} ${f.t} view: ${l}`);

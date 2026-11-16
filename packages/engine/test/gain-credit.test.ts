@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { apply, newGame, type GameState, type Side } from '../src/index';
-import { clone, finishTurn, gainCredit, run, withClicks } from './helpers';
+import { apply, type GameState, type Side } from '../src/index';
+import { clone, finishTurn, gainCredit, run, withClicks, newGame } from './helpers';
 
 function turnOf(side: Side): GameState {
   const g = newGame(77);

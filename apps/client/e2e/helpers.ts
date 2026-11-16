@@ -23,6 +23,8 @@ export interface OpenOptions {
   seed?: number;
   /** Simulated notch / gesture bar: overrides #safe-probe's env() padding. */
   insets?: Partial<Insets>;
+  /** Sprint 8: which decks (default `'starter'`: the Sprint 1-7 deals; `'core'`: 30-card decks + identities, as players get). */
+  decks?: 'core' | 'starter';
 }
 
 /**
@@ -30,8 +32,11 @@ export interface OpenOptions {
  * and the "Pass the phone" cover (`cover=off`, test builds only). The specs
  * written before Sprint 6 test the board itself; the start screen and the
  * cover have their own specs (s06-start.spec.ts, s06-cover.spec.ts).
+ * Sprint 8: `decks=starter` keeps the Sprint 1-7 decks (no identities) for the
+ * specs written before the core decks; `openBoard(page, {decks: 'core'})` drops it.
  */
-export const BOARD_FLAGS = 'play=here&cover=off';
+export const BOARD_FLAGS = 'play=here&cover=off&decks=starter';
+export const CORE_BOARD_FLAGS = 'play=here&cover=off';
 
 /** Opens the board with a fixed deal and waits until the test hook is live. */
 export async function openBoard(page: Page, opts: OpenOptions | number = {}): Promise<void> {
@@ -49,7 +54,7 @@ export async function openBoard(page: Page, opts: OpenOptions | number = {}): Pr
   }
   await throttle(page);
   // Straight into pass-the-phone without the S-06-5 cover (see BOARD_FLAGS).
-  await page.goto(`./?seed=${o.seed ?? 1}&${BOARD_FLAGS}`);
+  await page.goto(`./?seed=${o.seed ?? 1}&${o.decks === 'core' ? CORE_BOARD_FLAGS : BOARD_FLAGS}`);
   await page.waitForFunction(() => document.body.dataset.ready === 'true' && !!window.__overclock);
 }
 
@@ -398,6 +403,7 @@ export function expectCleanLayout(l: LayoutSnapshot): void {
   if (l.hint) {
     for (const [n, b] of [...elements, ...hand]) expect(overlaps(l.hint.box, b), `hint "${l.hint.text}" ${JSON.stringify(l.hint.box)} overlaps ${n}`).toBe(false);
   }
+  expectMarkersClear(l);
   for (let i = 1; i < hand.length; i++) {
     const a = hand[i - 1]![1];
     const b = hand[i]![1];
@@ -410,6 +416,31 @@ export function expectCleanLayout(l: LayoutSnapshot): void {
         expect(overlaps(hand[i]![1], hand[j]![1]), `${hand[i]![0]} overlaps ${hand[j]![0]}`).toBe(false);
       }
     }
+  }
+}
+
+/**
+ * QA-S7-1/2: on every installed card, the credits pill and the advancement tag sit on
+ * the card and never cover its name or type label; the two markers never
+ * overlap each other and look different (colour and icon).
+ */
+export function expectMarkersClear(l: LayoutSnapshot): void {
+  const cards = [...l.servers.flatMap((s) => [...s.ice, ...s.content]), ...l.rig];
+  for (const c of cards) {
+    const marks: [string, Box][] = [];
+    if (c.hosted) marks.push([`credits pill "${c.hosted.text}"`, c.hosted.box]);
+    if (c.counterBadge) marks.push([`advancement tag "${c.counterBadge.text}"`, c.counterBadge.box]);
+    for (const [mn, mb] of marks) {
+      expect(inside(mb, c.box), `${mn} ${JSON.stringify(mb)} is on ${c.cardId ?? 'card back'} ${JSON.stringify(c.box)}`).toBe(true);
+      if (!c.face) continue;
+      for (const [fn, fb] of [['name', c.face.name], ['type', c.face.type]] as const) {
+        expect(overlaps(mb, fb), `${mn} ${JSON.stringify(mb)} covers the ${fn} of ${c.cardId} ${JSON.stringify(fb)}`).toBe(false);
+      }
+    }
+    if (c.hosted && c.counterBadge) expect(overlaps(c.hosted.box, c.counterBadge.box), `credits pill and advancement tag on ${c.uid} overlap`).toBe(false);
+    if (c.hosted) expect(c.hosted).toMatchObject({ icon: 'coin' });
+    if (c.counterBadge) expect(c.counterBadge).toMatchObject({ icon: 'chevron' });
+    if (c.hosted && c.counterBadge) expect(c.hosted.color).not.toBe(c.counterBadge.color);
   }
 }
 
@@ -577,6 +608,8 @@ export async function toStep(page: Page, seed: number, goal: StepGoal): Promise<
   await waitIdle(page);
   const v = await getView(page);
   expect(v.activePlayer).toBe(plan.activePlayer);
+  // The page's game must use the plan's decks (core decks have identities).
+  expect(v.players.corp.identity !== null, `page decks match plan.deckSet ${plan.deckSet}`).toBe(plan.deckSet === 'core');
   return plan;
 }
 

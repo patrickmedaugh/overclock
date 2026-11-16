@@ -8,7 +8,7 @@
 // (Rez / Don't rez at approach), the board shows the Corp seat's own run
 // options (`Decision`) on the shared screen (owner answer Q1 A) and submits
 // them as the Corp. The Runner seat's view is never merged with the Corp's.
-import type { Action, GameEvent, PlayerView, Side } from '@overclock/engine';
+import type { Action, GameEvent, GameOptions, PlayerView, Side } from '@overclock/engine';
 import { LocalMatch } from '@overclock/match';
 import { type Decision, Listeners, type Presentation, type Session, type SessionStatus } from './session';
 
@@ -21,8 +21,9 @@ export class HotSeat implements Session {
   private last: GameEvent[] = [];
   private readonly presented = new Listeners<Presentation>();
 
-  constructor(seed: number) {
-    this.match = new LocalMatch(seed);
+  /** Sprint 8: `options` (e.g. `{deckSet: 'starter'}` for legacy test boards) go to the match; default = core decks. */
+  constructor(seed: number, options?: Partial<GameOptions>) {
+    this.match = new LocalMatch(seed, options);
     this.bottom = this.match.view('corp').activePlayer;
   }
 
@@ -42,8 +43,8 @@ export class HotSeat implements Session {
   decision(): Decision | null {
     const waiting = this.match.view(this.bottom).run?.waitingOn;
     if (!waiting || waiting === this.bottom) return null;
-    const run = this.match.view(waiting).run;
-    return run ? { seat: waiting, run } : null;
+    const theirs = this.match.view(waiting);
+    return theirs.run ? { seat: waiting, run: theirs.run, choice: theirs.choice } : null;
   }
 
   /** The events of the last submit, as the submitting seat saw them. */

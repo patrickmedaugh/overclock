@@ -1,20 +1,25 @@
 import type { Action, ActionOf } from './actions';
 import type { GameEvent } from './events';
 import type { CardOption } from './view';
-import { getCard, type CardAbility } from '@overclock/cards';
+import { getCard, type CardAbility, type CardDef, type CardType } from '@overclock/cards';
 import {
   abilityGain,
+  activeSources,
   ADVANCE_COST,
   advanceTarget,
   breakerPayment,
   breakerCard,
   breakerIceType,
+  chooseTargets,
   currentIce,
   discardCount,
   handCard,
   installedAgenda,
+  firstInstallOf,
+  installBaseCost,
   installCardCheck,
   installCost,
+  installDiscounts,
   installTargetCheck,
   openRunEffect,
   playCost,
@@ -29,6 +34,7 @@ import {
   accessReplacements,
   afterInstall,
   doActivate,
+  doChoose,
   doJackOut,
   doPass,
   doRez,
@@ -43,6 +49,8 @@ import {
 import {
   checkPointsWin,
   drawTop,
+  endGame,
+  maxHandSize,
   opponentOf,
   startTurn,
   withPlayer,
@@ -85,7 +93,12 @@ function doGainCredit(state: GameState, a: ActionOf<'gain_credit'>): ApplyResult
 function doEndTurn(state: GameState, a: ActionOf<'end_turn'>): ApplyResult {
   // Leftover clicks are lost (house rule: ending early is allowed).
   const s = withPlayer(state, a.player, { clicks: 0 });
-  const count = discardCount(s.players[a.player].hand.length);
+  // Sprint 8: a Runner whose maximum hand size is below 0 is flatlined at the end of his turn (real rule).
+  if (a.player === 'runner' && maxHandSize(s, 'runner') < 0) {
+    const events: GameEvent[] = [];
+    return { state: endGame(s, 'corp', 'flatline', events), events };
+  }
+  const count = discardCount(s.players[a.player].hand.length, maxHandSize(s, a.player));
   if (count > 0) {
     return { state: { ...s, phase: 'discard' }, events: [{ type: 'discard_required', player: a.player, count }] };
   }
@@ -119,17 +132,44 @@ function payFromHand(state: GameState, player: Side, handIndex: number, cost: nu
   });
 }
 
+/**
+ * Sprint 8: what happens after an install (after `afterInstall`): the card's type is recorded in
+ * `installedThisTurn`, then every active source's `whenYouInstall` (Haas-Bioroid) whose "first
+ * time each turn" held before this install: `ability_triggered{install}` and its effects.
+ */
+function installTriggers(before: GameState, after: GameState, player: Side, installedUid: string, cardType: CardType, events: GameEvent[]): GameState {
+  const fired = activeSources(after, player).filter(
+    (src) => src.uid !== installedUid && src.card.whenYouInstall && firstInstallOf(before, player, src.card.whenYouInstall.types) && (src.card.whenYouInstall.types ?? [cardType]).includes(cardType),
+  );
+  let s = withPlayer(after, player, { installedThisTurn: [...after.players[player].installedThisTurn, cardType] });
+  for (const src of fired) {
+    events.push({ type: 'ability_triggered', uid: src.uid, cardId: src.cardId, trigger: 'install' });
+    for (const effect of src.card.whenYouInstall?.effects ?? []) {
+      s = resolveEffect(s, effect, player, events, { cardId: src.cardId, uid: src.uid });
+      if (s.phase === 'over') return s;
+    }
+  }
+  return s;
+}
+
 function doInstall(state: GameState, a: ActionOf<'install'>): ApplyResult {
   const cardId = state.players[a.player].hand[a.handIndex] as string;
+  const def = getCard(cardId) as CardDef;
   const events: GameEvent[] = [];
-  let s = payFromHand(state, a.player, a.handIndex, installCost(state, a), events);
+  const cost = installCost(state, a);
+  // Sprint 8: an install discount (Kate) is reported only when it lowered the price.
+  if (cost < installBaseCost(state, a)) {
+    for (const d of installDiscounts(state, a.player, def)) events.push({ type: 'ability_triggered', uid: d.source.uid, cardId: d.source.cardId, trigger: 'install_discount' });
+  }
+  let s = payFromHand(state, a.player, a.handIndex, cost, events);
   const card: Installed = { uid: `i${s.nextUid}`, cardId, rezzed: false, advancements: 0, hostedCredits: 0 };
   s = { ...s, nextUid: s.nextUid + 1 };
 
   if (a.player === 'runner') {
     s = { ...s, rig: [...s.rig, card] };
     events.push({ type: 'card_installed', player: a.player, uid: card.uid, zone: 'rig', handIndex: a.handIndex, cardId });
-    return { state: afterInstall(s, card.uid, a.player, events), events };
+    s = afterInstall(s, card.uid, a.player, events);
+    return { state: installTriggers(state, s, a.player, card.uid, def.type, events), events };
   }
 
   let serverId = a.server as ServerId | 'new';
@@ -146,7 +186,8 @@ function doInstall(state: GameState, a: ActionOf<'install'>): ApplyResult {
     servers: s.servers.map((sv) => (sv.id === target ? { ...sv, [zone]: [...sv[zone], card] } : sv)),
   };
   events.push({ type: 'card_installed', player: a.player, uid: card.uid, zone, server: target, handIndex: a.handIndex, cardId });
-  return { state: afterInstall(s, card.uid, a.player, events), events };
+  s = afterInstall(s, card.uid, a.player, events);
+  return { state: installTriggers(state, s, a.player, card.uid, def.type, events), events };
 }
 
 function doPlay(state: GameState, a: ActionOf<'play'>): ApplyResult {
@@ -248,6 +289,8 @@ export function apply(state: GameState, action: Action): ApplyResult {
       return doTrash(state, action);
     case 'activate':
       return doActivate(state, action);
+    case 'choose':
+      return doChoose(state, action);
   }
 }
 
@@ -259,7 +302,7 @@ export function apply(state: GameState, action: Action): ApplyResult {
 export function legalActions(state: GameState, player: Side): Action[] {
   if (player !== 'corp' && player !== 'runner') return [];
   const handSize = state.players[player].hand.length;
-  const n = discardCount(handSize);
+  const n = discardCount(handSize, maxHandSize(state, player));
   const candidates: Action[] = [
     { type: 'draw', player },
     { type: 'gain_credit', player },
@@ -334,9 +377,14 @@ export function runStepOptions(state: GameState, player: Side): CardOption[] {
           out.push(breakerOption(state, { type: 'use_ability', player, uid: c.uid, ability }, ab.cost));
           return;
         }
-        (iceCard?.subroutines ?? []).forEach((_, sub) => {
-          if (!run.broken.includes(sub)) out.push(breakerOption(state, { type: 'use_ability', player, uid: c.uid, ability, sub }, ab.cost));
-        });
+        const open = (iceCard?.subroutines ?? []).map((_, sub) => sub).filter((sub) => !run.broken.includes(sub));
+        if (ab.count === 2) {
+          // Sprint 8 ("break up to 2", Battering Ram): every 1- then 2-subroutine choice, ascending.
+          const picks = [...open.map((x) => [x]), ...open.flatMap((x, i) => open.slice(i + 1).map((y) => [x, y]))];
+          for (const subs of picks) out.push(breakerOption(state, { type: 'use_ability', player, uid: c.uid, ability, subs }, ab.cost));
+          return;
+        }
+        for (const sub of open) out.push(breakerOption(state, { type: 'use_ability', player, uid: c.uid, ability, sub }, ab.cost));
       });
     }
     out.push(option(state, pass, 0));
@@ -366,11 +414,18 @@ export function runStepOptions(state: GameState, player: Side): CardOption[] {
  * The deciding player's options in an open choice (empty for the other player
  * and outside phase 'choice'). `free_rez`: one `rez` (cost 0) per unrezzed
  * installed ICE (servers in order, then ICE index order), then `pass` (Skip).
+ * Sprint 8: `trash_target`: one `choose` per candidate (rig order; no `pass`);
+ * `prevent_trash`: one `choose` per preventer (rig order), then `pass` (let it be trashed).
  */
 export function choiceOptions(state: GameState, player: Side): CardOption[] {
   if (state.phase !== 'choice' || !state.choice || waitingOn(state) !== player) return [];
-  const rezzes = unrezzedIce(state).map((c) => option(state, { type: 'rez', player, uid: c.uid }, 0));
-  return [...rezzes, option(state, { type: 'pass', player }, 0)];
+  const kind = state.choice.kind;
+  if (kind === 'free_rez') {
+    const rezzes = unrezzedIce(state).map((c) => option(state, { type: 'rez', player, uid: c.uid }, 0));
+    return [...rezzes, option(state, { type: 'pass', player }, 0)];
+  }
+  const chooses = chooseTargets(state).map((uid) => option(state, { type: 'choose', player, uid }, 0));
+  return kind === 'prevent_trash' ? [...chooses, option(state, { type: 'pass', player }, 0)] : chooses;
 }
 
 /** Sprint 7: one `activate` option per `click` ability of an own face-up card (price, clicks, gain). */
@@ -453,10 +508,11 @@ function candidatesFor(state: GameState, player: Side, handIndex: number): Actio
 export function handOptions(state: GameState, player: Side): CardOption[][] {
   if (player !== 'corp' && player !== 'runner') return [];
   return state.players[player].hand.map((_, handIndex) =>
-    candidatesFor(state, player, handIndex).map((action) => ({
-      action,
-      cost: action.type === 'install' ? installCost(state, action) : action.type === 'play' ? playCost(state, action) : 0,
-      reject: rejectionFor(state, action),
-    })),
+    candidatesFor(state, player, handIndex).map((action) => {
+      const cost = action.type === 'install' ? installCost(state, action) : action.type === 'play' ? playCost(state, action) : 0;
+      // Sprint 8: how much an install discount (Kate) takes off, only when it does.
+      const discount = action.type === 'install' ? installBaseCost(state, action) - cost : 0;
+      return { action, cost, reject: rejectionFor(state, action), ...(discount > 0 ? { discount } : {}) };
+    }),
   );
 }

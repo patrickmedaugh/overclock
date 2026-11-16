@@ -5,7 +5,8 @@
 // never asked for anything, and the hand-limit step only appears when it is
 // really needed (5 or fewer cards: it is skipped automatically).
 import { describe, expect, it } from 'vitest';
-import { apply, legalActions, newGame, waitingOn, type Action, type GameState, type Side } from '../src/index';
+import { apply, legalActions, waitingOn, type Action, type GameState, type Side } from '../src/index';
+import { newGame } from './helpers';
 
 /** Small deterministic PRNG for picking actions (independent of the engine's). */
 function picker(seed: number): (n: number) => number {

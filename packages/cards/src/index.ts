@@ -1,9 +1,10 @@
-import { CORP_CARDS, CORP_STARTER_DECK } from './corp';
-import { RUNNER_CARDS, RUNNER_STARTER_DECK } from './runner';
+import { CORP_CARDS, CORP_CORE_DECK, CORP_STARTER_DECK } from './corp';
+import { RUNNER_CARDS, RUNNER_CORE_DECK, RUNNER_STARTER_DECK } from './runner';
 import type { CardDef } from './types';
 
 export type * from './types';
-export { CORP_CARDS, CORP_STARTER_DECK, RUNNER_CARDS, RUNNER_STARTER_DECK };
+export { CORP_CARDS, CORP_CORE_DECK, CORP_STARTER_DECK, RUNNER_CARDS, RUNNER_CORE_DECK, RUNNER_STARTER_DECK };
+export { checkDeck, deckAgendaPoints, deckInfluence, HOUSE_MIN_DECK_SIZE, MAX_COPIES, type DeckProblem } from './deck';
 
 export const ALL_CARDS: readonly CardDef[] = [...RUNNER_CARDS, ...CORP_CARDS];
 

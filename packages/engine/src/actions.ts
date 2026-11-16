@@ -40,9 +40,19 @@ export type Action =
   | { readonly type: 'jack_out'; readonly player: Side }
   /**
    * Runner, encounter step: use ability `ability` (index into the card's `abilities`) of the
-   * installed breaker `uid`. `sub` (subroutine index of the current ICE) is required for breaks.
+   * installed breaker `uid`. `sub` (subroutine index of the current ICE) is required for `count: 1`
+   * breaks. Sprint 8: `count: 2` breaks ("break up to 2", Battering Ram) take `subs` instead: 1–2
+   * distinct unbroken subroutine indices, ascending (`sub` absent); `subs` on any other ability is
+   * `invalid_action`.
    */
-  | { readonly type: 'use_ability'; readonly player: Side; readonly uid: string; readonly ability: number; readonly sub?: number }
+  | {
+      readonly type: 'use_ability';
+      readonly player: Side;
+      readonly uid: string;
+      readonly ability: number;
+      readonly sub?: number;
+      readonly subs?: readonly number[];
+    }
   /** Runner, access step: steal the agenda at `card` (index into `run.access.cards`). */
   | { readonly type: 'steal'; readonly player: Side; readonly card: number }
   /** Runner, access step: pay the trash cost of the card at `card` (index into `run.access.cards`). */
@@ -56,7 +66,13 @@ export type Action =
    * installed, face-up card `uid`. `click` abilities: own action phase; `successful_run_remote`:
    * run step `success`. Pays the ability's clicks and credits.
    */
-  | { readonly type: 'activate'; readonly player: Side; readonly uid: string; readonly ability: number };
+  | { readonly type: 'activate'; readonly player: Side; readonly uid: string; readonly ability: number }
+  /**
+   * Sprint 8: answer an open `trash_target` choice (Corp: `uid` = the Runner card to trash, one of
+   * the candidates) or `prevent_trash` choice (Runner: `uid` = the preventer to trash instead).
+   * `pass` in `prevent_trash` = let it be trashed; in `trash_target` it is refused (mandatory).
+   */
+  | { readonly type: 'choose'; readonly player: Side; readonly uid: string };
 
 export type ActionType = Action['type'];
 

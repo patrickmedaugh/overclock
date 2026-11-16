@@ -23,7 +23,7 @@ import { getView, layout, pickHand, runButtonOf, tap, waitEndTurnArmed, waitIdle
 import { type Phone, act, frames, joinGame, layoutOf, loseSignal, openPhone, regainSignal, startTestGame, tapButton, view, waitPlaying, waitView } from './online';
 
 const SHOTS = join(dirname(fileURLToPath(import.meta.url)), '../../../docs/sprints/sprint-06-qa');
-const ONLINE = { rezWindow: 'always' } as const;
+const ONLINE = { rezWindow: 'always', deckSet: 'starter' } as const;
 
 async function shot(page: Page, name: string): Promise<void> {
   mkdirSync(SHOTS, { recursive: true });
@@ -279,7 +279,7 @@ test.describe('QA S-06-2 not your turn', () => {
       return page;
     };
     const corp = await plain('');
-    await corp.evaluate(() => window.__overclockStart!.startOnline('corp', { seed: 7, actions: [] }));
+    await corp.evaluate(() => window.__overclockStart!.startOnline('corp', { seed: 7, actions: [], deckSet: 'starter' }));
     await expect(corp.locator('#start .code-big')).toHaveText(/^[A-Z2-9]{4}$/);
     const code = (await corp.locator('#start .code-big').textContent())!;
     const runner = await plain(`?join=${code}`);
@@ -433,7 +433,7 @@ test.describe('QA S-06-1 lobby', () => {
 test.describe('QA S-06-5 pass-the-phone cover', () => {
   test('from the start screen with real taps: no frame ever shows the next player\'s board before the cover; a tap on the End turn spot only lifts it', async ({ page }) => {
     await throttle(page);
-    await page.goto('./?seed=3');
+    await page.goto('./?seed=3&decks=starter');
     await page.waitForFunction(() => document.body.dataset.ready === 'true' && !!window.__overclockStart);
     await shot(page, '01-start-screen');
     await tapButton(page, /Play on this device/);
@@ -502,7 +502,7 @@ test.describe('QA S-06-5 pass-the-phone cover', () => {
 
   test('rez decision: frame by frame the Corp choice never shows before the cover, and the Runner board never shows before the cover back', async ({ page }) => {
     await throttle(page);
-    await page.goto('./?seed=1&play=here');
+    await page.goto('./?seed=1&play=here&decks=starter');
     await page.waitForFunction(() => document.body.dataset.ready === 'true' && !!window.__overclock);
     const plan = planToStep(1, 'corp_rez_prompt');
     // Everything but the move that opens the Corp's choice, through the hook.

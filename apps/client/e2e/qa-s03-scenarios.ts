@@ -85,7 +85,7 @@ export function findScenario(
   const from = opts.from ?? 1;
   const tries = opts.tries ?? 400;
   for (let seed = from; seed < from + tries; seed++) {
-    const m = new LocalMatch(seed);
+    const m = new LocalMatch(seed, { deckSet: 'starter' });
     const pick = prng(seed);
     const actions: Action[] = [];
     for (let n = 0; n < (opts.maxActions ?? 400); n++) {

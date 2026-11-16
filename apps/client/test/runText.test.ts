@@ -16,6 +16,7 @@ const base: RunView = {
   options: [],
   tempCredits: 0,
   letFire: null,
+  breakAll: [],
 };
 const opt = (action: CardOption['action'], cost = 0, reject: CardOption['reject'] = null): CardOption => ({ action, cost, reject });
 const rig = { i5: 'r05', i6: 'r04' };
@@ -120,7 +121,8 @@ describe('S-05-2 let it fire: the button says what will happen', () => {
   it('everything broken: Continue; no preview: the old label', () => {
     expect(letFireLabel(lf([], null))).toBe('Continue');
     expect(letFireLabel(null)).toBeNull();
-    const run: RunView = { ...base, letFire: lf([], null) };
+    const allBroken = { ...base.ice!, subroutines: base.ice!.subroutines.map((x) => ({ ...x, broken: true })) };
+    const run: RunView = { ...base, ice: allBroken, letFire: lf([], null) };
     expect(optionLabel(opt({ type: 'pass', player: 'runner' }), run, [], rig)).toBe('Continue');
     const enigma: RunView = { ...base, letFire: lf([{ sub: 1, op: 'end_run', amount: 0 }], 'run') };
     expect(optionLabel(opt({ type: 'pass', player: 'runner' }), enigma, [], rig)).toBe('Let it fire: run ends');

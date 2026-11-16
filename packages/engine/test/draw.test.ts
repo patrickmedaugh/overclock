@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { apply, newGame, type GameState, type Side } from '../src/index';
-import { clone, deepFreeze, draw, finishTurn, run, withClicks, withDeck } from './helpers';
+import { apply, type GameState, type Side } from '../src/index';
+import { clone, deepFreeze, draw, finishTurn, run, withClicks, withDeck, newGame } from './helpers';
 
 /** A state where `side` is active with full clicks. */
 function turnOf(side: Side): GameState {

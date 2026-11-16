@@ -3,8 +3,8 @@
 // view has a preview, the `pass` that could follow resolves exactly those outcomes and
 // ends the same way; computing the preview never changes the state (RNG included).
 import { describe, expect, it } from 'vitest';
-import { apply, legalActions, newGame, viewFor, waitingOn, type Action, type GameState, type ServerId, type SubOutcome } from '../src/index';
-import { act, board, clone, type BoardSpec } from './helpers';
+import { apply, legalActions, viewFor, waitingOn, type Action, type GameState, type ServerId, type SubOutcome } from '../src/index';
+import { act, board, clone, type BoardSpec, newGame } from './helpers';
 
 const runOn = (server: ServerId): Action => ({ type: 'run', player: 'runner', server });
 const pass: Action = { type: 'pass', player: 'runner' };

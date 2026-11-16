@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { apply, newGame, type GameEvent } from '../src/index';
-import { endTurn, finishTurn, gainCredit, run, withHand } from './helpers';
+import { apply, type GameEvent } from '../src/index';
+import { endTurn, finishTurn, gainCredit, run, withHand, newGame } from './helpers';
 
 describe('S-01-1 AC1: a new game starts on the Corp turn', () => {
   it('Corp is active on turn 1 with 3 clicks and has taken its free draw (6 cards)', () => {

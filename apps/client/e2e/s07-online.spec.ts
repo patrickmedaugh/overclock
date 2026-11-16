@@ -10,7 +10,7 @@ import { type Browser, type Page, expect, test } from '@playwright/test';
 import { type LayoutSnapshot, runButtonOf, startRun, tap, targetOf } from './helpers';
 import { type Phone, joinGame, layoutOf, openPhone, startGame, startTestGame, tapButton, view, waitPlaying, waitView } from './online';
 
-const ONLINE = { rezWindow: 'always' } as const;
+const ONLINE = { rezWindow: 'always', deckSet: 'starter' } as const;
 
 /** Two phones in a game set up by the planner (`goal`, seed 1); the host plays `hostSide`. */
 async function twoPhones(browser: Browser, goal: StepGoal, hostSide: Side) {

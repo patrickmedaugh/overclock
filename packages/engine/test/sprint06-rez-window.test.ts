@@ -3,25 +3,11 @@
 // (S-06-2 AC5). 'affordable' (default, hot-seat) is unchanged.
 import { getCard } from '@overclock/cards';
 import { describe, expect, it } from 'vitest';
-import {
-  apply,
-  hasMeaningfulResponse,
-  legalActions,
-  newGame,
-  replay,
-  viewEvents,
-  viewFor,
-  waitingOn,
-  type Action,
-  type GameEvent,
-  type GameOptions,
-  type GameState,
-  type PlayerView,
-} from '../src/index';
-import { act, board, liveness, rejection } from './helpers';
+import { apply, hasMeaningfulResponse, legalActions, viewEvents, viewFor, waitingOn, type Action, type GameEvent, type GameOptions, type GameState, type PlayerView } from '../src/index';
+import { act, board, liveness, rejection, newGame, replay } from './helpers';
 import { rezCost } from '../src/rules';
 
-const always: GameOptions = { rezWindow: 'always' };
+const always: GameOptions = { rezWindow: 'always', deckSet: 'starter' };
 const runHq: Action = { type: 'run', player: 'runner', server: 'hq' };
 const corpPass: Action = { type: 'pass', player: 'corp' };
 const runnerPass: Action = { type: 'pass', player: 'runner' };
@@ -34,9 +20,10 @@ function guarded(ice: string, credits: number, options?: GameOptions): GameState
 
 describe("Sprint 6: rezWindow 'always'", () => {
   it('newGame/replay store the options; default is affordable', () => {
-    expect(newGame(3).options).toEqual({ rezWindow: 'affordable' });
+    // Sprint 8: these legacy tests run on the starter decks (helpers' newGame); deckSet is stored too.
+    expect(newGame(3).options).toEqual({ rezWindow: 'affordable', deckSet: 'starter' });
     expect(newGame(3, always).options).toEqual(always);
-    expect(newGame(3, {}).options).toEqual({ rezWindow: 'affordable' });
+    expect(newGame(3, {}).options).toEqual({ rezWindow: 'affordable', deckSet: 'starter' });
     expect(replay(3, [], always).state.options).toEqual(always);
     // Options never change the deal.
     const { options: _a, ...a } = newGame(3);

@@ -2,7 +2,11 @@ export type Side = 'corp' | 'runner';
 
 export type RunnerCardType = 'event' | 'program' | 'hardware' | 'resource';
 export type CorpCardType = 'agenda' | 'asset' | 'upgrade' | 'operation' | 'ice';
-export type CardType = RunnerCardType | CorpCardType;
+/** Sprint 8: `'identity'` = the card a side plays as (never in a deck; one per side, uids `id:corp` / `id:runner`). */
+export type CardType = RunnerCardType | CorpCardType | 'identity';
+
+/** Sprint 8: a card's faction (colour-coded team). Influence counts cards outside the identity's faction. */
+export type Faction = 'haas_bioroid' | 'jinteki' | 'nbn' | 'weyland' | 'anarch' | 'criminal' | 'shaper' | 'neutral';
 
 export type IceSubtype = 'barrier' | 'code_gate' | 'sentry';
 export type BreakerSubtype = 'breaker_barrier' | 'breaker_code_gate' | 'breaker_sentry';
@@ -32,6 +36,13 @@ export type ServerId = CentralServerId | `remote${number}`;
  * Sprint 7 (DSL v2, hosted credits; need an installed source card):
  * - `place_credits`: put `amount` credits from the bank on the source card.
  * - `take_credits`: move up to `amount` (or `'all'`) of the source card's credits to its owner.
+ * Sprint 8 (DSL v3):
+ * - `gain_clicks`: the card's owner gains `amount` clicks (Biotic Labor).
+ * - `brain_damage`: the Runner's maximum hand size drops by `amount` for the rest of the game, then
+ *   `amount` random Grip cards go to the Heap (more than the Grip holds = flatline, as net damage).
+ * - `trash_installed`: trash 1 installed Runner card of `types`; the Corp chooses (0 candidates =
+ *   nothing, 1 = that one, 2+ = a `trash_target` choice). A rig card with `trashPrevention` covering
+ *   the target's type may be trashed instead (Runner's `prevent_trash` choice).
  */
 export type Effect =
   | { readonly op: 'gain_credits'; readonly amount: number }
@@ -53,7 +64,13 @@ export type Effect =
    * Sprint 7: move up to `amount` credits (`'all'` = every one) from the source card to its
    * owner's pool. Stops at what the card holds.
    */
-  | { readonly op: 'take_credits'; readonly amount: number | 'all' };
+  | { readonly op: 'take_credits'; readonly amount: number | 'all' }
+  /** Sprint 8: the owner gains `amount` clicks. */
+  | { readonly op: 'gain_clicks'; readonly amount: number }
+  /** Sprint 8: brain damage to the Runner (hand size −amount for good, then random discards). */
+  | { readonly op: 'brain_damage'; readonly amount: number }
+  /** Sprint 8: trash 1 installed Runner card of one of `types` (Corp chooses). */
+  | { readonly op: 'trash_installed'; readonly types: readonly RunnerCardType[] };
 
 /** One ICE subroutine: its printed text (without "Subroutine:") and what it does when it fires. */
 export interface Subroutine {
@@ -64,12 +81,13 @@ export interface Subroutine {
 /**
  * An icebreaker ability, used during an encounter with rezzed ICE.
  * - `break`: pay `cost` to break `count` subroutine(s) of ICE of `iceType`
- *   (needs breaker strength >= ICE strength).
+ *   (needs breaker strength >= ICE strength). Sprint 8: `count: 2` = "break up to 2" (Battering Ram):
+ *   `use_ability.subs` names 1–2 unbroken subroutines, one payment.
  * - `strength`: pay `cost` for +`amount` strength until the end of the
  *   current encounter, or until the end of the run.
  */
 export type BreakerAbility =
-  | { readonly op: 'break'; readonly cost: number; readonly iceType: IceSubtype; readonly count: 1 }
+  | { readonly op: 'break'; readonly cost: number; readonly iceType: IceSubtype; readonly count: 1 | 2 }
   | { readonly op: 'strength'; readonly cost: number; readonly amount: number; readonly until: 'encounter' | 'run' };
 
 /**
@@ -97,6 +115,32 @@ export interface RecurringCredits {
   readonly for: 'icebreaker';
 }
 
+/**
+ * Sprint 8: "the first time you install a card each turn" (Haas-Bioroid identity). Read from active
+ * sources (the side's identity + its face-up installed cards); fires after the install when the side
+ * had installed nothing of `types` (absent = any type) yet this turn.
+ */
+export interface InstallTrigger {
+  readonly firstEachTurn: true;
+  readonly types?: readonly CardType[];
+  readonly effects: readonly Effect[];
+}
+
+/**
+ * Sprint 8: "lower the install cost of the first <types> you install each turn by `amount`" (Kate),
+ * never below 0. Used up by the first install of those types that turn, even a free one.
+ */
+export interface InstallDiscount {
+  readonly amount: number;
+  readonly firstEachTurn: true;
+  readonly types: readonly CardType[];
+}
+
+/** Sprint 8: "Trash this card: prevent an installed card of `types` from being trashed" (Sacrificial Construct). */
+export interface TrashPrevention {
+  readonly types: readonly CardType[];
+}
+
 /** A play condition checked before paying (`condition_not_met` when false). */
 export type PlayCondition = 'runner_ran_last_turn';
 
@@ -114,6 +158,10 @@ export interface CardDef {
   readonly name: string;
   readonly side: Side;
   readonly type: CardType;
+  /** Sprint 8: the card's faction. */
+  readonly faction: Faction;
+  /** Sprint 8: influence pips (cost against an identity of another faction); absent = 0. */
+  readonly influence?: number;
   /** Play/install cost (Runner, operations) or rez cost (Corp installables). Agendas: 0. */
   readonly cost: number;
   /** Rules text in plain words. */
@@ -163,7 +211,28 @@ export interface CardDef {
   readonly advanceable?: true;
   /** ICE: + strength per advancement counter. */
   readonly strengthPerAdvancement?: number;
+  // ---- Sprint 8 (DSL v3) ----
+  /** Identities: smallest legal deck. */
+  readonly minDeckSize?: number;
+  /** Identities: influence allowed for other-faction cards. */
+  readonly influenceLimit?: number;
+  /** Identities: base link (shown only; traces come later). */
+  readonly link?: number;
+  /** Active source: something happens the first time its side installs a card each turn. */
+  readonly whenYouInstall?: InstallTrigger;
+  /** Active source: the first install of some types each turn costs less. */
+  readonly installDiscount?: InstallDiscount;
+  /** Corp cards: what happens when it turns face up (any rez: action phase, approach, free rez). */
+  readonly onRez?: readonly Effect[];
+  /** Runner cards: may be trashed instead of an installed card of these types. */
+  readonly trashPrevention?: TrashPrevention;
 }
 
 /** A deck list is an ordered list of card ids; duplicates mean extra copies. */
 export type DeckList = readonly string[];
+
+/** Sprint 8: a deck = an identity card id and a list of card ids (identity not in the list). */
+export interface DeckDef {
+  readonly identity: string;
+  readonly cards: DeckList;
+}

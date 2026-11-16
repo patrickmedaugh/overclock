@@ -1,7 +1,7 @@
 // Sprint 4 E4: bad publicity gives the Runner run-only credits (S-04-4 AC2; RULES_SPEC "Bad publicity").
 import { describe, expect, it } from 'vitest';
-import { apply, legalActions, newGame, viewEvents, viewFor, waitingOn, type Action, type GameEvent, type GameState } from '../src/index';
-import { act, board, run, type BoardSpec } from './helpers';
+import { apply, legalActions, viewEvents, viewFor, waitingOn, type Action, type GameEvent, type GameState } from '../src/index';
+import { act, board, run, type BoardSpec, newGame } from './helpers';
 
 const runOn = (server: string): Action => ({ type: 'run', player: 'runner', server }) as Action;
 const pass: Action = { type: 'pass', player: 'runner' };

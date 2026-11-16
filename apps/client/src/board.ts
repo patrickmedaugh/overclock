@@ -13,7 +13,7 @@ import { getCard } from '@overclock/cards';
 import { Container, Graphics, Rectangle, Text } from 'pixi.js';
 import { type BackAction, backAction } from './back';
 import { CAROUSEL_SLIDE_MS, Carousel, type CarouselFace, listIndex } from './carousel';
-import { createCardBack, createCardFace, createZoomFace, dropCardTextures, flushZoomFaces, glowRoundRect, hasZoomFace, retireCardTextures, textOverflows, textsOf } from './cardFace';
+import { createCardBack, createCardFace, createZoomFace, dropCardTextures, flushZoomFaces, glowRoundRect, hasZoomFace, retireCardTextures, smallFaceLayout, textOverflows, textsOf } from './cardFace';
 import { framesAreSlow } from './frameClock';
 import { Cover } from './cover';
 import { centeredBox } from './geometry';
@@ -21,7 +21,7 @@ import { Hand, type HandCard } from './hand';
 import { DROP_WAIT_MS, LIFT_MS, RETURN_MS, SWIPE_TOLERANCE, VIEW_FADE_MS, type ViewHit, ghostCenter, swipeIndex, targetAt, viewHit } from './handGesture';
 import type { AnimRecord, Box, EndTurnClock, InstalledSnapshot, Insets, LayoutSnapshot, SideLayout, TargetSnapshot } from './hook-types';
 import type { Decision, Presentation } from './session';
-import { CHOICE_HINT, hintFor } from './hints';
+import { choiceHint, hintFor } from './hints';
 import { attachPress, inputTime, noteRelease } from './input';
 import type { FederatedPointerEvent } from 'pixi.js';
 import { BUILD_LINE, type BoardLayout, type BoardShape, CARD_RATIO, type SideRow, computeLayout } from './layout';
@@ -29,8 +29,8 @@ import { LEAVE_TEXT, LEAVE_TEXT_ONLINE, LeaveDialog } from './leaveDialog';
 import type { CoverText } from './passCover';
 import { RunDisplay } from './runDisplay';
 import { IceReport, LastRunStrip } from './panels';
-import { RUN_END, iceReport, installedOptionLabel, nameOf, runEndText, turnStartNotices } from './runText';
-import { SIDE_NAME, TERMS, badPublicityText, plural, pointsText, priceText, serverLabel, tempCreditsText, zoneName } from './terms';
+import { RUN_END, iceReport, installNotices, isRunChoice, installedOptionLabel, nameOf, runEndText, turnStartNotices } from './runText';
+import { SIDE_NAME, TERMS, badPublicityText, handMaxText, plural, pointsText, priceText, serverLabel, tempCreditsText, zoneName } from './terms';
 import { sideColor, theme, timing } from './theme';
 import { ease, type Tweens } from './tween';
 import { ActionButton, Counter, DeckPile, DiscardPile, MemoryCounter, PanelButton, ScorePill, StatusTag, TargetMarker, fitText, placeAt } from './widgets';
@@ -71,6 +71,18 @@ function targetKey(kind: TargetSnapshot['kind'], where: { server?: string; uid?:
   return `${kind}:${where.server ?? (kind === 'free_rez' ? (where.uid ?? '') : '')}`;
 }
 
+/**
+ * The Runner's status note: "+1 for this run" (bad publicity) and, after brain damage,
+ * "Hand max 4" (S-08-3; the engine's `maxHandSize`, shown only when below 5).
+ */
+function runnerNote(view: PlayerView): string | null {
+  const parts: string[] = [];
+  const max = view.players.runner.maxHandSize;
+  if (max < 5) parts.push(handMaxText(max));
+  if (view.run && view.run.tempCredits > 0) parts.push(tempCreditsText(view.run.tempCredits));
+  return parts.length > 0 ? parts.join(' · ') : null;
+}
+
 function handText(side: Side, n: number): string {
   return `${plural(n, 'card', 'cards')} in ${zoneName(side, 'hand')}`;
 }
@@ -105,11 +117,32 @@ const LATE_LIFT_MS = 50;
 /** QA-S4-1 pre-draw: no bake from this long before the hold opens the zoom until it has opened (ms). */
 const PREDRAW_QUIET_MS = 60;
 
+/** An identity card on the table (U2, S-08-1). */
+export interface IdentityRef {
+  uid: string;
+  cardId: string;
+}
+
+/** The side's identity card (null with the starter decks). */
+function identityOf(view: PlayerView, side: Side): IdentityRef | null {
+  return view.players[side].identity;
+}
+
 function shapeOf(view: PlayerView): BoardShape {
   return {
     servers: view.corpServers.map((s) => ({ id: s.id, ice: s.ice.length, content: s.content.length })),
     rig: view.rig.length,
+    identities: { corp: identityOf(view, 'corp') !== null, runner: identityOf(view, 'runner') !== null },
   };
+}
+
+/** A side's identity card drawn in its slot (hold to read). */
+interface IdentityWidget {
+  uid: string;
+  cardId: string;
+  root: Container;
+  box: Box;
+  detach: () => void;
 }
 
 /** One side's name, hand count, credits and clicks, for one position (top / bottom). */
@@ -139,11 +172,14 @@ interface InstalledCard {
   box: Box;
   /** Advancement counter badge (shown on backs too). */
   badge: Container;
+  badgeBg: Graphics;
   badgeText: Text;
   /** S-07-3/4: credits on the card (Armitage 12, Bank Job 8, Cyberfeeder 1), opposite corner from the badge. */
   hosted: Container;
   hostedBg: Graphics;
   hostedText: Text;
+  /** What the pill was last drawn for (`text:height`). */
+  hostedKey: string;
   detach: () => void;
 }
 
@@ -170,6 +206,8 @@ interface Generation {
   decks: Record<Side, DeckPile>;
   discards: Record<Side, DiscardPile>;
   hq: DeckPile;
+  /** U2: identity cards (the Corp's in the HQ slot, the Runner's left of the Stack). */
+  identities: Partial<Record<Side, IdentityWidget>>;
   memory: MemoryCounter;
   columns: Map<string, ColumnWidgets>;
   installed: Map<string, InstalledCard>;
@@ -226,6 +264,8 @@ export class Board {
   private readonly buildText: Text;
   /** The agenda whose free-rez choice was open before this update (for the "skipped" notice). */
   private lastChoiceCard: string | null = null;
+  /** The option of the last tapped button (its refusal hint may name its click price). */
+  private tappedOption: CardOption | null = null;
   /** "Leave the game?" over everything (S-04-2). */
   private readonly dialogLayer = new Container();
   /** S-06-5: the "Pass the phone" cover, over the board (under the leave question). */
@@ -254,7 +294,7 @@ export class Board {
   private runPicking = false;
   /** Installed card picked for its choices (Corp agenda: Advance / Score). */
   private pickedInstalled: string | null = null;
-  private hint: { text: string; root: Container; box: Box } | null = null;
+  private hint: { text: string; root: Container; box: Box; kind: 'hint' | 'notice'; slot: string } | null = null;
   private zoom: {
     cardId: string | null;
     root: Container;
@@ -551,7 +591,7 @@ export class Board {
       if (!same || view.run || view.pendingDiscard > 0) this.closeZoom(true);
     }
     const prev = this.view;
-    if (prev?.choice) this.lastChoiceCard = prev.choice.cardId;
+    if (prev?.choice && prev.choice.kind === 'free_rez') this.lastChoiceCard = prev.choice.cardId;
     const prevDecision = this.decision;
     this.view = view;
     this.decision = decision;
@@ -610,12 +650,13 @@ export class Board {
       this.animateBonusEvent(e, notices);
       if (e.type === 'credit_gained' && e.player === viewer) this.creditFloat(e.amount);
       if (e.type === 'action_rejected') {
-        this.showHint(hintFor(e.reason, view));
+        this.showHint(hintFor(e.reason, view, this.tappedOption));
         if (e.reason === 'no_clicks') this.seatAt('bottom')?.clicks.shake();
       }
       this.animateRunEvent(e, layout, before, prevRun, reportText ? [] : notices, events);
     }
-    notices.push(...turnStartNotices(events));
+    this.tappedOption = null;
+    notices.push(...installNotices(events), ...turnStartNotices(events));
     if (newStep && view.run) this.stepFlash();
     // A fired subroutine already says what happened: no extra "loses 1 click" / "Run ended" lines.
     const fired = events.some((e) => e.type === 'subroutine_fired');
@@ -626,6 +667,20 @@ export class Board {
   /** The End turn guard and flip timestamps (test hook). */
   endTurnClock(): EndTurnClock {
     return { armedAt: this.endTurnArmedAt, flipDueAt: this.flipDueAt };
+  }
+
+  /** Where a face-up installed card draws its name, type label and cost (screen boxes; test hook). */
+  private faceBoxes(c: InstalledCard, u: number, uh: number): InstalledSnapshot['face'] {
+    const def = c.faceUp && c.cardId ? getCard(c.cardId) : undefined;
+    if (!def || u <= 0) return null;
+    const f = smallFaceLayout(def, u, uh);
+    const toScreen = (r: Box): Box => {
+      const pts = [c.root.toGlobal({ x: r.x, y: r.y }), c.root.toGlobal({ x: r.x + r.width, y: r.y + r.height })];
+      const x = Math.min(pts[0]!.x, pts[1]!.x);
+      const y = Math.min(pts[0]!.y, pts[1]!.y);
+      return { x, y, width: Math.abs(pts[1]!.x - pts[0]!.x), height: Math.abs(pts[1]!.y - pts[0]!.y) };
+    };
+    return { name: toScreen(f.name), type: toScreen(f.type), cost: toScreen(f.cost), nameText: f.nameText };
   }
 
   snapshot(): LayoutSnapshot {
@@ -648,7 +703,9 @@ export class Board {
         faceUp: v.faceUp,
         box: c ? centeredBox(c.root, ice ? u.height : u.width, ice ? u.width : u.height) : zero,
         counter: c && c.badge.visible ? c.badgeText.text : null,
-        hosted: c && c.hosted.visible ? { text: c.hostedText.text, box: boundsOf(c.hosted), fontPx: c.hostedText.style.fontSize as number } : null,
+        counterBadge: c && c.badge.visible ? { text: c.badgeText.text, box: boundsOf(c.badge), fontPx: c.badgeText.style.fontSize as number, color: theme.advance, icon: 'chevron' } : null,
+        hosted: c && c.hosted.visible ? { text: c.hostedText.text, box: boundsOf(c.hosted), fontPx: c.hostedText.style.fontSize as number, color: theme.credit, icon: 'coin' } : null,
+        face: c ? this.faceBoxes(c, u.width, u.height) : null,
       };
     };
     const corp = this.seatOf('corp');
@@ -682,6 +739,12 @@ export class Board {
             })
           : [],
       rig: view ? view.rig.map(inst) : [],
+      identities: Object.fromEntries(
+        SIDES.map((sd) => {
+          const w = gen?.identities[sd];
+          return [sd, w && w.root.visible ? { uid: w.uid, cardId: w.cardId, box: centeredBox(w.root, w.box.width, w.box.height) } : null];
+        }),
+      ) as LayoutSnapshot['identities'],
       memory: {
         used: view?.memory.used ?? 0,
         limit: view?.memory.limit ?? 0,
@@ -838,6 +901,8 @@ export class Board {
     for (const e of events) {
       if (e.type === 'credit_gained' && e.player === viewer) this.creditFloat(e.amount);
       if (e.type === 'hosted_credits_changed') this.animateRunEvent(e, layout, new Map(), null, [], events);
+      // S-08-2: an Adonis Campaign emptied at the turn's start is already in Archives: pop the pile.
+      if (e.type === 'corp_card_trashed') this.gen?.discards.corp.pop(this.ui);
     }
     // S-07-2: "PAD Campaign: +1 credit" at the new turn's start, once the board is in view.
     this.queueNotices(turnStartNotices(events));
@@ -936,6 +1001,9 @@ export class Board {
     }
     const hqRoot = layout.corp.servers[0]?.root;
     if (hqRoot) placeAt(gen.hq.root, hqRoot);
+    for (const s of SIDES) this.placeIdentity(gen, layout, s, identityOf(view, s), rowOf(s).identity);
+    // The Corp's identity stands for HQ: it takes the HQ marker's slot (the hand count is in the Corp's name row).
+    gen.hq.root.visible = !gen.identities.corp?.root.visible;
 
     for (const slots of [...layout.corp.servers, layout.corp.newServer]) {
       let col = gen.columns.get(slots.id);
@@ -1120,6 +1188,7 @@ export class Board {
       decks,
       discards,
       hq,
+      identities: {},
       memory,
       columns: new Map(),
       installed: new Map(),
@@ -1144,6 +1213,7 @@ export class Board {
     this.closeLastRun();
     for (const d of gen.detachers) d();
     for (const c of gen.installed.values()) c.detach();
+    for (const w of Object.values(gen.identities)) w.detach();
     gen.run.detach();
     for (const layer of [this.bgLayer, this.boardLayer, this.installedLayer, this.runLayer, this.centerLayer, this.accessLayer, this.targetLayer]) {
       for (const c of layer.removeChildren()) c.destroy({ children: true });
@@ -1211,31 +1281,30 @@ export class Board {
       root.hitArea = new Rectangle(-u / 2, -uh / 2, u, uh);
       if (zone === 'ice') root.rotation = Math.PI / 2;
       const visual = new Container();
-      // Advancement counters: a numbered disc in the corner, on backs too (both players see the number).
+      // Advancement counters (QA-S7-2): a green tag with a chevron in the top-right corner, on backs too (both players see the number).
       const badge = new Container();
-      const br = Math.max(9, Math.round(u * 0.2));
-      const disc = new Graphics();
-      disc.circle(0, 0, br).fill({ color: theme.warn }).stroke({ width: 1.5, color: 0x140a00 });
-      const badgeText = new Text({ text: '', style: { fontFamily: theme.monoFamily, fontSize: Math.round(br * 1.25), fontWeight: '800', fill: 0x140a00 } });
+      badge.label = 'advancement';
+      const badgeBg = new Graphics();
+      const badgeText = new Text({ text: '', style: { fontFamily: theme.monoFamily, fontSize: Math.max(12, Math.round(Math.max(9, u * 0.2) * 1.25)), fontWeight: '800', fill: theme.ink } });
       badgeText.anchor.set(0.5);
-      badge.addChild(disc, badgeText);
-      badge.position.set(u / 2 - br - 1, -uh / 2 + br + 1);
+      badge.addChild(badgeBg, badgeText);
       badge.visible = false;
-      // S-07-3/4: the credits on the card, in the credit colour, bottom-left (digits >= 14 px on every phone).
+      // S-07-3/4: the credits on the card: a dark pill with a gold coin and gold digits (>= 14 px on every phone),
+      // in the art window so it never covers the name or type (QA-S7-1).
       const hosted = new Container();
       const hostedBg = new Graphics();
-      const hostedText = new Text({ text: '', style: { fontFamily: theme.monoFamily, fontSize: Math.max(14, Math.round(u * 0.26)), fontWeight: '800', fill: 0x140a00 } });
+      const hostedText = new Text({ text: '', style: { fontFamily: theme.monoFamily, fontSize: Math.max(14, Math.round(u * 0.26)), fontWeight: '800', fill: theme.credit } });
       hostedText.anchor.set(0.5);
       hosted.addChild(hostedBg, hostedText);
       hosted.visible = false;
       hosted.label = 'hosted-credits';
-      // ICE lies sideways: its discs stay upright.
+      // ICE lies sideways: its markers stay upright.
       if (zone === 'ice') {
         badge.rotation = -Math.PI / 2;
         hosted.rotation = -Math.PI / 2;
       }
       root.addChild(visual, badge, hosted);
-      const c: InstalledCard = { uid: v.uid, owner, zone, root, visual, visualKey: '', cardId: v.cardId, faceUp: v.faceUp, box: b, badge, badgeText, hosted, hostedBg, hostedText, detach: () => {} };
+      const c: InstalledCard = { uid: v.uid, owner, zone, root, visual, visualKey: '', cardId: v.cardId, faceUp: v.faceUp, box: b, badge, badgeBg, badgeText, hosted, hostedBg, hostedText, hostedKey: '', detach: () => {} };
       c.detach = attachPress(root, {
         onTap: () => this.onInstalledTap(c.uid),
         onLongPress: () => this.openZoom(c.cardId, c.owner, c.box),
@@ -1256,9 +1325,7 @@ export class Board {
     card.box = b;
     card.cardId = v.cardId;
     card.faceUp = v.faceUp;
-    card.badge.visible = v.advancements > 0;
-    if (card.badgeText.text !== String(v.advancements)) card.badgeText.text = String(v.advancements);
-    this.setHosted(card, v.hostedCredits ?? 0, u, uh);
+    this.setAdvancements(card, v.advancements, u, uh);
     const visualKey = v.faceUp && v.cardId ? `face:${v.cardId}` : 'back';
     if (card.visualKey !== visualKey) {
       card.visualKey = visualKey;
@@ -1266,19 +1333,114 @@ export class Board {
       const def = v.faceUp && v.cardId ? getCard(v.cardId) : undefined;
       card.visual.addChild(def ? createCardFace(def, u, uh, 'small') : createCardBack(owner, u, uh));
     }
+    this.setHosted(card, v.hostedCredits ?? 0, u, uh);
   }
 
-  /** The credits disc: a pill sized to its digits, in the card's bottom-left corner. */
+  /** U2: draws (or hides) `side`'s identity card in its slot; hold it to read it. */
+  private placeIdentity(gen: Generation, layout: BoardLayout, side: Side, ref: IdentityRef | null, slot: Box | null): void {
+    let w = gen.identities[side];
+    if (w && (!ref || w.cardId !== ref.cardId)) {
+      w.detach();
+      w.root.destroy({ children: true });
+      delete gen.identities[side];
+      w = undefined;
+    }
+    const def = ref ? getCard(ref.cardId) : undefined;
+    if (!ref || !slot || !def) return;
+    if (!w) {
+      const u = layout.unit.width;
+      const uh = layout.unit.height;
+      const root = new Container();
+      root.label = `identity:${side}`;
+      root.hitArea = new Rectangle(-u / 2, -uh / 2, u, uh);
+      root.addChild(createCardFace(def, u, uh, 'small'));
+      const cardId = ref.cardId;
+      const widget: IdentityWidget = { uid: ref.uid, cardId, root, box: slot, detach: () => {} };
+      widget.detach = this.attachHoldZoom(root, () => ({ ids: [cardId], side, from: widget.box }));
+      this.boardLayer.addChild(root);
+      gen.identities[side] = widget;
+      w = widget;
+    }
+    w.uid = ref.uid;
+    w.box = slot;
+    placeAt(w.root, slot);
+  }
+
+  /** QA-S7-2: the advancement tag (green, chevron, dark digits) in the card's top-right corner. */
+  private setAdvancements(card: InstalledCard, n: number, u: number, uh: number): void {
+    card.badge.visible = n > 0;
+    const text = String(n);
+    if (n <= 0 || card.badgeText.text === text) return;
+    card.badgeText.text = text;
+    const h = Math.round(card.badgeText.height + 2);
+    const icon = Math.round(h * 0.42);
+    const w = Math.round(4 + icon + 2 + card.badgeText.width + 5);
+    card.badgeBg.clear();
+    card.badgeBg.roundRect(-w / 2, -h / 2, w, h, Math.round(h * 0.3)).fill({ color: theme.advance }).stroke({ width: 1.5, color: theme.ink });
+    // Two stacked chevrons ("advance").
+    const cx = -w / 2 + 4 + icon / 2;
+    for (const dy of [-h * 0.12, h * 0.16]) {
+      card.badgeBg
+        .moveTo(cx - icon / 2, dy + icon * 0.28)
+        .lineTo(cx, dy - icon * 0.22)
+        .lineTo(cx + icon / 2, dy + icon * 0.28)
+        .stroke({ width: Math.max(1.5, h * 0.11), color: theme.ink, cap: 'round', join: 'round' });
+    }
+    card.badgeText.position.set(-w / 2 + 4 + icon + 2 + card.badgeText.width / 2, 0);
+    // Card-local half extents (ICE: the tag is turned back upright, so they swap).
+    const ex = card.zone === 'ice' ? h / 2 : w / 2;
+    const ey = card.zone === 'ice' ? w / 2 : h / 2;
+    card.badge.position.set(u / 2 - ex - 1, -uh / 2 + ey + 1);
+  }
+
+  /**
+   * The credits on a card: a dark pill with a gold coin and gold digits, sized to its digits.
+   * Face up it sits in the art window, above the name (never over the name or type, QA-S7-1);
+   * on a card back it sits in the middle.
+   */
   private setHosted(card: InstalledCard, credits: number, u: number, uh: number): void {
     card.hosted.visible = credits > 0;
+    if (credits <= 0) return;
     const text = String(credits);
-    if (credits <= 0 || card.hostedText.text === text) return;
-    card.hostedText.text = text;
-    const h = Math.round(card.hostedText.height + 4);
-    const w = Math.max(h, Math.round(card.hostedText.width + 10));
-    card.hostedBg.clear();
-    card.hostedBg.roundRect(-w / 2, -h / 2, w, h, h / 2).fill({ color: theme.credit }).stroke({ width: 1.5, color: 0x140a00 });
-    card.hosted.position.set(-u / 2 + w / 2 + 1, uh / 2 - h / 2 - 1);
+    if (card.hostedText.text !== text) card.hostedText.text = text;
+    const th = Math.ceil(card.hostedText.height);
+    const def = card.faceUp && card.cardId ? getCard(card.cardId) : undefined;
+    const f = def ? smallFaceLayout(def, u, uh) : null;
+    // Face up (not sideways): the band above the name, below the cost bubble when there is room
+    // (an installed card's cost no longer matters, so tiny cards past the busy board may cover it).
+    // Never over the name or type (QA-S7-1). Bounds include the stroke: 1 px each side.
+    const fontPx = card.hostedText.style.fontSize as number;
+    const minH = Math.round(fontPx * 1.05);
+    const hi = f ? f.name.y - 2 : 0;
+    const belowCost = f ? f.cost.y + f.cost.height + 2 : 0;
+    const lo = f && hi - belowCost >= minH ? belowCost : -uh / 2 + 2;
+    const h = f && card.zone !== 'ice' ? Math.max(minH, Math.min(th + 4, Math.floor(hi - lo))) : th + 4;
+    const coin = Math.max(4, Math.round(Math.min(h, th) * 0.26));
+    const w = Math.round(3 + coin * 2 + 2 + card.hostedText.width + 5);
+    const key = `${text}:${h}`;
+    if (card.hostedKey !== key) {
+      card.hostedKey = key;
+      const g = card.hostedBg;
+      g.clear();
+      g.roundRect(-w / 2, -h / 2, w, h, h / 2).fill({ color: theme.ink, alpha: 0.92 }).stroke({ width: 2, color: theme.credit });
+      const ix = -w / 2 + 3 + coin;
+      const pts: number[] = [];
+      for (let i = 0; i < 6; i++) {
+        const a = Math.PI / 6 + (i * Math.PI) / 3;
+        pts.push(ix + Math.cos(a) * coin, Math.sin(a) * coin);
+      }
+      g.poly(pts).fill({ color: theme.credit, alpha: 0.3 }).stroke({ width: 1.5, color: theme.credit });
+      g.circle(ix, 0, coin * 0.38).fill({ color: theme.credit });
+      card.hostedText.position.set(-w / 2 + 3 + coin * 2 + 2 + card.hostedText.width / 2, 0);
+    }
+    if (!f) {
+      card.hosted.position.set(0, 0);
+      return;
+    }
+    const cx = f.art.x + f.art.width / 2;
+    let cy = f.art.y + f.art.height / 2;
+    if (card.zone !== 'ice') cy = hi - lo >= h ? Math.min(Math.max(cy, lo + h / 2), hi - h / 2) : (lo + hi) / 2;
+    card.hosted.position.set(cx, cy);
   }
 
   /** Banner, help, End turn: placed for the viewer (the column layout moves them with the bands). */
@@ -1349,7 +1511,7 @@ export class Board {
       const row = layout[w.pos].label;
       w.label.scale.set(Math.min(1, row.width / Math.max(1, w.handText.x + w.handText.width)));
       // The client shows the engine's numbers; it never adds run-only credits to the Runner's credits.
-      const note = s === 'corp' ? (view.badPublicity > 0 ? badPublicityText(view.badPublicity) : null) : view.run && view.run.tempCredits > 0 ? tempCreditsText(view.run.tempCredits) : null;
+      const note = s === 'corp' ? (view.badPublicity > 0 ? badPublicityText(view.badPublicity) : null) : runnerNote(view);
       w.tag.set(layout[w.pos].tag, note, layout.mode === 'landscape' && w.pos === 'bottom' ? 'center' : 'right');
       const mine = s === viewer;
       gen.decks[s].setActionable(mine && view.legalActions.some((a) => a.type === 'draw'));
@@ -1376,7 +1538,10 @@ export class Board {
     help.visible = !view.result && !(view.run && layout.mode === 'landscape');
     let helpText: string;
     const choiceCard = view.choice ? (getCard(view.choice.cardId)?.name ?? 'Agenda') : '';
-    if (view.choice && view.choice.options.length > 0) {
+    if (isRunChoice(view.choice)) {
+      // S-08-7: the run panel says what to pick; the column shows the same words here.
+      helpText = view.choice.options.length > 0 || this.decision?.choice ? 'Tap a lit button to decide.' : `${SIDE_NAME[view.choice.waitingOn]} is choosing…`;
+    } else if (view.choice && view.choice.options.length > 0) {
       helpText = `${choiceCard}: rez one ${TERMS.ice} for free.\nTap a lit ${TERMS.ice}, or ${TERMS.skip}.`;
     } else if (view.choice) {
       helpText = `${SIDE_NAME[view.choice.waitingOn]} is choosing (${choiceCard})…`;
@@ -1418,6 +1583,8 @@ export class Board {
     help.position.set(hb.x + hb.width / 2, hb.y);
     fitText(help, hb.width, hb.height);
     this.syncHelp();
+    // QA-S8-3: a toast shown before a run started (or ended) moves to the slot for now.
+    if (this.hint && this.hint.slot !== JSON.stringify(this.hintSlot(layout))) this.showHint(this.hint.text, this.hint.kind);
 
     const button = gen.button;
     if (view.result) {
@@ -1425,6 +1592,10 @@ export class Board {
     } else if (pending > 0) {
       button.root.visible = true;
       button.set('confirm', this.marked.size === pending, this.marked.size === pending, this.ui);
+    } else if (this.runNoticeSlot(layout, view)) {
+      // QA-S8-3: sideways, during a run End turn can't be used; its slot shows the run's notes
+      // (so they never cover the run panel in the rail).
+      button.root.visible = false;
     } else {
       const canEnd = view.legalActions.some((a) => a.type === 'end_turn');
       button.root.visible = true;
@@ -1615,7 +1786,7 @@ export class Board {
         const b = this.layout?.corp.servers.find((x) => x.id === e.server)?.column;
         if (b) out.set(`col:${e.server}`, { ...b });
       }
-      if (e.type === 'rig_card_trashed') {
+      if (e.type === 'rig_card_trashed' || e.type === 'corp_card_trashed') {
         const b = gen.installed.get(e.uid)?.box;
         if (b) out.set(`uid:${e.uid}`, { ...b });
       }
@@ -1713,12 +1884,42 @@ export class Board {
         this.seatOf(e.player)?.clicks.shake();
         return;
       }
+      case 'trash_prevented': {
+        notices.push(`${nameOf(e.byCardId, 'A card')} saved ${nameOf(e.cardId, 'a card')}`);
+        return;
+      }
+      case 'corp_card_trashed': {
+        // S-08-2: an emptied Adonis Campaign goes to Archives face up.
+        const from = before.get(`uid:${e.uid}`);
+        const pile = gen.discards.corp;
+        this.callbacks.log({ kind: 'corp_trash_flight', scheduledMs: timing.runFlight, box: pile.box() });
+        if (from) this.flyCard(e.cardId, 'corp', from, pile.box(), 0, () => pile.pop(this.ui));
+        else pile.pop(this.ui);
+        return;
+      }
+      case 'clicks_gained': {
+        // S-08-2 Biotic Labor: the clicks counter glows and "+2" floats up.
+        notices.push(`${SIDE_NAME[e.player]} gains ${plural(e.amount, 'click', 'clicks')}`);
+        const w = this.seatOf(e.player)?.clicks;
+        this.callbacks.log({ kind: 'clicks_gained', scheduledMs: timing.tagPop, ...(w ? { box: w.box() } : {}) });
+        if (w) {
+          this.flash(w.box(), sideColor(e.player), timing.tagPop);
+          this.floatText(`+${e.amount}`, w.box(), sideColor(e.player), timing.tagPop);
+        }
+        return;
+      }
+      case 'brain_damage':
       case 'net_damage': {
-        notices.push(`${e.amount} ${TERMS.netDamage.toLowerCase()}`);
+        // S-08-3: brain damage flies the same way as net damage and lowers the hand max.
+        notices.push(e.type === 'net_damage' ? `${e.amount} ${TERMS.netDamage.toLowerCase()}` : `${e.amount} ${TERMS.brainDamage.toLowerCase()} · ${handMaxText(e.maxHandSize)}`);
+        if (e.type === 'brain_damage') {
+          const tag = this.seatOf('runner')?.tag;
+          if (tag?.text) tag.pop(this.fx, timing.tagPop);
+        }
         const pos: Pos = view.viewer === 'runner' ? 'bottom' : 'top';
         const from = pos === 'bottom' ? layout.handArea : layout.top.label;
         const heap = gen.discards.runner.box();
-        this.callbacks.log({ kind: 'net_damage', scheduledMs: timing.runFlight + 20 * Math.max(0, e.cardIds.length - 1), box: { ...heap } });
+        this.callbacks.log({ kind: e.type, scheduledMs: timing.runFlight + 20 * Math.max(0, e.cardIds.length - 1), box: { ...heap } });
         const w = Math.min(layout.card.width, from.height / CARD_RATIO);
         e.cardIds.forEach((id, i) => {
           const start = { x: from.x + from.width / 2 - w / 2 + (i - (e.cardIds.length - 1) / 2) * w * 0.6, y: from.y + from.height / 2 - (w * CARD_RATIO) / 2, width: w, height: w * CARD_RATIO };
@@ -1802,12 +2003,15 @@ export class Board {
         return;
       }
       case 'choice_opened': {
-        const boxes = (view.choice?.options ?? []).flatMap((o) => (o.action.type === 'rez' ? [gen.installed.get(o.action.uid)?.box] : [])).filter((b): b is Box => !!b);
+        const opts = (this.decision?.choice ?? view.choice)?.options ?? [];
+        const boxes = opts.flatMap((o) => (o.action.type === 'rez' || o.action.type === 'choose' ? [gen.installed.get(o.action.uid)?.box] : [])).filter((b): b is Box => !!b);
         this.callbacks.log({ kind: 'choice_open', text: e.cardId, scheduledMs: timing.choiceFlash });
         for (const b of boxes) this.flash(b, theme.credit, timing.choiceFlash);
         return;
       }
       case 'choice_closed': {
+        // In-run choices (S-08-7) say what happened through the trash events and the ICE report.
+        if (e.kind !== 'free_rez') return;
         const name = getCard(this.lastChoiceCard ?? '')?.name ?? 'Bonus';
         notices.push(e.skipped ? `${name}: skipped` : `${name}: ${TERMS.ice} rezzed for free`);
         return;
@@ -1912,7 +2116,7 @@ export class Board {
     if (!view) return '';
     if (view.choice) {
       // Only the choice can be answered now (S-04-4).
-      return view.choice.options.length > 0 ? CHOICE_HINT : `${SIDE_NAME[view.choice.waitingOn]} is choosing`;
+      return view.choice.options.length > 0 ? choiceHint(view.choice) : `${SIDE_NAME[view.choice.waitingOn]} is choosing`;
     }
     const options = view.handOptions[index] ?? [];
     const first = options[0]?.reject ?? null;
@@ -1975,7 +2179,7 @@ export class Board {
     }
     // The price pill sits on the Runner's side of a Corp column (where the next ICE goes).
     const columnSide: 'top' | 'bottom' = layout.corp.outward === 'down' ? 'bottom' : 'top';
-    if (view.choice) {
+    if (view.choice && !isRunChoice(view.choice)) {
       // S-04-4: the free-rez choice. Only its options show: each offered ICE, and Skip where Play goes.
       for (const option of view.choice.options) {
         const a = option.action;
@@ -2051,7 +2255,9 @@ export class Board {
         b = layout.action;
       } else continue;
       const verb = a.type === 'play' ? TERMS.play : TERMS.install;
-      this.addTarget(gen, layout, kind, option, b, `${verb} · ${priceText(option.cost)}`, at, server !== undefined ? { server } : {});
+      // S-08-1: Kate's discount is already in the engine's price; say it was lowered ("1 credit (−1)").
+      const off = option.discount ? ` (−${option.discount})` : '';
+      this.addTarget(gen, layout, kind, option, b, `${verb} · ${priceText(option.cost)}${off}`, at, server !== undefined ? { server } : {});
     }
     this.setNewServerLabel(this.activeTargets.some((t) => t.kind === 'new_server'));
   }
@@ -2105,7 +2311,7 @@ export class Board {
   /** The hint for a refused option (a card's ability with nothing left on it says so). */
   private rejectHint(option: CardOption): string {
     if (option.reject === 'condition_not_met' && option.action.type === 'activate') return 'No credits left on it';
-    return option.reject ? hintFor(option.reject, this.view) : '';
+    return option.reject ? hintFor(option.reject, this.view, option) : '';
   }
 
   /** An installed card with options (view.installedOptions) shows its buttons; anything else drops the pick. */
@@ -2120,11 +2326,19 @@ export class Board {
       this.cancelSelection();
       return;
     }
+    const runChoice = this.decision ? this.decision.choice : view.choice;
+    if (isRunChoice(runChoice)) {
+      // S-08-7: a lit program (Rototurret) or the Construct: tapping it picks it, like its button.
+      const pick = runChoice.options.find((o) => o.action.type === 'choose' && o.action.uid === uid);
+      if (pick) this.callbacks.onAction(pick.action);
+      else this.showHint(runChoice.options.length > 0 ? choiceHint(runChoice) : `${SIDE_NAME[runChoice.waitingOn]} is choosing`);
+      return;
+    }
     if (view.choice) {
       // The offered ICE are lit; a tap on one (or its marker) rezzes it for free.
       const rez = view.choice.options.find((o) => o.action.type === 'rez' && o.action.uid === uid);
       if (rez) this.callbacks.onAction(rez.action);
-      else this.showHint(view.choice.options.length > 0 ? CHOICE_HINT : `${SIDE_NAME[view.choice.waitingOn]} is choosing`);
+      else this.showHint(view.choice.options.length > 0 ? choiceHint(view.choice) : `${SIDE_NAME[view.choice.waitingOn]} is choosing`);
       return;
     }
     const options = view.installedOptions[uid] ?? [];
@@ -2171,14 +2385,24 @@ export class Board {
 
   /** A run decision button: sent as the deciding seat; the engine judges it (a dim one comes back with its hint). */
   private onRunOptionTap(index: number): void {
-    const option = this.gen?.run.option(index);
-    if (!option || this.flipPending) return;
-    this.callbacks.onAction(option.action);
+    const run = this.gen?.run;
+    if (!run || !run.option(index) || this.flipPending) return;
+    const action = run.tap(index);
+    if (action) {
+      this.callbacks.onAction(action);
+      return;
+    }
+    // S-08-4: only the "break up to 2" pick changed: redraw the buttons.
+    const view = this.view;
+    if (view) this.applyView(view, false);
+    this.callbacks.changed();
   }
 
   private onTargetTap(key: string): void {
     const t = this.activeTargets.find((x) => targetKey(x.kind, x) === key);
     if (!t || this.flipPending) return;
+    // QA-S8-1: a refusal's hint can name this button's click price.
+    this.tappedOption = t.option;
     // The engine judges it; a refusal comes back as action_rejected and shows its hint.
     this.callbacks.onAction(t.option.action);
   }
@@ -2367,7 +2591,7 @@ export class Board {
     const layout = this.layout;
     if (!layout) return;
     const s = Math.min(layout.scale, 1.2);
-    const area = layout.hintArea;
+    const area = this.hintSlot(layout);
     const root = new Container();
     const padX = Math.max(6, Math.round(8 * s));
     const padY = Math.max(5, Math.round(6 * s));
@@ -2397,7 +2621,7 @@ export class Board {
     // The slot is sized so hints wrap at full size; shrink only if one ever does not fit.
     const fit = Math.min(1, (area.width - 2 * ring) / w, (area.height - 2 * ring) / h);
     root.scale.set(fit);
-    const hint = { text, root, box: { x: 0, y: 0, width: w * fit, height: h * fit } };
+    const hint = { text, root, box: { x: 0, y: 0, width: w * fit, height: h * fit }, kind, slot: JSON.stringify(area) };
     this.positionHint(hint);
     root.alpha = 0;
     this.hintLayer.addChild(root);
@@ -2435,7 +2659,8 @@ export class Board {
     const help = this.gen?.subHelp;
     if (help) help.renderable = !(this.hint && this.layout?.mode === 'landscape');
     // In the column the build date shares the hint's slot: hide it while a hint shows.
-    this.buildText.visible = !(this.hint && this.layout?.mode === 'portrait');
+    // Sideways during a run, the run panel uses the build date's line (QA-S8-2).
+    this.buildText.visible = !(this.hint && this.layout?.mode === 'portrait') && !(this.layout?.mode === 'landscape' && this.view?.run);
   }
 
   /** Where the build date's text is drawn (CSS px). */
@@ -2447,6 +2672,8 @@ export class Board {
   /** The build date: the date and time centered in the narrow rail (sideways), "Built …" in the column's hint slot. */
   private placeBuildLabel(layout: BoardLayout): void {
     const t = this.buildText;
+    // QA-S8-2: sideways, the run panel uses the build date's line while a run is on.
+    t.visible = !(layout.mode === 'landscape' && this.view?.run);
     const when = this.callbacks.buildTime;
     const rail = layout.mode === 'landscape';
     const text = rail ? when : `Built ${when}`;
@@ -2458,12 +2685,24 @@ export class Board {
     t.position.set(rail ? b.x + b.width / 2 : b.x, b.y + b.height / 2);
   }
 
+  /** QA-S8-3: sideways during a run, the End turn slot (End turn is hidden then); else null. */
+  private runNoticeSlot(layout: BoardLayout, view: PlayerView | null): Box | null {
+    return layout.mode === 'landscape' && view?.run && !view.result ? layout.endTurn : null;
+  }
+
+  /** Where the toast goes: the hint slot, or (sideways, during a run) End turn's slot, clear of the run panel. */
+  private hintSlot(layout: BoardLayout): Box {
+    return this.runNoticeSlot(layout, this.view) ?? layout.hintArea;
+  }
+
   private positionHint(hint: { root: Container; box: Box }): void {
-    const a = this.layout?.hintArea;
-    if (!a) return;
+    const layout = this.layout;
+    if (!layout) return;
+    const a = this.hintSlot(layout);
+    const run = this.runNoticeSlot(layout, this.view) !== null;
     const cx = a.x + a.width / 2;
     // Sideways the slot is tall (the help text's room): sit at its bottom, by the viewer's name.
-    const cy = this.layout?.mode === 'landscape' ? a.y + a.height - 3 - hint.box.height / 2 : a.y + a.height / 2;
+    const cy = layout.mode === 'landscape' && !run ? a.y + a.height - 3 - hint.box.height / 2 : a.y + a.height / 2;
     hint.root.position.set(cx, cy);
     hint.box.x = cx - hint.box.width / 2;
     hint.box.y = cy - hint.box.height / 2;

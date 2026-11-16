@@ -1,7 +1,7 @@
 // U4: one plain hint per refusal reason (S-02-2 AC4, S-02-3 AC3/AC5, S-02-4 AC3/AC4).
 import type { RejectReason } from '@overclock/engine';
 import { describe, expect, it } from 'vitest';
-import { hintFor } from '../src/hints';
+import { clicksHint, hintFor } from '../src/hints';
 
 const ALL: RejectReason[] = [
   'invalid_action', 'game_over', 'not_your_turn', 'wrong_phase', 'no_clicks', 'deck_empty', 'bad_discard',
@@ -30,5 +30,18 @@ describe('hintFor', () => {
     const choice = { kind: 'free_rez' as const, waitingOn: 'corp' as const, cardId: 'c11', options: [] };
     expect(hintFor('wrong_phase', { viewer: 'corp', pendingDiscard: 0, choice })).toBe('Rez one ICE for free, or tap Skip');
     expect(hintFor('wrong_phase', { viewer: 'corp', pendingDiscard: 0, choice: null })).toBe("You can't do that right now");
+  });
+});
+
+describe('QA-S8-1 click prices', () => {
+  it('a 3-click ability with 1-2 clicks left says what it needs; "No clicks left" only at 0', () => {
+    expect(clicksHint({ clicks: 3 }, 2)).toBe('Needs 3 clicks');
+    expect(clicksHint({ clicks: 3 }, 1)).toBe('Needs 3 clicks');
+    expect(clicksHint({ clicks: 3 }, 0)).toBe('No clicks left');
+    expect(clicksHint({ clicks: 1 }, 0)).toBe('No clicks left');
+    expect(clicksHint(null, 2)).toBe('No clicks left');
+    const view = { viewer: 'corp', pendingDiscard: 0, players: { corp: { clicks: 2 }, runner: { clicks: 0 } } } as unknown as Parameters<typeof hintFor>[1];
+    expect(hintFor('no_clicks', view, { clicks: 3 })).toBe('Needs 3 clicks');
+    expect(hintFor('no_clicks', view)).toBe('No clicks left');
   });
 });

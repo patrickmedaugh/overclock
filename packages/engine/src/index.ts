@@ -5,6 +5,7 @@ export type {
   CentralServerId,
   ChoiceKind,
   ChoiceState,
+  DeckSet,
   DiscardEntry,
   GameOptions,
   GameResult,
@@ -21,7 +22,7 @@ export type {
   Side,
   WinReason,
 } from './state';
-export { DEFAULT_OPTIONS, MEMORY_LIMIT, RULES_VERSION, WINNING_POINTS } from './state';
+export { DEFAULT_OPTIONS, IDENTITY_UID, MEMORY_LIMIT, RULES_VERSION, WINNING_POINTS, maxHandSize } from './state';
 export type { ApplyResult } from './apply';
 export type {
   AccessCardView,
@@ -29,6 +30,7 @@ export type {
   ChoiceView,
   InstalledView,
   LastRunView,
+  BreakAllView,
   LetFireView,
   PlayerSideView,
   PlayerView,

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { apply, legalActions, newGame, replay, viewFor, type Action, type GameState } from '../src/index';
-import { discard, draw, endTurn, finishTurn, gainCredit, run } from './helpers';
+import { apply, legalActions, viewFor, type Action, type GameState } from '../src/index';
+import { discard, draw, endTurn, finishTurn, gainCredit, run, newGame, replay } from './helpers';
 
 /** Plays real turns (Corp click-draws whenever it can) until the Runner's turn with an empty Corp deck. */
 function playToEmptyCorpDeck(seed: number): { state: GameState; actions: Action[] } {

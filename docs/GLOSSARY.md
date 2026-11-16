@@ -25,6 +25,7 @@
 - **Run-only credits** — the Runner's extra credits from bad publicity ("+1 for this run"). They are spent first during the run and vanish when it ends.
 - **Points** — agenda points in a player's score area, shown as "Corp 1 point" / "Runner 2 points". 7 points wins.
 - **Net damage** — the Runner discards that many random cards from the Grip to the Heap.
+- **Brain damage** — like net damage (random cards from the Grip to the Heap), and the Runner's hand limit also goes down by 1 for each point, for the rest of the game (shown as "Hand max 4").
 - **Flatline** — the Runner takes more damage than cards in the Grip: the Corp wins at once ("Runner flatlined").
 - **Server** — a place where the Corp keeps cards. Three are built in (HQ, R&D, Archives); the Corp can open remote servers.
 - **HQ** — the Corp's hand (its headquarters).
