@@ -26,6 +26,7 @@ import {
   rejectionFor,
   rezCost,
   trashCost,
+  traceMaxBid,
   unrezzedIce,
   unstolenAgendaShown,
   waitingOn,
@@ -291,6 +292,11 @@ export function apply(state: GameState, action: Action): ApplyResult {
       return doActivate(state, action);
     case 'choose':
       return doChoose(state, action);
+    // Sprint 9 E1 stubs: the rules table refuses these (`not_implemented`) until E3/E4.
+    case 'trace_bid':
+    case 'remove_tag':
+    case 'trash_resource':
+      return { state, events: [{ type: 'action_rejected', reason: 'not_implemented' }] };
   }
 }
 
@@ -423,6 +429,11 @@ export function choiceOptions(state: GameState, player: Side): CardOption[] {
   if (kind === 'free_rez') {
     const rezzes = unrezzedIce(state).map((c) => option(state, { type: 'rez', player, uid: c.uid }, 0));
     return [...rezzes, option(state, { type: 'pass', player }, 0)];
+  }
+  if (kind === 'trace_corp' || kind === 'trace_runner') {
+    // Sprint 9: one bid per amount 0..max (`cost` = amount).
+    const max = traceMaxBid(state, player);
+    return Array.from({ length: max + 1 }, (_, credits) => option(state, { type: 'trace_bid', player, credits }, credits));
   }
   const chooses = chooseTargets(state).map((uid) => option(state, { type: 'choose', player, uid }, 0));
   return kind === 'prevent_trash' ? [...chooses, option(state, { type: 'pass', player }, 0)] : chooses;

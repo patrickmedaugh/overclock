@@ -146,8 +146,11 @@ export type GameEvent =
   | { readonly type: 'ability_triggered'; readonly uid: string; readonly cardId: string; readonly trigger: AbilityTrigger }
   /** Credits on installed card `uid` changed; `credits` = the new total (install, take, spend, refill). */
   | { readonly type: 'hosted_credits_changed'; readonly uid: string; readonly credits: number }
-  /** A Runner card left the rig for the Heap (face up), e.g. Armitage Codebusting emptied. */
-  | { readonly type: 'rig_card_trashed'; readonly uid: string; readonly cardId: string }
+  /**
+   * A Runner card left the rig for the Heap (face up), e.g. Armitage Codebusting emptied.
+   * Sprint 9: `cause: 'tagged'` = the Corp's `trash_resource` basic action.
+   */
+  | { readonly type: 'rig_card_trashed'; readonly uid: string; readonly cardId: string; readonly cause?: 'tagged' }
   /** An empty remote (no ICE, no cards) was removed (after `run_ended`, or at the end of a score). Its id is never reused. */
   | { readonly type: 'server_removed'; readonly server: ServerId }
   // ---- Sprint 8: identities, brain damage, Corp trashes, trash prevention (all public) ----
@@ -161,4 +164,18 @@ export type GameEvent =
   /** A face-up Corp card left its server for Archives, face up (e.g. Adonis Campaign emptied). */
   | { readonly type: 'corp_card_trashed'; readonly uid: string; readonly cardId: string; readonly server: ServerId }
   /** Rig card `uid` was not trashed: preventer `byUid` was trashed instead (its `rig_card_trashed` comes first). */
-  | { readonly type: 'trash_prevented'; readonly uid: string; readonly cardId: string; readonly byUid: string; readonly byCardId: string };
+  | { readonly type: 'trash_prevented'; readonly uid: string; readonly cardId: string; readonly byUid: string; readonly byCardId: string }
+  // ---- Sprint 9: traces, tags, meat damage (all public) ----
+  /** A trace begins: `cardId` = the ICE or operation, `base` = printed strength, `link` = the Runner's link now. */
+  | { readonly type: 'trace_started'; readonly cardId: string; readonly base: number; readonly link: number }
+  /**
+   * A trace bid (after its `credits_spent`, if any). `total` = the trace strength for the Corp,
+   * link + bid for the Runner. `auto` (only when true) = the window was skipped (the bid could not matter).
+   */
+  | { readonly type: 'trace_bid'; readonly player: Side; readonly credits: number; readonly total: number; readonly auto?: true }
+  /** The trace is over: `strength` (Corp) vs `total` (Runner link + bid); `success` iff strength > total. */
+  | { readonly type: 'trace_resolved'; readonly cardId: string; readonly strength: number; readonly total: number; readonly success: boolean }
+  /** The Runner's tags changed by `amount` (+n given, −1 removed); `tags` = the new total. */
+  | { readonly type: 'tags_changed'; readonly amount: number; readonly tags: number }
+  /** Meat damage to the Runner: `cardIds` = the random Grip cards that went face up to the Heap. */
+  | { readonly type: 'meat_damage'; readonly amount: number; readonly cardIds: readonly string[] };

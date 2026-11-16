@@ -20,9 +20,11 @@ export type {
   Server,
   ServerId,
   Side,
+  TraceState,
   WinReason,
 } from './state';
-export { DEFAULT_OPTIONS, IDENTITY_UID, MEMORY_LIMIT, RULES_VERSION, WINNING_POINTS, maxHandSize } from './state';
+export { DEFAULT_OPTIONS, IDENTITY_UID, MEMORY_LIMIT, RULES_VERSION, WINNING_POINTS, maxHandSize, parseScoredUid, runnerLink, scoredUid } from './state';
+export { BASIC_ACTION_COST } from './rules';
 export type { ApplyResult } from './apply';
 export type {
   AccessCardView,
@@ -37,6 +39,7 @@ export type {
   RunIceView,
   RunView,
   ServerView,
+  TraceView,
 } from './view';
 
 export { newGame } from './state';

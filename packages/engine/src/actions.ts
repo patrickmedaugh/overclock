@@ -65,6 +65,8 @@ export type Action =
    * Sprint 7: use ability `ability` (index into `CardDef.cardAbilities`) of the player's own
    * installed, face-up card `uid`. `click` abilities: own action phase; `successful_run_remote`:
    * run step `success`. Pays the ability's clicks and credits.
+   * Sprint 9: `uid` may also be a scored uid (`scoredUid('corp', i)`, `score:corp:<i>`): `ability` then
+   * indexes that agenda's `scoredAbilities` (Corp, own action phase).
    */
   | { readonly type: 'activate'; readonly player: Side; readonly uid: string; readonly ability: number }
   /**
@@ -72,7 +74,19 @@ export type Action =
    * the candidates) or `prevent_trash` choice (Runner: `uid` = the preventer to trash instead).
    * `pass` in `prevent_trash` = let it be trashed; in `trash_target` it is refused (mandatory).
    */
-  | { readonly type: 'choose'; readonly player: Side; readonly uid: string };
+  | { readonly type: 'choose'; readonly player: Side; readonly uid: string }
+  /**
+   * Sprint 9: bid `credits` (a non-negative integer, at most the player's max) in an open trace choice
+   * (`trace_corp` / `trace_runner`). `pass` in a trace choice is refused (`bad_target`; bid 0 instead).
+   */
+  | { readonly type: 'trace_bid'; readonly player: Side; readonly credits: number }
+  /** Sprint 9: Runner basic action, 1 click + 2 credits: remove 1 tag (own action phase; needs a tag). */
+  | { readonly type: 'remove_tag'; readonly player: Side }
+  /**
+   * Sprint 9: Corp basic action, 1 click + 2 credits: trash the Runner's installed resource `uid`
+   * (own action phase; only while the Runner is tagged).
+   */
+  | { readonly type: 'trash_resource'; readonly player: Side; readonly uid: string };
 
 export type ActionType = Action['type'];
 

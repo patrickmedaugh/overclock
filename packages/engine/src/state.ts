@@ -7,6 +7,7 @@ import {
   type CardType,
   type CentralServerId,
   type DeckList,
+  type Effect,
   type ServerId,
   type Side,
 } from '@overclock/cards';
@@ -25,10 +26,11 @@ export const CORP_CLICKS_PER_TURN = 3;
 /** Base Runner memory limit (programs' `memory` must fit). Sprint 7: `memoryLimit(state)` adds rig `memoryBonus`. */
 export const MEMORY_LIMIT = 4;
 /**
- * Sprint 7: the rules version (Sprint 8: 2 — identities, core decks, DSL v3). Bump it whenever an old action log would replay
+ * Sprint 7: the rules version (Sprint 8: 2 — identities, core decks, DSL v3; Sprint 9: 3 — traces, tags,
+ * link, meat damage, DSL v4). Bump it whenever an old action log would replay
  * differently (a rules change); the online room expires a game whose log no longer replays.
  */
-export const RULES_VERSION: number = 2;
+export const RULES_VERSION: number = 3;
 /** Agenda points that win the game at once (stolen or scored). */
 export const WINNING_POINTS = 7;
 
@@ -147,8 +149,22 @@ export interface RunState {
  * Sprint 8 (inside a run, `resume: 'run'`): `trash_target` = the Corp picks which Runner card a
  * `trash_installed` subroutine trashes (mandatory); `prevent_trash` = the Runner may trash a preventer
  * (Sacrificial Construct) instead of `target`, or `pass` (let it be trashed).
+ * Sprint 9: `trace_corp` = the Corp bids on a trace (`ChoiceState.trace`), then `trace_runner` = the
+ * Runner bids. In a run `resume: 'run'` (`run.firing` = the trace subroutine); from an operation `resume: 'action'`.
  */
-export type ChoiceKind = 'free_rez' | 'trash_target' | 'prevent_trash';
+export type ChoiceKind = 'free_rez' | 'trash_target' | 'prevent_trash' | 'trace_corp' | 'trace_runner';
+
+/** Sprint 9: a trace in progress (on `ChoiceState.trace`). Plain JSON. */
+export interface TraceState {
+  /** The printed trace strength ("Trace 3"). */
+  readonly base: number;
+  /** base + the Corp's bid; null while the Corp bids. */
+  readonly strength: number | null;
+  /** The Corp's bid; null while the Corp bids. */
+  readonly corpBid: number | null;
+  /** What resolves if the trace succeeds (non-choice ops only). */
+  readonly onSuccess: readonly Effect[];
+}
 
 /** An open choice (`phase === 'choice'`): `player` must decide before anything else happens. */
 export interface ChoiceState {
@@ -160,6 +176,8 @@ export interface ChoiceState {
   readonly target?: string;
   /** Sprint 8: where the game goes on when it closes: the action phase, or the run it opened in. */
   readonly resume: 'action' | 'run';
+  /** Sprint 9, `trace_corp` / `trace_runner`: the trace being bid on. */
+  readonly trace?: TraceState;
 }
 
 export interface GameResult {
@@ -201,10 +219,37 @@ export interface PlayerState {
    * of face-down Corp cards).
    */
   readonly installedThisTurn: readonly CardType[];
+  /** Sprint 9: tags (Runner; always 0 for the Corp). Public. Stay until removed. */
+  readonly tags: number;
 }
 
 /** Sprint 8: the fixed uid of each side's identity card (events, views). */
 export const IDENTITY_UID: Readonly<Record<Side, string>> = { corp: 'id:corp', runner: 'id:runner' };
+
+/**
+ * Sprint 9: the fixed uid of the `index`-th card in `side`'s score area (`score:corp:0`, ...), used by
+ * `activate` for scored-agenda abilities (Private Security Force) and in views.
+ */
+export function scoredUid(side: Side, index: number): string {
+  return `score:${side}:${index}`;
+}
+
+/** Sprint 9: parses a scored uid (`scoredUid`); null if `uid` is not one. */
+export function parseScoredUid(uid: string): { side: Side; index: number } | null {
+  const m = /^score:(corp|runner):(0|[1-9][0-9]*)$/.exec(uid);
+  return m ? { side: m[1] as Side, index: Number(m[2]) } : null;
+}
+
+/**
+ * Sprint 9: the Runner's link = identity `link` + the `link` of every installed rig card
+ * (Runner cards are always face up).
+ */
+export function runnerLink(state: GameState): number {
+  const identity = state.players.runner.identity;
+  let link = identity ? (getCard(identity)?.link ?? 0) : 0;
+  for (const c of state.rig) link += getCard(c.cardId)?.link ?? 0;
+  return link;
+}
 
 /** Sprint 8: `side`'s maximum hand size: 5 − brain damage (may go below 0: the Runner is flatlined at end of turn). */
 export function maxHandSize(state: GameState, side: Side): number {
@@ -274,6 +319,8 @@ export interface GameState {
   readonly lastRun: LastRun | null;
   /** Sprint 6: rule options given to `newGame` (defaults filled in). */
   readonly options: GameOptions;
+  /** Sprint 9: turn number of the Runner's most recent successful run (set at `run_successful`), or null (SEA Source). */
+  readonly lastSuccessfulRunTurn: number | null;
 }
 
 export function opponentOf(side: Side): Side {
@@ -353,6 +400,7 @@ function setupPlayer(deckList: DeckList, identity: string | null, rng: number): 
       identity,
       brainDamage: 0,
       installedThisTurn: [],
+      tags: 0,
     },
     rng: shuffled.rng,
   };
@@ -389,6 +437,7 @@ export function newGame(seed: number, options?: Partial<GameOptions>): GameState
     choice: null,
     lastRun: null,
     options: opts,
+    lastSuccessfulRunTurn: null,
   };
   return startTurn(base, 'corp', 1).state;
 }

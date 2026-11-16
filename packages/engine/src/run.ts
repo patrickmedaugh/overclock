@@ -518,6 +518,11 @@ export function resolveEffect(state: GameState, effect: Effect, owner: Side, eve
       events.push({ type: 'choice_opened', kind: 'trash_target', player: 'corp', cardId });
       return { ...state, phase: 'choice', choice: { kind: 'trash_target', player: 'corp', cardId, resume: state.run ? 'run' : 'action' } };
     }
+    // Sprint 9 (E1 stubs, no card uses them yet): trace (E3), give_tags (E4), meat_damage (E5).
+    case 'trace':
+    case 'give_tags':
+    case 'meat_damage':
+      return state;
   }
 }
 
