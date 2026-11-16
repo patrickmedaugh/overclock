@@ -1,6 +1,6 @@
 # Sprint 10 proposal — Make the board clearer
 
-**Reply "approved" to start, or comment on any story to change it.**
+**Approved by the owner in chat, 2026-11-16 23:56 UTC** (recorded on PR #23). His answers: **Q1 A** (board clarity now; save a game in Sprint 11). **Q2 A** (Runner's pile at the far right of his row, same as the Corp's, to keep it symmetrical). **Q3: keep the run panel as it is** for now, until he can reproduce a problem himself, so **S-10-4 is dropped** and goes back to the backlog. **Q4 A** (include S-10-5). The sprint is S-10-1, S-10-2, S-10-3, S-10-5 and S-10-6.
 
 ## Goal
 Everything you said after playing Sprint 9, fixed. Scored agendas get their own pile on the board that you can tap and browse, so Private Security Force is easy to find. Link and Tagged sit together next to memory. Advance stops once an agenda is ready to score. Bank Job lets you choose how many credits to take. The run panel stays easy to tap even with lots of icebreakers out. Archives stops jumping around, and the discard step opens with a tap like everywhere else.
@@ -19,7 +19,7 @@ Today scored agendas only live inside the small **"Corp N points"** label at the
 
 *Acceptance criteria:*
 - Given the Corp has scored an agenda, when the board shows, then a face-up pile with that agenda and a count ("2 agendas · 3 points") sits at the **far right of the Corp's row**, on both players' screens.
-- Given the Runner has stolen an agenda, when the board shows, then his pile shows it in the same way, in the place you pick (question 2).
+- Given the Runner has stolen an agenda, when the board shows, then his pile shows it in the same way, at the **far right of his row**, the same as the Corp's (owner Q2 A).
 - Given a pile with 2 or more agendas, when you tap it, then it opens big, like your hand: you slide side to side to read each card, and tap outside to close it. Holding the pile to read it still works too.
 - Given a scored Private Security Force, a tagged Runner and the Corp's turn, when the Corp opens his pile and taps PSF, then **"Do 1 meat damage · 1 click"** shows and works as in Sprint 9.
 - Given an installed Private Security Force that is **not scored yet**, when the Corp taps it, then a dimmed **"Do 1 meat damage: score it first"** shows next to its Advance button.
@@ -62,7 +62,7 @@ Today scored agendas only live inside the small **"Corp N points"** label at the
 
 *Size:* M
 
-### S-10-4: The run panel works with lots of options
+### ~~S-10-4: The run panel works with lots of options~~ — dropped (owner Q3: keep as is until he can reproduce it; back to the backlog)
 *Why it matters:* with several icebreakers out, the buttons could get too small to tap.
 
 *Acceptance criteria:*
