@@ -2,22 +2,17 @@
 // trash-resource / Private Security Force buttons, and the new messages, drawn from
 // made-up views (the test hook's `stub`) on a real core-deck board. Every number on
 // screen comes from the stub view; the engine's traces/tags (E3-E5) get their own
-// story e2e on real play (U5). Real taps; 640x360 screenshots go to docs/sprints/sprint-09-screens/.
-import { mkdirSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+// story e2e on real play in s09-cards / s09-online (U5). Real taps; screens are attached to the report only.
 import { type Page, expect, test } from '@playwright/test';
 import type { CardOption, ChoiceView, GameEvent, PlayerView, RunView, TraceView } from '@overclock/engine';
 import type { LayoutSnapshot } from '../src/hook-types';
 import { dismissReport, expectCleanLayout, overlaps, getView, layout, openBoard, passTurn, pickHand, tap, targetOf, toStep, waitIdle } from './helpers';
 
-const SHOTS = join(dirname(fileURLToPath(import.meta.url)), '../../../docs/sprints/sprint-09-screens');
 const SEED = 1;
 
+/** Stub-view screens are attached to the report only; the demo screenshots come from s09-cards (real play). */
 async function shot(page: Page, name: string): Promise<void> {
-  const small = test.info().project.name === 'phone-small';
-  if (small) mkdirSync(SHOTS, { recursive: true });
-  const body = await page.screenshot(small ? { path: join(SHOTS, `${name}.png`) } : {});
+  const body = await page.screenshot();
   await test.info().attach(name, { body, contentType: 'image/png' });
 }
 

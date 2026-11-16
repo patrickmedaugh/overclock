@@ -2900,7 +2900,7 @@ export class Board {
     if (help) help.renderable = !(this.hint && this.layout?.mode === 'landscape');
     // In the column the build date shares the hint's slot: hide it while a hint shows.
     // Sideways during a run, the run panel uses the build date's line (QA-S8-2).
-    this.buildText.visible = !(this.hint && this.layout?.mode === 'portrait') && !(this.layout?.mode === 'landscape' && this.view?.run);
+    this.buildText.visible = !(this.hint && this.layout?.mode === 'portrait') && !(this.layout?.mode === 'landscape' && panelUp(this.view));
   }
 
   /** Where the build date's text is drawn (CSS px). */
