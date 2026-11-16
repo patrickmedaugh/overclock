@@ -173,3 +173,19 @@ QA's own screen tests were re-run locally on all 3 sizes, with the stronger roun
 | QA-S9-6 | Low (desktop) | When the Corp flatlines the Runner with Private Security Force, the earlier "1 meat damage: Akamatsu Mem Chip to the Heap" notice can still be showing. It is drawn over the "Corp wins" title of the game-over box (toast x 399–748, y 292–324; box x 331–949, y 273–406). This is the QA-S9-2 symptom again, for a toast that was already showing. It depends on timing. CI passed this test on e95a432 but failed it twice on a5108fc. **Locally it fails every time, including on a clean checkout of e95a432 (before the fix)**, so the short-screen fix did not cause it. | `cd apps/client && npx playwright test e2e/qa-sprint09.spec.ts --project=desktop --retries=0 -g "seed 3: three meat"`. It fails at line 333, "toast off the game-over box". Screenshot: `sprint-09-qa/r3-desktop-07-toast-over-game-over.png`. Fix idea for the developers: clear or hide any notice that is still showing when the game-over box opens. |
 
 **Round 3 totals: 4 / 5 criteria PASS. Criterion 5 (CI green) FAILS** because of QA-S9-6, which was already there before the fix. The owner's Score bug itself is fixed at 891×296. Before the CI criterion can pass, QA-S9-6 must be fixed (or ruled on) and CI must be green on the new head.
+
+---
+
+## Round 4 (2026-11-16)
+
+**What was checked:** the fix for QA-S9-6 (a meat-damage notice drawn over the "Corp wins" box after a Private Security Force flatline). The fix is in commits 28a2f64 and d812957 (with DECISIONS entries 880b3a6 and 0db3a6f). QA checked head **0db3a6f**. QA did not write this fix.
+
+| # | Check | Result | Evidence |
+|---|---|---|---|
+| 1 | QA-S9-6: no notice over the "Corp wins" box after a PSF flatline | **PASS** | QA's own test `e2e/qa-sprint09.spec.ts -g "seed 3: three meat"`: desktop `--repeat-each=5 --retries=0` gave **5 / 5 passed**. In round 3 it failed every time locally. Phone and phone-small, run once each: **2 / 2 passed**. The test uses real taps for the 3 PSF uses that flatline the Runner. It checks that no button, picked card or new toast is left after the flatline, that any toast still showing sits clear of the game-over box, and that the box says "Corp wins / Runner flatlined". Screens: `sprint-09-qa/r4-desktop-psf-flatline-game-over.png`, `r4-phone-psf-flatline-game-over.png`, `r4-phone-small-psf-flatline-game-over.png`: the box is clean at all 3 sizes. The developers' own test `s09-ui.spec.ts` "QA-S9-6: …" also checks, on the frame the box opens, that the earlier notice is gone. It passed in CI (see row 3). |
+| 2 | Round-3 Score fix still holds | **PASS** | `e2e/qa-sprint09-r3.spec.ts` on all projects, `--retries=0`: **6 passed, 6 skipped on purpose** (the short 891×296 tests run only under the phone project). |
+| 3 | CI on the code head | **PASS** | On **0db3a6f8717eaac3bb79231b7628e0bf2929ef03**: `checks` (lint, typecheck, unit tests) success; `e2e` success, with **all 4 shards success**; `guard-mutation` success. ("Workers Builds" was ignored as the owner asked.) This counts as the round's full e2e pass, so QA did not re-run the full suite. QA's docs-only commit after this one starts a new CI run; the green result on 0db3a6f is the evidence. |
+
+**Still open (both are on the backlog as Sprint 9 follow-ups):** QA-S9-5 (very low, cosmetic). On desktop the small "Built 2026-11-16 …" date line still shows inside the left edge of the "Corp wins" box (see `r4-desktop-psf-flatline-game-over.png`). This is unchanged from round 2 and does not block the demo. QA-S9-4 (low, desktop toast over End turn) is still open. Its test is still marked expected-fail and passed that way in CI.
+
+**Round 4 totals: 3 / 3 checks PASS. QA-S9-6 is fixed and CI is green on 0db3a6f.** The Round 3 CI criterion (criterion 5) now passes. Sprint 9 is passed QA.
