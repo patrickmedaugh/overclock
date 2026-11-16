@@ -264,6 +264,8 @@ export class Board {
   private readonly buildText: Text;
   /** The agenda whose free-rez choice was open before this update (for the "skipped" notice). */
   private lastChoiceCard: string | null = null;
+  /** The option of the last tapped button (its refusal hint may name its click price). */
+  private tappedOption: CardOption | null = null;
   /** "Leave the game?" over everything (S-04-2). */
   private readonly dialogLayer = new Container();
   /** S-06-5: the "Pass the phone" cover, over the board (under the leave question). */
@@ -648,11 +650,12 @@ export class Board {
       this.animateBonusEvent(e, notices);
       if (e.type === 'credit_gained' && e.player === viewer) this.creditFloat(e.amount);
       if (e.type === 'action_rejected') {
-        this.showHint(hintFor(e.reason, view));
+        this.showHint(hintFor(e.reason, view, this.tappedOption));
         if (e.reason === 'no_clicks') this.seatAt('bottom')?.clicks.shake();
       }
       this.animateRunEvent(e, layout, before, prevRun, reportText ? [] : notices, events);
     }
+    this.tappedOption = null;
     notices.push(...installNotices(events), ...turnStartNotices(events));
     if (newStep && view.run) this.stepFlash();
     // A fired subroutine already says what happened: no extra "loses 1 click" / "Run ended" lines.
@@ -2302,7 +2305,7 @@ export class Board {
   /** The hint for a refused option (a card's ability with nothing left on it says so). */
   private rejectHint(option: CardOption): string {
     if (option.reject === 'condition_not_met' && option.action.type === 'activate') return 'No credits left on it';
-    return option.reject ? hintFor(option.reject, this.view) : '';
+    return option.reject ? hintFor(option.reject, this.view, option) : '';
   }
 
   /** An installed card with options (view.installedOptions) shows its buttons; anything else drops the pick. */
@@ -2392,6 +2395,8 @@ export class Board {
   private onTargetTap(key: string): void {
     const t = this.activeTargets.find((x) => targetKey(x.kind, x) === key);
     if (!t || this.flipPending) return;
+    // QA-S8-1: a refusal's hint can name this button's click price.
+    this.tappedOption = t.option;
     // The engine judges it; a refusal comes back as action_rejected and shows its hint.
     this.callbacks.onAction(t.option.action);
   }

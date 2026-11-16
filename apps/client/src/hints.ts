@@ -1,6 +1,6 @@
 // Plain-language hints for actions the engine refused (its RejectReason),
 // shown in the small hint toast. Pure, so every reason is unit tested.
-import type { PlayerView, RejectReason } from '@overclock/engine';
+import type { CardOption, PlayerView, RejectReason } from '@overclock/engine';
 import { TERMS } from './terms';
 
 /** S-04-4: what to do while the Corp's free-rez choice is open. */
@@ -13,10 +13,24 @@ export function choiceHint(choice: PlayerView['choice'] | undefined): string {
   return choice && choice.kind !== 'free_rez' ? RUN_CHOICE_HINT : CHOICE_HINT;
 }
 
-export function hintFor(reason: RejectReason, view: (Pick<PlayerView, 'viewer' | 'pendingDiscard'> & { choice?: PlayerView['choice'] }) | null): string {
+/**
+ * QA-S8-1: a click ability that costs more than one click (Melange: 3) says what it
+ * needs while some clicks are left ("Needs 3 clicks"); "No clicks left" only at 0.
+ * Both numbers come from the engine: the option's `clicks` and the view's click count.
+ */
+export function clicksHint(option: Pick<CardOption, 'clicks'> | null | undefined, clicksLeft: number | null | undefined): string {
+  const need = option?.clicks ?? 1;
+  if (need > 1 && clicksLeft !== null && clicksLeft !== undefined && clicksLeft > 0) return `Needs ${need} clicks`;
+  return 'No clicks left';
+}
+
+type HintView = Pick<PlayerView, 'viewer' | 'pendingDiscard'> & { choice?: PlayerView['choice']; players?: PlayerView['players'] };
+
+/** `option`: the refused button's option, when known (its click price shapes the `no_clicks` words). */
+export function hintFor(reason: RejectReason, view: HintView | null, option?: Pick<CardOption, 'clicks'> | null): string {
   switch (reason) {
     case 'no_clicks':
-      return 'No clicks left';
+      return clicksHint(option, view?.players?.[view.viewer].clicks);
     case 'not_your_turn':
       return 'Not your turn';
     case 'deck_empty':

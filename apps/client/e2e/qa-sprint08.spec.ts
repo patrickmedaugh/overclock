@@ -310,7 +310,6 @@ test.describe('QA S-08-2 Haas-Bioroid money cards', () => {
   // QA-S8-1 (open bug, marked as expected to fail so CI stays green; it flips to "unexpected pass" once fixed):
   // with 2 clicks left the dim Melange button must not say "No clicks left".
   test('QA-S8-1: Melange with 2 clicks says it needs 3 clicks, not "No clicks left"', async ({ page }) => {
-    test.fail(true, 'QA-S8-1 open: the note reads "No clicks left" while the Corp has 2 clicks');
     await core(page);
     const plan = await toStep(page, 1, 'corp_melange');
     await dispatchAll(page, [{ type: 'gain_credit', player: 'corp' }]);
