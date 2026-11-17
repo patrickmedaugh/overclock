@@ -16,7 +16,7 @@ import { CAROUSEL_SLIDE_MS, Carousel, type CarouselFace, listIndex } from './car
 import { createCardBack, createCardFace, createZoomFace, dropCardTextures, flushZoomFaces, glowRoundRect, hasZoomFace, retireCardTextures, smallFaceLayout, textOverflows, textsOf } from './cardFace';
 import { framesAreSlow } from './frameClock';
 import { Cover } from './cover';
-import { centeredBox } from './geometry';
+import { centeredBox, clearOf } from './geometry';
 import { Hand, type HandCard } from './hand';
 import { DROP_WAIT_MS, LIFT_MS, RETURN_MS, SWIPE_TOLERANCE, VIEW_FADE_MS, type ViewHit, ghostCenter, swipeIndex, targetAt, viewHit } from './handGesture';
 import type { AnimRecord, Box, EndTurnClock, InstalledSnapshot, Insets, LayoutSnapshot, SideLayout, TargetSnapshot } from './hook-types';
@@ -2825,6 +2825,8 @@ export class Board {
     this.centerLayer.addChild(root);
     const button = { x: root.x - btnW / 2, y: root.y + btn.y - btnH / 2, width: btnW, height: btnH };
     this.gameOver = { text: `${lines.title}: ${lines.reason}`, title: lines.title, reason: lines.reason, root, button };
+    // QA-S9-5: the build date is never drawn inside the game-over box.
+    this.syncHelp();
     if (animate) {
       root.scale.set(0.6);
       root.alpha = 0;
@@ -2939,8 +2941,12 @@ export class Board {
     // In the column the build date shares the hint's slot: hide it while a hint shows.
     // Sideways during a run, the run panel uses the build date's line (QA-S8-2).
     // Short sideways screens hide it (zero-height line) so a picked card's two buttons fit.
+    // QA-S9-5: hidden while the game-over box is up.
     this.buildText.visible =
-      !(this.hint && this.layout?.mode === 'portrait') && !(this.layout?.mode === 'landscape' && panelUp(this.view)) && (this.layout?.buildLabel.height ?? 1) > 0;
+      !this.gameOver &&
+      !(this.hint && this.layout?.mode === 'portrait') &&
+      !(this.layout?.mode === 'landscape' && panelUp(this.view)) &&
+      (this.layout?.buildLabel.height ?? 1) > 0;
   }
 
   /** Where the build date's text is drawn (CSS px). */
@@ -2953,7 +2959,7 @@ export class Board {
   private placeBuildLabel(layout: BoardLayout): void {
     const t = this.buildText;
     // QA-S8-2: sideways, the run panel uses the build date's line while a run is on.
-    t.visible = !(layout.mode === 'landscape' && panelUp(this.view)) && layout.buildLabel.height > 0;
+    t.visible = !this.gameOver && !(layout.mode === 'landscape' && panelUp(this.view)) && layout.buildLabel.height > 0;
     if (layout.buildLabel.height <= 0) return;
     const when = this.callbacks.buildTime;
     const rail = layout.mode === 'landscape';
@@ -2973,8 +2979,26 @@ export class Board {
 
   /** Where the toast goes: the hint slot, or (sideways, during a run) End turn's slot, clear of the run panel. */
   private hintSlot(layout: BoardLayout, wide = false): Box {
-    const slot = this.baseHintSlot(layout, wide);
+    let slot = this.baseHintSlot(layout, wide);
+    // S-10-6 (QA-S9-4): the wide toast over the table never covers a button (End turn included).
+    if (wide) slot = clearOf(slot, this.buttonBoxes(), Math.max(4, Math.round(6 * layout.scale)));
     return this.gameOver ? this.clearOfGameOver(layout, slot) : slot;
+  }
+
+  /** S-10-6: every button and pill on screen now (End turn, Run, Last run, lit choices, credits / clicks). */
+  private buttonBoxes(): Box[] {
+    const gen = this.gen;
+    if (!gen) return [];
+    const out: Box[] = [];
+    if (gen.button.root.visible) out.push(gen.button.box());
+    if (gen.runButton.root.visible) out.push({ ...gen.runButton.box });
+    if (gen.lastRunButton.root.visible) out.push({ ...gen.lastRunButton.box });
+    for (const t of this.activeTargets) if (t.marker.root.visible) out.push({ ...t.marker.box });
+    for (const side of SIDES) {
+      const seat = this.seatOf(side);
+      if (seat) out.push(seat.credits.box(), seat.clicks.box());
+    }
+    return out;
   }
 
   private baseHintSlot(layout: BoardLayout, wide: boolean): Box {
