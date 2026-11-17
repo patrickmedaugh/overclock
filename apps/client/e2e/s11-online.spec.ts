@@ -21,7 +21,10 @@ const NAME: Record<Side, string> = { corp: 'Corp', runner: 'Runner' };
 async function shot(phone: Phone | Page, name: string): Promise<void> {
   const page = 'page' in phone ? phone.page : phone;
   const project = test.info().project.name;
-  const path = project === 'phone-small' ? join(SHOTS, `s11-3-online-${name}-${project}.png`) : undefined;
+  // The sprint folder keeps a few at 640x360 (the outdated note and the Corp-left line look like
+  // their s11-save / Runner-left twins); every shot is attached to the report.
+  const keep = project === 'phone-small' && !['outdated-note', 'corp-left'].includes(name);
+  const path = keep ? join(SHOTS, `s11-3-online-${name}-${project}.png`) : undefined;
   if (path) mkdirSync(SHOTS, { recursive: true });
   await test.info().attach(name, { body: await page.screenshot(path ? { path } : {}), contentType: 'image/png' });
 }

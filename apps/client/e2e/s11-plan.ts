@@ -1,8 +1,9 @@
 // Sprint 11 (U1): a real game (core decks) planned to "the Runner encounters a rezzed
-// Ice Wall alone on a remote, Battering Ram and Gordian Blade installed, >= 5 credits"
-// (and the same shape for other ICE: Heimdall 1.0 with Battering Ram and 7 credits).
-// Stand-in for the planner goal `ice_wall_ram_gordian` that engine-dev adds in E3
-// (@overclock/match/testing); once it lands, s11-break.spec.ts can use `toStep` instead.
+// ICE alone on a remote with these breakers installed and at least N credits". The plain
+// Ice Wall + Battering Ram + Gordian Blade case now uses engine-dev's planner goal
+// `ice_wall_ram_gordian` (@overclock/match/testing); this local planner stays for the shapes
+// that goal does not cover: Ice Wall with Battering Ram and Corroder (two barrier breakers on
+// one panel), and Heimdall 1.0 with 7 credits (enough to break all three subroutines).
 // Only plays legal actions through LocalMatch (the same engine as the page), so the
 // page replays them exactly: no rules here.
 import { getCard } from '@overclock/cards';
@@ -18,7 +19,6 @@ export interface EncounterGoal {
   credits: number;
 }
 
-export const ICE_WALL_RAM_GORDIAN: EncounterGoal = { ice: 'c05', rig: ['r17', 'r05'], credits: 5 };
 /** Two barrier breakers on one panel. */
 export const ICE_WALL_RAM_CORRODER: EncounterGoal = { ice: 'c05', rig: ['r17', 'r04'], credits: 5 };
 /** Enough credits to pump Battering Ram to 6 (3) and break all three subroutines (2 + 2). */

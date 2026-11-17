@@ -10,8 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { CORP_CORE_DECK, CORP_STARTER_DECK, RUNNER_CORE_DECK, RUNNER_STARTER_DECK, getCard } from '@overclock/cards';
 import { type Page, expect, test } from '@playwright/test';
 import type { Box, FullFaceSnapshot } from '../src/hook-types';
-import { dispatch, layout, openBoard, pressAndHold, waitIdle } from './helpers';
-import { ICE_WALL_RAM_GORDIAN, planEncounter } from './s11-plan';
+import { layout, openBoard, pressAndHold, toStep, waitIdle } from './helpers';
 
 const SHOTS = join(dirname(fileURLToPath(import.meta.url)), '../../../docs/sprints/sprint-11-screens');
 
@@ -78,11 +77,11 @@ test.describe('S-11-4 card numbers readable', () => {
   });
 
   test('a real long-press on installed Ice Wall and Battering Ram: their numbers show in the zoom', async ({ page }) => {
-    const plan = planEncounter(1, ICE_WALL_RAM_GORDIAN);
+    // Engine-dev's planner goal `ice_wall_ram_gordian`: Ice Wall rezzed, Battering Ram and Gordian Blade installed.
     await openBoard(page, { seed: 1, decks: 'core' });
-    for (const a of plan.actions) await dispatch(page, a);
+    const plan = await toStep(page, 1, 'ice_wall_ram_gordian');
     let l = await waitIdle(page);
-    const wall = l.servers.flatMap((s) => s.ice).find((c) => c.uid === plan.iceUid)!;
+    const wall = l.servers.flatMap((s) => s.ice).find((c) => c.uid === plan.info.iceUid)!;
     const ram = l.rig.find((c) => c.cardId === 'r17')!;
     for (const [c, id] of [[wall, 'c05'], [ram, 'r17']] as const) {
       const release = await pressAndHold(page, c.box);
@@ -93,8 +92,12 @@ test.describe('S-11-4 card numbers readable', () => {
       for (const s of z.stats) expect(z.texts).toContain(s.text);
       expect(z.textOverflow).toBe(false);
       if (id === 'r17') {
-        mkdirSync(SHOTS, { recursive: true });
-        await page.screenshot({ path: join(SHOTS, `s11-4-zoom-battering-ram-${test.info().project.name}.png`) });
+        // The sprint folder keeps 640x360 and 891x296 only; every size is attached to the report.
+        const project = test.info().project.name;
+        const keep = project === 'phone-small' || project === 'phone-short';
+        if (keep) mkdirSync(SHOTS, { recursive: true });
+        const body = await page.screenshot(keep ? { path: join(SHOTS, `s11-4-zoom-battering-ram-${project}.png`) } : {});
+        await test.info().attach('zoom-battering-ram', { body, contentType: 'image/png' });
       }
       await release();
       await page.waitForFunction(() => window.__overclock!.layout().zoom === null);
