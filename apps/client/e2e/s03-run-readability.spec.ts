@@ -37,10 +37,19 @@ test.describe('QA-S3-4 run panel text size', () => {
     let l = await startRun(page, 'hq');
     await tap(page, runButtonOf(l, /^Rez Enigma/).box);
     l = await waitIdle(page);
-    expect(l.run!.buttons.map((b) => b.label)).toEqual([
-      'Break "The Runner loses 1 click, if able" · 1 credit',
-      'Break "End the run" · 1 credit',
-      '+1 strength · 1 credit',
+    // Sprint 11 (S-11-1): card name first, ICE type; the subroutine text because 2 are open.
+    // A long subroutine text may be cut to fit ("The Runner los…"; the panel lists it in full);
+    // the card name, the action words and the price never are.
+    for (const b of l.run!.buttons) {
+      if (b.label === b.fullLabel) continue;
+      const [head, price] = b.fullLabel!.split(' "');
+      expect(b.label.startsWith(`${head} "`), b.label).toBe(true);
+      expect(b.label.endsWith(`…" · ${price!.split(' · ')[1]}`), b.label).toBe(true);
+    }
+    expect(l.run!.buttons.map((b) => b.fullLabel)).toEqual([
+      'Gordian Blade: break code gate sub "The Runner loses 1 click, if able" · 1 credit',
+      'Gordian Blade: break code gate sub "End the run" · 1 credit',
+      'Gordian Blade: +1 str · 1 credit',
       'Let it fire: lose 1 click, run ends',
     ]);
     const project = test.info().project.name;
@@ -57,7 +66,7 @@ test.describe('QA-S3-4 run panel text size', () => {
     expect(inside(l.run!.infoBox, safeRect(l))).toBe(true);
     expectCleanLayout(l);
     // Still readable after a break (the crossed-out line stays in the panel).
-    await tap(page, runButtonOf(l, /^Break "The Runner loses/).box);
+    await tap(page, l.run!.buttons.find((b) => b.fullLabel?.includes('"The Runner loses'))!.box);
     l = await layout(page);
     expect(l.run!.infoFontPx, 'smallest run panel line after a break').toBeGreaterThanOrEqual(MIN_INFO_PX[project] ?? 12);
     for (const b of l.run!.buttons) expect(b.fontPx, `"${b.label}" text size`).toBeGreaterThanOrEqual(MIN_BUTTON_PX[project] ?? 12);

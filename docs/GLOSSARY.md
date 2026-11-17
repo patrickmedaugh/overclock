@@ -15,6 +15,8 @@
 - **Breaker / icebreaker** — a Runner program that gets past ICE. Each kind breaks one kind of ICE: Corroder breaks barriers, Gordian Blade code gates, Ninja sentries.
 - **Strength** — how tough a piece of ICE is, and how strong an icebreaker is. A breaker can only break ICE whose strength is no higher than its own; pay to raise it (**+1 strength**). Raised strength lasts for one piece of ICE (Gordian Blade: the rest of the run).
 - **Break** — pay an icebreaker's price to cross out one subroutine so it doesn't happen.
+- **Barrier / Code gate / Sentry** — the three kinds of ICE. Each icebreaker breaks only one kind, so a break button says which: "Battering Ram: break barrier sub · 2 credits".
+- **sub / str** — short for subroutine and strength on run buttons: "break barrier sub", "+1 str". "break up to 2 barrier subs" shows only when 2 or more subroutines are left to break.
 - **Access** — the Runner looking at the cards in a server after getting in: HQ shows 1 random card, R&D the top card, Archives every card, a remote server every card in it.
 - **Steal** — take an agenda you accessed into your score area (you must). Its points count for the Runner.
 - **Trash** — pay a card's trash cost to destroy it (it goes to Archives face up). **Leave it** puts the card back; **Done** puts back a card you can't steal or trash.

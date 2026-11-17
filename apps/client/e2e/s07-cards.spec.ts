@@ -305,7 +305,7 @@ test.describe('S-07-4 Cyberfeeder and Bank Job', () => {
     expect(installedIn(l, cf).hosted?.text).toBe('1');
     expect((await getView(page)).players.runner.credits).toBe(0);
     const brk = runButtonOf(l, /Cyberfeeder pays/);
-    expect(brk.label).toBe('Break "End the run" · Cyberfeeder pays');
+    expect(brk.label).toBe('Corroder: break barrier sub · Cyberfeeder pays');
     expect(brk.lit).toBe(true);
     await shot(page, 's07-4-cyberfeeder-pays');
     await tap(page, brk.box);
@@ -336,9 +336,9 @@ test.describe('S-07-4 Cyberfeeder and Bank Job', () => {
     expect(installedIn(l, bj).hosted?.text).toBe('8');
     l = await startRun(page, plan.info['server']!);
     expect(l.run!.step).toBe('success');
-    expect(l.run!.buttons.map((b) => b.label)).toEqual(['Take credits', 'Access cards']);
+    expect(l.run!.buttons.map((b) => b.label)).toEqual(['Bank Job: take credits', 'Access cards']);
     await shot(page, 's07-4-bank-job-choice');
-    await tap(page, runButtonOf(l, 'Take credits').box);
+    await tap(page, runButtonOf(l, 'Bank Job: take credits').box);
     await page.waitForFunction(() => window.__overclock!.layout().run?.amount?.amount === 8);
     l = await layout(page);
     const credits = (await getView(page)).players.runner.credits;
@@ -407,10 +407,10 @@ test.describe('S-07-5 Ice Wall can be advanced', () => {
     expect(l.run!.lines).toContain('Strength 3');
     expect(installedIn(l, uid).counter).toBe('2');
     // Corroder (strength 2) must pump before it can break: Break is dimmed (too weak).
-    const brk = runButtonOf(l, /^Break/);
+    const brk = runButtonOf(l, /^Corroder: break barrier sub/);
     expect(brk.lit).toBe(false);
     expect(brk.reject).toBe('too_weak');
-    expect(l.run!.buttons.some((b) => /^\+1 strength/.test(b.label))).toBe(true);
+    expect(l.run!.buttons.some((b) => /^Corroder: \+1 str /.test(b.label))).toBe(true);
     await shot(page, 's07-5-ice-wall-strength-3');
   });
 

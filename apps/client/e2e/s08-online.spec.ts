@@ -101,7 +101,7 @@ test.describe('Sprint 8 online: both phones show the same result as pass-the-pho
     let l = await layoutOf(runner);
     const start = (await view(runner)).players.runner.credits;
     while (!l.run!.buttons.find((b) => b.role === 'multi')!.lit) {
-      const pump = runButtonOf(l, /\+1 strength/);
+      const pump = runButtonOf(l, /^Battering Ram: \+1 str /);
       sent.push(pump.action);
       await tap(runner.page, pump.box);
       // Each pump costs 1 credit (Battering Ram: +1 strength for 1).

@@ -2,6 +2,7 @@
 // the real game's words). test/terms.test.ts checks each one against
 // docs/GLOSSARY.md, so the screen and the glossary say the same thing.
 // Display names only: server numbering and ids come from the engine.
+import type { IceSubtype } from '@overclock/cards';
 import type { ServerId, Side } from '@overclock/engine';
 
 export const TERMS = {
@@ -50,7 +51,14 @@ export const TERMS = {
   tag: 'Tag',
   tagged: 'Tagged',
   meatDamage: 'Meat damage',
+  // Sprint 11 (S-11-1): short words on run buttons ("Battering Ram: +1 str · 1 credit").
+  str: 'str',
+  sub: 'sub',
+  subs: 'subs',
 } as const;
+
+/** Sprint 11 (S-11-1): the kind of ICE a breaker breaks, as a break button says it. */
+export const ICE_TYPE: Record<IceSubtype, string> = { barrier: 'barrier', code_gate: 'code gate', sentry: 'sentry' };
 
 /** S-08-3: the Runner's hand size after brain damage: "Hand max 4". */
 export function handMaxText(n: number): string {

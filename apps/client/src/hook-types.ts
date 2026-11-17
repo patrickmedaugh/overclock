@@ -88,7 +88,12 @@ export interface TargetSnapshot {
 
 /** A big button in the run panel (or the Run button), drawn from engine options. */
 export interface PanelButtonSnapshot {
+  /** What the button says as drawn (Sprint 11: maybe shortened to fit, see `fullLabel`). */
   label: string;
+  /** Sprint 11 (S-11-1): the run button's label before any shortening (absent elsewhere). */
+  fullLabel?: string;
+  /** Sprint 11: the card id the run button comes from (a breaker, Bank Job), else null. */
+  source?: string | null;
   /** Bright (the engine would accept it) vs dim (shown, refused with a hint when tapped). */
   lit: boolean;
   reject: string | null;
@@ -292,6 +297,8 @@ export interface LayoutSnapshot {
     box: Box;
     texts: string[];
     textOverflow: boolean;
+    /** Sprint 11 (S-11-4): each bottom stat ("Strength 4") as drawn, card-local (centered at 0,0), and its text size. */
+    stats: StatBoxSnapshot[];
     /**
      * S-05-3: the cards shown smaller behind it (hand and list zooms), left to
      * right. `offset`: slots from the zoomed card (-2..2, final, even mid-slide);
@@ -482,6 +489,11 @@ export interface OverclockTestHook {
    * name and type label, card-local with (0, 0) at the card's center. Null for an unknown id.
    */
   smallFace(cardId: string, width: number, height: number): SmallFaceSnapshot | null;
+  /**
+   * Sprint 11 (S-11-4): a full (zoom) face of `cardId` drawn at `width` x `height` (default: this
+   * screen's zoom size): its size, texts, whether any text runs outside, and each bottom stat's box.
+   */
+  fullFace(cardId: string, width?: number, height?: number): FullFaceSnapshot | null;
   /** S-04-2: presses the phone's Back button (same handler as the app's); returns what it did. */
   back(): 'close_dialog' | 'close_zoom' | 'close_panel' | 'exit' | 'ask_leave';
   /** How many times the game asked to close the app (Leave, or Back after the game ended). Web only counts. */
@@ -503,6 +515,22 @@ export interface OverclockTestHook {
   } | null;
   /** S-05-3: pins whether drawn frames count as slow (slow: the carousel jumps instead of sliding). */
   frameSpeed(mode: 'fast' | 'slow' | 'measured'): void;
+}
+
+/** Sprint 11 (S-11-4): one bottom stat of a full face, card-local (the card centered at 0,0). */
+export interface StatBoxSnapshot {
+  text: string;
+  box: Box;
+  fontPx: number;
+}
+
+/** Sprint 11 (S-11-4): a full face as drawn for the hook. */
+export interface FullFaceSnapshot {
+  width: number;
+  height: number;
+  texts: string[];
+  textOverflow: boolean;
+  stats: StatBoxSnapshot[];
 }
 
 export interface SmallFaceSnapshot {

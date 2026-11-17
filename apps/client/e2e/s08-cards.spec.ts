@@ -145,7 +145,7 @@ test.describe('S-08-3 Viktor 1.0: brain damage lowers the hand max', () => {
 });
 
 test.describe('S-08-4 new breakers and events', () => {
-  test('Battering Ram on Heimdall: pump to 6, "Break up to 2" picks two subroutines, then the last one', async ({ page }) => {
+  test('Battering Ram on Heimdall: pump to 6, "break up to 2" picks two subroutines, then the last one', async ({ page }) => {
     test.setTimeout(60_000);
     await core(page);
     await toStep(page, SEED, 'heimdall_ram_encounter');
@@ -154,9 +154,10 @@ test.describe('S-08-4 new breakers and events', () => {
     // Pump until the break is lit.
     for (let i = 0; i < 6; i++) {
       const multi = l.run!.buttons.find((b) => b.role === 'multi')!;
-      expect(multi.label).toMatch(/Break up to 2 · 2 credits$/);
+      // Sprint 11 (S-11-1): card name first, the ICE type.
+      expect(multi.label).toBe('Battering Ram: break up to 2 barrier subs · 2 credits');
       if (multi.lit) break;
-      await tap(page, runButtonOf(l, /\+1 strength/).box);
+      await tap(page, runButtonOf(l, /^Battering Ram: \+1 str /).box);
       l = await waitIdle(page);
     }
     const multi = l.run!.buttons.find((b) => b.role === 'multi')!;
@@ -166,7 +167,8 @@ test.describe('S-08-4 new breakers and events', () => {
     let toggles = l.run!.buttons.filter((b) => b.role === 'toggle');
     expect(toggles).toHaveLength(3);
     expectBigButtons(l);
-    expect(l.run!.buttons.find((b) => b.role === 'confirm')).toMatchObject({ lit: false, label: 'Pick 1 or 2' });
+    // Sprint 11 (S-11-2): the hint says what can be picked.
+    expect(l.run!.buttons.find((b) => b.role === 'confirm')).toMatchObject({ lit: false, label: 'Pick up to 2' });
     await tap(page, toggles[0]!.box);
     l = await waitIdle(page);
     await tap(page, l.run!.buttons.filter((b) => b.role === 'toggle')[1]!.box);
@@ -182,19 +184,15 @@ test.describe('S-08-4 new breakers and events', () => {
     expect(m.view.players.runner.credits).toBe(credits - 2);
     l = await waitIdle(page);
     expect(l.run!.subroutines.map((s) => s.broken)).toEqual([true, true, false]);
-    // The last one: Break up to 2 -> pick it -> Break 1 (when he can still pay 2).
-    const last = l.run!.buttons.find((b) => b.role === 'multi')!;
+    // The last one (Sprint 11, S-11-2): a plain button that breaks it at once, no pick step.
+    const last = runButtonOf(l, /^Battering Ram: break/);
+    expect(last).toMatchObject({ label: 'Battering Ram: break barrier sub · 2 credits', action: { type: 'use_ability', subs: [2] } });
+    expect(last.role).toBeUndefined();
     if ((await getView(page)).players.runner.credits < 2) {
       expect(last).toMatchObject({ lit: false, reject: 'no_credits' });
       return;
     }
     await tap(page, last.box);
-    l = await waitIdle(page);
-    toggles = l.run!.buttons.filter((b) => b.role === 'toggle');
-    expect(toggles).toHaveLength(1);
-    await tap(page, toggles[0]!.box);
-    l = await waitIdle(page);
-    await tap(page, l.run!.buttons.find((b) => b.role === 'confirm' && b.lit)!.box);
     l = await waitIdle(page);
     expect(l.run!.subroutines.every((s) => s.broken)).toBe(true);
   });
@@ -206,7 +204,7 @@ test.describe('S-08-4 new breakers and events', () => {
     // Too weak: the button is dim and a tap only explains why.
     expect(l.run!.buttons.find((b) => b.role === 'multi')).toMatchObject({ lit: false, reject: 'too_weak' });
     while (!l.run!.buttons.find((b) => b.role === 'multi')!.lit) {
-      await tap(page, runButtonOf(l, /\+1 strength/).box);
+      await tap(page, runButtonOf(l, /^Battering Ram: \+1 str /).box);
       l = await waitIdle(page);
     }
     const before = JSON.stringify(await getView(page));
@@ -222,9 +220,10 @@ test.describe('S-08-4 new breakers and events', () => {
     await core(page);
     await toStep(page, SEED, 'heimdall_corroder_encounter');
     const l = await layout(page);
-    expect(l.run!.buttons.some((b) => /^Break "/.test(b.label) || /: Break "/.test(b.label))).toBe(true);
+    // Sprint 11 (S-11-1): one break per subroutine, each naming Corroder, barrier and the subroutine.
+    expect(l.run!.buttons.filter((b) => /^Corroder: break barrier sub "/.test(b.label))).toHaveLength(3);
     expect(l.run!.buttons.some((b) => b.role === 'multi')).toBe(false);
-    expect(runButtonOf(l, /\+\d strength/).label).toMatch(/credit/);
+    expect(runButtonOf(l, /: \+\d str /).label).toMatch(/credit/);
     expectBigButtons(l);
     // QA-S8-2 (S-08-3 AC3): the panel adds the price up: +4 strength and 3 breaks = 7 credits.
     expect(l.run!.lines).toContain('Break all: 4 + 3 = 7 credits');
@@ -245,12 +244,12 @@ test.describe('S-08-4 new breakers and events', () => {
     // The total comes from the engine's plan (Pipeline: 2 + 2 + 2 to reach 4, then 1).
     expect(l.run!.lines).toContain('Break all: 6 + 1 = 7 credits');
     for (let i = 0; i < 6; i++) {
-      const brk = l.run!.buttons.find((b) => /Break "/.test(b.label));
+      const brk = l.run!.buttons.find((b) => /^Pipeline: break sentry sub/.test(b.label));
       if (brk?.lit) break;
-      await tap(page, runButtonOf(l, /\+\d strength/).box);
+      await tap(page, runButtonOf(l, /: \+\d str /).box);
       l = await waitIdle(page);
     }
-    const brk = l.run!.buttons.find((b) => /Break "/.test(b.label) && b.lit)!;
+    const brk = l.run!.buttons.find((b) => /^Pipeline: break sentry sub/.test(b.label) && b.lit)!;
     const m = await measureTap(page, brk.box);
     expect(m.events.some((e) => e.type === 'subroutine_broken')).toBe(true);
   });
