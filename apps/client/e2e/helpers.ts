@@ -546,6 +546,40 @@ export function outsideHandView(l: LayoutSnapshot): Box {
   return b;
 }
 
+/**
+ * S-10-5: in the discard step, marks (or unmarks) hand cards `indices` the way a player
+ * does: tap the hand (it opens big on that card), tap the big card. Between cards the view
+ * closes (a tap outside) and opens on the next one. Leaves the view open; returns the layout.
+ */
+export async function markDiscard(page: Page, indices: readonly number[]): Promise<LayoutSnapshot> {
+  for (const i of indices) {
+    let l = await layout(page);
+    if (l.discardView && l.discardView.index !== i) {
+      await tap(page, outsideHandView(l));
+      await page.waitForFunction(() => window.__overclock!.layout().discardView === null);
+      l = await layout(page);
+    }
+    if (!l.discardView) {
+      await tap(page, l.hand[i]!.box);
+      await page.waitForFunction((k) => window.__overclock!.layout().discardView?.index === k, i);
+      l = await layout(page);
+    }
+    const before = l.discardView!.marked.includes(i);
+    await tap(page, l.handView!.centre);
+    await page.waitForFunction(([k, was]) => window.__overclock!.layout().discardView?.marked.includes(k as number) !== was, [i, before] as const);
+  }
+  return layout(page);
+}
+
+/** S-10-5: closes the discard step's view (a tap outside it), back to the board. */
+export async function closeDiscardView(page: Page): Promise<LayoutSnapshot> {
+  const l = await layout(page);
+  if (!l.discardView) return l;
+  await tap(page, outsideHandView(l));
+  await page.waitForFunction(() => window.__overclock!.layout().discardView === null);
+  return waitIdle(page);
+}
+
 /** Picks the hand card named `name` (pickHand) and returns the layout with its targets lit. */
 export async function pickCard(page: Page, name: string): Promise<LayoutSnapshot> {
   const l = await layout(page);

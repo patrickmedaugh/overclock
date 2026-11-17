@@ -302,6 +302,10 @@ export interface LayoutSnapshot {
    * `centre`: where the big card sits (tap it to pick the card, hold it to lift it).
    */
   handView: { index: number; cardId: string; lifted: boolean; centre: Box } | null;
+  /** Sprint 10 (S-10-1): a scored pile opened big with a tap (slide to read, tap outside to close). */
+  pileView: { side: Side; index: number; cardId: string; count: number; centre: Box } | null;
+  /** Sprint 10 (S-10-5): the discard step's view: the big card's stamp, the marked hand indices, its Confirm. */
+  discardView: { index: number; stamped: boolean; marked: number[]; confirm: { box: Box; label: string; lit: boolean } } | null;
   /**
    * S-07-6: a hand card lifted out of the hand view, following the finger.
    * `box`: where it is drawn now; `hover`: the place under the finger, if any (lit or dimmed).
@@ -396,6 +400,9 @@ export type AnimKind =
   | 'choice_open'
   /** S-07-6: the hand view opens (`text`: the card in the middle). */
   | 'hand_open'
+  // Sprint 10: a scored pile opened with a tap; a card marked / unmarked in the discard view.
+  | 'pile_open'
+  | 'discard_mark'
   /** S-07-6: a card lifts out of the hand view (the view fades out; `text`: its card id). */
   | 'card_lift'
   /** S-07-6: a lifted card let go away from a lit place flies back to the hand. */

@@ -123,6 +123,10 @@ function boundsOf(c: Container): Box {
   return { x: b.x, y: b.y, width: b.width, height: b.height };
 }
 
+function inBox(b: Box, x: number, y: number): boolean {
+  return x >= b.x && x <= b.x + b.width && y >= b.y && y <= b.y + b.height;
+}
+
 /** True if `c` is `root` or inside it. */
 function isUnder(c: Container | null, root: Container | null): boolean {
   for (let n: Container | null = c; n; n = n.parent) if (n === root) return true;
@@ -338,6 +342,16 @@ export class Board {
     list: { ids: string[]; start: number; startX: number; step: number } | null;
     /** S-07-6: the hand view (stays open after the finger lifts; takes every tap while open). */
     view: boolean;
+    /**
+     * Sprint 10: what an open view browses: the hand (S-07-6), a scored pile (S-10-1) or the
+     * hand in the discard step (S-10-5: a tap marks / unmarks the big card).
+     */
+    mode: 'hand' | 'pile' | 'discard';
+    /** S-10-1: the pile a pile view shows. */
+    pile: { side: Side; ids: string[] } | null;
+    /** S-10-5: the "DISCARD" stamp over a marked big card, and the view's Confirm ("Discard 2"). */
+    stamp: Container | null;
+    confirm: PanelButton | null;
   } | null = null;
   /** S-07-6: the finger pressing in the hand view (one at a time). */
   private viewPress: {
@@ -621,9 +635,13 @@ export class Board {
     // hand view closes when the hand changed, or a run or the discard picker starts.
     if (this.lift) this.closeZoom(true);
     else if (this.zoom?.view) {
-      const ids = view.players[view.viewer].hand ?? [];
-      const same = this.view?.viewer === view.viewer && ids.length === this.hands[view.viewer].ids.length && ids.every((id, i) => id === this.hands[view.viewer].ids[i]);
-      if (!same || panelUp(view) || view.pendingDiscard > 0) this.closeZoom(true);
+      const z = this.zoom;
+      const ids = z.pile ? view.players[z.pile.side].scored : (view.players[view.viewer].hand ?? []);
+      const was = z.pile ? z.pile.ids : this.hands[view.viewer].ids;
+      const same = this.view?.viewer === view.viewer && ids.length === was.length && ids.every((id, i) => id === was[i]);
+      // S-10-5: the discard step's view stays only through the discard step (the hand view never does).
+      const wrongStep = z.mode === 'discard' ? view.pendingDiscard === 0 : view.pendingDiscard > 0;
+      if (!same || panelUp(view) || wrongStep) this.closeZoom(true);
     }
     const prev = this.view;
     if (prev?.choice && prev.choice.kind === 'free_rez') this.lastChoiceCard = prev.choice.cardId;
@@ -869,7 +887,20 @@ export class Board {
         layout && this.buildText.visible && this.buildText.text
           ? { text: this.buildText.text, box: this.buildTextBox() }
           : null,
-      handView: this.zoom?.view && this.zoom.cardId && layout ? { index: this.zoom.index, cardId: this.zoom.cardId, lifted: this.lift !== null, centre: { ...layout.zoom } } : null,
+      handView: this.zoom?.view && this.zoom.mode !== 'pile' && this.zoom.cardId && layout ? { index: this.zoom.index, cardId: this.zoom.cardId, lifted: this.lift !== null, centre: { ...layout.zoom } } : null,
+      pileView:
+        this.zoom?.view && this.zoom.pile && this.zoom.cardId && layout
+          ? { side: this.zoom.pile.side, index: this.zoom.index, cardId: this.zoom.cardId, count: this.zoom.pile.ids.length, centre: { ...layout.zoom } }
+          : null,
+      discardView:
+        this.zoom?.view && this.zoom.mode === 'discard' && this.zoom.confirm && layout
+          ? {
+              index: this.zoom.index,
+              stamped: this.zoom.stamp?.visible ?? false,
+              marked: [...this.marked].sort((a, b) => a - b),
+              confirm: { box: { ...this.zoom.confirm.box }, label: this.zoom.confirm.text, lit: this.zoom.confirm.lit },
+            }
+          : null,
       drag: this.dragSnapshot(),
       // While a card is lifted the hand view is faded out: no zoom is on screen.
       zoom: this.zoom && !this.lift
@@ -1655,6 +1686,10 @@ export class Board {
     } else if (this.pickedInstalled !== null) {
       // Sprint 9: the tag marker / score pill picked: "Tap it again".
       helpText = this.pickedInstalled === TAGS_PICK || isScoredUid(this.pickedInstalled) ? 'Tap a lit button.\nTap it again to cancel.' : 'Tap a lit button.\nTap the card again to cancel.';
+      // S-10-1: an unscored agenda with a scored ability (Private Security Force) says, dimmed
+      // beside its Advance / Score, that the ability needs it scored first (words from card data).
+      const first = this.scoreFirstText(view, this.pickedInstalled);
+      if (first) helpText = `${first}\n${helpText}`;
     } else if (pending > 0) {
       const k = pending - this.marked.size;
       main.text = k > 0 ? `Discard ${k}` : 'Tap Confirm';
@@ -1746,7 +1781,7 @@ export class Board {
     const picked = this.pickedInstalled !== null ? gen.installed.get(this.pickedInstalled) : undefined;
     // Sprint 9: a picked tag marker or score pill is outlined the same way.
     const pickedBox =
-      picked?.box ?? (this.pickedInstalled === TAGS_PICK ? this.seatOf('runner')?.tag.box : this.pickedInstalled && isScoredUid(this.pickedInstalled) ? gen.scores[viewer].box : undefined);
+      picked?.box ?? (this.pickedInstalled === TAGS_PICK ? gen.tagged.box : this.pickedInstalled && isScoredUid(this.pickedInstalled) ? gen.scoredPiles[viewer].box() : undefined);
     if (pickedBox) glowRoundRect(pm, pickedBox.x - 3, pickedBox.y - 3, pickedBox.width + 6, pickedBox.height + 6, 5, theme.credit, 3, 1.4);
     return newStep;
   }
@@ -2058,17 +2093,27 @@ export class Board {
       }
       case 'agenda_stolen': {
         const from = before.get(`access:${e.cardId}`) ?? layout.access;
+        // S-10-1: it lands on the Runner's scored pile; the score label pops too.
         const pill = gen.scores.runner;
-        this.callbacks.log({ kind: 'score_flight', scheduledMs: timing.runFlight, box: { ...pill.box } });
-        this.flyCard(e.cardId, 'corp', from, pill.box, 0, () => pill.pop(this.ui));
+        const pile = gen.scoredPiles.runner;
+        this.callbacks.log({ kind: 'score_flight', scheduledMs: timing.runFlight, box: pile.box() });
+        this.flyCard(e.cardId, 'corp', from, pile.box(), 0, () => {
+          pile.pop(this.ui);
+          pill.pop(this.ui);
+        });
         return;
       }
       case 'agenda_scored': {
         const from = before.get(`uid:${e.uid}`);
         const pill = gen.scores.corp;
-        this.callbacks.log({ kind: 'score_flight', scheduledMs: timing.runFlight, box: { ...pill.box } });
-        if (from) this.flyCard(e.cardId, 'corp', from, pill.box, 0, () => pill.pop(this.ui));
-        else pill.pop(this.ui);
+        const pile = gen.scoredPiles.corp;
+        this.callbacks.log({ kind: 'score_flight', scheduledMs: timing.runFlight, box: pile.box() });
+        const land = () => {
+          pile.pop(this.ui);
+          pill.pop(this.ui);
+        };
+        if (from) this.flyCard(e.cardId, 'corp', from, pile.box(), 0, land);
+        else land();
         return;
       }
       case 'card_trashed': {
@@ -2205,18 +2250,9 @@ export class Board {
       this.fx.finishAll();
       return;
     }
-    const hand = this.hands[view.viewer];
     if (view.pendingDiscard > 0) {
-      const pending = view.pendingDiscard;
-      if (this.marked.has(index)) this.marked.delete(index);
-      else if (this.marked.size < pending) this.marked.add(index);
-      else {
-        this.showHint('Enough picked. Tap one to undo.');
-        return;
-      }
-      hand.setMarked(this.marked);
-      this.applyView(view, true);
-      this.callbacks.changed();
+      // S-10-5: the discard step opens the hand big, like everywhere else; a tap there marks.
+      this.openHandView(index, undefined, true);
       return;
     }
     if (this.selected === index) {
@@ -2226,14 +2262,73 @@ export class Board {
     this.openHandView(index);
   }
 
-  /** A hold on the hand strip: the discard picker zooms the card (slide to read on); otherwise the hand view opens on it. */
-  private onStripHold(side: Side, cardId: string, from: Box, index: number): void {
-    if (this.view?.pendingDiscard) {
-      this.openZoom(cardId, side, from, { hand: { ids: this.hands[side].ids, index } });
+  /** A hold on the hand strip: the hand view opens on it (S-10-5: in the discard step too, in its discard mode). */
+  private onStripHold(_side: Side, _cardId: string, from: Box, index: number): void {
+    if (this.flipPending) return;
+    this.openHandView(index, from, (this.view?.pendingDiscard ?? 0) > 0);
+  }
+
+  /**
+   * S-10-5: the discard step's view: a tap on the big card marks it to throw away (or unmarks
+   * it). No more than the engine's count can be marked.
+   */
+  private toggleDiscardMark(index: number): void {
+    const view = this.view;
+    if (!view) return;
+    const pending = view.pendingDiscard;
+    if (this.marked.has(index)) this.marked.delete(index);
+    else if (this.marked.size < pending) this.marked.add(index);
+    else {
+      this.showHint('Enough picked. Tap one to undo.');
       return;
     }
-    if (this.flipPending) return;
-    this.openHandView(index, from);
+    this.hands[view.viewer].setMarked(this.marked);
+    this.applyView(view, true);
+    this.syncDiscardView();
+    const stamp = this.zoom?.stamp;
+    if (stamp?.visible) {
+      this.ui.cancel(stamp.scale);
+      stamp.scale.set(1.25);
+      this.ui.add({ target: stamp.scale, to: { x: 1, y: 1 }, duration: 160, ease: ease.outBack, owner: stamp });
+    }
+    this.callbacks.log({ kind: 'discard_mark', text: String(index), scheduledMs: 160 });
+    this.callbacks.changed();
+  }
+
+  /** S-10-5: where the discard view's Confirm sits: End turn's place in the rail, bottom right in the column. */
+  private discardConfirmBox(layout: BoardLayout): Box {
+    if (layout.mode === 'landscape') return { ...layout.endTurn };
+    const w = layout.endTurn.width;
+    const h = layout.endTurn.height;
+    const pad = layout.pad;
+    return { x: layout.safe.x + layout.safe.width - pad - w, y: layout.safe.y + layout.safe.height - pad - h, width: w, height: h };
+  }
+
+  /** S-10-5: the stamp over the big card (marked or not) and the view's Confirm ("Discard 2", lit only at the engine's count). */
+  private syncDiscardView(): void {
+    const zoom = this.zoom;
+    const view = this.view;
+    const layout = this.layout;
+    if (!zoom || zoom.mode !== 'discard' || !view || !layout) return;
+    if (zoom.stamp) zoom.stamp.visible = this.marked.has(zoom.index);
+    const pending = view.pendingDiscard;
+    zoom.confirm?.set(this.discardConfirmBox(layout), `Discard ${pending}`, this.marked.size === pending && pending > 0, theme.warn, this.marked.size === pending && pending > 0);
+  }
+
+  /** S-10-5: a red "DISCARD" stamp, turned a little, across the middle of a w x h card. */
+  private discardStamp(w: number, h: number): Container {
+    const c = new Container();
+    c.label = 'discard-stamp';
+    const t = new Text({ text: 'DISCARD', style: { fontFamily: theme.monoFamily, fontSize: Math.round(w * 0.16), fontWeight: '800', fill: theme.tagged, letterSpacing: 2 } });
+    t.anchor.set(0.5);
+    const bw = t.width + w * 0.08;
+    const bh = t.height + h * 0.03;
+    const g = new Graphics();
+    g.roundRect(-bw / 2, -bh / 2, bw, bh, 6).fill({ color: 0x000000, alpha: 0.7 }).stroke({ width: Math.max(3, w * 0.015), color: theme.tagged });
+    c.addChild(g, t);
+    c.rotation = -0.2;
+    c.visible = false;
+    return c;
   }
 
   /**
@@ -2542,9 +2637,22 @@ export class Board {
     this.callbacks.changed();
   }
 
+  /**
+   * S-10-1: "Do 1 meat damage: score it first" for the viewer's own installed, unscored agenda
+   * whose card has scored abilities (card data, not an engine option); null otherwise.
+   */
+  private scoreFirstText(view: PlayerView, uid: string): string | null {
+    if (view.viewer !== 'corp' || isScoredUid(uid) || uid === TAGS_PICK) return null;
+    const installed = view.corpServers.some((srv) => srv.content.some((c) => c.uid === uid));
+    const id = installed ? this.installedCardId(uid) : null;
+    const def = id ? getCard(id) : undefined;
+    const label = def?.type === 'agenda' ? def.scoredAbilities?.[0]?.label : undefined;
+    return label ? `${label.replace(/\s*\{gain\}\s*/g, ' ').trim()}: score it first` : null;
+  }
+
   /** Sprint 10 (S-10-1): a tap on a scored pile. */
   private onScoredPileTap(side: Side): void {
-    this.onScoreTap(side);
+    this.openPileView(side);
   }
 
   /** Sprint 9 (S-09-3): a tap on the viewer's own score pill shows its scored agenda's ability (Private Security Force). */
@@ -2561,6 +2669,11 @@ export class Board {
       this.cancelSelection();
       return;
     }
+    this.pickScored(view, key);
+  }
+
+  /** Sprint 9 / S-10-1: shows a scored agenda's buttons (`score:corp:<i>`), from the score pill or the pile. */
+  private pickScored(view: PlayerView, key: string): void {
     if (this.pickedInstalled === key) {
       this.cancelSelection();
       return;
@@ -3054,7 +3167,13 @@ export class Board {
     cardId: string | null,
     side: Side,
     from: Box,
-    opts: { hand?: { ids: string[]; index: number }; list?: { ids: string[]; index: number; startX: number }; view?: boolean } = {},
+    opts: {
+      hand?: { ids: string[]; index: number };
+      list?: { ids: string[]; index: number; startX: number };
+      view?: boolean;
+      pile?: { side: Side; ids: string[]; index: number };
+      discard?: boolean;
+    } = {},
   ): void {
     const layout = this.layout;
     if (!layout) return;
@@ -3066,11 +3185,12 @@ export class Board {
     const { width: vw, height: vh } = layout.viewport;
     const z = layout.zoom;
     const root = new Container();
-    const view = opts.view === true && !!opts.hand;
+    const view = opts.view === true && (!!opts.hand || !!opts.pile);
+    const mode: 'hand' | 'pile' | 'discard' = opts.pile ? 'pile' : opts.discard ? 'discard' : 'hand';
     // A held zoom takes no taps (the finger that holds it is already down). The hand view takes every tap while open.
     root.eventMode = view ? 'static' : 'none';
     if (view) {
-      root.label = 'hand-view';
+      root.label = mode === 'pile' ? 'pile-view' : 'hand-view';
       root.hitArea = new Rectangle(0, 0, vw, vh);
       root.on('pointerdown', (e) => this.onViewDown(e));
       root.on('globalpointermove', (e) => this.onViewMove(e));
@@ -3106,7 +3226,7 @@ export class Board {
     card.position.set(from.x + from.width / 2, from.y + from.height / 2);
     card.scale.set(Math.min(from.width, from.height) / z.width);
     root.addChild(dim);
-    const browse = opts.hand ?? opts.list ?? null;
+    const browse = opts.hand ?? opts.list ?? opts.pile ?? null;
     let carousel: Carousel | null = null;
     if (browse && browse.ids.length > 1) {
       carousel = new Carousel(cx, cy, z.width, z.height, this.ui, (id) => this.carouselFace(id));
@@ -3122,10 +3242,21 @@ export class Board {
       root.addChild(frame);
     }
     root.addChild(card);
+    // S-10-5: the discard step's view: a stamp over a marked card, and its own Confirm.
+    let stamp: Container | null = null;
+    let confirm: PanelButton | null = null;
+    if (view && mode === 'discard') {
+      stamp = this.discardStamp(z.width, z.height);
+      stamp.position.set(cx, cy);
+      confirm = new PanelButton(layout.scale, 'button:discard-confirm');
+      root.addChild(stamp, confirm.root);
+    }
     root.alpha = 0;
     this.zoomLayer.addChild(root);
     const list = opts.list ? { ids: opts.list.ids, start: opts.list.index, startX: opts.list.startX, step: Math.max(28, Math.round(z.width * 0.18)) } : null;
-    this.zoom = { cardId: def ? cardId : null, root, card, width: z.width, height: z.height, texts, overflow, frame, carousel, index: browse?.index ?? 0, list, view };
+    const pile = opts.pile ? { side: opts.pile.side, ids: opts.pile.ids } : null;
+    this.zoom = { cardId: def ? cardId : null, root, card, width: z.width, height: z.height, texts, overflow, frame, carousel, index: browse?.index ?? 0, list, view, mode, pile, stamp, confirm };
+    this.syncDiscardView();
     this.ui.add({ target: root, to: { alpha: 1 }, duration: timing.zoomIn, owner: root });
     this.ui.add({ target: card, to: { x: cx, y: cy }, duration: timing.zoomIn, ease: ease.outCubic, owner: card });
     this.ui.add({ target: card.scale, to: { x: 1, y: 1 }, duration: timing.zoomIn, ease: ease.outBack, owner: card });
@@ -3180,6 +3311,7 @@ export class Board {
       zoom.carousel.show(zoom.carousel.cardIds, index, prev, slide);
       this.callbacks.log({ kind: 'carousel_slide', text: cardId, scheduledMs: slide ? CAROUSEL_SLIDE_MS : 0 });
     }
+    this.syncDiscardView();
     this.callbacks.changed();
     this.callbacks.log({ kind: 'zoom_swap', text: cardId, scheduledMs: 0, inputAt, predrawn });
   }
@@ -3243,7 +3375,7 @@ export class Board {
   // ---- S-07-6 hand view: tap to open, long-press to lift, drag to play ------
 
   /** Opens the hand view on hand card `index` (`from`: where it grows from; default its strip slot). */
-  private openHandView(index: number, from?: Box): void {
+  private openHandView(index: number, from?: Box, discard = false): void {
     const view = this.view;
     if (!view || panelUp(view)) return;
     const hand = this.hands[view.viewer];
@@ -3253,7 +3385,7 @@ export class Board {
     const box = from ?? hand.boxes()[index]?.box;
     if (!box) return;
     if (!this.predraw) this.startPredraw(ids, index);
-    this.openZoom(cardId, view.viewer, box, { hand: { ids, index }, view: true });
+    this.openZoom(cardId, view.viewer, box, { hand: { ids, index }, view: true, discard });
     this.callbacks.log({ kind: 'hand_open', text: cardId, scheduledMs: timing.zoomIn });
     this.callbacks.changed();
   }
@@ -3271,7 +3403,7 @@ export class Board {
     if (!centre || !view) return;
     const x = e.global.x;
     const y = e.global.y;
-    const strip = this.hands[view.viewer].boxes().map((h) => h.box);
+    const strip = zoom.mode === 'pile' ? [] : this.hands[view.viewer].boxes().map((h) => h.box);
     const hit = viewHit(x, y, centre, zoom.carousel?.snapshot() ?? [], strip);
     const native: unknown = e.nativeEvent;
     const now = performance.now();
@@ -3280,7 +3412,7 @@ export class Board {
     const press = { id: e.pointerId, x, y, lastX: x, lastY: y, at, hit, start: zoom.index, swiped: false, timer: null as ReturnType<typeof setTimeout> | null };
     // Long-press the big card to lift it (judged by when the finger went down). A timer that runs
     // late (the page stalled) waits one frame, so a release queued meanwhile is handled first (QA-S3-7).
-    if (hit.kind === 'centre') {
+    if (hit.kind === 'centre' && zoom.mode === 'hand') {
       press.timer = setTimeout(() => {
         press.timer = null;
         if (this.viewPress !== press) return;
@@ -3314,13 +3446,12 @@ export class Board {
     }
     if (!p.swiped) return;
     // Swipe: the cards follow the finger sideways, one card per step.
-    const hand = this.hands[view.viewer];
-    const ids = hand.ids;
+    const ids = this.viewIds();
     const i = swipeIndex(p.start, x - p.x, Math.max(40, Math.round(zoom.width * 0.32)), ids.length);
     const id = ids[i];
     if (id === undefined || i === zoom.index) return;
     const native: unknown = e.nativeEvent;
-    this.swapZoom(id, hand.boxes()[i]?.box ?? null, native instanceof Event ? native.timeStamp : performance.now(), i);
+    this.swapZoom(id, this.viewStripBox(i), native instanceof Event ? native.timeStamp : performance.now(), i);
   }
 
   private onViewUp(e: FederatedPointerEvent, cancelled: boolean): void {
@@ -3353,7 +3484,21 @@ export class Board {
     const zoom = this.zoom;
     const view = this.view;
     if (!zoom?.view || !view) return;
+    // S-10-5: the discard view's Confirm (pressed and let go on it).
+    const cb = zoom.confirm?.box;
+    if (cb && inBox(cb, p.x, p.y) && inBox(cb, e.global.x, e.global.y)) {
+      this.onDiscardConfirm();
+      return;
+    }
     if (p.hit.kind === 'centre') {
+      if (zoom.mode === 'discard') {
+        this.toggleDiscardMark(zoom.index);
+        return;
+      }
+      if (zoom.mode === 'pile') {
+        this.onPileCentreTap();
+        return;
+      }
       // Today's pick: the view closes, the card is outlined and its places light up.
       const index = zoom.index;
       this.closeZoom();
@@ -3362,12 +3507,73 @@ export class Board {
       return;
     }
     if (p.hit.kind === 'card') {
-      const id = this.hands[view.viewer].ids[p.hit.index];
-      if (id !== undefined && p.hit.index !== zoom.index) this.swapZoom(id, this.hands[view.viewer].boxes()[p.hit.index]?.box ?? null, upAt, p.hit.index);
+      const id = this.viewIds()[p.hit.index];
+      if (id !== undefined && p.hit.index !== zoom.index) this.swapZoom(id, this.viewStripBox(p.hit.index), upAt, p.hit.index);
       return;
     }
     // Outside the cards: the view closes (the tap does nothing else).
     this.closeZoom();
+    this.callbacks.changed();
+  }
+
+  /** The cards an open view browses (Sprint 10: a scored pile's, or the hand's). */
+  private viewIds(): readonly string[] {
+    const zoom = this.zoom;
+    const view = this.view;
+    if (zoom?.pile) return zoom.pile.ids;
+    return view ? this.hands[view.viewer].ids : [];
+  }
+
+  /** The hand-strip slot of card `i` (the frame follows it); none for a pile view. */
+  private viewStripBox(i: number): Box | null {
+    const view = this.view;
+    if (!view || this.zoom?.pile) return null;
+    return this.hands[view.viewer].boxes()[i]?.box ?? null;
+  }
+
+  /** S-10-5: Confirm in the discard view: the marked cards go (the engine's count), else says how many more. */
+  private onDiscardConfirm(): void {
+    const view = this.view;
+    if (!view) return;
+    const k = view.pendingDiscard - this.marked.size;
+    if (k > 0) {
+      this.showHint(`Pick ${plural(k, 'more card', 'more cards')}`);
+      this.callbacks.changed();
+      return;
+    }
+    this.closeZoom(true);
+    this.callbacks.onDiscard([...this.marked].sort((a, b) => a - b));
+  }
+
+  /**
+   * S-10-1: a scored pile is open and its big card was tapped. The viewer's own scored agenda
+   * with abilities (Private Security Force) shows its buttons ("Do 1 meat damage · 1 click");
+   * any other card stays open to read.
+   */
+  private onPileCentreTap(): void {
+    const zoom = this.zoom;
+    const view = this.view;
+    if (!zoom?.pile || !view) return;
+    const key = `score:${zoom.pile.side}:${zoom.index}`;
+    if (zoom.pile.side !== view.viewer || panelUp(view) || view.choice || (view.installedOptions[key] ?? []).length === 0) return;
+    this.closeZoom();
+    this.pickScored(view, key);
+  }
+
+  /** S-10-1: a tap on a scored pile opens it big, like the hand (slide to read, tap outside to close). */
+  private openPileView(side: Side): void {
+    const view = this.view;
+    const gen = this.gen;
+    if (!view || !gen || this.flipPending) {
+      this.fx.finishAll();
+      return;
+    }
+    const ids = [...view.players[side].scored];
+    if (ids.length === 0) return;
+    this.cancelSelection();
+    const index = ids.length - 1;
+    this.openZoom(ids[index]!, 'corp', gen.scoredPiles[side].box(), { pile: { side, ids, index }, view: true });
+    this.callbacks.log({ kind: 'pile_open', text: ids[index]!, scheduledMs: timing.zoomIn });
     this.callbacks.changed();
   }
 

@@ -1,6 +1,7 @@
-// S-01-5: hand limit, discard down to 5.
+// S-01-5: hand limit, discard down to 5. Sprint 10 (S-10-5): the discard step opens the hand
+// big with a tap, like everywhere else; a tap on the big card marks it (no holding).
 import { expect, test } from '@playwright/test';
-import { center, dispatch, getView, lastEvents, layout, measureTap, openBoard, pressAndHold, tap, toRunnerTurn, waitEndTurnArmed, waitIdle } from './helpers';
+import { center, closeDiscardView, dispatch, getView, lastEvents, layout, markDiscard, measureTap, openBoard, outsideHandView, pressAndHold, tap, toRunnerTurn, waitEndTurnArmed, waitIdle } from './helpers';
 import type { Box } from './helpers';
 import type { Page } from '@playwright/test';
 
@@ -25,22 +26,30 @@ test.describe('S-01-5 discard down to 5', () => {
     expect(l.hand.every((h) => !h.marked)).toBe(true);
   });
 
-  test('tap marks a card, tap again un-marks it; you cannot pick more than asked', async ({ page }) => {
+  test('tap the hand: it opens big; tap the big card to mark it, again to un-mark; you cannot pick more than asked', async ({ page }) => {
     let l = await openPicker(page);
     await tap(page, l.hand[1]!.box);
     l = await layout(page);
+    // A tap opens the hand big on that card; it marks nothing yet.
+    expect(l.discardView).toMatchObject({ index: 1, stamped: false, marked: [] });
+    l = await markDiscard(page, [1]);
     expect(l.hand.map((h) => h.marked)).toEqual([false, true, false, false, false, false, false, false]);
+    expect(l.discardView).toMatchObject({ stamped: true, marked: [1], confirm: { label: 'Discard 3', lit: false } });
     expect(l.picker?.label).toBe('Discard 2');
-    await tap(page, l.hand[1]!.box);
-    l = await layout(page);
+    l = await markDiscard(page, [1]);
     expect(l.hand.some((h) => h.marked)).toBe(false);
     expect(l.picker?.label).toBe('Discard 3');
 
-    for (const i of [0, 2, 4]) await tap(page, l.hand[i]!.box);
-    l = await layout(page);
+    l = await markDiscard(page, [0, 2, 4]);
     expect(l.picker).toMatchObject({ remaining: 0, confirm: { enabled: true } });
-    await page.evaluate(() => window.__overclock!.clearAnims());
+    expect(l.discardView!.confirm).toMatchObject({ label: 'Discard 3', lit: true });
+    await tap(page, outsideHandView(l));
+    await page.waitForFunction(() => window.__overclock!.layout().discardView === null);
+    l = await layout(page);
     await tap(page, l.hand[6]!.box);
+    await page.waitForFunction(() => window.__overclock!.layout().discardView?.index === 6);
+    await page.evaluate(() => window.__overclock!.clearAnims());
+    await tap(page, (await layout(page)).handView!.centre);
     l = await layout(page);
     expect(l.hand[6]!.marked).toBe(false);
     expect(l.hand.filter((h) => h.marked)).toHaveLength(3);
@@ -50,16 +59,33 @@ test.describe('S-01-5 discard down to 5', () => {
     expect((await getView(page)).pendingDiscard).toBe(3);
   });
 
-  test('long-press still zooms a card while picking, without marking it', async ({ page }) => {
+  test('a hold opens the same big view (no hold-and-slide strip), without marking the card', async ({ page }) => {
     const l = await openPicker(page);
     const target = l.hand[2]!;
     const release = await pressAndHold(page, target.box);
     await page.waitForFunction((id) => window.__overclock!.layout().zoom?.cardId === id, target.cardId);
     await release();
-    await page.waitForFunction(() => window.__overclock!.layout().zoom === null);
-    const after = await layout(page);
+    const after = await waitIdle(page);
+    // It stays open after the finger lifts, like the hand view.
+    expect(after.discardView).toMatchObject({ index: 2, marked: [] });
     expect(after.hand[2]!.marked).toBe(false);
     expect(after.picker?.remaining).toBe(3);
+  });
+
+  test('the big view\'s own "Discard 3" sends the marked cards (lit only at the asked count)', async ({ page }) => {
+    let l = await openPicker(page);
+    const ids = [1, 5, 6].map((i) => l.hand[i]!.cardId);
+    l = await markDiscard(page, [1, 5]);
+    expect(l.discardView!.confirm).toMatchObject({ label: 'Discard 3', lit: false });
+    expect(Math.min(l.discardView!.confirm.box.width, l.discardView!.confirm.box.height)).toBeGreaterThanOrEqual(44);
+    // Not enough yet: it only says so.
+    await tap(page, l.discardView!.confirm.box);
+    expect((await getView(page)).pendingDiscard).toBe(3);
+    l = await markDiscard(page, [6]);
+    expect(l.discardView!.confirm.lit).toBe(true);
+    const m = await measureTap(page, l.discardView!.confirm.box);
+    expect(m.events[0]).toEqual({ type: 'cards_discarded', player: 'corp', count: 3, handIndices: [1, 5, 6], cardIds: ids });
+    expect(m.view.activePlayer).toBe('runner');
   });
 
   test('Confirm sends the picked cards to the discard pile and ends the turn', async ({ page }) => {
@@ -69,8 +95,8 @@ test.describe('S-01-5 discard down to 5', () => {
     // Confirm before picking enough only explains what is missing.
     await tap(page, l.picker!.confirm.box);
     expect((await getView(page)).activePlayer).toBe('corp');
-    for (const i of picked) await tap(page, l.hand[i]!.box);
-    l = await layout(page);
+    await markDiscard(page, picked);
+    l = await closeDiscardView(page);
     const m = await measureTap(page, l.picker!.confirm.box);
     expect(m.events[0]).toEqual({ type: 'cards_discarded', player: 'corp', count: 3, handIndices: picked, cardIds: ids });
     expect(m.events.map((e) => e.type)).toEqual(['cards_discarded', 'turn_ended', 'turn_started']);
@@ -106,8 +132,8 @@ test.describe('S-01-5 discard down to 5', () => {
     await dispatch(page, { type: 'end_turn', player: 'runner' });
     let l = await waitIdle(page);
     const id = l.hand[0]!.cardId;
-    await tap(page, l.hand[0]!.box);
-    l = await layout(page);
+    await markDiscard(page, [0]);
+    l = await closeDiscardView(page);
     await tap(page, l.picker!.confirm.box);
     l = await waitIdle(page);
     const view = await getView(page);
@@ -123,6 +149,10 @@ test.describe('S-01-5 discard down to 5', () => {
     const when = late ? 'delivered after the page wakes (the hold timer runs first)' : 'queued during the freeze';
     test(`a quick tap still picks a card when the page freezes for 600ms in the middle of it, release ${when} (QA-S3-7)`, async ({ page }) => {
       let l = await openPicker(page);
+      // S-10-5: the card is marked with a tap on the big card (the view opened by a tap on the hand).
+      await tap(page, l.hand[1]!.box);
+      await page.waitForFunction(() => window.__overclock!.layout().discardView?.index === 1);
+      l = await layout(page);
       await page.evaluate(() => {
         const w = window as unknown as { __press: Press };
         w.__press = { downTs: 0, upTs: 0, upHandled: 0 };
@@ -157,7 +187,7 @@ test.describe('S-01-5 discard down to 5', () => {
               })
               .then(() => undefined)
         : undefined;
-      await stampedTap(page, l.hand[1]!.box, 30, beforeUp);
+      await stampedTap(page, l.handView!.centre, 30, beforeUp);
       await page.waitForFunction(() => (window as unknown as { __press: Press }).__press.upHandled > 0);
       await page.waitForTimeout(400);
       const press = await page.evaluate(() => (window as unknown as { __press: Press }).__press);
@@ -166,7 +196,7 @@ test.describe('S-01-5 discard down to 5', () => {
       l = await layout(page);
       expect(l.hand[1]!.marked, 'the tap picked the card').toBe(true);
       expect(l.picker?.label).toBe('Discard 2');
-      expect(l.zoom, 'no zoom left open').toBeNull();
+      expect(l.discardView?.marked, 'marked once, the view still open').toEqual([1]);
     });
   }
 });
