@@ -57,4 +57,4 @@ Ready when `GET http://127.0.0.1:8787/health` answers `{"ok":true,"build":"dev",
 - `src/do.ts` — the Durable Object `GameRoom`: WebSocket hibernation, synchronous KV storage, alarm, ping/pong auto-response.
 - `src/worker.ts` — routes `/health`, `/v1/create` (picks a free code, up to 5 tries), `/v1/games/<CODE>`; Origin check.
 - `src/hash.ts` — synchronous SHA-256 (seat tokens are stored only as hashes) and base64url.
-- Storage per game: `meta`, `state` (snapshot), `a:000001…` (accepted actions). Restored from the snapshot when the same build wrote it, else by replaying the actions. Cleanup alarm: lobby 2 h, idle game 3 days, finished game 1 h.
+- Storage per game: `meta`, `state` (snapshot), `a:000001…` (accepted actions). Restored from the snapshot when the same build wrote it, else by replaying the actions. Cleanup alarm: lobby 2 h, idle game 7 days from the last move or Leave for now (Sprint 11; was 3 days), finished game 1 h. Sprint 11: `leave` in a started game = Leave for now (`meta.left[seat]`, socket closed 1000 `'left'`, the other seat gets `presence {opponent: 'away', left: true}`; `resume` clears it).

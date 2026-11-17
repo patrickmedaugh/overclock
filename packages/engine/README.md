@@ -543,6 +543,23 @@ parseSavedGame(x: unknown): SavedGame | 'broken' | 'outdated';   // shape check 
 - Golden fixture: `test/saved-game.test.ts` pins the sha256 of the state three saved games (core, core online rules, starter; up to 406 actions) replay to. Any engine/card change that alters replay fails it: **bump `RULES_VERSION`**, then re-pin with `UPDATE_FIXTURES=1 npx vitest run test/saved-game.test.ts` (from `packages/match`).
 - Client storage (ui-dev): `localStorage['overclock.hotseat.v1'] = JSON.stringify(match.save())`; one slot.
 
+**E2 status:** online Leave for now and the 7-day limit (`apps/server/src/room.ts`, `packages/protocol`).
+
+### Protocol (additive, still v1) and room
+```ts
+// ServerMsg (optional flag; older builds ignore it and just see 'away'):
+| { v: 1; t: 'presence'; opponent: Presence; left?: true }          // left only with opponent 'away'
+| { v: 1; t: 'sync'; seq; view; opponent: Presence; left?: true }   // the opponent is away because they left for now
+// ClientMsg 'leave' (unchanged shape): lobby nobody joined → the room closes (Sprint 7);
+//   started game → Leave for now.
+interface StoredSeat { server; code; seat; token; rulesVersion?: number; savedAt?: number }   // Sprint 11 optional fields
+// apps/server: IDLE_TTL_MS = 7 days (was 3); RoomMeta.left?: Partial<Record<Side, true>>
+```
+- `leave` from a seated socket in a **started** game (also a finished one): `meta.left[seat] = true`, `meta.lastActive = now` (the 7 days count from the last move **or** leave), that socket is closed `1000 'left'` (it hears nothing first), the other seat (if connected) gets `presence {opponent: 'away', left: true}`. The game, its log and both tokens are kept; a left Corp is never auto-passed for. A parser refuses `left` other than `true`, or with `opponent` other than `'away'`.
+- `resume` with a left seat's token clears `meta.left[seat]`: the resumer gets `sync` (opponent as usual), the other seat `presence {opponent: 'here'}` (no flag).
+- Any `sync` to a seat whose opponent is left (e.g. it reconnects) carries `left: true`; an opponent whose phone merely dropped is `away` with no flag.
+- `meta.left` is stored, so it survives hibernation and a deploy (restore by snapshot or replay). Expiry: `error expired` to open sockets and storage wiped at `lastActive + IDLE_TTL_MS`; a later `resume` gets `no_game`.
+
 ## Sprint 10 interface (pinned: implement exactly this; changes go through the architect)
 
 Everything in the Sprint 1–9 interfaces still holds unless noted. Tech plan: `docs/sprints/sprint-10-tech-plan.md`. `RULES_VERSION = 4` (live online games expire on deploy). `PROTOCOL_VERSION` stays 1. No new events, no new view fields.
