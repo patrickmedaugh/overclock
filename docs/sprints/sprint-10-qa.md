@@ -156,4 +156,8 @@ Suggested fixes, for the team to pick:
 In every case, check on a real Android phone or an emulator; desktop Chromium does not reproduce it.
 
 ## CI on the head
-Recorded in the next section, once CI has run on the round-2 QA commit.
+CI on ba2d49b (run 44015660637, the round-2 QA commit on top of ef61d82): **all green**.
+- `checks` (lint, typecheck, unit), `guard-mutation`, build and deploy all passed.
+- e2e, all 4 shards: **1,416 passed, 0 failed, 0 flaky, 13 skipped.**
+
+Per docs/TESTING.md, QA took this as the round's full pass and did not re-run it locally.
