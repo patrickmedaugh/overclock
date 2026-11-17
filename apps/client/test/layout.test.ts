@@ -450,6 +450,20 @@ describe('Sprint 10: scored piles and the stats column (S-10-1, S-10-2)', () => 
     }
   });
 
+  // Architect sign-off (DECISIONS 2026-11-17): with a notch the busy board may lose 1 card px at
+  // 640x360 (45 -> 44) and 2 at 568x320 for the piles. Pinned so it can never drift further.
+  it.each([
+    [640, 360, { left: 47 }, 44],
+    [640, 360, { right: 47 }, 44],
+    [568, 320, {}, 41],
+    [568, 320, { left: 47 }, 36],
+  ] as const)('%ix%i notch %j: busy-board card size is pinned at %i px (architect-approved shrink)', (w, h, ins, unit) => {
+    for (const viewer of SIDES) {
+      const l = computeLayout(w, h, { ...none, ...ins }, { viewer, shape: { ...BUSY, identities: IDS } });
+      expect(l.unit.width).toBe(unit);
+    }
+  });
+
   it('Tagged has its own slot whether or not it shows: the stats column does not move as cards are installed', () => {
     for (const [w, h] of SIZES) {
       const a = computeLayout(w, h, none, { shape: { ...EMPTY_SHAPE, identities: IDS } });
