@@ -178,8 +178,8 @@ describe('QA S-08-5 the two 30-card decks (QA count, not checkDeck)', () => {
     expect(CORP_CORE_DECK.cards.reduce((p, id) => p + (CORE_2012[id]!.pts ?? 0), 0)).toBe(15);
   });
 
-  it('every deal (seeds 1-200): 30 Corp cards (hand + R&D), R&D 25 before the first draw, Stack 25; 15 agenda points dealt; RULES_VERSION 3 (Sprint 9)', () => {
-    expect(RULES_VERSION).toBe(3);
+  it('every deal (seeds 1-200): 30 Corp cards (hand + R&D), R&D 25 before the first draw, Stack 25; 15 agenda points dealt; RULES_VERSION 4 (Sprint 10)', () => {
+    expect(RULES_VERSION).toBe(4);
     for (let seed = 1; seed <= 200; seed++) {
       const s = coreGame(seed);
       const c = s.players.corp;

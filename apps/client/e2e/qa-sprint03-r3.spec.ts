@@ -3,7 +3,7 @@
 // the stall runs in a bubble-phase listener after the game handled the press, 600ms and 1200ms.
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
-import { center, dispatch, layout, openBoard, tap, waitIdle } from './helpers';
+import { center, closeDiscardView, dispatch, layout, openBoard, tap, waitIdle } from './helpers';
 import type { Box } from './helpers';
 
 async function openPicker(page: Page) {
@@ -54,51 +54,72 @@ async function cdpPress(page: Page, b: Box, heldMs: number, waitBeforeUp: number
 
 const q = (page: Page) => page.evaluate(() => (window as unknown as { __q: { down: number; up: number; upHandled: number; stallEnd: number } }).__q);
 
+// Sprint 10 (S-10-5, approved) QA edit: the discard step no longer marks on the hand strip; a tap on
+// the hand opens it big (discard view) and a tap on the big card marks it. QA-S3-7's intent is kept on
+// the new target: a quick tap with a long stall in the middle still marks; a real hold never marks.
+async function openDiscardViewAt(page: Page, i: number) {
+  const l = await layout(page);
+  await tap(page, l.hand[i]!.box);
+  await page.waitForFunction((k) => window.__overclock!.layout().discardView?.index === k, i);
+  await page.waitForTimeout(350); // the open tween settles (no stray input on a moving card)
+  return layout(page);
+}
+
 for (const [stall, waitUp, label] of [
   [600, 150, 'release queued during a 600ms stall'],
-  [600, 900, 'release sent after a 600ms stall ended and the hold timer ran'],
+  [600, 900, 'release sent after a 600ms stall ended and the hold time passed'],
   [1200, 150, 'release queued during a 1200ms stall'],
   [1200, 1500, 'release sent after a 1200ms stall'],
 ] as const) {
-  test(`QA r3: 30ms tap, ${label}: picks the card, no zoom left`, async ({ page }) => {
+  test(`QA r3: 30ms tap on the big card in the discard view, ${label}: marks it`, async ({ page }) => {
     let l = await openPicker(page);
     expect(l.picker?.label).toBe('Discard 3');
+    l = await openDiscardViewAt(page, 2);
+    expect(l.discardView!.marked).toEqual([]);
     await armStall(page, stall);
-    await cdpPress(page, l.hand[2]!.box, 30, waitUp);
+    await cdpPress(page, l.handView!.centre, 30, waitUp);
     await page.waitForFunction(() => (window as unknown as { __q: { upHandled: number } }).__q.upHandled > 0);
     await page.waitForTimeout(500);
     const t = await q(page);
     expect(t.up - t.down, 'finger down for ~30ms').toBeLessThan(60);
     expect(t.upHandled - t.down, 'release handled after the 350ms hold time').toBeGreaterThan(400);
     l = await layout(page);
-    expect(l.hand[2]!.marked, 'picked').toBe(true);
+    expect(l.discardView, 'the discard view stays open').not.toBeNull();
+    expect(l.discardView!.marked, 'marked').toEqual([2]);
+    expect(l.discardView!.stamped, 'the mark stamp shows').toBe(true);
+    expect(l.drag, 'nothing lifted').toBeNull();
+    l = await closeDiscardView(page);
+    expect(l.hand[2]!.marked, 'marked on the strip too').toBe(true);
     expect(l.picker?.label).toBe('Discard 2');
-    expect(l.zoom).toBeNull();
   });
 }
 
-test('QA r3: a real 900ms hold with a 600ms stall in it zooms and does NOT pick', async ({ page }) => {
+test('QA r3: a real 900ms hold on the big card with a 600ms stall in it does NOT mark', async ({ page }) => {
   let l = await openPicker(page);
+  l = await openDiscardViewAt(page, 2);
   await armStall(page, 600);
-  const { x, y } = center(l.hand[2]!.box);
+  const { x, y } = center(l.handView!.centre);
   const cdp = await page.context().newCDPSession(page);
   const touch = test.info().project.use.hasTouch === true;
   if (touch) await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
   else await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 });
   await page.waitForTimeout(900);
   l = await layout(page);
-  expect(l.zoom, 'zoom open while still held').not.toBeNull();
+  expect(l.discardView, 'view open while still held').not.toBeNull();
+  expect(l.drag, 'a discard view card never lifts').toBeNull();
   if (touch) await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
   else await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 });
   await cdp.detach();
   await page.waitForTimeout(300);
   l = await layout(page);
-  expect(l.zoom).toBeNull();
-  expect(l.hand[2]!.marked, 'a hold is not a pick').toBe(false);
+  expect(l.discardView, 'still open').not.toBeNull();
+  expect(l.discardView!.marked, 'a hold is not a mark').toEqual([]);
+  l = await closeDiscardView(page);
+  expect(l.hand[2]!.marked).toBe(false);
   expect(l.picker?.label).toBe('Discard 3');
 });
 
-test('QA r3: a real 600ms hold (no stall) on a hand card zooms; release does not pick', async ({ page }) => {
+test('QA r3: a real 600ms hold (no stall) on a hand card opens the discard view; a hold on the big card does not mark', async ({ page }) => {
   let l = await openPicker(page);
   const { x, y } = center(l.hand[0]!.box);
   const cdp = await page.context().newCDPSession(page);
@@ -107,14 +128,27 @@ test('QA r3: a real 600ms hold (no stall) on a hand card zooms; release does not
   else await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 });
   await page.waitForTimeout(600);
   l = await layout(page);
-  expect(l.zoom).not.toBeNull();
-  // Screenshots only on request, so normal runs never rewrite committed files.
-  if (process.env.QA_SCREENS) await page.screenshot({ path: `../../docs/sprints/sprint-03-qa/${test.info().project.name === 'phone' ? 'phone-844x390' : test.info().project.name === 'phone-small' ? 'phone-640x360' : 'desktop-1280x800'}-r3-01-hold-zooms-in-discard-picker.png` });
+  expect(l.discardView, 'the hold opens the discard view').not.toBeNull();
+  expect(l.discardView!.index).toBe(0);
   if (touch) await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
   else await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 });
+  await page.waitForTimeout(400);
+  l = await layout(page);
+  expect(l.discardView, 'release leaves it open').not.toBeNull();
+  expect(l.discardView!.marked, 'release does not mark').toEqual([]);
+  // Hold the big card 600ms: no mark.
+  const c = center(l.handView!.centre);
+  if (touch) await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [c] });
+  else await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: c.x, y: c.y, button: 'left', clickCount: 1 });
+  await page.waitForTimeout(600);
+  // Screenshots only on request, so normal runs never rewrite committed files.
+  if (process.env.QA_SCREENS) await page.screenshot({ path: `../../docs/sprints/sprint-03-qa/${test.info().project.name === 'phone' ? 'phone-844x390' : test.info().project.name === 'phone-small' ? 'phone-640x360' : 'desktop-1280x800'}-r3-01-hold-in-discard-view.png` });
+  if (touch) await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  else await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: c.x, y: c.y, button: 'left', clickCount: 1 });
   await cdp.detach();
   await page.waitForTimeout(300);
   l = await layout(page);
-  expect(l.zoom).toBeNull();
+  expect(l.discardView!.marked, 'a hold on the big card is not a mark').toEqual([]);
+  l = await closeDiscardView(page);
   expect(l.hand[0]!.marked).toBe(false);
 });
