@@ -1,6 +1,6 @@
 # Project state
 
-phase: QA
+phase: DEMO
 running_since: 2026-11-16T23:58Z (Sprint 10 BUILD after owner approval in chat)
 sprint: 10
 open_pr: none (PR #23 Sprint 10 proposal merged 3b07b0e, owner approved in chat 2026-11-16 23:56 UTC). Sprint 10 = S-10-1, S-10-2, S-10-3, S-10-5, S-10-6 (S-10-4 dropped).
@@ -10,6 +10,9 @@ last_owner_activity: 2026-11-13 ~06:10 UTC — owner opened and merged PR #10 (s
 - Tech plan docs/sprints/sprint-10-tech-plan.md. Engine E1–E4 (advance cap, Bank Job chosen amount, RULES_VERSION 4, SPRINT10_GOALS). UI U1–U5 (scored piles far right both rows, Memory/Link/Tagged column, pile tap-to-open + PSF from pile + 'score it first' hint, Bank Job amount control, Archives lane slide + fills on landing, discard view tap-to-open, toasts clear of buttons with 10px floor and repeat collapse).
 - Architect approved (11d437c): Corp pile in ICE room OK, sizes pinned; 'chosen' for click abilities OK. Process: parallel worktrees must use separate local branch names.
 - For QA: QA-owned specs to update by design: qa-sprint03-r3 (:63,:80,:101), qa-sprint06:448, qa-sprint07:311, qa-sprint09-r3 (:124,:136), engine qa-sprint07 (Bank Job amount, 250-game sweep) and qa-sprint08 (RULES_VERSION 4); ui-dev edited qa-sprint01 discard marking steps — QA to review.
+
+## Sprint 10 QA summary — 2026-11-17
+- docs/sprints/sprint-10-qa.md (rounds 1–2). Result 31/31 AC pass. Round 1 bugs QA-S10-1 (notice over a card at 891×296) and QA-S10-2 (PSF 'score it first' not drawn at 891×296) fixed in ef61d82, re-verified. CI fully green on ba2d49b (e2e 1,416 pass / 0 fail / 0 flaky).
 
 ## Accepted stories
 - Sprint 9 (owner "Approved" in chat 2026-11-16 23:33 UTC, recorded on PR #22; merged 8708e09; QA round 4 pass, CI green on 0db3a6f): S-09-1 traces with Hunter, S-09-2 tags, S-09-3 Private Security Force + meat damage, S-09-4 Ichi 1.0 / SEA Source / Access to Globalsec + deck changes. During review the owner asked for and approved a fix inside Sprint 9: hidden Score button on short phone screens (891×296) + QA-S9-6. Owner notes for Sprint 10: can't find where to tap scored agendas (wants a scored-agenda pile on the Corp side, far right, browsable like other piles); is there a max on Runner buttons when many programs are installed (saw 3, could be 5+). Plus the earlier chat items in BACKLOG (link/Tagged beside memory, Advance stops at limit, Bank Job picker, PSF hint).
