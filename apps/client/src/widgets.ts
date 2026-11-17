@@ -612,15 +612,18 @@ export class PanelButton {
 
   /**
    * `glow`: filled and bright (e.g. Run while servers are lit). `big`: a large label
-   * (Sprint 9: the bid control's − and +).
+   * (Sprint 9: the bid control's − and +). Sprint 11: `text` may be a ladder of ever
+   * shorter labels (`labelLadder`): the first that fits at `minPx` or more is drawn
+   * (the last one, shrunk, if none does).
    */
-  set(b: Box, text: string, lit: boolean, color: number, glow = false, big = false): void {
+  set(b: Box, text: string | readonly string[], lit: boolean, color: number, glow = false, big = false, minPx = 0): void {
     this.box = { ...b };
     this.lit = lit;
     placeAt(this.root, b);
     const { width: w, height: h } = b;
     this.root.hitArea = new Rectangle(-w / 2, -h / 2, w, h);
-    const key = `${w}x${h}:${text}:${lit}:${color}:${glow}:${big}`;
+    const ladder = typeof text === 'string' ? [text] : text;
+    const key = `${w}x${h}:${ladder.join('|')}:${lit}:${color}:${glow}:${big}:${minPx}`;
     if (key === this.drawn) return;
     this.drawn = key;
     const base = Math.max(12, Math.round(14 * Math.min(this.scale, 1.15)));
@@ -641,8 +644,23 @@ export class PanelButton {
       this.label.style.fill = theme.textDim;
     }
     this.label.style.wordWrapWidth = Math.max(30, w - 10);
-    this.label.text = text;
-    fitText(this.label, w - 8, h - 4);
+    const fits = (i: number): boolean => {
+      this.label.text = ladder[i]!;
+      fitText(this.label, w - 8, h - 4);
+      return this.fontPx >= minPx - 0.01;
+    };
+    // The first rung that fits (labels only get shorter down the ladder): a binary search.
+    let lo = 0;
+    let hi = ladder.length - 1;
+    if (ladder.length > 1 && !fits(0)) {
+      lo = 1;
+      while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if (fits(mid)) hi = mid;
+        else lo = mid + 1;
+      }
+    }
+    fits(lo);
   }
 
   /** A quick pop when it appears (run step changes). */

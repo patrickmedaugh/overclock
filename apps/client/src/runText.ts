@@ -5,7 +5,7 @@
 // for names and for an ability's printed "+N strength".
 import { getCard } from '@overclock/cards';
 import type { Action, CardOption, ChoiceView, GameEvent, LetFireView, RunView, Side, SubOutcome } from '@overclock/engine';
-import { SIDE_NAME, TERMS, plural, priceText, serverLabel } from './terms';
+import { ICE_TYPE, SIDE_NAME, TERMS, plural, priceText, serverLabel } from './terms';
 import { traceReportText } from './traceText';
 
 /** A card's name, or `fallback` for a card the viewer can't see. */
@@ -29,57 +29,132 @@ function openAccess(run: RunView): number {
 }
 
 /**
- * The label of one run option, e.g. "Rez Wall of Static · 3 credits", "Don't rez",
- * "+1 strength · 1 credit", 'Break "End the run" · 1 credit', "Let it through",
- * "Continue", "Jack out", "Steal", "Trash · 4 credits", "Leave it", "Done".
+ * Sprint 11 (S-11-1): one run button's words in parts. `who` is the card the button
+ * comes from (a breaker, Bank Job), named first; `sub` is a subroutine's text (shortened
+ * first when space runs out); `price` is never shortened. Rez and choice buttons name
+ * their card in `what` ("Rez Enigma"), so their `who` is null.
  */
-export function optionLabel(o: CardOption, run: RunView, options: readonly CardOption[], rig: RigIds): string {
+export interface RunOptionParts {
+  /** Card name the button comes from, or null. */
+  who: string | null;
+  /** That card's id (the test hook's `source`), or null. */
+  source: string | null;
+  what: string;
+  sub?: string;
+  /** "2 credits", "Cyberfeeder pays", or '' (no price). */
+  price: string;
+}
+
+/** Options of breaker ability `uid:ability` at this step. */
+function abilityGroup(options: readonly CardOption[], uid: string, ability: number): CardOption[] {
+  return options.filter((x) => x.action.type === 'use_ability' && x.action.uid === uid && x.action.ability === ability);
+}
+
+/**
+ * The words of one run option, e.g. {who: "Battering Ram", what: "break barrier sub", price: "2 credits"}.
+ * Which options exist, prices and refusals: the engine's; names, ICE type and "+N": card data;
+ * "up to N": the most subroutines among the engine's offered options for that ability.
+ */
+export function runOptionParts(o: CardOption, run: RunView, options: readonly CardOption[], rig: RigIds): RunOptionParts {
   const a: Action = o.action;
+  const plain = (what: string, price = ''): RunOptionParts => ({ who: null, source: null, what, price });
   switch (a.type) {
     case 'rez':
-      return `${TERMS.rez} ${nameOf(run.ice?.cardId)} · ${priceText(o.cost)}`;
+      return plain(`${TERMS.rez} ${nameOf(run.ice?.cardId)}`, priceText(o.cost));
     case 'jack_out':
-      return TERMS.jackOut;
+      return plain(TERMS.jackOut);
     case 'use_ability': {
       const breaker = rig[a.uid] ?? null;
       const ability = breaker ? getCard(breaker)?.abilities?.[a.ability] : undefined;
-      let what: string;
-      if (ability?.op === 'strength') what = `+${ability.amount} ${TERMS.strength.toLowerCase()}`;
-      else {
-        const sub = a.sub !== undefined ? run.ice?.subroutines[a.sub]?.text : undefined;
-        what = sub ? `${TERMS.break} "${sub}"` : TERMS.break;
+      const who = nameOf(breaker, 'Breaker');
+      const price = payText(o, rig);
+      if (ability?.op === 'strength') return { who, source: breaker, what: `+${ability.amount} ${TERMS.str}`, price };
+      const type = ability?.op === 'break' ? `${ICE_TYPE[ability.iceType]} ` : '';
+      const group = abilityGroup(options, a.uid, a.ability);
+      if (a.subs !== undefined) {
+        // S-11-2: "up to N" only when the engine offers a pick of N >= 2 (2+ open subroutines).
+        const most = Math.max(1, ...group.map((x) => (x.action.type === 'use_ability' ? (x.action.subs?.length ?? 1) : 1)));
+        const what = group.length > 1 && most >= 2 ? `${TERMS.break.toLowerCase()} up to ${most} ${type}${TERMS.subs}` : `${TERMS.break.toLowerCase()} ${type}${TERMS.sub}`;
+        return { who, source: breaker, what, price };
       }
-      // Several breakers can act on this ICE: say which one.
-      const who = breakersIn(options).length > 1 ? `${nameOf(breaker, 'Breaker')}: ` : '';
-      return `${who}${what} · ${payText(o, rig)}`;
+      const parts: RunOptionParts = { who, source: breaker, what: `${TERMS.break.toLowerCase()} ${type}${TERMS.sub}`, price };
+      // The subroutine's text only when this ability could break another one too.
+      const open = new Set(group.map((x) => (x.action.type === 'use_ability' ? x.action.sub : undefined)));
+      const sub = a.sub !== undefined ? run.ice?.subroutines[a.sub]?.text : undefined;
+      if (sub && open.size > 1) parts.sub = sub;
+      return parts;
     }
-    case 'activate':
-      // S-07-4: "Take 8 credits from Bank Job" (the amount on the card, from the engine).
-      return abilityLabel(rig[a.uid] ?? null, a.ability, o.gain);
+    case 'activate': {
+      // S-07-4 / S-10-3: "Bank Job: take credits" (the amount control picks how many).
+      const cardId = rig[a.uid] ?? null;
+      const label = abilityLabel(cardId, a.ability, o.gain);
+      return { who: nameOf(cardId, 'Card'), source: cardId, what: label.replace(/^./, (c) => c.toLowerCase()), price: o.cost > 0 ? priceText(o.cost) : '' };
+    }
     case 'steal':
     case 'trash': {
       const card = run.access?.cards[a.card];
       const verb = a.type === 'steal' ? TERMS.steal : TERMS.trash;
       const named = openAccess(run) > 1 ? `${verb} ${nameOf(card?.cardId, 'card')}` : verb;
-      return a.type === 'trash' ? `${named} · ${priceText(o.cost)}` : named;
+      return plain(named, a.type === 'trash' ? priceText(o.cost) : '');
     }
     case 'pass':
       switch (run.step) {
         case 'approach':
-          return "Don't rez";
+          return plain("Don't rez");
         case 'encounter':
-          return letFireLabel(run.letFire, run.ice?.subroutines) ?? 'Let it through';
+          return plain(letFireLabel(run.letFire, run.ice?.subroutines) ?? 'Let it through');
         case 'continue':
-          return 'Continue';
+          return plain('Continue');
         case 'access':
-          return options.some((x) => x.action.type === 'trash') ? 'Leave it' : 'Done';
+          return plain(options.some((x) => x.action.type === 'trash') ? 'Leave it' : 'Done');
         case 'success':
-          return 'Access cards';
+          return plain('Access cards');
       }
-      return 'Pass';
+      return plain('Pass');
     default:
-      return a.type;
+      return plain(a.type);
   }
+}
+
+/** Shortest a shortened subroutine text / card name gets (characters before the "…"). */
+const MIN_SUB_CHARS = 3;
+const MIN_NAME_CHARS = 4;
+
+/** Cuts `s` to `n` characters (no trailing space) and adds "…". */
+function cut(s: string, n: number): string {
+  return `${s.slice(0, n).trimEnd()}…`;
+}
+
+/** The label from its parts, with the subroutine text cut to `subChars` and the name to `whoChars`. */
+export function partsLabel(p: RunOptionParts, subChars = Infinity, whoChars = Infinity): string {
+  const who = p.who === null ? '' : `${p.who.length > whoChars ? cut(p.who, whoChars) : p.who}: `;
+  const sub = p.sub === undefined ? '' : ` "${p.sub.length > subChars ? cut(p.sub, subChars) : p.sub}"`;
+  return `${who}${p.what}${sub}${p.price ? ` · ${p.price}` : ''}`;
+}
+
+/**
+ * Sprint 11: the label, then ever shorter versions for a button that is too small for it
+ * (owner Q1 A / DECISIONS 2026-11-17): first the subroutine text ('"End the r…"'), then the
+ * card name ("Battering…"). The price and the rest are never cut. First = the full label.
+ */
+export function labelLadder(p: RunOptionParts): string[] {
+  const out = [partsLabel(p)];
+  const subLen = p.sub?.length ?? 0;
+  for (let n = subLen - 2; n >= MIN_SUB_CHARS; n--) out.push(partsLabel(p, n));
+  const subMin = p.sub !== undefined ? Math.min(subLen, MIN_SUB_CHARS) : Infinity;
+  const whoLen = p.who?.length ?? 0;
+  for (let n = whoLen - 2; n >= MIN_NAME_CHARS; n--) out.push(partsLabel(p, subMin, n));
+  return [...new Set(out)];
+}
+
+/**
+ * The label of one run option, e.g. "Rez Wall of Static · 3 credits", "Don't rez",
+ * "Battering Ram: +1 str · 1 credit", "Battering Ram: break barrier sub · 2 credits",
+ * 'Gordian Blade: break code gate sub "End the run" · 1 credit', "Let it through",
+ * "Continue", "Jack out", "Steal", "Trash · 4 credits", "Leave it", "Done", "Bank Job: take credits".
+ */
+export function optionLabel(o: CardOption, run: RunView, options: readonly CardOption[], rig: RigIds): string {
+  return partsLabel(runOptionParts(o, run, options, rig));
 }
 
 /** A card ability's label from card data with `{gain}` filled from the option ("Take 2 credits"). */

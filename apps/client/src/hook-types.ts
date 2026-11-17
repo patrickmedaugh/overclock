@@ -88,7 +88,12 @@ export interface TargetSnapshot {
 
 /** A big button in the run panel (or the Run button), drawn from engine options. */
 export interface PanelButtonSnapshot {
+  /** What the button says as drawn (Sprint 11: maybe shortened to fit, see `fullLabel`). */
   label: string;
+  /** Sprint 11 (S-11-1): the run button's label before any shortening (absent elsewhere). */
+  fullLabel?: string;
+  /** Sprint 11: the card id the run button comes from (a breaker, Bank Job), else null. */
+  source?: string | null;
   /** Bright (the engine would accept it) vs dim (shown, refused with a hint when tapped). */
   lit: boolean;
   reject: string | null;

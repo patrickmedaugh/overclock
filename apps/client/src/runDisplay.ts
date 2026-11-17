@@ -12,7 +12,7 @@ import { createCardBack, createCardFace, glowRoundRect } from './cardFace';
 import type { Box, RunSnapshot, TraceSnapshot } from './hook-types';
 import type { Decision } from './session';
 import { type BoardLayout, accessSlots, bidLayout, buttonGrid } from './layout';
-import { type RigIds, choiceOptionLabel, choiceStepLabel, decidingText, infoLines, isRunChoice, nameOf, optionLabel, runTitle, stepLabel } from './runText';
+import { type RigIds, type RunOptionParts, choiceOptionLabel, choiceStepLabel, decidingText, infoLines, isRunChoice, labelLadder, nameOf, runOptionParts, runTitle, stepLabel } from './runText';
 import { TERMS, priceText, serverLabel } from './terms';
 import {
   type TraceChoice,
@@ -54,12 +54,17 @@ export interface TableBoxes {
 /** One button as shown: an engine option, or a step of a "break up to 2" pick (S-08-4). */
 interface Shown {
   option: CardOption;
+  /** The full label (Sprint 11: the button may draw a shortened one, see `labelLadder`). */
   label: string;
+  /** Sprint 11: the label's parts, for shortening; absent = never shortened. */
+  parts?: RunOptionParts;
   role?: 'multi' | 'toggle' | 'confirm' | 'back' | 'bid_dec' | 'bid_inc' | 'bid_max' | 'bid_go' | 'amount_open' | 'amount_back';
   key?: string;
   sub?: number;
   picked?: boolean;
   lit?: boolean;
+  /** `multi`: the most subroutines one pick may break (the engine's offered options). */
+  most?: number;
 }
 
 /** "uid:ability" of a breaker ability whose options pick subroutines (`subs`). */
@@ -69,6 +74,22 @@ function multiKey(o: CardOption): string | null {
 }
 
 const sameSubs = (a: readonly number[], b: readonly number[]) => a.length === b.length && a.every((x, i) => x === b[i]);
+
+/** Most subroutines one offered option of a "break up to N" ability breaks. */
+const mostSubs = (group: readonly CardOption[]) => Math.max(1, ...group.map((x) => (x.action.type === 'use_ability' ? (x.action.subs?.length ?? 1) : 1)));
+
+/** A plain label as parts (choice buttons, the pick's own buttons). */
+const plainParts = (what: string): RunOptionParts => ({ who: null, source: null, what, price: '' });
+
+/**
+ * Sprint 11: the smallest label text a run button may draw before its label is shortened
+ * (`labelLadder`): the QA-S3-4 floors. A button drawn at 14 px or more (844x390, desktop)
+ * keeps 14; a smaller one (640x360, 891x296) may shrink to 11.5 px.
+ */
+export function minButtonPx(scale: number): number {
+  const base = Math.max(12, Math.round(14 * Math.min(scale, 1.15)));
+  return base >= 14 ? 14 : 11.5;
+}
 
 const FROM: Record<string, string> = { hq: 'From HQ', rd: 'From R&D', archives: 'From Archives' };
 
@@ -87,8 +108,8 @@ export class RunDisplay {
   private accessKey = '';
   private stepKey = '';
   private shown: Shown[] = [];
-  /** S-08-4: the open "break up to 2" pick (which breaker ability, which subroutines picked). */
-  private multi: { key: string; picked: number[] } | null = null;
+  /** S-08-4: the open "break up to 2" pick (which breaker ability, which subroutines picked, oldest first). */
+  private multi: { key: string; picked: number[]; most: number } | null = null;
   /** Strike lines of the listed subroutines (for the break animation). */
   private strikes: Graphics[] = [];
   private accessBoxes: { cardId: string | null; box: Box }[] = [];
@@ -169,14 +190,15 @@ export class RunDisplay {
     switch (b.role) {
       case 'multi':
         if (b.option.reject !== null) return b.option.action;
-        this.multi = { key: b.key!, picked: [] };
+        this.multi = { key: b.key!, picked: [], most: b.most ?? 2 };
         return null;
       case 'toggle': {
         const m = this.multi;
         if (!m) return null;
         const sub = b.sub!;
         if (m.picked.includes(sub)) m.picked = m.picked.filter((x) => x !== sub);
-        else m.picked = [...m.picked, sub].sort((x, y) => x - y).slice(-2);
+        // Sprint 11: a pick past the most drops the oldest pick (not the lowest subroutine).
+        else m.picked = [...m.picked, sub].slice(-m.most);
         return null;
       }
       case 'back':
@@ -213,46 +235,50 @@ export class RunDisplay {
 
   /**
    * S-08-4: Battering Ram's options (one per set of 1-2 subroutines) shown as one
-   * "Break up to 2" button; once tapped, one toggle per subroutine, "Break N" and "Back".
+   * "break up to 2" button; once tapped, one toggle per subroutine, "Break N" and "Back".
+   * S-11-2: a group with one offered option (one open subroutine) is a plain button that
+   * sends it at once; the pick opens only with 2+ options, its hint "Pick up to N".
    */
-  private arrange(options: readonly CardOption[], labels: readonly string[], panel: RunView): Shown[] {
+  private arrange(options: readonly CardOption[], parts: readonly RunOptionParts[], panel: RunView): Shown[] {
     const groups = new Map<string, CardOption[]>();
     for (const o of options) {
       const k = multiKey(o);
       if (k) groups.set(k, [...(groups.get(k) ?? []), o]);
     }
-    if (this.multi && !groups.has(this.multi.key)) this.multi = null;
+    if (this.multi && (groups.get(this.multi.key)?.length ?? 0) < 2) this.multi = null;
     const m = this.multi;
     if (m) {
       const group = groups.get(m.key)!;
+      m.most = mostSubs(group);
+      if (m.picked.length > m.most) m.picked = m.picked.slice(-m.most);
       const subs = [...new Set(group.flatMap((o) => (o.action.type === 'use_ability' ? (o.action.subs ?? []) : [])))].sort((a, b) => a - b);
       const out: Shown[] = subs.map((sub) => {
         const picked = m.picked.includes(sub);
         const text = panel.ice?.subroutines[sub]?.text ?? `Subroutine ${sub + 1}`;
         return { option: group[0]!, label: `${picked ? '✓ ' : ''}"${text}"`, role: 'toggle', sub, picked, lit: true };
       });
-      const exact = group.find((o) => o.action.type === 'use_ability' && sameSubs(o.action.subs ?? [], m.picked));
+      const exact = group.find((o) => o.action.type === 'use_ability' && sameSubs(o.action.subs ?? [], [...m.picked].sort((x, y) => x - y)));
       const n = m.picked.length;
-      out.push({ option: exact ?? group[0]!, label: n > 0 ? `${TERMS.break} ${n} · ${priceText((exact ?? group[0]!).cost)}` : 'Pick 1 or 2', role: 'confirm', lit: !!exact && exact.reject === null });
+      const hint = m.most >= 2 ? `Pick up to ${m.most}` : 'Pick 1';
+      out.push({ option: exact ?? group[0]!, label: n > 0 ? `${TERMS.break} ${n} · ${priceText((exact ?? group[0]!).cost)}` : hint, role: 'confirm', lit: !!exact && exact.reject === null });
       out.push({ option: group[0]!, label: 'Back', role: 'back', lit: true });
       return out;
     }
     const out: Shown[] = [];
     const done = new Set<string>();
+    const shownOf = (i: number): Shown => ({ option: options[i]!, label: labelLadder(parts[i]!)[0]!, parts: parts[i]! });
     options.forEach((o, i) => {
       const k = multiKey(o);
-      if (!k) {
-        out.push({ option: o, label: labels[i]! });
+      const group = k ? groups.get(k)! : [];
+      if (!k || group.length < 2) {
+        out.push(shownOf(i));
         return;
       }
       if (done.has(k)) return;
       done.add(k);
-      const group = groups.get(k)!;
       const best = group.find((x) => x.reject === null) ?? group[0]!;
-      const most = Math.max(...group.map((x) => (x.action.type === 'use_ability' ? (x.action.subs?.length ?? 1) : 1)));
-      // The single-sub option's label names the breaker when several can act ("Battering Ram: Break ... · 2 credits").
-      const who = labels[i]!.includes(': Break') ? `${labels[i]!.split(': ')[0]}: ` : '';
-      out.push({ option: best, label: `${who}${TERMS.break} up to ${most} · ${priceText(best.cost)}`, role: 'multi', key: k });
+      // The label ("Battering Ram: break up to 2 barrier subs · 2 credits") is the best option's.
+      out.push({ ...shownOf(options.indexOf(best)), role: 'multi', key: k, most: mostSubs(group) });
     });
     return out;
   }
@@ -298,9 +324,9 @@ export class RunDisplay {
    * Sprint 10 (S-10-3): options that name an amount (one `activate` per amount, Bank Job)
    * show as one "Take credits" button (role `amount_open`); everything else as given.
    */
-  private groupAmounts(options: readonly CardOption[], labels: readonly string[]): { options: CardOption[]; labels: string[]; open: Map<number, string> } {
+  private groupAmounts(options: readonly CardOption[], labels: readonly RunOptionParts[]): { options: CardOption[]; labels: RunOptionParts[]; open: Map<number, string> } {
     const outO: CardOption[] = [];
-    const outL: string[] = [];
+    const outL: RunOptionParts[] = [];
     const open = new Map<number, string>();
     const seen = new Set<string>();
     options.forEach((o, i) => {
@@ -560,11 +586,11 @@ export class RunDisplay {
     } else if (this.amountPick) {
       boxes = this.drawAmount(options, this.amountPick.key, color, animate, newStep);
     } else {
-      const labels0 = options.map((o) => (choice ? choiceOptionLabel(o, choice, rig) : optionLabel(o, panel, options, rig)));
+      // Sprint 11: words in parts (card name first), so a long label can be shortened to fit.
+      const parts0 = options.map((o) => (choice ? plainParts(choiceOptionLabel(o, choice, rig)) : runOptionParts(o, panel, options, rig)));
       // Sprint 10: one "Take credits" for all of Bank Job's amounts.
-      const g = choice ? { options: [...options], labels: labels0, open: new Map<number, string>() } : this.groupAmounts(options, labels0);
-      const labels = g.labels;
-      this.shown = choice ? options.map((option, i) => ({ option, label: labels[i]! })) : this.arrange(g.options, labels, panel);
+      const g = choice ? { options: [...options], labels: parts0, open: new Map<number, string>() } : this.groupAmounts(options, parts0);
+      this.shown = choice ? options.map((option, i) => ({ option, label: labelLadder(parts0[i]!)[0]!, parts: parts0[i]! })) : this.arrange(g.options, g.labels, panel);
       if (!choice) for (const x of this.shown) {
         const k = amountKey(x.option);
         if (k !== null) {
@@ -579,10 +605,11 @@ export class RunDisplay {
         maxW: Math.round(200 * Math.min(s, 1.3)),
         maxH: Math.max(44, Math.round(64 * Math.min(s, 1.2))),
       });
+      const floor = minButtonPx(s);
       this.shown.forEach((x, i) => {
         const b = this.button(i);
         b.root.visible = true;
-        b.set(boxes[i]!, x.label, x.lit ?? x.option.reject === null, color);
+        b.set(boxes[i]!, x.parts ? labelLadder(x.parts) : x.label, x.lit ?? x.option.reject === null, color, false, false, floor);
         if (animate && newStep) b.pop(this.ui);
       });
       for (let i = this.shown.length; i < this.pool.length; i++) this.pool[i]!.root.visible = false;
@@ -636,7 +663,10 @@ export class RunDisplay {
       infoBox: { ...layout.runInfo },
       infoFontPx: this.infoFontPx,
       buttons: this.shown.map((x, i) => ({
-        label: x.label,
+        // Sprint 11: what the button says as drawn (maybe shortened), the full label, its card.
+        label: this.pool[i]!.text,
+        fullLabel: x.label,
+        source: x.parts?.source ?? null,
         lit: x.lit ?? x.option.reject === null,
         reject: x.role === 'toggle' || x.role === 'back' || x.role === 'amount_back' || x.role === 'bid_dec' || x.role === 'bid_inc' || x.role === 'bid_max' ? null : x.option.reject,
         box: { ...boxes[i]! },
