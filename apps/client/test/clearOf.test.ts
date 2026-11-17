@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { clearOf } from '../src/geometry';
+import { collapseRepeats } from '../src/hints';
 import type { Box } from '../src/hook-types';
 
 const overlaps = (a: Box, b: Box) => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
@@ -27,5 +28,14 @@ describe('clearOf (S-10-6, QA-S9-4)', () => {
     const r = clearOf(slot, boxes, 2);
     for (const b of boxes) expect(overlaps(r, b)).toBe(false);
     expect(r.width * r.height).toBeGreaterThan(0);
+  });
+});
+
+describe('collapseRepeats (S-10-6: toasts stay short enough to read)', () => {
+  it('identical lines in a row become one with a count; others stay', () => {
+    expect(collapseRepeats('PAD Campaign: +1 credit\nPAD Campaign: +1 credit\nPAD Campaign: +1 credit')).toBe('PAD Campaign: +1 credit ×3');
+    expect(collapseRepeats('A\nB\nA')).toBe('A\nB\nA');
+    expect(collapseRepeats('Not enough credits')).toBe('Not enough credits');
+    expect(collapseRepeats(collapseRepeats('X\nX'))).toBe('X ×2');
   });
 });

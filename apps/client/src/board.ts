@@ -21,7 +21,7 @@ import { Hand, type HandCard } from './hand';
 import { DROP_WAIT_MS, LIFT_MS, RETURN_MS, SWIPE_TOLERANCE, VIEW_FADE_MS, type ViewHit, ghostCenter, swipeIndex, targetAt, viewHit } from './handGesture';
 import type { AnimRecord, Box, EndTurnClock, InstalledSnapshot, Insets, LayoutSnapshot, SideLayout, TargetSnapshot } from './hook-types';
 import type { Decision, Presentation } from './session';
-import { choiceHint, conditionText, hintFor, rejectText } from './hints';
+import { choiceHint, collapseRepeats, conditionText, hintFor, rejectText } from './hints';
 import { basicOptionLabel, bidWaitText, isTraceChoice, linkText, meatDamageText, tagsChangedText, taggedText, taggedTrashText, traceNotices } from './traceText';
 import { attachPress, inputTime, noteRelease } from './input';
 import type { FederatedPointerEvent } from 'pixi.js';
@@ -3011,6 +3011,8 @@ export class Board {
    * `wide` (QA-S9-1): a long notice (a trace's result) gets a wide bubble over the table instead of the rail's slot.
    */
   private showHint(text: string, kind: 'hint' | 'notice' = 'hint', wide = false): void {
+    // S-10-6: the same line several times (PAD Campaign at a turn's start) shows once, "×4".
+    text = collapseRepeats(text);
     if (this.hint) {
       this.ui.cancel(this.hint.root);
       this.hint.root.destroy({ children: true });
@@ -3034,18 +3036,29 @@ export class Board {
     // The slot is sized so hints wrap at full size; shrink only if one ever does not fit, and
     // never below HINT_MIN_PX: a slot too small for that (buttons took the room) gives way to
     // the room over the table, clear of every button.
-    const measure = (a: Box) => {
-      label.style.wordWrapWidth = Math.max(60, a.width - 2 * padX - 2 * ring);
+    // Wrapped at the slot's width scaled back up by `k`, then drawn at `k`: a narrow slot
+    // gets fewer, smaller lines rather than many lines that would not fit its height.
+    const minK = HINT_MIN_PX / fontSize;
+    const at = (a: Box, k: number) => {
+      label.style.wordWrapWidth = Math.max(60, (a.width - 2 * ring) / k - 2 * padX);
       const w = label.width + 2 * padX;
       const h = Math.max(32, label.height + 2 * padY);
       return { a, w, h, fit: Math.min(1, (a.width - 2 * ring) / w, (a.height - 2 * ring) / h) };
     };
+    /** The largest size (down to 10 px text) at which the toast fits `a`; `ok` false if none does. */
+    const measure = (a: Box) => {
+      for (let k = 1; k >= minK - 1e-9; k -= 0.05) {
+        const m = at(a, Math.max(k, minK));
+        if (m.fit >= Math.max(k, minK) - 1e-6) return { ...m, fit: Math.min(m.fit, 1), ok: true };
+      }
+      return { ...at(a, minK), ok: false };
+    };
     let m = measure(primary);
-    if (fontSize * m.fit < HINT_MIN_PX) {
+    if (!m.ok) {
       const table = measure(this.tableHintSlot(layout));
-      m = table.fit > m.fit ? table : measure(primary);
+      m = table.ok || table.fit > m.fit ? table : measure(primary);
     }
-    const fit = Math.max(m.fit, HINT_MIN_PX / fontSize);
+    const fit = Math.max(m.fit, minK);
     const { a: area, w, h } = m;
     const g = new Graphics();
     const tone = kind === 'notice' ? theme.runner : theme.warn;
@@ -3133,7 +3146,14 @@ export class Board {
   /** Where the toast goes: the hint slot, or (sideways, during a run) End turn's slot, clear of the run panel. */
   /** S-10-6: the room over the table (the wide trace note's), clear of every button and of the game-over box. */
   private tableHintSlot(layout: BoardLayout): Box {
-    const slot = clearOf(this.baseHintSlot(layout, true), this.buttonBoxes(), Math.max(4, Math.round(6 * layout.scale)));
+    const b = layout.board;
+    const sc = Math.min(layout.scale, 1.2);
+    const w = Math.min(b.width - 2 * layout.pad, Math.round(560 * sc));
+    const h = Math.min(b.height / 2, Math.round(110 * sc));
+    const over = { x: Math.round(b.x + (b.width - w) / 2), y: Math.round(b.y + b.height * 0.4 - h / 2), width: w, height: h };
+    // During a run its panel (info and buttons) stays clear too.
+    const panel = panelUp(this.view) ? [layout.runInfo, layout.runButtons] : [];
+    const slot = clearOf(over, [...this.buttonBoxes(), ...panel], Math.max(4, Math.round(6 * layout.scale)));
     return this.gameOver ? this.clearOfGameOver(layout, slot) : slot;
   }
 
