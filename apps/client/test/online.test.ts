@@ -1,9 +1,9 @@
 // U3: OnlineMatch against a fake WebSocket and a fake clock (no server).
-import type { Action, PlayerView } from '@overclock/engine';
+import { type Action, type PlayerView, RULES_VERSION } from '@overclock/engine';
 import { LocalMatch } from '@overclock/match';
 import { PING, PONG, STORAGE_KEY, type ServerMsg, encodeMsg } from '@overclock/protocol';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { ONLINE_TIMING, type OnlineDeps, OnlineMatch, type OnlinePhase, type SocketLike, readStoredSeat } from '../src/online';
+import { ONLINE_TIMING, type OnlineDeps, OnlineMatch, type OnlinePhase, type SocketLike, readStoredSeat, seatOutdated } from '../src/online';
 import type { Presentation } from '../src/session';
 
 class FakeSocket implements SocketLike {
@@ -102,6 +102,7 @@ function deps(): OnlineDeps {
     clearTimeout: clock.clearTimeout,
     random: () => 0.5,
     visible: () => visible,
+    now: () => 1_000 + clock.now,
   };
 }
 
@@ -142,7 +143,8 @@ describe('OnlineMatch: start a game', () => {
     last().serverSend({ v: 1, t: 'lobby', code: 'K7QF', seat: 'corp' });
     expect(phases).toEqual([{ kind: 'lobby', code: 'K7QF', seat: 'corp' }]);
     expect(m.gameCode).toBe('K7QF');
-    expect(JSON.parse(store.getItem(STORAGE_KEY)!)).toEqual({ server: SERVER, code: 'K7QF', seat: 'corp', token: 'tok' });
+    // Sprint 11: with the rules version and when it was stored.
+    expect(JSON.parse(store.getItem(STORAGE_KEY)!)).toEqual({ server: SERVER, code: 'K7QF', seat: 'corp', token: 'tok', rulesVersion: RULES_VERSION, savedAt: 1_000 });
     last().serverSend({ v: 1, t: 'sync', seq: 0, view: corpView, opponent: 'here' });
     expect(phases.at(-1)).toEqual({ kind: 'playing' });
     expect(m.seat).toBe('corp');
@@ -368,7 +370,7 @@ describe('OnlineMatch: coming back', () => {
     expect(store.getItem(STORAGE_KEY)).toBeNull();
   });
 
-  it('leave() stops for good but keeps the seat for Rejoin', () => {
+  it('leave() stops for good but keeps the seat for Continue', () => {
     const { m } = joined();
     m.leave();
     expect(sockets[0]!.closed).not.toBeNull();
@@ -376,5 +378,71 @@ describe('OnlineMatch: coming back', () => {
     expect(sockets).toHaveLength(1);
     expect(store.getItem(STORAGE_KEY)).not.toBeNull();
     expect(clock.pending()).toBe(0);
+  });
+});
+
+describe('Sprint 11: Leave for now', () => {
+  it('in a started game, leave() tells the service first (leave), then closes normally; the seat stays with a fresh savedAt', () => {
+    const { m } = joined();
+    clock.advance(5_000);
+    m.leave();
+    const s = sockets[0]!;
+    expect(s.msgs().at(-1)).toEqual({ v: 1, t: 'leave' });
+    expect(s.closed).toEqual({ code: 1000, reason: 'left' });
+    expect(JSON.parse(store.getItem(STORAGE_KEY)!)).toEqual({ server: SERVER, code: 'K7QF', seat: 'runner', token: 'tok', rulesVersion: RULES_VERSION, savedAt: 6_000 });
+    expect(m.status().connection).toBe('closed');
+  });
+
+  it('leave() of a finished game does not store it again (no Continue for it)', () => {
+    const { m } = joined();
+    last().serverSend({ v: 1, t: 'update', seq: 1, view: { ...runnerView, result: { winner: 'runner', reason: 'agenda_points' } } as PlayerView, events: [] });
+    expect(store.getItem(STORAGE_KEY)).toBeNull();
+    m.leave();
+    expect(store.getItem(STORAGE_KEY)).toBeNull();
+  });
+
+  it('presence away + left: status says the other player left for now; back here clears it', () => {
+    const { m } = joined();
+    const seen: unknown[] = [];
+    m.onStatus((s) => seen.push(s));
+    last().serverSend({ v: 1, t: 'presence', opponent: 'away', left: true });
+    expect(m.status()).toEqual({ connection: 'open', opponent: 'away', left: true });
+    last().serverSend({ v: 1, t: 'presence', opponent: 'here' });
+    expect(m.status()).toEqual({ connection: 'open', opponent: 'here' });
+    // Away without leaving (signal lost) is not "left".
+    last().serverSend({ v: 1, t: 'presence', opponent: 'away' });
+    expect(m.status()).toEqual({ connection: 'open', opponent: 'away' });
+    expect(seen).toHaveLength(3);
+  });
+
+  it('a sync while the other player is left carries it', () => {
+    const m = OnlineMatch.resume(deps(), { server: SERVER, code: 'K7QF', seat: 'corp', token: 'tok' });
+    last().serverOpen();
+    last().serverSend({ v: 1, t: 'sync', seq: 4, view: corpView, opponent: 'away', left: true });
+    expect(m.status()).toEqual({ connection: 'open', opponent: 'away', left: true });
+  });
+
+  it('a lobby given up still sends leave and forgets (unchanged); before playing, leave() sends nothing', () => {
+    const m = OnlineMatch.create(deps(), 'corp');
+    last().serverOpen();
+    last().serverSend({ v: 1, t: 'seated', code: 'K7QF', seat: 'corp', token: 'tok' });
+    last().serverSend({ v: 1, t: 'lobby', code: 'K7QF', seat: 'corp' });
+    m.leave();
+    expect(last().msgs().some((x) => (x as { t?: string }).t === 'leave')).toBe(false);
+  });
+
+  it('readStoredSeat keeps rulesVersion / savedAt; seatOutdated only for another version', () => {
+    store.setItem(STORAGE_KEY, JSON.stringify({ server: SERVER, code: 'K7QF', seat: 'corp', token: 't', rulesVersion: RULES_VERSION, savedAt: 5 }));
+    const now = readStoredSeat(store, SERVER)!;
+    expect(now).toEqual({ server: SERVER, code: 'K7QF', seat: 'corp', token: 't', rulesVersion: RULES_VERSION, savedAt: 5 });
+    expect(seatOutdated(now)).toBe(false);
+    store.setItem(STORAGE_KEY, JSON.stringify({ server: SERVER, code: 'K7QF', seat: 'corp', token: 't', rulesVersion: RULES_VERSION - 1 }));
+    expect(seatOutdated(readStoredSeat(store, SERVER)!)).toBe(true);
+    // Seats stored before Sprint 11 have no version: the service decides.
+    store.setItem(STORAGE_KEY, JSON.stringify({ server: SERVER, code: 'K7QF', seat: 'corp', token: 't' }));
+    expect(seatOutdated(readStoredSeat(store, SERVER)!)).toBe(false);
+    // A malformed version is dropped (not trusted).
+    store.setItem(STORAGE_KEY, JSON.stringify({ server: SERVER, code: 'K7QF', seat: 'corp', token: 't', rulesVersion: 'x' }));
+    expect(readStoredSeat(store, SERVER)).toEqual({ server: SERVER, code: 'K7QF', seat: 'corp', token: 't' });
   });
 });

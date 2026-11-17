@@ -13,11 +13,13 @@ import type { AnimRecord } from './hook-types';
 import { HotSeat, seedFromUrl } from './hotseat';
 import { joinCodeFromUrl, shareLink, shareText } from './links';
 import { lastInput } from './input';
-import { coverFor } from './passCover';
+import { coverFor, coverText } from './passCover';
 import { readSafeArea } from './safeArea';
 import type { Session } from './session';
-import { FAIL_TEXT, START_TEXT, StartScreen } from './startScreen';
-import { OnlineMatch, type StoreLike, browserDeps, readStoredSeat } from './online';
+import { FAIL_TEXT, START_TEXT, StartScreen, continueOnlineLabel } from './startScreen';
+import { OnlineMatch, type StoreLike, browserDeps, forgetStoredSeat, readStoredSeat, seatOutdated } from './online';
+import { type HotSeatSave, SaveWriter, forgetHotSeatSave, readHotSeatSave } from './savedGame';
+import { SIDE_NAME } from './terms';
 import { theme } from './theme';
 import { Tweens } from './tween';
 
@@ -59,6 +61,13 @@ async function start(): Promise<void> {
   } catch {
     storage = null;
   }
+  // Sprint 11 (S-11-3): the pass-the-phone game saves itself after every accepted move
+  // (off the tap path), and at once when the page is hidden or closed.
+  const saver = new SaveWriter(storage);
+  window.addEventListener('pagehide', () => saver.flush());
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') saver.flush();
+  });
 
   // The game being played (null on the start screen). The board talks only to the Session interface.
   let game: Session | null = null;
@@ -162,7 +171,7 @@ async function start(): Promise<void> {
     exitRequests++;
     if (__NATIVE__) void import('@capacitor/app').then(({ App }) => App.exitApp());
   };
-  // Online, Leave keeps the seat (Rejoin) and goes to the start screen.
+  // Pass-the-phone: Leave closes the app (the game is saved). Online, Leave for now keeps the seat and goes to the start screen.
   let leaveGame: () => void = exit;
   let newGame = (): void => window.location.assign(`${window.location.pathname}?play=here${coverOn ? '' : '&cover=off'}`);
   const back = (): BackAction => {
@@ -197,10 +206,18 @@ async function start(): Promise<void> {
 
   /** Test hook: wall-clock ms (`Date.now()` scale) when the board last took a presentation; 0 before. */
   let shownAt = 0;
-  /** Plays `session` on the board (from the start screen, or at once with `?play=here`). */
-  const play = (session: Session): void => {
+  /**
+   * Plays `session` on the board (from the start screen, or at once with `?play=here`).
+   * `coverTo`: a restored pass-the-phone game opens behind the "Pass to …" cover for that seat.
+   */
+  const play = (session: Session, coverTo?: Side): void => {
     game = session;
     start.hide();
+    if (session instanceof HotSeat) {
+      // One save slot: a new game replaces the old save straight away.
+      session.onSaved((g) => saver.mark(g));
+      saver.mark(session);
+    }
     if (session instanceof OnlineMatch) {
       const m = session;
       board.setOnline(true);
@@ -233,6 +250,8 @@ async function start(): Promise<void> {
       invalidate();
     });
     board.render(session.view(), [], session.decision());
+    // Sprint 11: nothing of a restored game shows until the right player takes the phone.
+    if (coverOn && coverTo) board.setCover(coverText(coverTo));
     invalidate();
     // Test hook for Playwright. Left out of the Android app (__TEST_HOOK__ is a
     // compile-time constant, so the bundler drops this whole block there).
@@ -277,6 +296,22 @@ async function start(): Promise<void> {
   };
   const playHere = () => play(new HotSeat(seedFromUrl(window.location.search), deckSet ? { deckSet } : undefined));
 
+  // Sprint 11: the saved pass-the-phone game, read (replayed) once, when the start screen first asks.
+  let hereSave: HotSeatSave | null = null;
+  const savedHere = (): HotSeatSave => (hereSave ??= readHotSeatSave(storage));
+  const continueHere = (): void => {
+    const saved = savedHere();
+    hereSave = { kind: 'none' };
+    if (saved.kind === 'ready') {
+      const session = HotSeat.restore(saved.match);
+      play(session, session.toAct);
+    } else {
+      // Owner Q3 A: saved under other rules: a plain note, and a new game is one tap away.
+      forgetHotSeatSave(storage);
+      start.show('home', saved.kind === 'outdated' ? { note: START_TEXT.outdated } : {});
+    }
+  };
+
   /**
    * Runs an online game from the start screen: the lobby while waiting, the
    * board once both phones are in, the reason on the start screen if it fails.
@@ -316,6 +351,11 @@ async function start(): Promise<void> {
   // S-06-1: the start screen.
   const start = new StartScreen(document.body, {
     playHere,
+    savedHere: () => {
+      const s = savedHere();
+      return s.kind === 'ready' ? { turn: s.turn } : s.kind === 'outdated' ? { turn: null } : null;
+    },
+    continueHere,
     onlineReady: () => serverUrl !== '',
     startOnline: (side) => {
       start.show('message', { title: START_TEXT.startGame, message: START_TEXT.connecting });
@@ -325,11 +365,19 @@ async function start(): Promise<void> {
       start.show('message', { title: `Joining ${code}`, message: START_TEXT.connecting });
       goOnline(OnlineMatch.join(deps(), code), (error) => start.show('join', { code, error }));
     },
-    rejoinCode: () => readStoredSeat(storage, serverUrl)?.code ?? null,
+    rejoinSeat: () => {
+      const seat = readStoredSeat(storage, serverUrl);
+      return seat ? { code: seat.code, seat: seat.seat } : null;
+    },
     rejoin: () => {
       const seat = readStoredSeat(storage, serverUrl);
       if (!seat) return start.show('home');
-      start.show('message', { title: `${START_TEXT.rejoin} ${seat.code}`, message: START_TEXT.connecting });
+      if (seatOutdated(seat)) {
+        // Owner Q3 A: stored under other rules: a plain note; the seat is forgotten (the service expires the game).
+        forgetStoredSeat(storage);
+        return start.show('home', { note: START_TEXT.outdated });
+      }
+      start.show('message', { title: continueOnlineLabel(seat.code), message: START_TEXT.connecting });
       goOnline(OnlineMatch.resume(deps(), seat), (note) => start.show('home', { note }));
     },
     share,
@@ -360,7 +408,14 @@ async function start(): Promise<void> {
     if (serverUrl === '') start.show('not_set_up');
     else start.show('join', { code: joinCode });
     if (serverUrl !== '') start.root.querySelector('form')?.requestSubmit();
-  } else if (params.get('play') === 'here') playHere();
+  } else if (params.get('play') === 'here') {
+    // Sprint 11: `play` leaves the address, so a reload opens the start screen (Continue game)
+    // instead of starting over and replacing the save. Test switches stay.
+    params.delete('play');
+    const rest = params.toString();
+    window.history.replaceState(null, '', `${window.location.pathname}${rest ? `?${rest}` : ''}${window.location.hash}`);
+    playHere();
+  }
 
   document.getElementById('boot')?.remove();
   document.body.dataset.ready = 'true';
@@ -371,6 +426,8 @@ function onlineStatusText(m: OnlineMatch): string | null {
   const st = m.status();
   if (m.phase.kind === 'failed') return FAIL_TEXT[m.phase.reason] ?? null;
   if (st.connection === 'reconnecting' || st.connection === 'connecting') return 'Reconnecting…';
+  // Sprint 11: the other player chose Leave for now.
+  if (st.opponent === 'away' && st.left) return `The ${SIDE_NAME[m.seat === 'corp' ? 'runner' : 'corp']} left for now. The game is saved`;
   if (st.opponent === 'away') return 'Waiting for the other player to come back…';
   return null;
 }

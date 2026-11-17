@@ -8,8 +8,12 @@
 // (Rez / Don't rez at approach), the board shows the Corp seat's own run
 // options (`Decision`) on the shared screen (owner answer Q1 A) and submits
 // them as the Corp. The Runner seat's view is never merged with the Corp's.
+//
+// Sprint 11 (S-11-3): after every accepted move `onSaved` listeners hear of it
+// (after the presentation went out), so the client can store `save()`; a saved
+// game comes back with `HotSeat.restore(match)` (`LocalMatch.load`).
 import type { Action, GameEvent, GameOptions, PlayerView, Side } from '@overclock/engine';
-import { LocalMatch } from '@overclock/match';
+import { LocalMatch, type SavedGame } from '@overclock/match';
 import { type Decision, Listeners, type Presentation, type Session, type SessionStatus } from './session';
 
 export type { Decision, Presentation } from './session';
@@ -20,11 +24,41 @@ export class HotSeat implements Session {
   private bottom: Side;
   private last: GameEvent[] = [];
   private readonly presented = new Listeners<Presentation>();
+  private readonly saved = new Listeners<HotSeat>();
 
   /** Sprint 8: `options` (e.g. `{deckSet: 'starter'}` for legacy test boards) go to the match; default = core decks. */
-  constructor(seed: number, options?: Partial<GameOptions>) {
-    this.match = new LocalMatch(seed, options);
+  constructor(seed: number, options?: Partial<GameOptions>);
+  /** Sprint 11: plays on an existing match (a restored save). */
+  constructor(match: LocalMatch);
+  constructor(seedOrMatch: number | LocalMatch, options?: Partial<GameOptions>) {
+    this.match = typeof seedOrMatch === 'number' ? new LocalMatch(seedOrMatch, options) : seedOrMatch;
+    // The active player sits at the bottom (during a run: the Runner; the Corp's decision shows as `decision()`).
     this.bottom = this.match.view('corp').activePlayer;
+  }
+
+  /** Sprint 11 (S-11-3): a saved game, loaded with `LocalMatch.load`. The bottom seat is the active player. */
+  static restore(match: LocalMatch): HotSeat {
+    return new HotSeat(match);
+  }
+
+  /** The seat that must act now: the other seat's decision if the game waits on it, else the bottom seat. */
+  get toAct(): Side {
+    return this.decision()?.seat ?? this.bottom;
+  }
+
+  /** Sprint 11: this game as a save (accepted moves only). */
+  save(): SavedGame {
+    return this.match.save();
+  }
+
+  /** True once the game has a result (its save is deleted, never offered as Continue). */
+  over(): boolean {
+    return this.match.view(this.bottom).result !== null;
+  }
+
+  /** Called after every accepted move, once its presentation went out (store `save()` then). */
+  onSaved(cb: (game: HotSeat) => void): () => void {
+    return this.saved.add(cb);
   }
 
   /** The seat drawn at the bottom (the active player). */
@@ -70,6 +104,8 @@ export class HotSeat implements Session {
   submit(action: Action): Presentation {
     const p = this.present(action);
     this.presented.emit(p);
+    // Refused moves change nothing (and are never logged), so only accepted ones save.
+    if (!this.last.some((e) => e.type === 'action_rejected')) this.saved.emit(this);
     return p;
   }
 

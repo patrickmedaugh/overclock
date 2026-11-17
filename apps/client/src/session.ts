@@ -53,6 +53,8 @@ export type Presence = 'none' | 'here' | 'away';
 export interface SessionStatus {
   connection: Connection;
   opponent: Presence;
+  /** Sprint 11 (online): the other player chose Leave for now (set only while they are `away`). */
+  left?: true;
 }
 
 export interface Session {

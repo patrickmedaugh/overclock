@@ -4,6 +4,7 @@
 // only asks the handlers to start or join.
 import type { Side } from '@overclock/engine';
 import { CODE_LENGTH, isGameCode, normalizeCode } from '@overclock/protocol';
+import { SIDE_NAME } from './terms';
 import './start.css';
 
 export const START_TEXT = {
@@ -27,8 +28,10 @@ export const START_TEXT = {
   notSetUp: "Online play isn't set up yet",
   notSetUpNote: 'Play on this device works now.',
   back: 'Back',
-  rejoin: 'Rejoin game',
-  rejoinSub: 'Back to your seat',
+  /** Sprint 11 (S-11-3): the saved pass-the-phone game, and an online game left for now ("Continue game · K7QF"). */
+  continueGame: 'Continue game',
+  /** Owner Q3 A: a save from before a rules update. */
+  outdated: "That saved game can't continue on this new version of the game. Start a new game.",
   lobbyTitle: 'Your game code',
   lobbyNote: 'Send it to the other player. They tap Play online, then Join with code.',
   share: 'Share',
@@ -61,8 +64,15 @@ export interface StartHandlers {
   startOnline(side: Side): void;
   /** Join the online game with this (normalised, well-formed) code. */
   joinOnline(code: string): void;
-  /** The code of a game this phone has a seat in (offered as Rejoin), or null. */
-  rejoinCode(): string | null;
+  /**
+   * Sprint 11: the saved pass-the-phone game (whose turn it is; null for a save that
+   * can't continue on this version, which still shows so Continue can say why), or null if none.
+   */
+  savedHere(): { turn: Side | null } | null;
+  /** Continue the saved pass-the-phone game. */
+  continueHere(): void;
+  /** The online game this phone has a seat in (offered as "Continue game · CODE"), or null. */
+  rejoinSeat(): { code: string; seat: Side } | null;
   rejoin(): void;
   /** Share the lobby's code (share sheet, or copy the link). */
   share(code: string): void;
@@ -133,10 +143,13 @@ export class StartScreen {
     switch (name) {
       case 'home': {
         screen.append(el('h1', '', START_TEXT.title), el('p', opts.note ? 'error' : '', opts.note ?? START_TEXT.tagline));
-        const rejoin = this.handlers.onlineReady() ? this.handlers.rejoinCode() : null;
-        if (rejoin) {
+        // Sprint 11: saved games first (pass-the-phone, then an online seat left for now).
+        const here = this.handlers.savedHere();
+        const rejoin = this.handlers.onlineReady() ? this.handlers.rejoinSeat() : null;
+        if (here || rejoin) {
           const row = el('div', 'choices');
-          row.append(this.choice('rejoin', `${START_TEXT.rejoin} ${rejoin}`, START_TEXT.rejoinSub, 'corp', () => this.handlers.rejoin()));
+          if (here) row.append(this.choice('continue-here', START_TEXT.continueGame, continueHereSub(here.turn), 'corp', () => this.handlers.continueHere()));
+          if (rejoin) row.append(this.choice('continue-online', continueOnlineLabel(rejoin.code), continueOnlineSub(rejoin.seat), 'corp', () => this.handlers.rejoin()));
           screen.appendChild(row);
         }
         const row = el('div', 'choices');
@@ -253,6 +266,21 @@ export class StartScreen {
     tapNow(b, onTap);
     return b;
   }
+}
+
+/** "Continue game · K7QF" (the game code, so nobody retypes it). */
+export function continueOnlineLabel(code: string): string {
+  return `${START_TEXT.continueGame} · ${code}`;
+}
+
+/** The Continue button's small line for the pass-the-phone save: "On this device · Runner's turn". */
+export function continueHereSub(turn: Side | null): string {
+  return turn ? `On this device · ${SIDE_NAME[turn]}'s turn` : 'On this device';
+}
+
+/** The online Continue's small line: "Online · you play the Corp". */
+export function continueOnlineSub(seat: Side): string {
+  return `Online · you play the ${SIDE_NAME[seat]}`;
 }
 
 function el(tag: string, cls: string, text?: string): HTMLElement {
