@@ -134,11 +134,11 @@ test.describe('S-06-1 start screen', () => {
     await expect(page.locator(START)).toContainText('Waiting for the other player…');
     await expectFits(page);
     await shot(page, 'start-lobby');
-    // Back gives the game up (not offered for Rejoin).
+    // Back gives the game up (not offered as Continue game).
     await tapButton(page, 'Back');
     expect(await screen(page)).toBe('online');
     await tapButton(page, 'Back');
-    await expect(page.locator(START).getByRole('button', { name: /Rejoin/ })).toHaveCount(0);
+    await expect(page.locator(START).getByRole('button', { name: /Continue game/ })).toHaveCount(0);
     await tapButton(page, /Play online/);
 
     await tapButton(page, /Join with code/);

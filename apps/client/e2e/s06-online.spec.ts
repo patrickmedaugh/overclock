@@ -219,7 +219,7 @@ test.describe('S-06-2 a whole game across two phones', () => {
     // Back to start: the start screen, and the finished game isn't offered for Rejoin.
     await tap(runner.page, (await layoutOf(runner)).gameOver!.buttonBox);
     await runner.page.waitForFunction(() => document.body.dataset.ready === 'true' && window.__overclockStart?.screen() === 'home');
-    await expect(runner.page.locator('#start').getByRole('button', { name: /Rejoin/ })).toHaveCount(0);
+    await expect(runner.page.locator('#start').getByRole('button', { name: /Continue game/ })).toHaveCount(0);
     await corp.context.close();
     await runner.context.close();
   });
@@ -251,22 +251,22 @@ test.describe('S-06-3 come back after switching away', () => {
     await runner.context.close();
   });
 
-  test('the other player away: "Waiting for the other player to come back…"; after a full close, Rejoin puts them back in their seat', async ({ browser }) => {
+  test('the other player away: "Waiting for the other player to come back…"; after a full close, Continue game · CODE puts them back in their seat', async ({ browser }) => {
     const { corp, runner, code } = await twoPhones(browser, 'corp');
     const before = await view(runner);
     // The Runner's app is closed.
     await runner.page.close();
     await corp.page.waitForFunction(() => window.__overclock!.layout().status?.text === 'Waiting for the other player to come back…');
     await shot(corp, 'opponent-away');
-    // Opened again: the start screen offers Rejoin.
+    // Opened again: the start screen offers Continue game · CODE (Sprint 11; was "Rejoin game CODE").
     const page = await runner.context.newPage();
     const back: Phone = { ...runner, page };
     await page.goto('./');
     await page.waitForFunction(() => document.body.dataset.ready === 'true' && !!window.__overclockStart);
-    const rejoin = page.locator('#start').getByRole('button', { name: new RegExp(`Rejoin game ${code}`) });
+    const rejoin = page.locator('#start').getByRole('button', { name: new RegExp(`Continue game · ${code}`) });
     await expect(rejoin).toBeVisible();
     await shot(back, 'rejoin');
-    await tapButton(page, /Rejoin game/);
+    await tapButton(page, /Continue game/);
     await waitPlaying(back);
     expect((await view(back)).viewer).toBe('runner');
     expect((await view(back)).players.runner.hand).toEqual(before.players.runner.hand);
@@ -275,17 +275,19 @@ test.describe('S-06-3 come back after switching away', () => {
     await runner.context.close();
   });
 
-  test("the phone's Back button: Leave the game? keeps the seat, and the start screen offers Rejoin", async ({ browser }) => {
+  test("the phone's Back button: Leave the game? keeps the seat, and the start screen offers Continue game · CODE", async ({ browser }) => {
     const { corp, runner, code } = await twoPhones(browser, 'corp');
     expect(await runner.page.evaluate(() => window.__overclock!.back())).toBe('ask_leave');
     const d = (await layoutOf(runner)).dialog!;
     expect(d.title).toBe('Leave the game?');
-    expect(d.text).toBe('You can come back with Rejoin on the start screen.');
-    await tap(runner.page, d.buttons.find((b) => b.label === 'Leave')!.box);
+    // Sprint 11: Leave for now (the game is kept and the other player is told).
+    expect(d.text).toBe('The game is saved. Continue it from the start screen.');
+    await tap(runner.page, d.buttons.find((b) => b.label === 'Leave for now')!.box);
     await runner.page.waitForFunction(() => document.body.dataset.ready === 'true' && window.__overclockStart?.screen() === 'home');
-    await expect(runner.page.locator('#start').getByRole('button', { name: new RegExp(`Rejoin game ${code}`) })).toBeVisible();
+    await expect(runner.page.locator('#start').getByRole('button', { name: new RegExp(`Continue game · ${code}`) })).toBeVisible();
     await expect(runner.page.locator('#start')).toBeVisible();
-    await corp.page.waitForFunction(() => window.__overclock!.layout().status?.text === 'Waiting for the other player to come back…');
+    // Sprint 11: the Runner chose to leave, so the Corp reads that (not "Waiting for … to come back").
+    await corp.page.waitForFunction(() => window.__overclock!.layout().status?.text === 'The Runner left for now. The game is saved');
     await corp.context.close();
     await runner.context.close();
   });

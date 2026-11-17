@@ -63,7 +63,18 @@ async function start(): Promise<void> {
   }
   // Sprint 11 (S-11-3): the pass-the-phone game saves itself after every accepted move
   // (off the tap path), and at once when the page is hidden or closed.
-  const saver = new SaveWriter(storage);
+  // The write waits for the move's first animation frame (rAF, then a task), so it never delays
+  // what the tap shows; a hidden page has no frames, so a timer catches that case.
+  const saver = new SaveWriter(storage, (fn) => {
+    let done = false;
+    const run = () => {
+      if (done) return;
+      done = true;
+      fn();
+    };
+    requestAnimationFrame(() => setTimeout(run, 0));
+    setTimeout(run, 250);
+  });
   window.addEventListener('pagehide', () => saver.flush());
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') saver.flush();
