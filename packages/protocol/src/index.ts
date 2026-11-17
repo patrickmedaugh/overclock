@@ -36,6 +36,13 @@ export interface StoredSeat {
   readonly code: string;
   readonly seat: Side;
   readonly token: string;
+  /**
+   * Sprint 11 (optional; absent in seats stored by older builds): the engine's `RULES_VERSION` when
+   * the seat was stored. Another version = the game can't continue (owner Q3 A): show the note, forget it.
+   */
+  readonly rulesVersion?: number;
+  /** Sprint 11 (optional): when the seat was stored or last played (ms since the epoch), for the Continue row. */
+  readonly savedAt?: number;
 }
 
 /** `GET /health` answer. */
@@ -75,7 +82,10 @@ export type ClientMsg =
   | { readonly v: 1; readonly t: 'act'; readonly id: number; readonly action: Action }
   /**
    * Sprint 7: the seat gives up a lobby nobody joined: the room closes (sockets closed, storage
-   * deleted; the code then answers `no_game`). In a started game: `bad_message`.
+   * deleted; the code then answers `no_game`).
+   * Sprint 11: in a started game = **leave for now**: the game is kept (`resume` with the token
+   * continues it), this socket is closed normally (code 1000, reason `'left'`), and the other seat
+   * gets `presence {opponent: 'away', left: true}`.
    */
   | { readonly v: 1; readonly t: 'leave' }
   | { readonly v: 1; readonly t: 'ping' };
@@ -87,13 +97,17 @@ export type ServerMsg =
   | { readonly v: 1; readonly t: 'seated'; readonly code: string; readonly seat: Side; readonly token: string }
   /** Waiting for the other player to join. */
   | { readonly v: 1; readonly t: 'lobby'; readonly code: string; readonly seat: Side }
-  /** Full state, no animation (game start, resume, after a gap). */
-  | { readonly v: 1; readonly t: 'sync'; readonly seq: number; readonly view: PlayerView; readonly opponent: Presence }
+  /**
+   * Full state, no animation (game start, resume, after a gap). Sprint 11: `left: true` when the
+   * opponent is away because they chose Leave for now (optional: older builds ignore it).
+   */
+  | { readonly v: 1; readonly t: 'sync'; readonly seq: number; readonly view: PlayerView; readonly opponent: Presence; readonly left?: true }
   /** One accepted action. `ack` only to the seat that submitted it. */
   | { readonly v: 1; readonly t: 'update'; readonly seq: number; readonly view: PlayerView; readonly events: GameEvent[]; readonly ack?: number }
   /** The submitter's action was refused; `seq` unchanged. */
   | { readonly v: 1; readonly t: 'rejected'; readonly ack: number; readonly view: PlayerView; readonly events: GameEvent[] }
-  | { readonly v: 1; readonly t: 'presence'; readonly opponent: Presence }
+  /** Sprint 11: `left: true` (only with `opponent: 'away'`) = the opponent chose Leave for now; the game is saved. */
+  | { readonly v: 1; readonly t: 'presence'; readonly opponent: Presence; readonly left?: true }
   | { readonly v: 1; readonly t: 'error'; readonly code: ErrorCode }
   | { readonly v: 1; readonly t: 'pong' };
 
@@ -111,6 +125,8 @@ const isObj = (x: unknown): x is Obj => typeof x === 'object' && x !== null && !
 const isSide = (x: unknown): x is Side => x === 'corp' || x === 'runner';
 const isUint = (x: unknown): x is number => typeof x === 'number' && Number.isSafeInteger(x) && x >= 0;
 const isPresence = (x: unknown): x is Presence => x === 'none' || x === 'here' || x === 'away';
+/** Sprint 11: the optional `left` flag: absent, or `true` with `opponent: 'away'`. */
+const leftOk = (d: Obj): boolean => d.left === undefined || (d.left === true && d.opponent === 'away');
 /** An action is any object with a string `type` and a side `player`; the engine checks the rest. */
 const isAction = (x: unknown): x is Action => isObj(x) && typeof x.type === 'string' && isSide(x.player);
 /** A view or event is checked by the server's engine; the client only needs an object. */
@@ -173,10 +189,10 @@ const CLIENT_CHECKS: Record<ClientMsgType, (d: Obj) => boolean> = {
 const SERVER_CHECKS: Record<ServerMsgType, (d: Obj) => boolean> = {
   seated: (d) => typeof d.code === 'string' && isSide(d.seat) && typeof d.token === 'string',
   lobby: (d) => typeof d.code === 'string' && isSide(d.seat),
-  sync: (d) => isUint(d.seq) && isView(d.view) && isPresence(d.opponent),
+  sync: (d) => isUint(d.seq) && isView(d.view) && isPresence(d.opponent) && leftOk(d),
   update: (d) => isUint(d.seq) && isView(d.view) && isEvents(d.events) && (d.ack === undefined || isUint(d.ack)),
   rejected: (d) => isUint(d.ack) && isView(d.view) && isEvents(d.events),
-  presence: (d) => isPresence(d.opponent),
+  presence: (d) => isPresence(d.opponent) && leftOk(d),
   error: (d) => (ERROR_CODES as readonly unknown[]).includes(d.code),
   pong: () => true,
 };

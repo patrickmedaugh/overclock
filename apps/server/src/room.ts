@@ -20,7 +20,8 @@ export const ONLINE_OPTIONS: GameOptions = { rezWindow: 'always', deckSet: 'core
 
 /** Cleanup: a lobby nobody joined, an idle game, a finished game. */
 export const LOBBY_TTL_MS = 2 * 60 * 60 * 1000;
-export const IDLE_TTL_MS = 3 * 24 * 60 * 60 * 1000;
+/** Sprint 11 (owner Q2 A): a saved online game is kept 1 week from the last move or leave (was 3 days). */
+export const IDLE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 export const FINISHED_TTL_MS = 60 * 60 * 1000;
 /** The room answers Don't rez for a Corp that can only pass, after a random pause in [MIN, MAX]. */
 export const AUTO_PASS_MIN_MS = 1200;
@@ -76,8 +77,13 @@ export interface RoomMeta {
   tokenHashes: Partial<Record<Side, string>>;
   options: GameOptions;
   createdAt: number;
-  /** Time of the last accepted action (or the join). */
+  /** Time of the last accepted action (or the join, or Sprint 11: a Leave for now). */
   lastActive: number;
+  /**
+   * Sprint 11: seats that chose Leave for now and have not resumed since (absent in older rooms).
+   * The other seat's presence of them is `away` with `left: true`.
+   */
+  left?: Partial<Record<Side, true>>;
   /** The build that wrote the `state` snapshot. */
   build: string;
   /**
@@ -186,6 +192,7 @@ export class Room {
         return;
       case 'leave':
         if (role.kind === 'seat' && this.meta && !this.started()) this.close();
+        else if (role.kind === 'seat' && this.started()) this.leaveForNow(conn, role.seat);
         else this.send(conn, { v: 1, t: 'error', code: 'bad_message' });
         return;
     }
@@ -290,6 +297,11 @@ export class Room {
     }
     const fresh = this.seats[seat] !== conn;
     this.seat(conn, seat);
+    if (meta.left?.[seat]) {
+      // Sprint 11: back after Leave for now.
+      delete meta.left[seat];
+      this.store.put('meta', meta);
+    }
     if (!this.started()) {
       this.send(conn, { v: 1, t: 'lobby', code: meta.code, seat });
       return;
@@ -325,6 +337,27 @@ export class Room {
       this.send(conn, msg);
     }
     this.autoPassAt = null;
+    this.scheduleAutoPass();
+  }
+
+  /**
+   * Sprint 11: Leave for now in a started game. The game is kept (it is the room's own log), the
+   * idle clock restarts (7 days from the leave), this socket is closed normally, and the other
+   * seat hears `presence {opponent: 'away', left: true}`. `resume` with the seat's token clears it.
+   */
+  private leaveForNow(conn: Conn, seat: Side): void {
+    const meta = this.meta!;
+    meta.left = { ...meta.left, [seat]: true };
+    meta.lastActive = this.deps.now();
+    this.store.put('meta', meta);
+    delete this.seats[seat];
+    this.roles.delete(conn);
+    try {
+      conn.close(CLOSE_NORMAL, 'left');
+    } catch {
+      // already closed
+    }
+    this.tellPresence(other(seat));
     this.scheduleAutoPass();
   }
 
@@ -373,15 +406,25 @@ export class Room {
     return this.seats[seat] ? 'here' : 'away';
   }
 
+  /** Sprint 11: `seat`'s opponent is away because they chose Leave for now. */
+  private opponentLeft(seat: Side): boolean {
+    const opp = other(seat);
+    return this.presenceOf(opp) === 'away' && this.meta?.left?.[opp] === true;
+  }
+
   private sync(seat: Side): void {
     const conn = this.seats[seat];
-    if (conn) this.send(conn, { v: 1, t: 'sync', seq: this.seq(), view: this.view(seat), opponent: this.presenceOf(other(seat)) });
+    if (!conn) return;
+    const base = { v: 1, t: 'sync', seq: this.seq(), view: this.view(seat), opponent: this.presenceOf(other(seat)) } as const;
+    this.send(conn, this.opponentLeft(seat) ? { ...base, left: true } : base);
   }
 
   /** Tells `seat` where its opponent is (only in a started game). */
   private tellPresence(seat: Side): void {
     const conn = this.seats[seat];
-    if (conn && this.started()) this.send(conn, { v: 1, t: 'presence', opponent: this.presenceOf(other(seat)) });
+    if (!conn || !this.started()) return;
+    const opponent = this.presenceOf(other(seat));
+    this.send(conn, this.opponentLeft(seat) ? { v: 1, t: 'presence', opponent, left: true } : { v: 1, t: 'presence', opponent });
   }
 
   private seat(conn: Conn, seat: Side): void {

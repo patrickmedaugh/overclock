@@ -62,7 +62,7 @@ describe('leave (S-07-1 AC6)', () => {
     expect(again.take().map((m) => m.t)).toEqual(['seated', 'lobby']);
   });
 
-  it('in a started game: bad_message, the socket stays open and the game goes on', () => {
+  it('in a started game: Sprint 11 leave for now (the game is kept; see sprint11-room.test.ts)', () => {
     const h = harness();
     const host = creator(h);
     h.room.message(host, msg({ t: 'create', side: 'corp' }));
@@ -70,13 +70,12 @@ describe('leave (S-07-1 AC6)', () => {
     h.room.message(guest, msg({ t: 'join' }));
     host.take();
     guest.take();
-    for (const c of [host, guest]) {
-      h.room.message(c, msg({ t: 'leave' }));
-      expect(c.take()).toEqual([{ v: 1, t: 'error', code: 'bad_message' }]);
-      expect(c.closed).toBeNull();
-    }
+    h.room.message(guest, msg({ t: 'leave' }));
+    expect(guest.take()).toEqual([]);
+    expect(guest.closed).toEqual({ code: CLOSE_NORMAL, reason: 'left' });
+    expect(host.closed).toBeNull();
     h.room.message(host, msg({ t: 'act', id: 1, action: { type: 'gain_credit', player: 'corp' } }));
-    expect(host.take()[0]).toMatchObject({ t: 'update', seq: 1, ack: 1 });
+    expect(host.take().at(-1)).toMatchObject({ t: 'update', seq: 1, ack: 1 });
   });
 
   it('from a socket without a seat (before join / before create): bad_message, nothing closes', () => {
