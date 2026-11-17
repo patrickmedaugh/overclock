@@ -7,7 +7,7 @@ import { Container, Graphics, Rectangle, Text } from 'pixi.js';
 import { createCardBack, createCardFace, glowRoundRect } from './cardFace';
 import { centeredBox } from './geometry';
 import type { Box } from './hook-types';
-import { TERMS } from './terms';
+import { TERMS, scoredPileText } from './terms';
 import { sideColor, theme, timing } from './theme';
 import { ease, type Tweens } from './tween';
 
@@ -425,22 +425,32 @@ export class MemoryCounter {
     this.root.eventMode = 'none';
     const g = new Graphics();
     const r = Math.max(4, w * 0.1);
-    g.roundRect(-w / 2, -h / 2, w, h, r).fill({ color: 0x000000, alpha: 0.5 }).stroke({ width: 1, color: theme.runner, alpha: 0.55 });
+    g.roundRect(-w / 2, -h / 2, w, h, Math.min(r, h / 2)).fill({ color: 0x000000, alpha: 0.5 }).stroke({ width: 1, color: theme.runner, alpha: 0.55 });
+    // Sprint 10: in the stats column (Memory over Link and Tagged) it is short: title over the
+    // number, no pips.
+    this.compact = h < 44;
     const title = new Text({
       text: TERMS.memory.toUpperCase(),
-      style: { fontFamily: theme.monoFamily, fontSize: Math.max(8, Math.round(9 * scale)), fill: theme.runner, letterSpacing: 0.5 },
+      style: { fontFamily: theme.monoFamily, fontSize: this.compact ? Math.max(7, Math.round(h * 0.28)) : Math.max(8, Math.round(9 * scale)), fill: theme.runner, letterSpacing: 0.5 },
     });
     title.anchor.set(0.5, 0);
-    title.position.set(0, -h / 2 + 4);
+    title.position.set(0, -h / 2 + (this.compact ? 1 : 4));
     fitText(title, w - 6);
     this.valueText = new Text({
       text: '',
-      style: { fontFamily: theme.monoFamily, fontSize: Math.max(13, Math.round(Math.min(18 * scale, h * 0.3))), fontWeight: '700', fill: theme.text },
+      style: {
+        fontFamily: theme.monoFamily,
+        fontSize: this.compact ? Math.max(10, Math.round(h * 0.5)) : Math.max(13, Math.round(Math.min(18 * scale, h * 0.3))),
+        fontWeight: '700',
+        fill: theme.text,
+      },
     });
     this.valueText.anchor.set(0.5);
-    this.valueText.position.set(0, -h * 0.02);
+    this.valueText.position.set(0, this.compact ? h * 0.18 : -h * 0.02);
     this.root.addChild(g, title, this.valueText, this.pips);
   }
+
+  private readonly compact: boolean;
 
   /** On-screen text, e.g. "Memory 2/4". */
   get text(): string {
@@ -456,9 +466,10 @@ export class MemoryCounter {
     if (key === this.key) return;
     this.key = key;
     this.valueText.text = key;
-    fitText(this.valueText, this.w - 8);
+    fitText(this.valueText, this.w - 8, this.compact ? this.h * 0.62 : Infinity);
     const g = this.pips;
     g.clear();
+    if (this.compact) return;
     const n = Math.max(1, limit);
     const pw = Math.min(10, (this.w - 12) / n - 3);
     const ph = Math.max(5, this.h * 0.1);
@@ -755,5 +766,162 @@ export class StatusTag {
     fx.cancel(this.inner.scale);
     this.inner.scale.set(1.4);
     fx.add({ target: this.inner.scale, to: { x: 1, y: 1 }, duration: ms, ease: ease.outBack, owner: this.inner });
+  }
+}
+
+/**
+ * Sprint 10 (S-10-2): one line of the Runner's stats column under Memory: "Link 1"
+ * (runner colour) or the red "Tagged 1" pill. Hidden while it has nothing to say;
+ * its slot stays reserved, so nothing moves when it shows.
+ */
+export class StatLine {
+  readonly root = new Container();
+  private readonly g = new Graphics();
+  private readonly label: Text;
+  private drawn = '';
+  /** The line as drawn (CSS px); zero-size while hidden. */
+  box: Box = { x: 0, y: 0, width: 0, height: 0 };
+
+  constructor(
+    name: string,
+    private readonly tone: 'link' | 'tagged',
+  ) {
+    this.root.label = name;
+    this.root.eventMode = 'none';
+    this.label = new Text({ text: '', style: { fontFamily: theme.monoFamily, fontSize: 11, fontWeight: '800', fill: theme.text } });
+    this.label.anchor.set(0.5);
+    this.root.addChild(this.g, this.label);
+    this.root.visible = false;
+  }
+
+  get text(): string {
+    return this.root.visible ? this.label.text : '';
+  }
+
+  set(slot: Box, text: string | null): void {
+    if (text === null) {
+      this.root.visible = false;
+      this.box = { x: 0, y: 0, width: 0, height: 0 };
+      return;
+    }
+    this.root.visible = true;
+    this.box = { ...slot };
+    placeAt(this.root, slot);
+    const { width: w, height: h } = slot;
+    const key = `${w}x${h}:${text}`;
+    if (key === this.drawn) return;
+    this.drawn = key;
+    this.label.style.fontSize = Math.max(9, Math.round(h * 0.68));
+    this.label.style.fill = this.tone === 'tagged' ? theme.text : theme.ink;
+    this.label.text = text;
+    fitText(this.label, w - 6, h);
+    const g = this.g;
+    g.clear();
+    const r = h / 2;
+    if (this.tone === 'tagged') g.roundRect(-w / 2, -h / 2, w, h, r).fill({ color: theme.tagged, alpha: 0.95 }).stroke({ width: 1.5, color: 0xffffff, alpha: 0.85 });
+    else g.roundRect(-w / 2, -h / 2, w, h, r).fill({ color: theme.runner, alpha: 0.95 }).stroke({ width: 1, color: theme.ink });
+  }
+
+  pop(fx: Tweens, ms: number): void {
+    fx.cancel(this.root.scale);
+    this.root.scale.set(1.3);
+    fx.add({ target: this.root.scale, to: { x: 1, y: 1 }, duration: ms, ease: ease.outBack, owner: this.root });
+  }
+}
+
+/**
+ * Sprint 10 (S-10-1): a side's scored-agenda pile: the latest agenda face up with
+ * "2 agendas · 3 points" over its art window (the name and type stay readable).
+ * Empty: a faint outline that takes no taps. Every number comes from the view.
+ */
+export class ScoredPile {
+  readonly root = new Container();
+  private readonly inner = new Container();
+  private readonly topLayer = new Container();
+  private readonly empty: Container;
+  private readonly chip = new Graphics();
+  private readonly countText: Text;
+  private key = '';
+  private readonly w: number;
+  private readonly h: number;
+  /** What the count says ("2 agendas · 3 points"); '' while empty. */
+  text = '';
+  /** The latest agenda's card id (null while empty). */
+  top: string | null = null;
+  count = 0;
+
+  constructor(
+    size: { width: number; height: number },
+    private readonly side: Side,
+    scale: number,
+  ) {
+    const { width: w, height: h } = size;
+    this.w = w;
+    this.h = h;
+    this.root.label = `scored:${side}`;
+    this.root.eventMode = 'none';
+    this.root.hitArea = new Rectangle(-w / 2, -h / 2, w, h);
+    this.root.addChild(this.inner);
+    const color = sideColor(side);
+    const r = Math.max(3, w * 0.08);
+    this.empty = new Container();
+    const outline = new Graphics();
+    outline.roundRect(-w / 2, -h / 2, w, h, r).fill({ color: 0x000000, alpha: 0.18 }).stroke({ width: 1, color, alpha: 0.28 });
+    const name = new Text({ text: 'SCORED', style: { fontFamily: theme.monoFamily, fontSize: Math.max(7, 9 * scale), fill: theme.textDim, letterSpacing: 0.5 } });
+    name.anchor.set(0.5);
+    name.alpha = 0.7;
+    fitText(name, w - 6);
+    this.empty.addChild(outline, name);
+    this.countText = new Text({
+      text: '',
+      style: {
+        fontFamily: theme.monoFamily,
+        fontSize: Math.max(9, Math.round(10 * Math.min(scale, 1.2))),
+        fontWeight: '800',
+        fill: theme.text,
+        align: 'center',
+        lineHeight: Math.max(10, Math.round(11 * Math.min(scale, 1.2))),
+      },
+    });
+    this.countText.anchor.set(0.5);
+    this.inner.addChild(this.empty, this.topLayer, this.chip, this.countText);
+  }
+
+  box(): Box {
+    return centeredBox(this.root, this.w, this.h, this.inner.scale.x, this.inner.scale.y);
+  }
+
+  /** `ids`: the side's scored agendas (oldest first); `points`: the engine's total. */
+  set(ids: readonly string[], points: number): void {
+    const top = ids[ids.length - 1] ?? null;
+    const key = `${ids.length}:${points}:${top ?? '#'}`;
+    if (key === this.key) return;
+    this.key = key;
+    this.count = ids.length;
+    this.top = top;
+    this.text = ids.length > 0 ? scoredPileText(ids.length, points) : '';
+    for (const c of this.topLayer.removeChildren()) c.destroy({ children: true });
+    this.empty.visible = ids.length === 0;
+    this.chip.clear();
+    this.countText.visible = ids.length > 0;
+    if (ids.length === 0) return;
+    const def = top ? getCard(top) : undefined;
+    const { w, h } = this;
+    this.topLayer.addChild(def ? createCardFace(def, w, h, 'small') : createCardBack(this.side, w, h));
+    // Two lines over the art window: "2 agendas" / "3 points".
+    this.countText.text = this.text.replace(' · ', '\n');
+    this.countText.scale.set(1);
+    fitText(this.countText, w - 8, h * 0.4);
+    const cw = Math.min(w - 2, Math.ceil(this.countText.width) + 8);
+    const ch = Math.ceil(this.countText.height) + 4;
+    const cy = -h / 2 + 2 + ch / 2 + Math.round(h * 0.06);
+    this.countText.position.set(0, cy);
+    this.chip.roundRect(-cw / 2, cy - ch / 2, cw, ch, Math.min(6, ch / 2)).fill({ color: 0x000000, alpha: 0.86 }).stroke({ width: 1, color: sideColor(this.side), alpha: 0.9 });
+  }
+
+  pop(ui: Tweens): void {
+    ui.cancel(this.inner.scale);
+    this.inner.scale.set(1.15);
+    ui.add({ target: this.inner.scale, to: { x: 1, y: 1 }, duration: 220, ease: ease.outBack, owner: this.inner });
   }
 }

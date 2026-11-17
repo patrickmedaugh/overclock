@@ -76,6 +76,13 @@ export interface CorpBand {
   servers: ServerSlots[];
   /** Shown only while a Corp card that can open a server is picked. */
   newServer: ServerSlots;
+  /**
+   * Sprint 10 (S-10-1): the Corp's scored-agenda pile, one card at the far right of
+   * the Corp's row, in the room ICE takes in a column (toward the Runner). It costs
+   * no width: only the New server column can sit under it, and that column then
+   * keeps just its name and card row (ICE never goes on New server).
+   */
+  scored: Box;
 }
 
 export interface RigBand {
@@ -88,7 +95,16 @@ export interface RigBand {
   cards: Box[];
   /** Shown while a program/hardware/resource is picked. */
   install: Box;
+  /**
+   * Sprint 10 (S-10-2): the stats column right of the Install slot: Memory on top,
+   * then Link, then Tagged (always reserved, so nothing moves when it shows).
+   */
+  stats: Box;
   memory: Box;
+  link: Box;
+  tagged: Box;
+  /** Sprint 10 (S-10-1): the Runner's stolen agendas, at the far right of his row. */
+  scored: Box;
 }
 
 export interface BoardLayout {
@@ -272,9 +288,37 @@ function memoryWidth(u: number): number {
   return Math.max(56, Math.round(u * 1.15));
 }
 
+/** Sprint 10: the narrowest the stats column (Memory, Link, Tagged) and the scored pile get. */
+export const STATS_MIN = 44;
+export const PILE_MIN = MIN_TOUCH;
+/** Smallest gap kept either side of the stats column. */
+const TAIL_GAP = 2;
+/** The least room the end of the Runner's row needs: gap, stats column, gap, scored pile. */
+const TAIL_MIN = TAIL_GAP + STATS_MIN + TAIL_GAP + PILE_MIN;
+
 function rigWidth(n: number, u: number, k: Gaps, identity = false): number {
-  // [Identity] Stack, Heap | n cards, Install slot | memory counter.
-  return (identity ? u + k.g : 0) + 2 * u + k.g + 2 * k.gc + (n + 1) * u + n * k.g + k.gc + memoryWidth(u);
+  // [Identity] Stack, Heap | n cards, Install slot | stats column | scored pile.
+  // The tail never asks for less than the Sprint 9 memory counter did, so the busy board keeps its size.
+  return (identity ? u + k.g : 0) + 2 * u + k.g + 2 * k.gc + (n + 1) * u + n * k.g + Math.max(k.gc + memoryWidth(u), TAIL_MIN);
+}
+
+/**
+ * Sprint 10: splits the room at the end of the Runner's row (`tail` px wide) into
+ * gap, stats column, gap, scored pile. Each starts at its minimum; spare room goes
+ * to the pile (up to a card), then the stats column (up to the old memory counter),
+ * then the gaps (up to the usual column gap).
+ */
+function tailParts(tail: number, u: number, gc: number): { gap: number; stats: number; pile: number } {
+  let spare = Math.max(0, tail - TAIL_MIN);
+  const take = (want: number) => {
+    const t = Math.max(0, Math.min(spare, want));
+    spare -= t;
+    return t;
+  };
+  const pile = PILE_MIN + take(u - PILE_MIN);
+  const stats = STATS_MIN + take(memoryWidth(u) - STATS_MIN);
+  const gap = TAIL_GAP + Math.floor(take(2 * Math.max(0, gc - TAIL_GAP)) / 2);
+  return { gap, stats, pile };
 }
 
 function layoutCorpBand(x: number, y: number, width: number, height: number, u: number, k: Gaps, outward: 'up' | 'down', shape: BoardShape): CorpBand {
@@ -314,7 +358,16 @@ function layoutCorpBand(x: number, y: number, width: number, height: number, u: 
   };
   const servers = shape.servers.map(column);
   const newServer = column({ id: 'new', ice: 0, content: 0 });
-  return { band, outward, servers, newServer };
+  // The scored pile: far right, in the ICE room next to the card row (toward the Runner).
+  const rowY = outward === 'down' ? y + k.labelH + k.g : y + height - k.labelH - k.g - uh;
+  const pw = Math.max(u, PILE_MIN);
+  const scored = box(x + width - pw, outward === 'down' ? rowY + uh + k.g : rowY - k.g - uh, pw, uh);
+  const nc = newServer.column;
+  if (nc.x + nc.width > scored.x) {
+    // New server keeps its name and card row (it never holds ICE).
+    newServer.column = outward === 'down' ? box(nc.x, y, nc.width, k.labelH + k.g + uh) : box(nc.x, rowY, nc.width, y + height - rowY);
+  }
+  return { band, outward, servers, newServer, scored };
 }
 
 function layoutRigBand(x: number, y: number, width: number, u: number, k: Gaps, n: number, withIdentity = false): RigBand {
@@ -322,15 +375,27 @@ function layoutRigBand(x: number, y: number, width: number, u: number, k: Gaps, 
   const identity = withIdentity ? box(x, y, u, uh) : null;
   const stack = box(x + (withIdentity ? u + k.g : 0), y, u, uh);
   const heap = box(stack.x + u + k.g, y, u, uh);
-  const memW = memoryWidth(u);
-  const memory = box(x + width - memW, y, memW, uh);
   const start = heap.x + u + 2 * k.gc;
-  const room = memory.x - k.gc - start;
+  // The tail (stats column + scored pile) is planned for the busy board's row, so it
+  // keeps its place as cards are installed; a longer row gives it back only down to its
+  // minimum (then, past the shrink floor, cards overlap).
+  const rowEnd = (m: number) => start + (m + 1) * u + m * k.g;
+  const planned = tailParts(x + width - rowEnd(RESERVED.rig), u, k.gc);
+  const t = rowEnd(n) + planned.gap * 2 + planned.stats + planned.pile <= x + width ? planned : tailParts(x + width - rowEnd(n), u, k.gc);
+  const scored = box(x + width - t.pile, y, t.pile, uh);
+  const stats = box(scored.x - t.gap - t.stats, y, t.stats, uh);
+  const room = stats.x - t.gap - start;
   // n cards + the Install slot; overlap only past the shrink floor.
   const step = n === 0 ? u + k.g : Math.min(u + k.g, (room - u) / n);
   const cards = Array.from({ length: n }, (_, i) => box(start + i * step, y, u, uh));
   const install = box(start + n * step, y, u, uh);
-  return { band: box(x, y, width, uh), identity, stack, heap, cards, install, memory };
+  // Memory on top (a little taller: it has pips), then Link, then Tagged.
+  const sg = 2;
+  const lineH = Math.floor((uh - 2 * sg) * 0.3);
+  const memory = box(stats.x, y, stats.width, uh - 2 * sg - 2 * lineH);
+  const link = box(stats.x, memory.y + memory.height + sg, stats.width, lineH);
+  const tagged = box(stats.x, link.y + lineH + sg, stats.width, lineH);
+  return { band: box(x, y, width, uh), identity, stack, heap, cards, install, stats, memory, link, tagged, scored };
 }
 
 /**
@@ -402,8 +467,10 @@ function sideRows(viewer: Side, corp: CorpBand, rig: RigBand, shape: BoardShape,
   return { top: { ...top, ...piles(opponent) }, bottom: { ...bottom, ...piles(viewer) } };
 }
 
-function sizeKey(vw: number, vh: number, insets: Insets, u: number, hand: Box, cardW: number): string {
-  return [vw, vh, insets.top, insets.right, insets.bottom, insets.left, u, cardW, hand.x, hand.y, hand.width, hand.height].join(',');
+function sizeKey(vw: number, vh: number, insets: Insets, u: number, hand: Box, cardW: number, rig: RigBand, corp: CorpBand): string {
+  // Sprint 10: the stats column and the piles are built for their size too.
+  const tail = [rig.memory.width, rig.memory.height, rig.scored.width, corp.scored.width];
+  return [vw, vh, insets.top, insets.right, insets.bottom, insets.left, u, cardW, hand.x, hand.y, hand.width, hand.height, ...tail].join(',');
 }
 
 export function computeLayout(width: number, height: number, insetsIn?: Partial<Insets>, opts: LayoutOptions = {}): BoardLayout {
@@ -566,7 +633,7 @@ function landscapeLayout(vw: number, vh: number, insets: Insets, safe: Box, view
     card: { width: cardW, height: cardHt },
     zoom: zoomBox(safe, safe.width * 0.8),
     buildLabel,
-    sizeKey: sizeKey(vw, vh, insets, u, handArea, cardW),
+    sizeKey: sizeKey(vw, vh, insets, u, handArea, cardW, rig, corp),
   };
 }
 
@@ -722,7 +789,7 @@ function portraitLayout(vw: number, vh: number, insets: Insets, safe: Box, viewe
     card: { width: cardW, height: cardHt },
     zoom: zoomBox(safe, boardW * 0.8),
     buildLabel: box(hintArea.x, hintArea.y + hintArea.height - BUILD_LINE, Math.min(hintArea.width, 160), BUILD_LINE),
-    sizeKey: sizeKey(vw, vh, insets, u, handArea, cardW),
+    sizeKey: sizeKey(vw, vh, insets, u, handArea, cardW, rig, corp),
   };
 }
 

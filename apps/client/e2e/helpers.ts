@@ -349,6 +349,10 @@ export function boardElements(l: LayoutSnapshot): [string, Box][] {
   }
   l.rig.forEach((c, i) => out.push([`rig card ${i}`, c.box]));
   out.push(['memory', l.memory.box]);
+  // Sprint 10: Link and Tagged under Memory; both scored piles (far right of each row).
+  if (l.runnerStatus?.link) out.push([`link "${l.runnerStatus.link.text}"`, l.runnerStatus.link.box]);
+  if (l.runnerStatus?.tagged) out.push([`tagged "${l.runnerStatus.tagged.text}"`, l.runnerStatus.tagged.box]);
+  for (const s of ['corp', 'runner'] as const) if (l.scored?.[s] && l.scored[s].box.width > 0) out.push([`${s} scored pile`, l.scored[s].box]);
   for (const s of ['corp', 'runner'] as const) if (l.score[s].box.width > 0) out.push([`${s} score`, l.score[s].box]);
   if (l.runButton) out.push(['Run button', l.runButton.box]);
   // S-05-1: the Last run button (below / beside Run).

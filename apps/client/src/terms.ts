@@ -100,6 +100,11 @@ export function pointsText(side: Side, points: number): string {
   return `${SIDE_NAME[side]} ${plural(points, 'point', 'points')}`;
 }
 
+/** Sprint 10 (S-10-1): a scored pile's count, "2 agendas · 3 points" (both numbers from the view). */
+export function scoredPileText(count: number, points: number): string {
+  return `${plural(count, 'agenda', 'agendas')} · ${plural(points, 'point', 'points')}`;
+}
+
 /** "free", "1 credit", "3 credits". */
 export function priceText(cost: number): string {
   return cost === 0 ? 'free' : plural(cost, 'credit', 'credits');

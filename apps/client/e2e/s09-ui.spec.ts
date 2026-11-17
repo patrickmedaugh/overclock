@@ -252,7 +252,8 @@ test.describe('S-09-2 tags and link', () => {
     l = await stub(page, { ...v, players: { ...v.players, runner: { ...v.players.runner, tags: 1 } } });
     expect(l.viewer).toBe('corp');
     expect(l.runnerStatus.tagged?.text).toBe('Tagged 1');
-    expect(l.tags.runner?.text).toBe('Tagged 1');
+    // Sprint 10 (S-10-2): Tagged moved to the stats column; no note by his credits.
+    expect(l.tags.runner).toBeNull();
     expectCleanLayout(l);
     await shot(page, 's09-2-tagged-corp-view');
   });

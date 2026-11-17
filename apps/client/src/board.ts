@@ -34,7 +34,7 @@ import { RUN_END, iceReport, installNotices, isRunChoice, installedOptionLabel, 
 import { SIDE_NAME, TERMS, badPublicityText, handMaxText, plural, pointsText, priceText, serverLabel, tempCreditsText, zoneName } from './terms';
 import { sideColor, theme, timing } from './theme';
 import { ease, type Tweens } from './tween';
-import { ActionButton, Counter, DeckPile, DiscardPile, MemoryCounter, PanelButton, ScorePill, StatusTag, TargetMarker, fitText, placeAt } from './widgets';
+import { ActionButton, Counter, DeckPile, DiscardPile, MemoryCounter, PanelButton, ScorePill, ScoredPile, StatLine, StatusTag, TargetMarker, fitText, placeAt } from './widgets';
 
 type Pos = 'top' | 'bottom';
 const SIDES: readonly Side[] = ['corp', 'runner'];
@@ -78,9 +78,7 @@ function targetKey(kind: TargetSnapshot['kind'], where: { server?: string; uid?:
  */
 function runnerNote(view: PlayerView): string | null {
   const parts: string[] = [];
-  // Sprint 9 (S-09-2): "Tagged 1" comes first (the note turns red while tagged).
-  const tags = view.players.runner.tags ?? 0;
-  if (tags > 0) parts.push(taggedText(tags));
+  // Sprint 10 (S-10-2): "Tagged 1" moved to the stats column (under Memory and Link).
   const max = view.players.runner.maxHandSize;
   if (max < 5) parts.push(handMaxText(max));
   if (view.run && view.run.tempCredits > 0) parts.push(tempCreditsText(view.run.tempCredits));
@@ -163,11 +161,6 @@ interface IdentityWidget {
   root: Container;
   box: Box;
   detach: () => void;
-  /** Sprint 9: the Runner's link ("Link 1"), a pill along the card's bottom edge. */
-  link: Container;
-  linkText: Text;
-  linkBg: Graphics;
-  linkKey: string;
 }
 
 /** One side's name, hand count, credits and clicks, for one position (top / bottom). */
@@ -234,6 +227,11 @@ interface Generation {
   /** U2: identity cards (the Corp's in the HQ slot, the Runner's left of the Stack). */
   identities: Partial<Record<Side, IdentityWidget>>;
   memory: MemoryCounter;
+  /** Sprint 10 (S-10-2): "Link 1" and the red "Tagged 1", under Memory. */
+  link: StatLine;
+  tagged: StatLine;
+  /** Sprint 10 (S-10-1): the scored-agenda piles, far right of each row. */
+  scoredPiles: Record<Side, ScoredPile>;
   columns: Map<string, ColumnWidgets>;
   installed: Map<string, InstalledCard>;
   targets: Map<string, TargetMarker>;
@@ -837,12 +835,12 @@ export class Board {
       run: gen?.run.snapshot ?? null,
       trace: gen?.run.traceSnapshot ?? null,
       runnerStatus: {
-        tagged: runner && runner.tag.tagged && runner.tag.text ? { text: runner.tag.text, box: { ...runner.tag.box }, hit: runner.pos === 'bottom' ? this.tagHit(runner.tag.box) : { ...runner.tag.box } } : null,
-        link: (() => {
-          const w = gen?.identities.runner;
-          if (!w || !w.root.visible || !w.link.visible) return null;
-          return { text: w.linkText.text, box: boundsOf(w.link) };
-        })(),
+        tagged:
+          gen && gen.tagged.text
+            ? { text: gen.tagged.text, box: { ...gen.tagged.box }, hit: runner?.pos === 'bottom' && layout ? { ...layout.rig.stats } : { ...gen.tagged.box } }
+            : null,
+        link: gen && gen.link.text ? { text: gen.link.text, box: { ...gen.link.box } } : null,
+        stats: layout ? { ...layout.rig.stats } : zero,
       },
       runButton:
         gen && gen.runButton.root.visible
@@ -852,6 +850,12 @@ export class Board {
         corp: { text: gen?.scores.corp.text ?? '', box: gen ? { ...gen.scores.corp.box } : zero },
         runner: { text: gen?.scores.runner.text ?? '', box: gen ? { ...gen.scores.runner.box } : zero },
       },
+      scored: Object.fromEntries(
+        SIDES.map((sd) => {
+          const p = gen?.scoredPiles[sd];
+          return [sd, p ? { box: p.box(), text: p.text, count: p.count, top: p.top, tappable: p.root.eventMode === 'static' } : { box: zero, text: '', count: 0, top: null, tappable: false }];
+        }),
+      ) as LayoutSnapshot['scored'],
       selectedInstalled: this.pickedInstalled,
       hint: this.hint && this.hint.root.alpha > 0.05 ? { text: this.hint.text, box: this.hint.box } : null,
       dialog: this.leave ? this.leave.dialog.snapshot() : null,
@@ -1055,7 +1059,7 @@ export class Board {
     }
     const hqRoot = layout.corp.servers[0]?.root;
     if (hqRoot) placeAt(gen.hq.root, hqRoot);
-    for (const s of SIDES) this.placeIdentity(gen, layout, s, identityOf(view, s), rowOf(s).identity, s === 'runner' ? view.players.runner.link : null);
+    for (const s of SIDES) this.placeIdentity(gen, layout, s, identityOf(view, s), rowOf(s).identity);
     // The Corp's identity stands for HQ: it takes the HQ marker's slot (the hand count is in the Corp's name row).
     gen.hq.root.visible = !gen.identities.corp?.root.visible;
 
@@ -1122,6 +1126,8 @@ export class Board {
     }
 
     placeAt(gen.memory.root, layout.rig.memory);
+    placeAt(gen.scoredPiles.corp.root, layout.corp.scored);
+    placeAt(gen.scoredPiles.runner.root, layout.rig.scored);
     this.placeCenter(gen, layout, viewer);
     return layout;
   }
@@ -1162,7 +1168,27 @@ export class Board {
       );
     }
     const memory = new MemoryCounter(layout.rig.memory, s);
-    this.boardLayer.addChild(hq.root, decks.corp.root, decks.runner.root, discards.corp.root, discards.runner.root, memory.root);
+    // Sprint 10 (S-10-2): Link and Tagged under Memory. The Runner taps the stats column for Remove 1 tag.
+    const link = new StatLine('link', 'link');
+    const tagged = new StatLine('tagged', 'tagged');
+    detachers.push(this.pressFeedback(tagged.root, () => this.onTagTap()));
+    // Sprint 10 (S-10-1): the scored piles. Hold to read (as the other piles); a tap opens them (U2).
+    const scoredPiles = { corp: new ScoredPile(layout.corp.scored, 'corp', s), runner: new ScoredPile(layout.rig.scored, 'runner', s) };
+    for (const side of SIDES) {
+      const pile = scoredPiles[side];
+      detachers.push(
+        this.attachHoldZoom(
+          pile.root,
+          () => {
+            const ids = [...(this.view?.players[side].scored ?? [])];
+            return ids.length > 0 ? { ids, side: 'corp', from: pile.box() } : null;
+          },
+          () => this.onScoredPileTap(side),
+        ),
+      );
+      pile.root.eventMode = 'none';
+    }
+    this.boardLayer.addChild(hq.root, decks.corp.root, decks.runner.root, discards.corp.root, discards.runner.root, memory.root, link.root, tagged.root, scoredPiles.corp.root, scoredPiles.runner.root);
 
     const banner = new Text({
       text: '',
@@ -1249,6 +1275,9 @@ export class Board {
       hq,
       identities: {},
       memory,
+      link,
+      tagged,
+      scoredPiles,
       columns: new Map(),
       installed: new Map(),
       targets: new Map(),
@@ -1305,8 +1334,6 @@ export class Board {
       if (pos === 'bottom') gen.detachers.push(this.pressFeedback(credits.root, () => this.boardTap(() => this.callbacks.onCreditsTap())));
       else credits.root.eventMode = 'none';
       const tag = new StatusTag(`tag:${side}`, side === 'corp' ? 'bad' : 'run');
-      // Sprint 9 (S-09-2): the Runner taps his own "Tagged 1" note for Remove 1 tag.
-      if (side === 'runner' && pos === 'bottom') gen.detachers.push(this.pressFeedback(tag.root, () => this.onTagTap()));
       root.addChild(label, credits.root, clicks.root, tag.root);
       this.boardLayer.addChild(root);
       w = { side, pos, root, label, name, handText: hand, credits, clicks, tag };
@@ -1398,7 +1425,7 @@ export class Board {
   }
 
   /** U2: draws (or hides) `side`'s identity card in its slot; hold it to read it. */
-  private placeIdentity(gen: Generation, layout: BoardLayout, side: Side, ref: IdentityRef | null, slot: Box | null, link: number | null = null): void {
+  private placeIdentity(gen: Generation, layout: BoardLayout, side: Side, ref: IdentityRef | null, slot: Box | null): void {
     let w = gen.identities[side];
     if (w && (!ref || w.cardId !== ref.cardId)) {
       w.detach();
@@ -1414,19 +1441,10 @@ export class Board {
       const root = new Container();
       root.label = `identity:${side}`;
       root.hitArea = new Rectangle(-u / 2, -uh / 2, u, uh);
+      // Sprint 10 (S-10-2): nothing is drawn over the identity (Link moved to the stats column).
       root.addChild(createCardFace(def, u, uh, 'small'));
-      // Sprint 9: the Runner's link (the engine's number) on a pill across the bottom of his identity.
-      const linkBox = new Container();
-      linkBox.label = 'link';
-      const linkBg = new Graphics();
-      const linkLabel = new Text({ text: '', style: { fontFamily: theme.monoFamily, fontSize: Math.max(11, Math.round(u * 0.17)), fontWeight: '800', fill: theme.ink } });
-      linkLabel.anchor.set(0.5);
-      linkBox.addChild(linkBg, linkLabel);
-      linkBox.visible = false;
-      linkBox.eventMode = 'none';
-      root.addChild(linkBox);
       const cardId = ref.cardId;
-      const widget: IdentityWidget = { uid: ref.uid, cardId, root, box: slot, detach: () => {}, link: linkBox, linkText: linkLabel, linkBg, linkKey: '' };
+      const widget: IdentityWidget = { uid: ref.uid, cardId, root, box: slot, detach: () => {} };
       widget.detach = this.attachHoldZoom(root, () => ({ ids: [cardId], side, from: widget.box }));
       this.boardLayer.addChild(root);
       gen.identities[side] = widget;
@@ -1435,27 +1453,6 @@ export class Board {
     w.uid = ref.uid;
     w.box = slot;
     placeAt(w.root, slot);
-    this.setLink(w, link, layout.unit.width, layout.unit.height);
-  }
-
-  /** Sprint 9: "Link 1" across the bottom of the Runner's identity (hidden for the Corp's). */
-  private setLink(w: IdentityWidget, link: number | null, u: number, uh: number): void {
-    w.link.visible = link !== null;
-    if (link === null) return;
-    const text = linkText(link);
-    const key = `${text}:${u}`;
-    if (w.linkKey === key) return;
-    w.linkKey = key;
-    w.linkText.text = text;
-    fitText(w.linkText, u - 10);
-    const pw = Math.min(u - 4, Math.ceil(w.linkText.width) + 12);
-    const ph = Math.ceil(w.linkText.height) + 2;
-    w.linkBg.clear();
-    w.linkBg.roundRect(-pw / 2, -ph / 2, pw, ph, ph / 2).fill({ color: theme.runner, alpha: 0.95 }).stroke({ width: 1.5, color: theme.ink });
-    // In the art window (the name and type stay readable).
-    const def = getCard(w.cardId);
-    const f = def ? smallFaceLayout(def, u, uh) : null;
-    w.link.position.set(0, f ? Math.min(f.art.y + f.art.height - ph / 2, f.name.y - ph / 2 - 1) : uh / 2 - ph / 2 - 3);
   }
 
   /** QA-S7-2: the advancement tag (green, chevron, dark digits) in the card's top-right corner. */
@@ -1604,22 +1601,20 @@ export class Board {
       w.label.scale.set(Math.min(1, row.width / Math.max(1, w.handText.x + w.handText.width)));
       // The client shows the engine's numbers; it never adds run-only credits to the Runner's credits.
       const note = s === 'corp' ? (view.badPublicity > 0 ? badPublicityText(view.badPublicity) : null) : runnerNote(view);
-      const tagged = s === 'runner' && (p.tags ?? 0) > 0;
-      w.tag.set(layout[w.pos].tag, note, layout.mode === 'landscape' && w.pos === 'bottom' ? 'center' : 'right', tagged);
-      // Sprint 9: the Runner's own red note takes taps (a 44 px tall area reaching up from it, clear of the credits pill).
-      const tappable = tagged && w.pos === 'bottom';
-      w.tag.root.eventMode = tappable ? 'static' : 'none';
-      if (tappable) {
-        const hit = this.tagHit(w.tag.box);
-        w.tag.root.hitArea = new Rectangle(hit.x - (w.tag.box.x + w.tag.box.width / 2), hit.y - (w.tag.box.y + w.tag.box.height / 2), hit.width, hit.height);
-        w.tag.root.cursor = 'pointer';
-      }
+      w.tag.set(layout[w.pos].tag, note, layout.mode === 'landscape' && w.pos === 'bottom' ? 'center' : 'right');
       const mine = s === viewer;
       gen.decks[s].setActionable(mine && view.legalActions.some((a) => a.type === 'draw'));
       w.credits.setActionable(mine && view.legalActions.some((a) => a.type === 'gain_credit'));
     }
     gen.hq.setCount(view.players.corp.handCount);
     gen.memory.set(view.memory.used, view.memory.limit);
+    this.applyStats(gen, layout, view);
+    for (const s of SIDES) {
+      const pile = gen.scoredPiles[s];
+      pile.set(view.players[s].scored, view.players[s].points);
+      // An empty pile is a faint outline that takes no taps.
+      pile.root.eventMode = view.players[s].scored.length > 0 ? 'static' : 'none';
+    }
 
     const banner = gen.banner;
     banner.visible = !view.result;
@@ -2020,8 +2015,9 @@ export class Board {
       }
       case 'tags_changed': {
         // Sprint 9 (S-09-2): the red "Tagged N" note pops, "+1 tag" / "-1 tag" floats from it.
-        const tag = this.seatOf('runner')?.tag;
-        const b = tag?.text ? tag.box : this.seatOf('runner')?.credits.box();
+        // Sprint 10: it lives in the stats column (its slot is kept while untagged).
+        const tag = this.gen?.tagged;
+        const b = tag?.text ? tag.box : this.layout?.rig.tagged;
         const text = `${e.amount > 0 ? '+' : '−'}${plural(Math.abs(e.amount), TERMS.tag.toLowerCase(), `${TERMS.tag.toLowerCase()}s`)}`;
         this.callbacks.log({ kind: 'tags_changed', text, scheduledMs: timing.tagPop, ...(b ? { box: { ...b } } : {}) });
         if (tag?.text) tag.pop(this.fx, timing.tagPop);
@@ -2499,11 +2495,23 @@ export class Board {
     return parts.join(' · ');
   }
 
-  /** Sprint 9: where the Runner's tag note takes taps: 44 px tall, reaching up from the note (never over his credits). */
-  private tagHit(b: Box): Box {
-    const h = Math.max(44, b.height);
-    const w = Math.max(44, b.width);
-    return { x: b.x + b.width / 2 - w / 2, y: b.y + b.height - h, width: w, height: h };
+  /**
+   * Sprint 10 (S-10-2): "Link 1" and "Tagged 1" under Memory (numbers from the view). The
+   * Runner's own Tagged takes taps on the whole stats column (>= 44 px; Memory and Link take none).
+   */
+  private applyStats(gen: Generation, layout: BoardLayout, view: PlayerView): void {
+    const runner = view.players.runner;
+    gen.link.set(layout.rig.link, identityOf(view, 'runner') ? linkText(runner.link) : null);
+    const tags = runner.tags ?? 0;
+    gen.tagged.set(layout.rig.tagged, tags > 0 ? taggedText(tags) : null);
+    const tappable = tags > 0 && view.viewer === 'runner';
+    gen.tagged.root.eventMode = tappable ? 'static' : 'none';
+    if (tappable) {
+      const st = layout.rig.stats;
+      const t = gen.tagged.box;
+      gen.tagged.root.hitArea = new Rectangle(st.x - (t.x + t.width / 2), st.y - (t.y + t.height / 2), st.width, st.height);
+      gen.tagged.root.cursor = 'pointer';
+    }
   }
 
   /** Sprint 9 (S-09-2): the Runner taps his "Tagged 1" note: Remove 1 tag shows where Play goes (dim with the reason). */
@@ -2532,6 +2540,11 @@ export class Board {
     this.showTargets();
     this.applyView(view, false);
     this.callbacks.changed();
+  }
+
+  /** Sprint 10 (S-10-1): a tap on a scored pile. */
+  private onScoredPileTap(side: Side): void {
+    this.onScoreTap(side);
   }
 
   /** Sprint 9 (S-09-3): a tap on the viewer's own score pill shows its scored agenda's ability (Private Security Force). */

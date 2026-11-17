@@ -179,10 +179,27 @@ export interface TraceSnapshot {
 
 /** Sprint 9: the Runner's tag marker and link readout (both seats). */
 export interface TaggedSnapshot {
-  /** "Tagged 1", or null while untagged. */
+  /**
+   * "Tagged 1", or null while untagged. Sprint 10: in the stats column under Link;
+   * `hit` (where the Runner taps it) is the whole stats column.
+   */
   tagged: { text: string; box: Box; hit: Box } | null;
-  /** "Link 1" (the engine's link), or null with no identity. */
+  /** "Link 1" (the engine's link), or null with no identity. Sprint 10: under Memory. */
   link: { text: string; box: Box } | null;
+  /** Sprint 10: the whole stats column (Memory, Link, Tagged). */
+  stats: Box;
+}
+
+/** Sprint 10 (S-10-1): a side's scored-agenda pile on the table. */
+export interface ScoredPileSnapshot {
+  box: Box;
+  /** "2 agendas · 3 points", or '' while empty. */
+  text: string;
+  count: number;
+  /** The face-up latest agenda, or null while empty. */
+  top: string | null;
+  /** Takes taps (open it) / holds (read it): only with cards in it. */
+  tappable: boolean;
 }
 
 export interface ScoreSnapshot {
@@ -255,6 +272,8 @@ export interface LayoutSnapshot {
   runButton: { box: Box; label: string; lit: boolean; picking: boolean } | null;
   /** Both sides' points, shown to both seats. */
   score: Record<Side, ScoreSnapshot>;
+  /** Sprint 10: both sides' scored piles (far right of each row). */
+  scored: Record<Side, ScoredPileSnapshot>;
   /** uid of the installed card picked for its choices (Corp agendas: Advance / Score), or null. */
   selectedInstalled: string | null;
   /** The transient hint toast, if one is visible. */
