@@ -319,14 +319,16 @@ test.describe('QA S-07-4 Cyberfeeder and Bank Job', () => {
     await shot(page, '17-s07-4-bank-job-8');
     l = await startRun(page, plan.info['server']!);
     expect(l.run!.step).toBe('success');
+    // Sprint 11 (S-11-1): a button from a card names it: "Bank Job: take credits".
     expect(l.run!.buttons.map((b) => [b.label, b.lit])).toEqual([
-      ['Take credits', true],
+      ['Bank Job: take credits', true],
       ['Access cards', true],
     ]);
+    expect(runButtonOf(l, 'Bank Job: take credits').source).toBe('r10');
     for (const b of l.run!.buttons) expectGoodButton(l, b.box, b.label);
     await shot(page, '18-s07-4-bank-job-choice');
     const credits = (await getView(page)).players.runner.credits;
-    await tap(page, runButtonOf(l, 'Take credits').box);
+    await tap(page, runButtonOf(l, 'Bank Job: take credits').box);
     await page.waitForFunction(() => window.__overclock!.layout().run?.amount != null);
     const opened = await getView(page);
     expect(opened.players.runner.credits, 'opening the amount control takes nothing yet').toBe(credits);
@@ -381,13 +383,15 @@ test.describe('QA S-07-5 Ice Wall', () => {
     await tap(page, runButtonOf(l, /^Rez Ice Wall/).box);
     l = await waitIdle(page);
     expect(l.run!.lines).toContain('Strength 3');
-    const brk = runButtonOf(l, /^Break/);
+    // Sprint 11 (S-11-1): "Corroder: break barrier sub · 1 credit" / "Corroder: +1 str · 1 credit".
+    const brk = runButtonOf(l, 'Corroder: break barrier sub · 1 credit');
     expect(brk).toMatchObject({ lit: false, reject: 'too_weak' });
     await shot(page, '23-s07-5-ice-wall-strength-3');
-    const pump = l.run!.buttons.find((b) => /^\+1 strength/.test(b.label) && b.action.type === 'use_ability' && b.action.uid === breaker)!;
+    const pump = l.run!.buttons.find((b) => b.label === 'Corroder: +1 str · 1 credit' && b.action.type === 'use_ability' && b.action.uid === breaker)!;
+    expect(pump, 'Corroder: +1 str · 1 credit').toBeDefined();
     await tap(page, pump.box);
     l = await waitIdle(page);
-    await tap(page, runButtonOf(l, /^Break/).box);
+    await tap(page, runButtonOf(l, 'Corroder: break barrier sub · 1 credit').box);
     l = await waitIdle(page);
     expect(l.run!.subroutines.every((s) => s.broken)).toBe(true);
   });

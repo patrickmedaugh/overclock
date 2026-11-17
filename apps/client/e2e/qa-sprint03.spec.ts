@@ -179,6 +179,19 @@ test.describe('QA S-03-3 AC6: two ICE, outside-in', () => {
   });
 });
 
+/** Sprint 11: a drawn label is the full label, or the full label with only the quoted subroutine text cut ("…"). */
+function expectFairCut(label: string, full: string): void {
+  if (label === full) return;
+  const m = /^(.*?) "(.*)"( · .*)$/.exec(full);
+  expect(m, `${label}: only a label with subroutine text may be cut (full: ${full})`).not.toBeNull();
+  const [, head, sub, price] = m!;
+  expect(label.startsWith(`${head} "`), `${label} keeps "${head}"`).toBe(true);
+  expect(label.endsWith(`…"${price}`), `${label} keeps the price${price}`).toBe(true);
+  const kept = label.slice(head!.length + 2, label.length - price!.length - 2);
+  expect(kept.length, `${label}: some subroutine text is kept`).toBeGreaterThanOrEqual(3);
+  expect(sub!.startsWith(kept), `${label}: the cut text is the start of "${sub}"`).toBe(true);
+}
+
 test.describe('QA S-03-4: the most crowded encounter', () => {
   test('Enigma vs Gordian Blade: 2 breaks, +1 strength and Let it through all fit; breaking both passes the ICE', async ({ page }) => {
     await openBoard(page, 2);
@@ -193,12 +206,16 @@ test.describe('QA S-03-4: the most crowded encounter', () => {
     l = await waitIdle(page);
     expect(l.run).toMatchObject({ step: 'encounter', deciding: 'runner', stepLabel: 'Encounter: Enigma' });
     expect(l.run!.lines).toEqual(['Strength 2', 'Gordian Blade 2', 'Break all: 2 credits']); // + QA-S8-2's total (Sprint 8)
-    expect(l.run!.buttons.map((b) => [b.label, b.lit])).toEqual([
-      ['Break "The Runner loses 1 click, if able" · 1 credit', true],
-      ['Break "End the run" · 1 credit', true],
-      ['+1 strength · 1 credit', true],
+    // Sprint 11 (S-11-1): labels name the card and the ICE type. On small screens the
+    // subroutine text may be cut ('"The…"'; architect ruling 2026-11-17), never the card
+    // name, the action words or the price: compare the full label and check the cut.
+    expect(l.run!.buttons.map((b) => [b.fullLabel ?? b.label, b.lit])).toEqual([
+      ['Gordian Blade: break code gate sub "The Runner loses 1 click, if able" · 1 credit', true],
+      ['Gordian Blade: break code gate sub "End the run" · 1 credit', true],
+      ['Gordian Blade: +1 str · 1 credit', true],
       ['Let it fire: lose 1 click, run ends', true],
     ]);
+    for (const b of l.run!.buttons) expectFairCut(b.label, b.fullLabel ?? b.label);
     for (const b of l.run!.buttons) expect(Math.min(b.box.width, b.box.height), b.label).toBeGreaterThanOrEqual(44);
     // Every button and the info panel are inside the safe area and clear of each other.
     expectCleanLayout(l);
@@ -206,7 +223,7 @@ test.describe('QA S-03-4: the most crowded encounter', () => {
     expect(inside(l.run!.infoBox, safeRect(l))).toBe(true);
     await shot(page, '03-enigma-vs-gordian-4-buttons');
     const credits = (await getView(page)).players.runner.credits;
-    let m = await measureTap(page, runButtonOf(l, /^Break "The Runner loses/).box);
+    let m = await measureTap(page, l.run!.buttons.find((b) => (b.fullLabel ?? b.label).includes('sub "The Runner loses'))!.box);
     expect(m.events.map((e) => e.type)).toEqual(['credits_spent', 'subroutine_broken']);
     expectSnappy(m, ['sub_broken']);
     l = await waitIdle(page);
@@ -214,9 +231,10 @@ test.describe('QA S-03-4: the most crowded encounter', () => {
       { text: 'The Runner loses 1 click, if able', broken: true },
       { text: 'End the run', broken: false },
     ]);
-    expect(l.run!.buttons.map((b) => b.label)).toEqual(['Break "End the run" · 1 credit', '+1 strength · 1 credit', 'Let it fire: run ends']);
+    // One open subroutine left: a plain break button, no subroutine text (S-11-1 / S-11-2).
+    expect(l.run!.buttons.map((b) => b.label)).toEqual(['Gordian Blade: break code gate sub · 1 credit', 'Gordian Blade: +1 str · 1 credit', 'Let it fire: run ends']);
     await shot(page, '04-enigma-one-sub-crossed-out');
-    m = await measureTap(page, runButtonOf(l, /^Break "End the run"/).box);
+    m = await measureTap(page, runButtonOf(l, 'Gordian Blade: break code gate sub · 1 credit').box);
     expect(m.events.map((e) => e.type)).toEqual(expect.arrayContaining(['subroutine_broken', 'ice_passed']));
     expect(m.view.players.runner.credits).toBe(credits - 2);
     l = await waitIdle(page);

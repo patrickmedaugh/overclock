@@ -393,7 +393,8 @@ test.describe('QA S-08-3 brain damage', () => {
     test.info().annotations.push({ type: 'heimdall-corroder', description: JSON.stringify({ lines: l.run!.lines, buttons: l.run!.buttons.map((b) => [b.label, b.lit, b.reject]) }) });
     expect(l.run!.lines).toContain('Strength 6');
     expect(l.run!.lines).toContain('Corroder 2');
-    const breaks = l.run!.buttons.filter((b) => /Break "/.test(b.label));
+    // Sprint 11 (S-11-1): 'Corroder: break barrier sub "…" · 1 credit' (the drawn sub text may be cut: full label).
+    const breaks = l.run!.buttons.filter((b) => /^Corroder: break barrier sub "/.test(b.fullLabel ?? b.label));
     expect(breaks).toHaveLength(3);
     for (const b of breaks) expect(b).toMatchObject({ lit: false, reject: 'too_weak' });
     // QA-S8-2 (round 2): the panel adds the price up.
@@ -411,14 +412,16 @@ test.describe('QA S-08-3 brain damage', () => {
     await shot(page, '37-round2-toast-clear-of-run-panel');
     const c0 = (await getView(page)).players.runner.credits;
     for (let i = 0; i < 4; i++) {
-      await tap(page, runButtonOf(l, /^\+1 strength/).box);
+      await tap(page, runButtonOf(l, /^Corroder: \+1 str · 1 credit$/).box);
       l = await waitIdle(page);
     }
     expect(l.run!.lines).toContain('Corroder 6');
     // After the pumps the total is only the breaks.
     expect(l.run!.lines).toContain('Break all: 3 credits');
     for (let i = 0; i < 3; i++) {
-      const b = l.run!.buttons.find((x) => /Break "/.test(x.label) && x.lit)!;
+      // The last open subroutine is a plain "Corroder: break barrier sub · 1 credit" (no sub text).
+      const b = l.run!.buttons.find((x) => /^Corroder: break barrier sub[ ·]/.test(x.fullLabel ?? x.label) && x.lit)!;
+      expect(b, `break ${i + 1}`).toBeDefined();
       await tap(page, b.box);
       l = await waitIdle(page);
     }
@@ -435,7 +438,7 @@ test.describe('QA S-08-4 Kate cards', () => {
     await toStep(page, 1, 'heimdall_ram_encounter');
     let l = await layout(page);
     while (!l.run!.buttons.find((b) => b.role === 'multi')!.lit) {
-      await tap(page, runButtonOf(l, /\+1 strength/).box);
+      await tap(page, runButtonOf(l, /^Battering Ram: \+1 str · /).box);
       l = await waitIdle(page);
     }
     await tap(page, l.run!.buttons.find((b) => b.role === 'multi')!.box);
@@ -465,14 +468,15 @@ test.describe('QA S-08-4 Kate cards', () => {
     await toStep(page, 1, 'pipeline_hunter_encounter'); // ui-dev, deck change (Sprint 9); QA reviews
     let l = await layout(page);
     const c = (await getView(page)).players.runner.credits;
-    const pumpBtn = runButtonOf(l, /\+1 strength/);
+    const pumpBtn = runButtonOf(l, /^Pipeline: \+1 str · /);
     expect(pumpBtn.label).toMatch(/2 credits/);
     for (let i = 0; i < 3; i++) {
-      await tap(page, runButtonOf(l, /\+1 strength/).box);
+      await tap(page, runButtonOf(l, /^Pipeline: \+1 str · /).box);
       l = await waitIdle(page);
     }
     expect(l.run!.lines).toContain('Pipeline 4');
-    const brk = l.run!.buttons.find((b) => /Break "/.test(b.label))!;
+    // Sprint 11: Hunter has one subroutine, so "Pipeline: break sentry sub · 1 credit" (no sub text).
+    const brk = l.run!.buttons.find((b) => /^Pipeline: break sentry sub/.test(b.label))!;
     expect(brk).toMatchObject({ lit: true });
     expect(brk.label).toMatch(/1 credit$/);
     await shot(page, '20-pipeline-hunter');

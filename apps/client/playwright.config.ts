@@ -13,8 +13,8 @@ const NOT_WEB = [/rotate\.spec\.ts/, /android\.spec\.ts/];
 // Sprint 9 owner bug: a short sideways screen (Android Chrome with its address
 // bar showing). `phone-short` runs the rail specs only; short-rail.spec.ts sets
 // its own short sizes, so the other projects skip it.
-// Sprint 10: the new board specs run there too (not s10-online). Sprint 11: s11-break, s11-cards, s11-save.
-const SHORT_SPECS = [/short-rail\.spec\.ts/, /s03-corp-score\.spec\.ts/, /s10-scored\.spec\.ts/, /s10-stats\.spec\.ts/, /s10-bankjob\.spec\.ts/, /s10-board\.spec\.ts/, /qa-sprint10\.spec\.ts/, /s11-break\.spec\.ts/, /s11-cards\.spec\.ts/, /s11-save\.spec\.ts/];
+// Sprint 10: the new board specs run there too (not s10-online). Sprint 11: s11-break, s11-cards, s11-save, qa-sprint11.
+const SHORT_SPECS = [/short-rail\.spec\.ts/, /s03-corp-score\.spec\.ts/, /s10-scored\.spec\.ts/, /s10-stats\.spec\.ts/, /s10-bankjob\.spec\.ts/, /s10-board\.spec\.ts/, /qa-sprint10\.spec\.ts/, /s11-break\.spec\.ts/, /s11-cards\.spec\.ts/, /s11-save\.spec\.ts/, /qa-sprint11\.spec\.ts/];
 const NOT_WIDE = [...NOT_WEB, /short-rail\.spec\.ts/];
 // Sprint 6: the online service (apps/server) under `wrangler dev`, test mode on,
 // fresh storage every run. The web build points "Play online" at it.

@@ -513,9 +513,10 @@ test.describe('QA S-10-3 Advance stops at the limit; Bank Job lets you choose', 
     const plan = await toStep(page, 1, 'runner_bank_job_remote');
     const bj = plan.info['bankJobUid']!;
     let l = await startRun(page, plan.info['server']!);
-    expect(l.run!.buttons.map((b) => b.label)).toEqual(['Take credits', 'Access cards']);
+    // Sprint 11 (S-11-1): a button from a card names it.
+    expect(l.run!.buttons.map((b) => b.label)).toEqual(['Bank Job: take credits', 'Access cards']);
     await shot(page, '21-bank-job-choice');
-    await tap(page, runButtonOf(l, 'Take credits').box);
+    await tap(page, runButtonOf(l, 'Bank Job: take credits').box);
     await page.waitForFunction(() => window.__overclock!.layout().run?.amount != null);
     l = await layout(page);
     expectAmountControl(l);
@@ -538,7 +539,7 @@ test.describe('QA S-10-3 Advance stops at the limit; Bank Job lets you choose', 
     await passTurn(page);
     await passTurn(page);
     l = await startRun(page, plan.info['server']!);
-    await tap(page, runButtonOf(l, 'Take credits').box);
+    await tap(page, runButtonOf(l, 'Bank Job: take credits').box);
     await page.waitForFunction(() => window.__overclock!.layout().run?.amount != null);
     l = await layout(page);
     expect(l.run!.amount).toMatchObject({ amount: 5, high: 5, low: 1 });
@@ -576,7 +577,7 @@ test.describe('QA S-10-3 Advance stops at the limit; Bank Job lets you choose', 
     const bj = plan.info['bankJobUid']!;
     await startRun(runner.page, plan.info['server']!);
     await runner.page.waitForFunction(() => window.__overclock!.layout().run?.step === 'success');
-    await tap(runner.page, runButtonOf(await layoutOf(runner), 'Take credits').box);
+    await tap(runner.page, runButtonOf(await layoutOf(runner), 'Bank Job: take credits').box);
     await runner.page.waitForFunction(() => window.__overclock!.layout().run?.amount?.amount === 8);
     await tap(runner.page, runButtonOf(await layoutOf(runner), '−').box);
     await runner.page.waitForFunction(() => window.__overclock!.layout().run?.amount?.amount === 7);
