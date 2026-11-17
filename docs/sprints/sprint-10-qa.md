@@ -112,7 +112,7 @@ On 891×296, tapping an installed, unscored Private Security Force shows Advance
 ## Checks
 - `npm run lint`, `npm run typecheck`: pass. `npm test`: all unit suites pass (2,233 tests across the 8 workspaces, incl. the new QA engine file).
 - Full e2e on 9fd8688 (CI run 44005195332): red, as expected. The only failures are the QA-owned specs listed above (fixed in this commit) and `s10-stats.spec.ts:129` on `phone-short`, which is QA-S10-1. Shard pass counts: 315 / 315 / 327 passed besides those.
-- Full e2e on the QA commit: see CI for the pushed sha (recorded in STATE / the hand-back). It is expected to be red only on QA-S10-1 (`s10-stats:129` at phone-short) until the fix.
+- Full e2e on the QA commit ffb921f (CI run 44010952652, all 4 shards, CI retries=1): **1,415 passed, 1 failed, 13 skipped, 0 flaky.** The one failure is `s10-stats.spec.ts:129` on `phone-short` = QA-S10-1. QA's two `test.fail` checks (QA-S10-1, QA-S10-2) failed as expected on `phone-short`. `checks` (lint, typecheck, unit) and `guard-mutation`: green. QA used this CI run as the round's full pass instead of a local re-run (docs/TESTING.md).
 
 ## IP check
 No new image files outside screenshots. Card art is still drawn at runtime (glyphs). Real card names and text are allowed by the owner's 2026-11-12 rule. Pass.
