@@ -123,7 +123,20 @@ let bakeRenderer: Renderer | null = null;
 interface ZoomMeta {
   texts: string[];
   overflow: boolean;
+  /** Sprint 11 (S-11-4): each bottom stat ("Strength 4") as drawn, card-local (centered at 0,0). */
+  stats: StatBox[];
 }
+
+/** Sprint 11 (S-11-4): one "Label N" stat of a full face, where it is drawn (card-local). */
+export interface StatBox {
+  text: string;
+  box: { x: number; y: number; width: number; height: number };
+  /** Its text size as drawn (px at card size). */
+  fontPx: number;
+}
+
+/** The stat boxes recorded on a full face's container (`drawCardFace`). */
+const STATS = new WeakMap<Container, StatBox[]>();
 let baked = new Map<string, { texture: Texture; x: number; y: number; meta?: ZoomMeta }>();
 let retired: typeof baked = new Map();
 /** Zoom faces dropped from `baked` to stay under ZOOM_KEEP; freed at the next flushZoomFaces(). */
@@ -210,6 +223,20 @@ export interface ZoomFace {
   texts: string[];
   /** True if any text runs outside the card. */
   overflow: boolean;
+  /** Sprint 11: the bottom stats as drawn. */
+  stats: StatBox[];
+}
+
+function zoomMeta(c: Container, w: number, h: number): ZoomMeta {
+  return { texts: textsOf(c), overflow: textOverflows(c, w, h), stats: STATS.get(c) ?? [] };
+}
+
+/** Sprint 11 (test hook): what a full face of `card` at w x h says and where its stats are (drawn and freed). */
+export function fullFaceInfo(card: CardDef, w: number, h: number): ZoomMeta {
+  const c = buildCardFace(card, w, h, 'full');
+  const meta = zoomMeta(c, w, h);
+  c.destroy({ children: true });
+  return meta;
 }
 
 function zoomKey(card: CardDef, w: number, h: number, renderer: Renderer): string {
@@ -227,7 +254,7 @@ export function createZoomFace(card: CardDef, w: number, h: number): ZoomFace {
   const renderer = bakeRenderer;
   if (!renderer) {
     const c = buildCardFace(card, w, h, 'full');
-    const meta = { texts: textsOf(c), overflow: textOverflows(c, w, h) };
+    const meta = zoomMeta(c, w, h);
     c.cacheAsTexture(true);
     return { root: c, ...meta };
   }
@@ -238,12 +265,12 @@ export function createZoomFace(card: CardDef, w: number, h: number): ZoomFace {
     baked.delete(key);
   } else {
     const c = buildCardFace(card, w, h, 'full');
-    entry = bakeEntry(renderer, c, { texts: textsOf(c), overflow: textOverflows(c, w, h) });
+    entry = bakeEntry(renderer, c, zoomMeta(c, w, h));
   }
   baked.set(key, entry);
   evictZoomFaces();
-  const meta = entry.meta ?? { texts: [], overflow: false };
-  return { root: spriteOf(entry), texts: meta.texts, overflow: meta.overflow };
+  const meta = entry.meta ?? { texts: [], overflow: false, stats: [] };
+  return { root: spriteOf(entry), texts: meta.texts, overflow: meta.overflow, stats: meta.stats };
 }
 
 /** Keeps at most ZOOM_KEEP zoom faces; the least recently used are freed later (a sprite may still show one). */
@@ -342,14 +369,64 @@ export function typeLine(card: CardDef): string {
   return `${base} · ${sub}`;
 }
 
-function statsLine(card: CardDef): string {
-  const parts: string[] = [];
-  if (card.strength !== undefined) parts.push(`Strength ${card.strength}`);
-  if (card.memory !== undefined) parts.push(`Memory ${card.memory}`);
-  if (card.advancementRequirement !== undefined) parts.push(`Advance ${card.advancementRequirement}`);
-  if (card.agendaPoints !== undefined) parts.push(`Points ${card.agendaPoints}`);
-  if (card.trashCost !== undefined) parts.push(`Trash ${card.trashCost}`);
-  return parts.join('  ·  ');
+/** Sprint 11 (S-11-4): the bottom stats as "Label N" pairs (and a short label for a narrow face). */
+export function statPairs(card: CardDef): { label: string; short: string; value: number }[] {
+  const out: { label: string; short: string; value: number }[] = [];
+  if (card.strength !== undefined) out.push({ label: 'Strength', short: 'Str', value: card.strength });
+  if (card.memory !== undefined) out.push({ label: 'Memory', short: 'MU', value: card.memory });
+  if (card.advancementRequirement !== undefined) out.push({ label: 'Advance', short: 'Adv', value: card.advancementRequirement });
+  if (card.agendaPoints !== undefined) out.push({ label: 'Points', short: 'Pts', value: card.agendaPoints });
+  if (card.trashCost !== undefined) out.push({ label: 'Trash', short: 'Trash', value: card.trashCost });
+  return out;
+}
+
+/**
+ * Sprint 11 (S-11-4): the bottom stat line, bottom-anchored at `bottom`: each "Label N" is its
+ * own text in the UI font (the monospace fallback mis-measured on Android and clipped the
+ * number), laid left to right and wrapped to another line instead of scaled or clipped. A
+ * pair too wide for a line by itself takes its short label ("Str 4"), and only then shrinks.
+ * Returns the top of the block and where each stat is.
+ */
+function drawStats(c: Container, card: CardDef, x: number, width: number, bottom: number, fontSize: number, color: number): { top: number; stats: StatBox[] } {
+  const pairs = statPairs(card);
+  if (pairs.length === 0) return { top: bottom, stats: [] };
+  // Right padding: a glyph may draw a little past its measured width.
+  const avail = width - Math.max(2, fontSize * 0.3);
+  const gap = fontSize * 1.1;
+  const texts = pairs.map((p) => {
+    const t = new Text({ text: `${p.label} ${p.value}`, style: { fontFamily: theme.fontFamily, fontSize, fontWeight: '700', fill: color } });
+    if (t.width > avail) t.text = `${p.short} ${p.value}`;
+    if (t.width > avail) t.scale.set(avail / t.width);
+    return t;
+  });
+  // A line is as tall as its tallest text as measured (a font may draw taller than its size).
+  const lineH = Math.max(fontSize * 1.3, ...texts.map((t) => t.height + 1));
+  // Lines, left to right.
+  const lines: Text[][] = [[]];
+  let used = 0;
+  for (const t of texts) {
+    const line = lines[lines.length - 1]!;
+    if (line.length > 0 && used + gap + t.width > avail) {
+      lines.push([t]);
+      used = t.width;
+    } else {
+      used += (line.length > 0 ? gap : 0) + t.width;
+      line.push(t);
+    }
+  }
+  const top = bottom - lines.length * lineH;
+  const stats: StatBox[] = [];
+  lines.forEach((line, i) => {
+    let lx = x;
+    for (const t of line) {
+      t.anchor.set(0, 1);
+      t.position.set(lx, top + (i + 1) * lineH);
+      c.addChild(t);
+      stats.push({ text: t.text, box: { x: lx, y: t.y - t.height, width: t.width, height: t.height }, fontPx: fontSize * t.scale.y });
+      lx += t.width + gap;
+    }
+  });
+  return { top, stats };
 }
 
 /**
@@ -587,18 +664,11 @@ function drawCardFace(
       c.addChild(flavor);
       y += flavor.height;
     }
-    const stats = statsLine(card);
     let bottomLimit = top + h - h * 0.03;
-    if (stats) {
-      const st = new Text({
-        text: stats,
-        style: { fontFamily: theme.monoFamily, fontSize: Math.max(9, w * 0.042), fill: color },
-      });
-      st.anchor.set(0, 1);
-      st.position.set(artX, top + h - h * 0.035);
-      if (st.width > artW) st.scale.set(artW / st.width);
-      c.addChild(st);
-      bottomLimit = st.y - st.height - textSize * 0.3;
+    const drawn = drawStats(c, card, artX, artW, top + h - h * 0.035, Math.max(9, w * 0.042), color);
+    if (drawn.stats.length > 0) {
+      STATS.set(c, drawn.stats);
+      bottomLimit = drawn.top - textSize * 0.3;
     }
     fits = bodyTop + body.height <= bottomLimit && y - textSize * 0.7 <= bottomLimit;
   }

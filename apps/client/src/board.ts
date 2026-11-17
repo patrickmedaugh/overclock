@@ -13,7 +13,7 @@ import { getCard } from '@overclock/cards';
 import { Container, Graphics, Rectangle, Text } from 'pixi.js';
 import { type BackAction, backAction } from './back';
 import { CAROUSEL_SLIDE_MS, Carousel, type CarouselFace, listIndex } from './carousel';
-import { createCardBack, createCardFace, createZoomFace, dropCardTextures, flushZoomFaces, glowRoundRect, hasZoomFace, retireCardTextures, smallFaceLayout, textOverflows, textsOf } from './cardFace';
+import { type StatBox, createCardBack, createCardFace, createZoomFace, dropCardTextures, flushZoomFaces, glowRoundRect, hasZoomFace, retireCardTextures, smallFaceLayout, textOverflows, textsOf } from './cardFace';
 import { framesAreSlow } from './frameClock';
 import { Cover } from './cover';
 import { centeredBox, clearOf, freeRect } from './geometry';
@@ -337,6 +337,8 @@ export class Board {
     height: number;
     texts: string[];
     overflow: boolean;
+    /** Sprint 11 (S-11-4): the bottom stats as drawn (card-local). */
+    stats: StatBox[];
     /** Hand zooms: an undimmed outline over the hand card the zoom shows (S-04-3). */
     frame: Graphics | null;
     /** S-05-3: the neighbours behind the zoomed card (hand and list zooms). */
@@ -733,6 +735,11 @@ export class Board {
   }
 
   /** The End turn guard and flip timestamps (test hook). */
+  /** Sprint 11 (test hook): the size the long-press zoom draws a card at, for this screen. */
+  zoomSize(): { width: number; height: number } | null {
+    return this.layout ? { width: this.layout.zoom.width, height: this.layout.zoom.height } : null;
+  }
+
   endTurnClock(): EndTurnClock {
     return { armedAt: this.endTurnArmedAt, flipDueAt: this.flipDueAt };
   }
@@ -918,6 +925,7 @@ export class Board {
             box: centeredBox(this.zoom.card, this.zoom.width, this.zoom.height),
             texts: this.zoom.texts,
             textOverflow: this.zoom.overflow,
+            stats: this.zoom.stats.map((x) => ({ text: x.text, box: { ...x.box }, fontPx: x.fontPx })),
             carousel: this.zoom.carousel?.snapshot() ?? [],
           }
         : null,
@@ -3318,11 +3326,13 @@ export class Board {
     let card: Container;
     let texts: string[];
     let overflow: boolean;
+    let stats: StatBox[] = [];
     if (def) {
       const f = createZoomFace(def, z.width, z.height);
       card = f.root;
       texts = f.texts;
       overflow = f.overflow;
+      stats = f.stats;
     } else {
       card = new Container();
       card.addChild(createCardBack(side, z.width, z.height));
@@ -3370,7 +3380,7 @@ export class Board {
     this.zoomLayer.addChild(root);
     const list = opts.list ? { ids: opts.list.ids, start: opts.list.index, startX: opts.list.startX, step: Math.max(28, Math.round(z.width * 0.18)) } : null;
     const pile = opts.pile ? { side: opts.pile.side, ids: opts.pile.ids } : null;
-    this.zoom = { cardId: def ? cardId : null, root, card, width: z.width, height: z.height, texts, overflow, frame, carousel, index: browse?.index ?? 0, list, view, mode, pile, stamp, confirm };
+    this.zoom = { cardId: def ? cardId : null, root, card, width: z.width, height: z.height, texts, overflow, stats, frame, carousel, index: browse?.index ?? 0, list, view, mode, pile, stamp, confirm };
     this.syncDiscardView();
     this.ui.add({ target: root, to: { alpha: 1 }, duration: timing.zoomIn, owner: root });
     this.ui.add({ target: card, to: { x: cx, y: cy }, duration: timing.zoomIn, ease: ease.outCubic, owner: card });
@@ -3419,6 +3429,7 @@ export class Board {
     zoom.cardId = cardId;
     zoom.texts = next.texts;
     zoom.overflow = next.overflow;
+    zoom.stats = next.stats;
     zoom.index = index;
     if (zoom.carousel) {
       // On a device where drawing a frame is slow, the slide would only delay the next touch: jump instead.

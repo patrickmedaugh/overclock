@@ -6,7 +6,7 @@ import { getCard } from '@overclock/cards';
 import type { Action, GameEvent, Side } from '@overclock/engine';
 import { Application, updateRenderGroupTransforms } from 'pixi.js';
 import { Board } from './board';
-import { setCardRenderer, smallFaceLayout } from './cardFace';
+import { fullFaceInfo, setCardRenderer, smallFaceLayout } from './cardFace';
 import { forceFrameSpeed, noteDraw, noteTick } from './frameClock';
 import type { BackAction } from './back';
 import type { AnimRecord } from './hook-types';
@@ -257,6 +257,13 @@ async function start(): Promise<void> {
         smallFace: (cardId, width, height) => {
           const def = getCard(cardId);
           return def ? smallFaceLayout(def, width, height) : null;
+        },
+        fullFace: (cardId, width, height) => {
+          const def = getCard(cardId);
+          const z = width !== undefined && height !== undefined ? { width, height } : board.zoomSize();
+          if (!def || !z) return null;
+          const f = fullFaceInfo(def, z.width, z.height);
+          return { width: z.width, height: z.height, texts: f.texts, textOverflow: f.overflow, stats: f.stats };
         },
         back,
         exitRequests: () => exitRequests,
