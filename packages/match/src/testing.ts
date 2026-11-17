@@ -246,7 +246,9 @@ export type StepGoal =
   | 'runner_tagged_full_rig'
   | 'remote_single_card_no_ice'
   | 'runner_must_discard'
-  | 'corp_must_discard';
+  | 'corp_must_discard'
+  // Sprint 11 (core decks; `SPRINT11_GOALS`)
+  | 'ice_wall_ram_gordian';
 
 export const STEP_GOALS: readonly StepGoal[] = [
   'corp_rez_prompt',
@@ -398,6 +400,15 @@ export const SPRINT10_GOALS: readonly StepGoal[] = [
   'runner_must_discard',
   'corp_must_discard',
 ];
+
+/**
+ * Sprint 11 goals (core decks; seeds in the README).
+ * - `ice_wall_ram_gordian`: the Runner encounters a rezzed Ice Wall (alone on a new remote; one subroutine)
+ *   with **both** Battering Ram and Gordian Blade installed and ≥ 3 credits (`pass` offered). Ram (strength 3)
+ *   can break at once for 2, or pump for 1; Gordian Blade (code gate) breaks nothing here.
+ *   `info: {server, iceUid, breakerUid (= ramUid), ramUid, gordianUid, iceStrength}`.
+ */
+export const SPRINT11_GOALS: readonly StepGoal[] = ['ice_wall_ram_gordian'];
 
 export interface StepPlan {
   readonly seed: number;
@@ -694,6 +705,8 @@ const CORE_ENCOUNTER: Partial<Record<StepGoal, CoreEncounter>> = {
   viktor_encounter: { ice: 'c17', rig: [], credits: 0, hand: 2 },
   heimdall_corroder_encounter: { ice: 'c18', rig: ['r04'], credits: 7, hand: 0 },
   heimdall_ram_encounter: { ice: 'c18', rig: ['r17'], credits: 5, hand: 0 },
+  // Sprint 11: Ice Wall with Battering Ram and Gordian Blade (S-11-1 / S-11-2).
+  ice_wall_ram_gordian: { ice: 'c05', rig: ['r17', 'r05'], credits: 3, hand: 0 },
   pipeline_hunter_encounter: { ice: 'c20', rig: ['r16'], credits: 7, hand: 0 },
   rototurret_two_programs: { ice: 'c19', rig: [], programs: 2, credits: 0, hand: 0 },
   ichi_two_programs: { ice: 'c21', rig: [], programs: 2, credits: 0, hand: 0 },
@@ -770,6 +783,11 @@ function coreInfo(goal: StepGoal, views: Views): Record<string, string> {
     const info: Record<string, string> = { server: r.server, iceUid: r.iceUid ?? '' };
     const breaker = CORE_ENCOUNTER[goal]!.rig[0];
     if (breaker) info.breakerUid = rigCard(runner, breaker)!.uid;
+    if (goal === 'ice_wall_ram_gordian') {
+      info.ramUid = rigCard(runner, 'r17')!.uid;
+      info.gordianUid = rigCard(runner, 'r05')!.uid;
+      info.iceStrength = String(r.ice?.strength ?? '');
+    }
     if (goal === 'rototurret_two_programs' || goal === 'ichi_two_programs') {
       info.programs = runner.rig.filter((c) => isProgram(c.cardId)).map((c) => c.uid).join(',');
       info.construct = rigCard(runner, 'r12')?.uid ?? '';

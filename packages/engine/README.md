@@ -543,6 +543,8 @@ parseSavedGame(x: unknown): SavedGame | 'broken' | 'outdated';   // shape check 
 - Golden fixture: `test/saved-game.test.ts` pins the sha256 of the state three saved games (core, core online rules, starter; up to 406 actions) replay to. Any engine/card change that alters replay fails it: **bump `RULES_VERSION`**, then re-pin with `UPDATE_FIXTURES=1 npx vitest run test/saved-game.test.ts` (from `packages/match`).
 - Client storage (ui-dev): `localStorage['overclock.hotseat.v1'] = JSON.stringify(match.save())`; one slot.
 
+**E3 status:** `packages/match/test/sprint11-save.test.ts`: 300-game save → JSON → `load` property test (state, both views and save deep-equal at a random point, mid-run/choice/discard included; the next 20 moves give equal updates; restored Runner view passes `runnerViewLeaks`, the Corp view has no Grip), `finished` on 30 real finished games (flatline, decked, points), `broken` on every cut of a save's JSON and random damage, `outdated` on other `RULES_VERSION`s and on reordered moves; a 400-action game restores in ~1 ms (limit 50 ms). Golden fixture also pins two planned breaker games (Heimdall 1.0 vs Battering Ram, Ice Wall vs Ram). `planToStep` goal `ice_wall_ram_gordian` (`SPRINT11_GOALS`). Sprint 11 engine work is complete.
+
 **E2 status:** online Leave for now and the 7-day limit (`apps/server/src/room.ts`, `packages/protocol`).
 
 ### Protocol (additive, still v1) and room
@@ -782,6 +784,9 @@ The planner answers a free-rez choice it did not aim for with Skip.
 - `runner_tagged_full_rig` — Runner's action step (no run), tagged, ≥ 4 rig cards (usually exactly 4) including exactly one Access to Globalsec (link 2), got tagged by Hunter. `info: {tags, link: '2', rig, globalsecUid}`.
 - `remote_single_card_no_ice` — Runner's action step, ≥ 1 click, a remote with no ICE holding one card he can take (an agenda whose steal does not win, or an asset he can afford to trash), with another remote after it. `info: {server, uid, cardId, kind: 'steal' | 'trash', otherServer}` (seeds 1, 7, 42: `remote1` with an asset to trash; 12345: an agenda to steal). Taking it → `server_removed{server}`; the other servers keep their ids and order.
 - `runner_must_discard` / `corp_must_discard` — that side's discard step at the end of its first turn (drew with every click): `pendingDiscard` 4, hand 9. `info: {count, hand}`.
+
+**Test-only (Sprint 11):** one `planToStep` goal on the **core decks** (`SPRINT11_GOALS`; `plan.deckSet === 'core'`). **Works for seeds 1-100 and 12345, pass-the-phone and online (`{rezWindow: 'always'}`)**; tests pin 1, 7, 42, 12345 (`packages/match/test/sprint11-goals.test.ts`).
+- `ice_wall_ram_gordian` — the Runner encounters a rezzed Ice Wall alone on a remote (one subroutine) with **Battering Ram and Gordian Blade** installed and ≥ 3 credits, `pass` offered. `info: {server, iceUid, breakerUid (= ramUid), ramUid, gordianUid, iceStrength}`. Ram's `run.options`: one break `use_ability {uid: ramUid, ability: 0, subs: [0]}` (cost 2) and one pump (ability 1, cost 1); Gordian Blade offers no usable break. Sending the break → `credits_spent 2`, `subroutine_broken {sub: 0, breakerUid: ramUid}` on both phones.
 
 The client and AI may import only the public index of engine/cards/match. The client may not import `apply`, `newGame`, `legalActions`, `viewFor` or `replay` (it goes through the match).
 

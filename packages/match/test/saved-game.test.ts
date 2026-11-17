@@ -11,6 +11,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { RULES_VERSION, viewFor, type Action, type GameOptions, type GameState } from '@overclock/engine';
 import { describe, expect, it } from 'vitest';
 import { LocalMatch, SAVE_FORMAT, parseSavedGame, type SavedGame } from '../src/index';
+import { planToStep } from '../src/testing';
 import { playRandom } from './save-play';
 
 const FIXTURE = new URL('./fixtures/sprint11-saves.json', import.meta.url);
@@ -31,14 +32,36 @@ const facts = (s: GameState): Golden['facts'] => ({
   runner: [s.players.runner.credits, s.players.runner.scoreArea.length],
 });
 
+/** A planned encounter, then `extra(info)` (breaker pumps and breaks), all on the core decks. */
+function planned(seed: number, goal: 'heimdall_ram_encounter' | 'ice_wall_ram_gordian', extra: (info: Record<string, string>) => Action[]): Action[] {
+  const p = planToStep(seed, goal);
+  return [...p.actions, ...extra(p.info as Record<string, string>)];
+}
+const use = (uid: string, ability: number, more: object = {}): Action => ({ type: 'use_ability', player: 'runner', uid, ability, ...more }) as Action;
+
 /**
  * The games the fixture pins: both deck sets and both rez windows, long enough to reach runs, ICE,
- * breakers, traces and scores (`long` random play, stopped before the game ends).
+ * breakers, traces and scores (`long` random play, stopped before the game ends), plus two planned
+ * breaker encounters (pumps, "break up to 2", a single break) so icebreaker rules are pinned too.
  */
-const GOLDEN_GAMES: { name: string; seed: number; options: Partial<GameOptions>; minActions: number }[] = [
+const GOLDEN_GAMES: { name: string; seed: number; options: Partial<GameOptions>; minActions: number; actions?: () => Action[] }[] = [
   { name: 'core pass-the-phone', seed: 1117, options: { deckSet: 'core' }, minActions: 300 },
   { name: 'core online rules', seed: 21, options: { deckSet: 'core', rezWindow: 'always' }, minActions: 400 },
   { name: 'starter', seed: 11, options: { deckSet: 'starter' }, minActions: 90 },
+  {
+    name: 'Heimdall 1.0 vs Battering Ram (planned)',
+    seed: 7,
+    options: { deckSet: 'core' },
+    minActions: 20,
+    actions: () => planned(7, 'heimdall_ram_encounter', (i) => [use(i.breakerUid!, 1), use(i.breakerUid!, 1), use(i.breakerUid!, 1), use(i.breakerUid!, 0, { subs: [1, 2] })]),
+  },
+  {
+    name: 'Ice Wall vs Ram and Gordian (planned)',
+    seed: 42,
+    options: { deckSet: 'core', rezWindow: 'always' },
+    minActions: 20,
+    actions: () => planned(42, 'ice_wall_ram_gordian', (i) => [use(i.ramUid!, 1), use(i.ramUid!, 0, { subs: [0] })]),
+  },
 ];
 
 function liveMatch(seed: number, options: Partial<GameOptions>, actions: readonly Action[]): LocalMatch {
@@ -149,9 +172,8 @@ describe('Sprint 11: LocalMatch.load()', () => {
 
 describe('Sprint 11: golden save fixture (replay drift needs a RULES_VERSION bump)', () => {
   if (process.env.UPDATE_FIXTURES === '1') {
-    const golden: Golden[] = GOLDEN_GAMES.map(({ name, seed, options }) => {
-      const g = playRandom(seed, options, 2000, true, true);
-      const m = liveMatch(seed, options, g.actions);
+    const golden: Golden[] = GOLDEN_GAMES.map(({ name, seed, options, actions }) => {
+      const m = liveMatch(seed, options, actions ? actions() : playRandom(seed, options, 2000, true, true).actions);
       return { name, save: m.save(), stateSha256: stateHash(m.snapshot()), facts: facts(m.snapshot()) };
     });
     writeFileSync(FIXTURE, JSON.stringify(golden, null, 1) + '\n');
