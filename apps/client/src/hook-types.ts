@@ -352,6 +352,8 @@ export type AnimKind =
   | 'server_open'
   /** S-07-1: an empty remote server's column folds away. */
   | 'server_close'
+  // Sprint 10 (S-10-5): a server column sliding to its new place after one was removed (`text`: its id).
+  | 'column_shift'
   /** The ICE flips face up. */
   | 'ice_rez'
   /** S-07-2: an asset or upgrade flips face up (rezzed in the Corp's turn). */
