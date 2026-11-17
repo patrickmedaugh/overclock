@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url';
 import { type Page, expect, test } from '@playwright/test';
 import type { CardOption, GameEvent, PlayerView } from '@overclock/engine';
 import type { LayoutSnapshot } from '../src/hook-types';
-import { expectCleanLayout, getView, holdAt, layout, openBoard, outsideHandView, overlaps, passTurn, tap, targetOf, toBusyBoard, waitIdle } from './helpers';
+import { expectCleanLayout, getView, holdAt, layout, openBoard, outsideHandView, overlaps, passTurn, tap, targetOf, toBusyBoard, toStep, waitIdle } from './helpers';
 
 const SHOTS = join(dirname(fileURLToPath(import.meta.url)), '../../../docs/sprints/sprint-10-screens');
 const SEED = 1;
@@ -200,6 +200,53 @@ test.describe('S-10-1 a scored-agenda pile for each side', () => {
     expect(l.text.help).toContain('Do 1 meat damage: score it first');
     expect(l.targets.some((t) => t.kind === 'activate')).toBe(false);
     await shot(page, 's10-1-psf-score-it-first');
+  });
+
+  test('real play: the Corp\'s two scored agendas in its pile; PSF from the pile is dim "Runner isn\'t tagged"; the Runner\'s two stolen in his', async ({ page }) => {
+    await core(page);
+    const plan = await toStep(page, SEED, 'corp_two_scored');
+    let l = await waitIdle(page);
+    const ids = plan.info['scored']!.split(',');
+    const points = Number(plan.info['points']);
+    expect(l.scored.corp).toMatchObject({ count: ids.length, top: ids.at(-1), text: `${ids.length} agendas · ${points} points` });
+    expectFarRight(l);
+    expectCleanLayout(l);
+    const psfKey = plan.info['psfUid']!;
+    const psfIndex = Number(psfKey.split(':')[2]);
+    await tap(page, l.scored.corp.box);
+    await page.waitForFunction(() => window.__overclock!.layout().pileView !== null);
+    l = await layout(page);
+    if (l.pileView!.index !== psfIndex) {
+      await tap(page, l.zoom!.carousel.find((c) => c.index === psfIndex)!.box);
+      await page.waitForFunction((i) => window.__overclock!.layout().pileView?.index === i, psfIndex);
+      l = await layout(page);
+    }
+    await tap(page, l.pileView!.centre);
+    await page.waitForFunction(() => window.__overclock!.layout().pileView === null);
+    l = await waitIdle(page);
+    expect(l.selectedInstalled).toBe(psfKey);
+    expect(targetOf(l, 'activate')).toMatchObject({ label: 'Do 1 meat damage · 1 click', lit: false, note: "Runner isn't tagged" });
+    await shot(page, 's10-1-real-psf-untagged');
+    await core(page);
+    const stolen = await toStep(page, SEED, 'runner_two_stolen');
+    l = await waitIdle(page);
+    expect(l.scored.runner.count).toBe(Number(stolen.info['count']));
+    expect(l.scored.runner.text).toBe(`${stolen.info['count']} agendas · ${stolen.info['points']} points`);
+    expectFarRight(l);
+    expectCleanLayout(l);
+    await shot(page, 's10-1-real-runner-two-stolen');
+  });
+
+  test('real play: an installed, unscored Private Security Force says "score it first" beside Advance', async ({ page }) => {
+    await core(page);
+    const plan = await toStep(page, SEED, 'psf_installed_unscored');
+    let l = await waitIdle(page);
+    const card = l.servers.flatMap((s) => s.content).find((c) => c.uid === plan.info['uid'])!;
+    await tap(page, card.box);
+    l = await layout(page);
+    expect(targetOf(l, 'advance').lit).toBe(true);
+    // Sideways a passing toast (the turn's notes) takes the help room for a moment; then it shows.
+    await page.waitForFunction(() => window.__overclock!.layout().text.help.includes('Do 1 meat damage: score it first'));
   });
 
   test('busy board with both piles full: piles are thumb size and cover no card, button or counter', async ({ page }) => {

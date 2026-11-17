@@ -43,7 +43,9 @@ for (const size of SIZES) {
   test.describe(`short sideways screen ${size.width}x${size.height}`, () => {
     test.use({ viewport: size });
 
-    test('an agenda with enough advancements: Advance and Score both show in full; tapping Score scores it', async ({ page }) => {
+    // Sprint 10 (S-10-3): Advance stops at the requirement, so a ready agenda shows only Score
+    // (the two-button room is still checked by the layout unit tests and the PSF test below).
+    test('an agenda with enough advancements: Score shows in full; tapping Score scores it', async ({ page }) => {
       await openBoard(page, 1);
       const plan = await toStep(page, 1, 'agenda_one_advance');
       let l = await waitIdle(page);
@@ -51,9 +53,8 @@ for (const size of SIZES) {
       await tap(page, card.box);
       await tap(page, targetOf(await layout(page), 'advance').box);
       l = await waitIdle(page);
-      expect(l.targets.map((t) => t.kind)).toEqual(['advance', 'score']);
+      expect(l.targets.map((t) => t.kind)).toEqual(['score']);
       if (size.height === 296) await save(page, 'score-short-after');
-      expectFullButton(l, 'Advance', targetOf(l, 'advance').box);
       expectFullButton(l, 'Score', targetOf(l, 'score').box);
       expectCleanLayout(l);
       const before = await getView(page);

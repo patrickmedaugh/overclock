@@ -126,6 +126,17 @@ test.describe('S-10-2 Link and Tagged next to memory', () => {
     expect((await page.evaluate(() => window.__overclock!.sent())).at(-1)).toEqual({ type: 'remove_tag', player: 'runner' });
   });
 
+  test('real play: tagged with a full rig and Globalsec: "Tagged 1" and "Link 2" in the column, nothing overlaps', async ({ page }) => {
+    await core(page);
+    const plan = await toStep(page, SEED, 'runner_tagged_full_rig');
+    const l = await waitIdle(page);
+    expect(l.rig.length).toBe(Number(plan.info['rig']));
+    expect(l.runnerStatus.tagged?.text).toBe(`Tagged ${plan.info['tags']}`);
+    expect(l.runnerStatus.link?.text).toBe(`Link ${plan.info['link']}`);
+    expectStats(l);
+    await shot(page, 's10-2-real-tagged-full-rig');
+  });
+
   test('tagged with a full rig: Tagged, Link, Memory and his cards never overlap (both seats)', async ({ page }) => {
     await core(page);
     const v = await getView(page);

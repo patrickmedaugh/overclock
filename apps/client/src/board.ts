@@ -3044,7 +3044,7 @@ export class Board {
     g.roundRect(-w / 2 - ring, -h / 2 - ring, w + 2 * ring, h + 2 * ring, Math.min(h / 2, 18) + ring).stroke({ width: 3, color: tone, alpha: 0.35 });
     root.addChild(g, label);
     // The slot is sized so hints wrap at full size; shrink only if one ever does not fit.
-    const fit = Math.min(1, (area.width - 2 * ring) / w, (area.height - 2 * ring) / h);
+    const fit = Math.max(0.4, Math.min(1, (area.width - 2 * ring) / w, (area.height - 2 * ring) / h));
     root.scale.set(fit);
     const hint = { text, root, box: { x: 0, y: 0, width: w * fit, height: h * fit }, kind, slot: JSON.stringify(area), wide };
     this.positionHint(hint);
@@ -3126,7 +3126,14 @@ export class Board {
   private hintSlot(layout: BoardLayout, wide = false): Box {
     let slot = this.baseHintSlot(layout, wide);
     // S-10-6 (QA-S9-4): a toast never covers a button (End turn, Last run, a lit choice included).
-    slot = clearOf(slot, this.buttonBoxes(), Math.max(4, Math.round(6 * layout.scale)));
+    const gap = Math.max(4, Math.round(6 * layout.scale));
+    const buttons = this.buttonBoxes();
+    slot = clearOf(slot, buttons, gap);
+    // Too little room left (a short screen with two buttons in the rail): over the table instead.
+    if (!wide && (slot.width < 80 || slot.height < 32)) {
+      const table = clearOf(this.baseHintSlot(layout, true), buttons, gap);
+      if (table.width * table.height > slot.width * slot.height) slot = table;
+    }
     return this.gameOver ? this.clearOfGameOver(layout, slot) : slot;
   }
 
