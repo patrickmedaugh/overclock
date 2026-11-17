@@ -45,28 +45,40 @@ export function freeRect(region: Box, obstacles: readonly Box[], minW: number, m
     .map((o) => ({ x1: o.x - gap, y1: o.y - gap, x2: o.x + o.width + gap, y2: o.y + o.height + gap }))
     .filter((o) => o.x2 > region.x && o.x1 < rx2 && o.y2 > region.y && o.y1 < ry2);
   const ys = [...new Set([region.y, ry2, ...obs.flatMap((o) => [o.y1, o.y2])].map((y) => Math.min(ry2, Math.max(region.y, y))))].sort((a, b) => a - b);
+  // Per top edge, obstacles enter as the bottom edge moves down (sorted by top), and their
+  // x-spans are merged incrementally: O(n^2) bands x O(n) per band, no per-band sort.
+  const byTop = [...obs].sort((a, b) => a.y1 - b.y1);
   let best: Box | null = null;
   for (let i = 0; i < ys.length; i++) {
+    const y1 = ys[i]!;
+    const cand = byTop.filter((o) => o.y2 > y1);
+    const spans: [number, number][] = [];
+    let p = 0;
     for (let j = i + 1; j < ys.length; j++) {
-      const y1 = ys[i]!;
       const y2 = ys[j]!;
+      for (; p < cand.length && cand[p]!.y1 < y2; p++) {
+        const a = Math.max(region.x, cand[p]!.x1);
+        const b = Math.min(rx2, cand[p]!.x2);
+        let k = 0;
+        while (k < spans.length && spans[k]![0] <= a) k++;
+        spans.splice(k, 0, [a, b]);
+      }
       if (y2 - y1 < minH) continue;
-      const blocked = obs
-        .filter((o) => o.y1 < y2 && o.y2 > y1)
-        .map((o) => [Math.max(region.x, o.x1), Math.min(rx2, o.x2)] as const)
-        .sort((a, b) => a[0] - b[0]);
       let x = region.x;
-      const gaps: [number, number][] = [];
-      for (const [a, b] of blocked) {
-        if (a > x) gaps.push([x, a]);
+      let any = false;
+      const take = (a: number, b: number) => {
+        const w = b - a;
+        if (w < minW) return;
+        any = true;
+        if (!best || w * (y2 - y1) > best.width * best.height) best = { x: a, y: y1, width: w, height: y2 - y1 };
+      };
+      for (const [a, b] of spans) {
+        if (a > x) take(x, a);
         x = Math.max(x, b);
       }
-      if (rx2 > x) gaps.push([x, rx2]);
-      for (const [a, b] of gaps) {
-        const w = b - a;
-        if (w < minW) continue;
-        if (!best || w * (y2 - y1) > best.width * best.height) best = { x: a, y: y1, width: w, height: y2 - y1 };
-      }
+      if (rx2 > x) take(x, rx2);
+      // Gaps only shrink as the band grows: none wide enough now means none further down.
+      if (!any) break;
     }
   }
   return best;
