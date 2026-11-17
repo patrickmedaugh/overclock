@@ -180,13 +180,14 @@ describe('Sprint 7 card data (DSL v2)', () => {
       trashWhenEmpty: true,
       cardAbilities: [
         {
-          label: 'Take {gain} credits from Bank Job',
+          // Sprint 10: the Runner chooses the amount.
+          label: 'Take credits',
           when: 'successful_run_remote',
           clicks: 0,
           credits: 0,
           requires: 'hosted_credits',
           replacesAccess: true,
-          effects: [{ op: 'take_credits', amount: 'all' }],
+          effects: [{ op: 'take_credits', amount: 'chosen' }],
         },
       ],
     });

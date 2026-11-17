@@ -456,7 +456,6 @@ test.describe('QA S-09-1 online', () => {
 
 test.describe('QA round 2: the wide trace toast', () => {
   test('QA-S9-4: SEA Source result toast (seed 25) is clear of the Corp\'s End turn button and credits', async ({ page }) => {
-    test.fail(test.info().project.name === 'desktop', 'QA-S9-4 (open): on desktop the wide toast covers the left end of End turn');
     await core(page, SEA_BROKE.seed, false);
     await dispatchAll(page, SEA_BROKE.actions);
     const i = (await getView(page)).players.corp.hand!.indexOf('c22');

@@ -27,10 +27,10 @@ export const CORP_CLICKS_PER_TURN = 3;
 export const MEMORY_LIMIT = 4;
 /**
  * Sprint 7: the rules version (Sprint 8: 2 — identities, core decks, DSL v3; Sprint 9: 3 — traces, tags,
- * link, meat damage, DSL v4). Bump it whenever an old action log would replay
+ * link, meat damage, DSL v4; Sprint 10: 4 — advance stops at an agenda's requirement, Bank Job amount). Bump it whenever an old action log would replay
  * differently (a rules change); the online room expires a game whose log no longer replays.
  */
-export const RULES_VERSION: number = 3;
+export const RULES_VERSION: number = 4;
 /** Agenda points that win the game at once (stolen or scored). */
 export const WINNING_POINTS = 7;
 

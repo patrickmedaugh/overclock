@@ -117,8 +117,8 @@ describe('restore by replay that diverges (rules changed under a stored game)', 
     h.store.put('state', { stale: true });
   }
 
-  it('the fixture really diverges under these rules (Sprint 6 log on the starter decks; RULES_VERSION 3 since Sprint 9)', () => {
-    expect(RULES_VERSION).toBe(3);
+  it('the fixture really diverges under these rules (Sprint 6 log on the starter decks; RULES_VERSION 4 since Sprint 10)', () => {
+    expect(RULES_VERSION).toBe(4);
     expect(replay(LOG.seed, LOG.actions, { ...ONLINE_OPTIONS, deckSet: 'starter' }).events.some((e) => e.type === 'action_rejected')).toBe(true);
   });
 

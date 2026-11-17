@@ -235,7 +235,18 @@ export type StepGoal =
   | 'sea_source_ready'
   | 'sea_source_not_ready'
   | 'globalsec_installed'
-  | 'globalsec_two_installed';
+  | 'globalsec_two_installed'
+  // Sprint 10 (core decks; `SPRINT10_GOALS`)
+  | 'agenda_at_requirement'
+  | 'agenda_one_short'
+  | 'ice_wall_advanced'
+  | 'corp_two_scored'
+  | 'runner_two_stolen'
+  | 'psf_installed_unscored'
+  | 'runner_tagged_full_rig'
+  | 'remote_single_card_no_ice'
+  | 'runner_must_discard'
+  | 'corp_must_discard';
 
 export const STEP_GOALS: readonly StepGoal[] = [
   'corp_rez_prompt',
@@ -352,6 +363,40 @@ export const SPRINT9_GOALS: readonly StepGoal[] = [
   'sea_source_not_ready',
   'globalsec_installed',
   'globalsec_two_installed',
+];
+
+/**
+ * Sprint 10 goals (core decks; seeds in the README). The Runner never runs unless the goal needs it.
+ * - `agenda_at_requirement`: Corp's action step, ≥ 1 click, ≥ 1 credit, an installed agenda with exactly its
+ *   requirement in counters (options: only Score). `info: {uid, server, cardId, advancements}`.
+ * - `agenda_one_short`: the same with one counter short (options: only Advance, legal). Same `info`.
+ * - `ice_wall_advanced`: Corp's action step, ≥ 1 click, ≥ 1 credit, an installed Ice Wall with ≥ 1 counter,
+ *   Advance legal. `info: {uid, server, advancements}`.
+ * - `corp_two_scored`: Corp's action step, ≥ 1 click, ≥ 2 agendas in the Corp score area, one of them Private
+ *   Security Force. `info: {count, points, scored (ids, comma-separated), psfUid: 'score:corp:<i>'}`.
+ * - `runner_two_stolen`: Runner's action step (no run), ≥ 1 click, ≥ 2 agendas in his score area.
+ *   `info: {count, points, scored}`.
+ * - `psf_installed_unscored`: Corp's action step, ≥ 1 click, ≥ 1 credit, Private Security Force installed with
+ *   < 4 counters (Advance legal). `info: {uid, server, advancements}`.
+ * - `runner_tagged_full_rig`: Runner's action step (no run), tagged, ≥ 4 rig cards including exactly one Access
+ *   to Globalsec (link 2). `info: {tags, link, rig (count), globalsecUid}`.
+ * - `remote_single_card_no_ice`: Runner's action step, ≥ 1 click, a remote with no ICE holding exactly one card
+ *   the Runner can take (an agenda whose steal does not win, or a card he can afford to trash), with another
+ *   remote after it in server order. `info: {server, uid, cardId, kind: 'steal' | 'trash', otherServer}`.
+ * - `runner_must_discard` / `corp_must_discard`: that side's discard step at the end of its turn, ≥ 2 cards to
+ *   discard. `info: {count, hand}` (`hand` = hand size).
+ */
+export const SPRINT10_GOALS: readonly StepGoal[] = [
+  'agenda_at_requirement',
+  'agenda_one_short',
+  'ice_wall_advanced',
+  'corp_two_scored',
+  'runner_two_stolen',
+  'psf_installed_unscored',
+  'runner_tagged_full_rig',
+  'remote_single_card_no_ice',
+  'runner_must_discard',
+  'corp_must_discard',
 ];
 
 export interface StepPlan {
@@ -677,6 +722,7 @@ function coreReached(goal: StepGoal, views: Views): boolean {
   const { corp, runner } = views;
   if (CORE_ENCOUNTER[goal]) return coreEncounterReached(goal, corp, runner);
   if (SPRINT9_GOALS.includes(goal)) return s9Reached(goal, views);
+  if (SPRINT10_GOALS.includes(goal)) return s10Reached(goal, views);
   const hand = (v: PlayerView) => v.players[v.viewer].hand ?? [];
   switch (goal) {
     case 'corp_first_install':
@@ -718,6 +764,7 @@ function bioticPlay(corp: PlayerView) {
 function coreInfo(goal: StepGoal, views: Views): Record<string, string> {
   const { corp, runner } = views;
   if (SPRINT9_GOALS.includes(goal) && !CORE_ENCOUNTER[goal]) return s9Info(goal, views);
+  if (SPRINT10_GOALS.includes(goal)) return s10Info(goal, views);
   if (CORE_ENCOUNTER[goal]) {
     const r = runner.run!;
     const info: Record<string, string> = { server: r.server, iceUid: r.iceUid ?? '' };
@@ -1358,8 +1405,11 @@ export function planToStep(seed: number, goal: StepGoal, maxActions = 1500, opti
     if (views.corp.phase === 'over') break;
     const side = decider(views.corp);
     const v = views[side];
-    const action =
-      SPRINT9_GOALS.includes(goal) && !CORE_ENCOUNTER[goal]
+    const action = SPRINT10_GOALS.includes(goal)
+      ? side === 'corp'
+        ? s10CorpMove(goal, v)
+        : s10RunnerMove(goal, v, views)
+      : SPRINT9_GOALS.includes(goal) && !CORE_ENCOUNTER[goal]
         ? side === 'corp'
           ? s9CorpMove(goal, v)
           : s9RunnerMove(goal, v, views)
@@ -1558,7 +1608,8 @@ function s9CorpMove(goal: StepGoal, v: PlayerView): Action {
   }
   if (want.exact !== undefined && me.credits > want.exact) {
     // hunter_corp_broke: burn credits by advancing an installed agenda (never scored; the Runner never runs it).
-    const agenda = agendas(v)[0];
+    // Sprint 10: only one below its requirement (advance stops there); else install another.
+    const agenda = agendas(v).find((a) => a.advancements < a.need);
     if (agenda) return { type: 'advance', player: 'corp', uid: agenda.uid };
     return installNewOf(isAgendaId) ?? draw(2);
   }
@@ -1605,4 +1656,245 @@ function s9RunnerMove(goal: StepGoal, v: PlayerView, views: Views): Action {
   const credits = goal === 'hunter_corp_broke' ? 2 : 4;
   if (me.credits < credits) return gain;
   return corpReady ? runHunter : end;
+}
+
+// ---- Sprint 10 (core decks): advance cap, scored piles, stats column, lanes, discard step ----
+
+const ICE_WALL = 'c05';
+const HEDGE_FUND = 'c01';
+
+/** Corp view: an installed agenda with exactly `need - short` counters and the matching options. */
+function agendaAt(corp: PlayerView, short: 0 | 1) {
+  return agendas(corp).find((a) => {
+    if (a.advancements !== a.need - short) return false;
+    const opts = corp.installedOptions[a.uid] ?? [];
+    const want = short === 0 ? 'score' : 'advance';
+    return opts.length === 1 && opts[0]!.action.type === want && opts[0]!.reject === null;
+  });
+}
+
+/** Corp view: an installed Ice Wall with ≥ 1 counter and Advance legal. */
+function advancedIceWall(corp: PlayerView) {
+  return corpInstalled(corp).find(
+    (c) => c.cardId === ICE_WALL && c.advancements >= 1 && (corp.installedOptions[c.uid] ?? []).some((o) => o.action.type === 'advance' && o.reject === null),
+  );
+}
+
+/** Corp view: an installed, unscored PSF below its requirement with Advance legal. */
+function unscoredPsf(corp: PlayerView) {
+  return corpInstalled(corp).find(
+    (c) => c.cardId === PSF && c.advancements < 4 && (corp.installedOptions[c.uid] ?? []).some((o) => o.action.type === 'advance' && o.reject === null),
+  );
+}
+
+/** Corp view: remotes in server order with no ICE and exactly one card the Runner can take, another remote after it. */
+function singleCardTarget(corp: PlayerView, runner: PlayerView) {
+  const rs = remotes(corp);
+  const rp = runner.players.runner;
+  for (let i = 0; i < rs.length - 1; i++) {
+    const sv = rs[i]!;
+    if (sv.ice.length > 0 || sv.content.length !== 1) continue;
+    const c = sv.content[0]!;
+    const def = card(c.cardId);
+    if (!def) continue;
+    if (def.type === 'agenda') {
+      if (rp.points + (def.agendaPoints ?? 0) < WIN) return { server: sv.id, card: c, kind: 'steal' as const, other: rs[i + 1]!.id };
+    } else if (def.trashCost !== undefined && rp.credits >= def.trashCost) {
+      return { server: sv.id, card: c, kind: 'trash' as const, other: rs[i + 1]!.id };
+    }
+  }
+  return undefined;
+}
+
+const discardStep = (v: PlayerView, side: Side) => v.phase === 'discard' && v.activePlayer === side && v.pendingDiscard >= 2;
+
+function s10Reached(goal: StepGoal, views: Views): boolean {
+  const { corp, runner } = views;
+  const cp = corp.players.corp;
+  const rp = runner.players.runner;
+  const corpReady = corpAction(corp) && cp.clicks >= 1;
+  switch (goal) {
+    case 'agenda_at_requirement':
+      return corpReady && cp.credits >= 1 && agendaAt(corp, 0) !== undefined;
+    case 'agenda_one_short':
+      return corpReady && cp.credits >= 1 && agendaAt(corp, 1) !== undefined;
+    case 'ice_wall_advanced':
+      return corpReady && cp.credits >= 1 && advancedIceWall(corp) !== undefined;
+    case 'corp_two_scored':
+      return corpReady && cp.scored.length >= 2 && cp.scored.includes(PSF);
+    case 'runner_two_stolen':
+      return runnerAction(runner) && rp.clicks >= 1 && rp.scored.length >= 2;
+    case 'psf_installed_unscored':
+      return corpReady && cp.credits >= 1 && unscoredPsf(corp) !== undefined;
+    case 'runner_tagged_full_rig':
+      return runnerAction(runner) && rp.tags >= 1 && runner.rig.length >= 4 && globalsecs(runner).length === 1;
+    case 'remote_single_card_no_ice':
+      return runnerAction(runner) && rp.clicks >= 1 && singleCardTarget(corp, runner) !== undefined;
+    case 'runner_must_discard':
+      return discardStep(runner, 'runner');
+    case 'corp_must_discard':
+      return discardStep(corp, 'corp');
+    default:
+      return false;
+  }
+}
+
+function s10Info(goal: StepGoal, views: Views): Record<string, string> {
+  const { corp, runner } = views;
+  switch (goal) {
+    case 'agenda_at_requirement':
+    case 'agenda_one_short': {
+      const a = agendaAt(corp, goal === 'agenda_at_requirement' ? 0 : 1)!;
+      return { uid: a.uid, server: a.server, cardId: a.cardId!, advancements: String(a.advancements) };
+    }
+    case 'ice_wall_advanced': {
+      const w = advancedIceWall(corp)!;
+      return { uid: w.uid, server: w.server, advancements: String(w.advancements) };
+    }
+    case 'psf_installed_unscored': {
+      const p = unscoredPsf(corp)!;
+      return { uid: p.uid, server: p.server, advancements: String(p.advancements) };
+    }
+    case 'corp_two_scored': {
+      const cp = corp.players.corp;
+      return { count: String(cp.scored.length), points: String(cp.points), scored: cp.scored.join(','), psfUid: `score:corp:${cp.scored.indexOf(PSF)}` };
+    }
+    case 'runner_two_stolen': {
+      const rp = runner.players.runner;
+      return { count: String(rp.scored.length), points: String(rp.points), scored: rp.scored.join(',') };
+    }
+    case 'runner_tagged_full_rig':
+      return {
+        tags: String(runner.players.runner.tags),
+        link: String(runner.players.runner.link),
+        rig: String(runner.rig.length),
+        globalsecUid: globalsecs(runner)[0]!.uid,
+      };
+    case 'remote_single_card_no_ice': {
+      const t = singleCardTarget(corp, runner)!;
+      return { server: t.server, uid: t.card.uid, cardId: t.card.cardId!, kind: t.kind, otherServer: t.other };
+    }
+    case 'runner_must_discard':
+    case 'corp_must_discard': {
+      const v = goal === 'runner_must_discard' ? runner : corp;
+      return { count: String(v.pendingDiscard), hand: String(v.players[v.viewer].handCount) };
+    }
+    default:
+      return {};
+  }
+}
+
+/** Sprint 10 agenda work: score what is ready (unless the goal wants it sitting), advance, install, money. */
+function s10AgendaMove(goal: StepGoal, v: PlayerView): Action {
+  const me = v.players.corp;
+  const gain: Action = { type: 'gain_credit', player: 'corp' };
+  const scoring = goal === 'corp_two_scored';
+  const mine = agendas(v);
+  if (scoring) {
+    const ready = mine.find((a) => a.advancements >= a.need && me.points + a.points < WIN);
+    if (ready) return { type: 'score', player: 'corp', uid: ready.uid };
+  }
+  const stopAt = (a: { need: number }) => (goal === 'agenda_one_short' ? a.need - 1 : a.need);
+  const working = mine.filter((a) => a.advancements < stopAt(a)).sort((a, b) => b.advancements - a.advancements)[0];
+  const fund = handIdx(v, (id) => id === HEDGE_FUND);
+  if (working) {
+    if (me.credits >= 1) return { type: 'advance', player: 'corp', uid: working.uid };
+    if (fund >= 0 && me.credits >= 5) return { type: 'play', player: 'corp', handIndex: fund };
+    return gain;
+  }
+  // corp_two_scored: PSF first; Priority Requisition only once a PSF is scored (two PRs + PSF would win).
+  const wanted = (id: string) => (scoring ? id === PSF || (id === 'c10' && me.scored.includes(PSF)) : isAgendaId(id));
+  const order = (v.players.corp.hand ?? [])
+    .map((id, i) => ({ i, id, need: card(id)?.advancementRequirement ?? 99 }))
+    .filter((x) => wanted(x.id))
+    .sort((a, b) => a.need - b.need);
+  for (const x of order) {
+    const install = installNew(v, x.i);
+    if (install) return install;
+  }
+  if (fund >= 0 && me.credits >= 5 && me.credits < 10) return { type: 'play', player: 'corp', handIndex: fund };
+  return basicMove(v, 2);
+}
+
+/** Sprint 10 Corp policies. */
+function s10CorpMove(goal: StepGoal, v: PlayerView): Action {
+  if (goal === 'runner_tagged_full_rig') return s9CorpMove('runner_tagged_own_turn', v);
+  const me = v.players.corp;
+  if (v.choice) return choiceAnswer(v);
+  if (v.run) return defaultRunMove(v);
+  const keepIds: Record<string, number> =
+    goal === 'ice_wall_advanced' ? { [ICE_WALL]: 3, [HEDGE_FUND]: 1 } : goal === 'psf_installed_unscored' || goal === 'corp_two_scored' ? { [PSF]: 3, c10: 2, [HEDGE_FUND]: 1 } : {};
+  if (v.phase === 'discard') return discardKeeping(v, (id) => keepIds[id] ?? (isAgendaId(id) ? 2 : id === HEDGE_FUND ? 1 : 0));
+  const end: Action = { type: 'end_turn', player: 'corp' };
+  if (me.clicks === 0) return end;
+  const installNewOf = (pred: (id: string) => boolean): Action | undefined => {
+    const i = handIdx(v, pred);
+    return i >= 0 ? installNew(v, i) : undefined;
+  };
+  switch (goal) {
+    case 'agenda_at_requirement':
+    case 'agenda_one_short':
+    case 'corp_two_scored':
+      return s10AgendaMove(goal, v);
+    case 'ice_wall_advanced': {
+      const wall = corpInstalled(v).find((c) => c.cardId === ICE_WALL);
+      if (!wall) return installNewOf((id) => id === ICE_WALL) ?? basicMove(v, 2);
+      return me.credits >= 1 ? { type: 'advance', player: 'corp', uid: wall.uid } : { type: 'gain_credit', player: 'corp' };
+    }
+    case 'psf_installed_unscored':
+      return installNewOf((id) => id === PSF) ?? basicMove(v, 2);
+    case 'runner_two_stolen':
+      // Agendas into new, unprotected remotes (the Runner steals them).
+      return installNewOf(isAgendaId) ?? basicMove(v, 1);
+    case 'remote_single_card_no_ice':
+      // One agenda or asset per new remote, no ICE.
+      return installNewOf((id) => isAgendaId(id) || typeOf(id) === 'asset') ?? basicMove(v, 2);
+    case 'corp_must_discard':
+      return legal(v, (a) => a.type === 'draw') ?? end;
+    default:
+      return end;
+  }
+}
+
+/** Sprint 10 Runner policies. */
+function s10RunnerMove(goal: StepGoal, v: PlayerView, views: Views): Action {
+  const me = v.players.runner;
+  if (v.choice) return v.choice.kind === 'trace_runner' ? bidOf(v, 0) : choiceAnswer(v);
+  if (v.run) return defaultRunMove(v);
+  if (v.phase === 'discard') return discardKeeping(v, (id) => (id === GLOBALSEC ? 3 : typeOf(id) === 'event' ? 0 : 1));
+  const end: Action = { type: 'end_turn', player: 'runner' };
+  if (me.clicks === 0) return end;
+  const corp = views.corp;
+  switch (goal) {
+    case 'runner_must_discard':
+      return legal(v, (a) => a.type === 'draw') ?? end;
+    case 'runner_two_stolen': {
+      const target = agendas(corp).find((a) => a.iceless && me.points + a.points < WIN);
+      return target ? { type: 'run', player: 'runner', server: target.server } : end;
+    }
+    case 'runner_tagged_full_rig': {
+      if (me.tags === 0) {
+        // Exactly one Access to Globalsec, then any 3 more rig cards; then get tagged by Hunter (link 2 < Trace 3).
+        const hand = me.hand ?? [];
+        const installable = (i: number) => installNew(v, i);
+        if (globalsecs(v).length === 0) {
+          const g = hand.indexOf(GLOBALSEC);
+          if (g < 0) return legal(v, (a) => a.type === 'draw') ?? { type: 'gain_credit', player: 'runner' };
+          return installable(g) ?? { type: 'gain_credit', player: 'runner' };
+        }
+        if (v.rig.length < 4) {
+          for (let i = 0; i < hand.length; i++) {
+            if (hand[i] === GLOBALSEC) continue;
+            const a = installable(i);
+            if (a) return a;
+          }
+          if (me.credits < 3) return { type: 'gain_credit', player: 'runner' };
+          return legal(v, (a) => a.type === 'draw') ?? { type: 'gain_credit', player: 'runner' };
+        }
+      }
+      return s9RunnerMove('runner_tagged_own_turn', v, views);
+    }
+    default:
+      return end;
+  }
 }

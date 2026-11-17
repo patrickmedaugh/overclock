@@ -14,7 +14,24 @@ import type { Decision } from './session';
 import { type BoardLayout, accessSlots, bidLayout, buttonGrid } from './layout';
 import { type RigIds, choiceOptionLabel, choiceStepLabel, decidingText, infoLines, isRunChoice, nameOf, optionLabel, runTitle, stepLabel } from './runText';
 import { TERMS, priceText, serverLabel } from './terms';
-import { type TraceChoice, bidAmounts, bidButtonLabel, bidCaption, bidOption, clampBid, isTraceChoice, maxBid, stepBid, traceLines, traceStepLabel } from './traceText';
+import {
+  type TraceChoice,
+  amountCaption,
+  amountKey,
+  amountOption,
+  bidAmounts,
+  bidButtonLabel,
+  bidCaption,
+  bidOption,
+  clampBid,
+  isTraceChoice,
+  maxBid,
+  offeredAmounts,
+  stepBid,
+  takeButtonLabel,
+  traceLines,
+  traceStepLabel,
+} from './traceText';
 import { sideColor, theme } from './theme';
 import type { Tweens } from './tween';
 import { PanelButton, fitText } from './widgets';
@@ -38,7 +55,7 @@ export interface TableBoxes {
 interface Shown {
   option: CardOption;
   label: string;
-  role?: 'multi' | 'toggle' | 'confirm' | 'back' | 'bid_dec' | 'bid_inc' | 'bid_max' | 'bid_go';
+  role?: 'multi' | 'toggle' | 'confirm' | 'back' | 'bid_dec' | 'bid_inc' | 'bid_max' | 'bid_go' | 'amount_open' | 'amount_back';
   key?: string;
   sub?: number;
   picked?: boolean;
@@ -79,6 +96,11 @@ export class RunDisplay {
   private snap: RunSnapshot | null = null;
   /** Sprint 9: the bid shown in the trace bid control (UI state only; `key` = which window). */
   private bid: { key: string; amount: number } | null = null;
+  /**
+   * Sprint 10 (S-10-3): the open amount control (Bank Job's "Take credits"): which ability
+   * (`uid:ability`) and the amount shown. UI state only; the amounts are the engine's options.
+   */
+  private amountPick: { key: string; amount: number } | null = null;
   /** The offered bids of the open trace window (empty when none is shown). */
   private bidAmounts: number[] = [];
   /** What `drawBid` drew last (for the snapshot). */
@@ -164,13 +186,23 @@ export class RunDisplay {
         if (!b.lit) return null;
         this.multi = null;
         return b.option.action;
+      case 'amount_open': {
+        // Sprint 10: "Take credits" opens the amount control at the most it can take.
+        if (b.option.reject !== null) return b.option.action;
+        this.amountPick = { key: b.key!, amount: Number.POSITIVE_INFINITY };
+        return null;
+      }
+      case 'amount_back':
+        this.amountPick = null;
+        return null;
       case 'bid_dec':
       case 'bid_inc':
       case 'bid_max': {
         // Sprint 9: − / + / Max move the shown bid through the engine's offered bids.
-        const bid = this.bid;
+        // Sprint 10: the same for an amount (Bank Job).
+        const bid = this.amountPick ?? this.bid;
         if (!bid) return null;
-        const amounts = this.bidAmounts;
+        const amounts = this.amountPick ? (this.lastAmount?.amounts ?? []) : this.bidAmounts;
         bid.amount = b.role === 'bid_max' ? maxBid(amounts) : stepBid(amounts, bid.amount, b.role === 'bid_inc' ? 1 : -1);
         return null;
       }
@@ -258,8 +290,90 @@ export class RunDisplay {
     this.snap = null;
     this.traceSnap = null;
     this.bid = null;
+    this.amountPick = null;
     this.stepKey = '';
   }
+
+  /**
+   * Sprint 10 (S-10-3): options that name an amount (one `activate` per amount, Bank Job)
+   * show as one "Take credits" button (role `amount_open`); everything else as given.
+   */
+  private groupAmounts(options: readonly CardOption[], labels: readonly string[]): { options: CardOption[]; labels: string[]; open: Map<number, string> } {
+    const outO: CardOption[] = [];
+    const outL: string[] = [];
+    const open = new Map<number, string>();
+    const seen = new Set<string>();
+    options.forEach((o, i) => {
+      const k = amountKey(o);
+      if (k === null) {
+        outO.push(o);
+        outL.push(labels[i]!);
+        return;
+      }
+      if (seen.has(k)) return;
+      seen.add(k);
+      const group = options.filter((x) => amountKey(x) === k);
+      open.set(outO.length, k);
+      outO.push(group.find((x) => x.reject === null) ?? group[0]!);
+      outL.push(labels[i]!);
+    });
+    return { options: outO, labels: outL, open };
+  }
+
+  /**
+   * Sprint 10 (S-10-3): the amount control for ability `key` (Bank Job): Back, −, the
+   * amount (big) with what stays, +, Max, "Take 3". The trace bid control's layout; every
+   * limit is the engine's offered amounts.
+   */
+  private drawAmount(options: readonly CardOption[], key: string, color: number, animate: boolean, newStep: boolean): Box[] {
+    const amounts = offeredAmounts(options, key);
+    const pick = this.amountPick!;
+    const amount = Number.isFinite(pick.amount) ? clampBid(amounts, pick.amount) : maxBid(amounts);
+    pick.amount = amount;
+    const go = amountOption(options, key, amount) ?? options[0]!;
+    const lo = amounts[0] ?? 0;
+    const hi = maxBid(amounts);
+    this.shown = [
+      { option: go, label: '−', role: 'bid_dec', lit: amount > lo },
+      { option: go, label: '+', role: 'bid_inc', lit: amount < hi },
+      { option: go, label: `Max ${hi}`, role: 'bid_max', lit: amount < hi },
+      { option: go, label: takeButtonLabel(amount), role: 'bid_go' },
+      { option: go, label: 'Back', role: 'amount_back', lit: true },
+    ];
+    const boxes = bidLayout(this.layout.runButtons, this.layout.scale, true);
+    const places = [boxes.dec, boxes.inc, boxes.max, boxes.go, boxes.back!];
+    this.shown.forEach((x, i) => {
+      const b = this.button(i);
+      b.root.visible = true;
+      b.set(places[i]!, x.label, x.lit ?? x.option.reject === null, color, x.role === 'bid_go' && go.reject === null, x.role === 'bid_dec' || x.role === 'bid_inc');
+      if (animate && newStep) b.pop(this.ui);
+    });
+    for (let i = this.shown.length; i < this.pool.length; i++) this.pool[i]!.root.visible = false;
+    const t = boxes.tile;
+    const caption = amountCaption(amounts, amount);
+    this.tileBg.clear();
+    this.tileBg.roundRect(t.x, t.y, t.width, t.height, Math.min(12, t.height / 4)).fill({ color: 0x05040a, alpha: 0.92 }).stroke({ width: 2, color, alpha: 0.9 });
+    this.tileNum.style.fontSize = Math.max(22, Math.round(t.height * 0.5));
+    this.tileNum.text = String(amount);
+    fitText(this.tileNum, t.width - 8, t.height * 0.62);
+    this.tileNum.position.set(t.x + t.width / 2, t.y + t.height * 0.4);
+    this.tileCaption.style.fontSize = Math.max(11, Math.round(t.height * 0.19));
+    this.tileCaption.text = caption;
+    fitText(this.tileCaption, t.width - 6);
+    this.tileCaption.position.set(t.x + t.width / 2, t.y + t.height * 0.8);
+    this.tile.visible = true;
+    this.lastAmount = { tile: { ...t }, amount, low: lo, high: hi, caption, amounts };
+    return places.map((b) => ({ ...b }));
+  }
+
+  private amountSnap(): RunSnapshot['amount'] {
+    const a = this.lastAmount;
+    if (!a) return null;
+    return { tile: a.tile, amount: a.amount, low: a.low, high: a.high, caption: a.caption, numberPx: (this.tileNum.style.fontSize as number) * this.tileNum.scale.y, captionPx: (this.tileCaption.style.fontSize as number) * this.tileCaption.scale.y };
+  }
+
+  /** What `drawAmount` drew last (for the snapshot), or null. */
+  private lastAmount: { tile: Box; amount: number; low: number; high: number; caption: string; amounts: number[] } | null = null;
 
   /**
    * Sprint 9 (S-09-1): the bid control for an open trace window, deciding seat only:
@@ -419,6 +533,9 @@ export class RunDisplay {
       this.tile.visible = false;
       this.bid = null;
     }
+    // Sprint 10: the amount control stays open only while its ability is still offered at this step.
+    if (newStep || trace || choice || (this.amountPick && !options.some((o) => amountKey(o) === this.amountPick!.key))) this.amountPick = null;
+    this.lastAmount = null;
     const step = trace ? traceStepLabel(trace, options.length > 0) : choice ? choiceStepLabel(choice, rig, !elsewhere) : elsewhere ? decidingText(deciding) : stepLabel(panel, deciding);
     const lines = trace ? traceLines(trace, this.bid?.amount ?? 0, options.length > 0) : infoLines(panel, rig);
     // The passed ICE keeps its list at Continue, so a just-broken subroutine is seen crossed out.
@@ -440,9 +557,21 @@ export class RunDisplay {
         for (const b of this.pool) b.root.visible = false;
       }
       boxes = this.shown.map((_, i) => ({ ...this.pool[i]!.box }));
+    } else if (this.amountPick) {
+      boxes = this.drawAmount(options, this.amountPick.key, color, animate, newStep);
     } else {
-      const labels = options.map((o) => (choice ? choiceOptionLabel(o, choice, rig) : optionLabel(o, panel, options, rig)));
-      this.shown = choice ? options.map((option, i) => ({ option, label: labels[i]! })) : this.arrange(options, labels, panel);
+      const labels0 = options.map((o) => (choice ? choiceOptionLabel(o, choice, rig) : optionLabel(o, panel, options, rig)));
+      // Sprint 10: one "Take credits" for all of Bank Job's amounts.
+      const g = choice ? { options: [...options], labels: labels0, open: new Map<number, string>() } : this.groupAmounts(options, labels0);
+      const labels = g.labels;
+      this.shown = choice ? options.map((option, i) => ({ option, label: labels[i]! })) : this.arrange(g.options, labels, panel);
+      if (!choice) for (const x of this.shown) {
+        const k = amountKey(x.option);
+        if (k !== null) {
+          x.role = 'amount_open';
+          x.key = k;
+        }
+      }
       const s = layout.scale;
       boxes = buttonGrid(layout.runButtons, this.shown.length, {
         gap: Math.max(4, Math.round(6 * s)),
@@ -509,7 +638,7 @@ export class RunDisplay {
       buttons: this.shown.map((x, i) => ({
         label: x.label,
         lit: x.lit ?? x.option.reject === null,
-        reject: x.role === 'toggle' || x.role === 'back' || x.role === 'bid_dec' || x.role === 'bid_inc' || x.role === 'bid_max' ? null : x.option.reject,
+        reject: x.role === 'toggle' || x.role === 'back' || x.role === 'amount_back' || x.role === 'bid_dec' || x.role === 'bid_inc' || x.role === 'bid_max' ? null : x.option.reject,
         box: { ...boxes[i]! },
         action: x.option.action,
         fontPx: this.pool[i]!.fontPx,
@@ -517,6 +646,7 @@ export class RunDisplay {
         ...(x.sub !== undefined ? { sub: x.sub, picked: !!x.picked } : {}),
       })),
       access: cards.length > 0 ? { cards: cards.map((c, i) => ({ cardId: c.cardId, stolen: c.stolen, box: { ...this.accessBoxes[i]!.box } })) } : null,
+      amount: this.amountSnap(),
     };
     this.traceSnap = trace ? this.makeTraceSnap(trace, title, step, lines, options.length > 0) : null;
     return newStep;

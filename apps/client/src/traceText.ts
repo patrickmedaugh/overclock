@@ -107,6 +107,39 @@ export function bidButtonLabel(bid: number): string {
   return `Bid ${bid}`;
 }
 
+// ---- Sprint 10: the same control for an amount (Bank Job: take 1..N credits) --------
+
+/**
+ * "uid:ability" of a card ability the player names an amount for (the engine offers one
+ * `activate` option per amount, `amount` set), or null.
+ */
+export function amountKey(o: CardOption): string | null {
+  const a = o.action;
+  return a.type === 'activate' && a.amount !== undefined ? `${a.uid}:${a.ability}` : null;
+}
+
+/** The amounts the engine offers for ability `key`, lowest to highest. */
+export function offeredAmounts(options: readonly CardOption[], key: string): number[] {
+  const out: number[] = [];
+  for (const o of options) if (amountKey(o) === key && o.action.type === 'activate' && o.action.amount !== undefined) out.push(o.action.amount);
+  return [...new Set(out)].sort((a, b) => a - b);
+}
+
+/** The offered option for `amount` of ability `key`, if any. */
+export function amountOption(options: readonly CardOption[], key: string, amount: number): CardOption | null {
+  return options.find((o) => amountKey(o) === key && o.action.type === 'activate' && o.action.amount === amount) ?? null;
+}
+
+/** The confirm button: "Take 3". */
+export function takeButtonLabel(amount: number): string {
+  return `Take ${amount}`;
+}
+
+/** Under the big number: "5 stay" (the highest offered amount is all the card holds). */
+export function amountCaption(amounts: readonly number[], amount: number): string {
+  return `${maxBid(amounts) - amount} stay`;
+}
+
 // ---- results ---------------------------------------------------------------------
 
 /** "Corp bid 0" for a window the engine skipped (the bid could not matter). */

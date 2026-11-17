@@ -4,6 +4,7 @@ import type { CardOption } from './view';
 import { getCard, type CardAbility, type CardDef, type CardType } from '@overclock/cards';
 import {
   abilityGain,
+  hasChosenAmount,
   activeSources,
   ADVANCE_COST,
   BASIC_ACTION_COST,
@@ -406,10 +407,11 @@ export function runStepOptions(state: GameState, player: Side): CardOption[] {
     out.push(option(state, pass, 0), option(state, { type: 'jack_out', player }, 0));
   } else if (run.step === 'success') {
     // Sprint 7: take credits from Bank Job (one option per usable card), or pass = Access cards.
+    // Sprint 10: a chosen-amount ability lists one option per amount 1..hosted credits (as trace bids).
     for (const { uid, ability } of accessReplacements(state)) {
       const c = state.rig.find((x) => x.uid === uid) as Installed;
       const ab = getCard(c.cardId)?.cardAbilities?.[ability] as CardAbility;
-      out.push(abilityOption(state, { type: 'activate', player, uid, ability }, c, ab));
+      out.push(...abilityOptions(state, { type: 'activate', player, uid, ability }, c, ab));
     }
     out.push(option(state, pass, 0));
   } else {
@@ -452,14 +454,23 @@ function clickAbilityOptions(state: GameState, player: Side, c: Installed): Card
   const out: CardOption[] = [];
   (getCard(c.cardId)?.cardAbilities ?? []).forEach((ab, ability) => {
     if (ab.when !== 'click') return;
-    out.push(abilityOption(state, { type: 'activate', player, uid: c.uid, ability }, c, ab));
+    out.push(...abilityOptions(state, { type: 'activate', player, uid: c.uid, ability }, c, ab));
   });
   return out;
 }
 
+/**
+ * Sprint 10: the `activate` options of one ability: one option, or for a chosen-amount ability (Bank
+ * Job) one per amount 1..the card's hosted credits, ascending (none when it holds nothing).
+ */
+function abilityOptions(state: GameState, action: ActionOf<'activate'>, c: Installed, ab: CardAbility): CardOption[] {
+  if (!hasChosenAmount(ab)) return [abilityOption(state, action, c, ab)];
+  return Array.from({ length: c.hostedCredits }, (_, k) => abilityOption(state, { ...action, amount: k + 1 }, c, ab));
+}
+
 /** An `activate` option: `cost` = credits, `clicks` when > 0, `gain` when it takes credits. */
 function abilityOption(state: GameState, action: ActionOf<'activate'>, c: Installed, ab: CardAbility): CardOption {
-  const gain = abilityGain(c, ab);
+  const gain = abilityGain(c, ab, action.amount);
   return {
     ...option(state, action, ab.credits),
     ...(ab.clicks > 0 ? { clicks: ab.clicks } : {}),
@@ -469,8 +480,8 @@ function abilityOption(state: GameState, action: ActionOf<'activate'>, c: Instal
 
 /**
  * Per own installed card uid, listed off-turn too with the reason in `reject` (like `handOptions`).
- * Corp (servers in order; ICE innermost first, then content): agenda `advance` (cost 1) and, once it
- * has enough counters, `score`; unrezzed asset/upgrade `rez` (cost = rez cost, Sprint 7); click
+ * Corp (servers in order; ICE innermost first, then content): agenda `advance` (cost 1) until it
+ * has enough counters, then only `score` (Sprint 10); unrezzed asset/upgrade `rez` (cost = rez cost, Sprint 7); click
  * abilities of rezzed cards. Runner (Sprint 7, rig order): one `activate` per `click` ability.
  * Sprint 9 (Corp): per scored agenda with `scoredAbilities` (key `score:corp:<i>`) its `activate` options;
  * while the Runner is tagged, one `trash_resource` (cost 2, `clicks: 1`) per rig resource
@@ -491,8 +502,9 @@ export function installedOptions(state: GameState, player: Side): Record<string,
       const card = getCard(c.cardId);
       const opts: CardOption[] = [];
       if (card?.type === 'agenda') {
-        opts.push(option(state, { type: 'advance', player, uid: c.uid }, ADVANCE_COST));
+        // Sprint 10: advance stops at the requirement; from then on only Score is offered.
         if (c.advancements >= (card.advancementRequirement ?? 0)) opts.push(option(state, { type: 'score', player, uid: c.uid }, 0));
+        else opts.push(option(state, { type: 'advance', player, uid: c.uid }, ADVANCE_COST));
       } else if (card?.type === 'ice' && card.advanceable) {
         // Sprint 7: advanceable ICE (Ice Wall), face up or down.
         opts.push(option(state, { type: 'advance', player, uid: c.uid }, ADVANCE_COST));

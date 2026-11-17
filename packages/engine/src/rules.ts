@@ -552,6 +552,15 @@ const ownAgenda = (s: GameState, a: ActionOf<'score'>): RejectReason | null =>
 const ownAdvanceable = (s: GameState, a: ActionOf<'advance'>): RejectReason | null =>
   a.player === 'corp' && advanceTarget(s, a.uid) ? null : 'bad_target';
 
+/** Sprint 10: an agenda at (or past) its advancement requirement can't be advanced again (house rule). ICE: no limit. */
+export function atAdvanceLimit(s: GameState, uid: unknown): boolean {
+  const agenda = installedAgenda(s, uid);
+  return !!agenda && agenda.advancements >= (getCard(agenda.cardId)?.advancementRequirement ?? 0);
+}
+
+const belowRequirement = (s: GameState, a: ActionOf<'advance'>): RejectReason | null =>
+  atAdvanceLimit(s, a.uid) ? 'condition_not_met' : null;
+
 const canAffordAdvance = (s: GameState, a: ActionOf<'advance'>): RejectReason | null =>
   s.players[a.player].credits >= ADVANCE_COST ? null : 'no_credits';
 
@@ -632,8 +641,31 @@ const activateCondition = (s: GameState, a: ActionOf<'activate'>): RejectReason 
 const activateCredits = (s: GameState, a: ActionOf<'activate'>): RejectReason | null =>
   s.players[a.player].credits >= activateTarget(s, a)!.ability.credits ? null : 'no_credits';
 
-/** Sprint 7: credits an ability's `take_credits` (Sprint 8: and `gain_credits`) effects give now (undefined: none). */
-export function abilityGain(installed: Installed, ability: CardAbility): number | undefined {
+/** Sprint 10: the ability has a `take_credits{amount:'chosen'}` effect (the player names the amount; Bank Job). */
+export function hasChosenAmount(ability: CardAbility): boolean {
+  return ability.effects.some((e) => e.op === 'take_credits' && e.amount === 'chosen');
+}
+
+/**
+ * Sprint 10: `activate.amount`. `invalid_action` if given but not an integer, given for an ability with
+ * no `'chosen'` effect, or missing for one with it; `bad_target` if outside 1..the card's hosted credits.
+ */
+const activateAmount = (s: GameState, a: ActionOf<'activate'>): RejectReason | null => {
+  const amount: unknown = a.amount;
+  const t = activateTarget(s, a)!;
+  const chosen = hasChosenAmount(t.ability);
+  if (amount !== undefined && !isInt(amount)) return 'invalid_action';
+  if (chosen !== (amount !== undefined)) return 'invalid_action';
+  if (!chosen) return null;
+  const n = amount as number;
+  return n >= 1 && n <= t.installed.hostedCredits ? null : 'bad_target';
+};
+
+/**
+ * Sprint 7: credits an ability's `take_credits` (Sprint 8: and `gain_credits`) effects give now (undefined: none).
+ * Sprint 10: a `'chosen'` take gives `amount` (capped at what the card holds; 0 when absent).
+ */
+export function abilityGain(installed: Installed, ability: CardAbility, amount?: number): number | undefined {
   let gain: number | undefined;
   let left = installed.hostedCredits;
   for (const e of ability.effects) {
@@ -643,7 +675,8 @@ export function abilityGain(installed: Installed, ability: CardAbility): number 
       continue;
     }
     if (e.op !== 'take_credits') continue;
-    const n = e.amount === 'all' ? left : Math.min(e.amount, left);
+    const want = e.amount === 'all' ? left : e.amount === 'chosen' ? (amount ?? 0) : e.amount;
+    const n = Math.max(0, Math.min(want, left));
     left -= n;
     gain = (gain ?? 0) + n;
   }
@@ -699,9 +732,20 @@ export const RULES: RuleTable = {
   ],
   steal: [playerShape, cardShape, notOver, decides, atStep('access'), stealTarget],
   trash: [playerShape, cardShape, notOver, decides, atStep('access'), trashTarget, canAffordTrash],
-  advance: [playerShape, uidShape, notOver, yourTurn, inPhase('action'), hasClick, ownAdvanceable, canAffordAdvance],
+  advance: [playerShape, uidShape, notOver, yourTurn, inPhase('action'), hasClick, ownAdvanceable, belowRequirement, canAffordAdvance],
   score: [playerShape, uidShape, notOver, yourTurn, inPhase('action'), ownAgenda, enoughCounters],
-  activate: [playerShape, activateShape, notOver, decides, activateTargetCheck, activatePhase, activateClicks, activateCondition, activateCredits],
+  activate: [
+    playerShape,
+    activateShape,
+    notOver,
+    decides,
+    activateTargetCheck,
+    activatePhase,
+    activateClicks,
+    activateCondition,
+    activateCredits,
+    activateAmount, // Sprint 10
+  ],
   choose: [playerShape, chooseShape, notOver, decides, choosePhase, chooseTarget],
   // Sprint 9 (E1): checks in their pinned order; `notBuiltYet` refuses until E3/E4 implement them.
   trace_bid: [playerShape, traceBidShape, notOver, decides, tracePhase, traceBidAffordable],

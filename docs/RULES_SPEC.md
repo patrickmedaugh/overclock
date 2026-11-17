@@ -47,6 +47,7 @@ The engine implements this document. It is a simplified, genre-standard ruleset;
 
 ## Advancing and scoring (Sprint 3)
 - **Advance** (Corp, 1 click + 1 credit): put 1 advancement counter on one of your installed agendas, or (Sprint 7) on an ICE whose text says it can be advanced (Ice Wall), face up or face down. The Runner sees how many counters a card has, but not the face-down card. Ice Wall has +1 strength per counter.
+  - **Advance stops at the requirement (house rule, Sprint 10, owner-chosen):** an agenda that already has as many counters as its advancement requirement cannot be advanced again; only **Score** is offered. *(The real game allows more counters, which is almost never useful.)* Advanceable ICE (Ice Wall) has no limit.
 - **Score** (Corp, no click): on your turn, outside a run, when an installed agenda has at least as many counters as its advancement requirement, move it face up to your score area; you gain its agenda points.
 - **"When scored" bonuses (Sprint 4).** Some agendas do something when the **Corp scores** them. A **stolen** agenda never does: the bonus is for the Corp scoring only. The bonus happens right after the agenda reaches the score area, in the order its text says. If the agenda's points bring the Corp to 7, the Corp wins at once and the bonus does not happen.
   - **Hostile Takeover:** the Corp gains 7 credits, then takes 1 bad publicity (see below).
@@ -56,7 +57,7 @@ The engine implements this document. It is a simplified, genre-standard ruleset;
 - **Credits on cards.** Some cards hold credits (both players see how many). Armitage Codebusting gets 12 and Bank Job 8 from the bank when installed. When a card that says "when there are no credits left, trash it" is emptied, it goes face up to the Heap.
 - **Click abilities.** On his own turn, outside a run, the Runner may use a card's "Click: …" ability by paying its cost (Armitage Codebusting: 1 click, take 2 credits from it).
 - **Recurring credits.** Cyberfeeder holds 1 credit that may only pay for icebreaker abilities (raising strength, breaking). It is placed when Cyberfeeder is installed and refilled to 1 when the Runner's turn begins (never more). When the Runner uses an icebreaker, the game pays from Cyberfeeder first, then the run-only credits (bad publicity), then his own. Cyberfeeder never pays trash costs or installs. *(Its "or installing virus programs" does nothing: no virus programs in these decks.)*
-- **Bank Job.** When a run on a **remote** server is successful and Bank Job holds credits, the Runner chooses before access: **take all its credits** (nothing is accessed and the run ends) or **access cards** as usual. *(The card allows any number; taking all is always best with these decks, owner-accepted simplification.)* On HQ, R&D and Archives there is no choice.
+- **Bank Job.** When a run on a **remote** server is successful and Bank Job holds credits, the Runner chooses before access: **take credits** — any number from 1 to all it holds (Sprint 10; before that it always took all); nothing is accessed and the run ends — or **access cards** as usual (Bank Job keeps its credits). When its last credit is taken it goes to the Heap. On HQ, R&D and Archives there is no choice.
 - **Memory.** Akamatsu Mem Chip adds 1 to the Runner's memory limit while installed.
 
 ## Bad publicity (Sprint 4)

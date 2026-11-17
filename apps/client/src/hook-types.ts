@@ -21,7 +21,9 @@ export interface Insets {
 /** One side's widgets, wherever they are drawn (top or bottom row). */
 export interface SideLayout {
   deck: Box;
+  /** Resting box: without the credit pop's scale-up or the "no clicks" shake. */
   credits: Box;
+  /** Resting box, as for `credits`. */
   clicks: Box;
   discard: Box;
   label: Box;
@@ -100,7 +102,7 @@ export interface PanelButtonSnapshot {
    * subroutine (`sub`, `picked`), `confirm` breaks the picked ones, `back` closes the pick.
    * Absent for a plain option.
    */
-  role?: 'multi' | 'toggle' | 'confirm' | 'back' | 'bid_dec' | 'bid_inc' | 'bid_max' | 'bid_go';
+  role?: 'multi' | 'toggle' | 'confirm' | 'back' | 'bid_dec' | 'bid_inc' | 'bid_max' | 'bid_go' | 'amount_open' | 'amount_back';
   sub?: number;
   picked?: boolean;
 }
@@ -133,6 +135,8 @@ export interface RunSnapshot {
   buttons: PanelButtonSnapshot[];
   /** Accessed cards, drawn large. */
   access: { cards: { cardId: string | null; stolen: boolean; box: Box }[] } | null;
+  /** Sprint 10 (S-10-3): the amount control (Bank Job "Take credits"): the amount shown, its limits (the engine's offered amounts), the big number. */
+  amount: { tile: Box; amount: number; low: number; high: number; caption: string; numberPx: number; captionPx: number } | null;
 }
 
 /** Sprint 9: one button of the trace bid control. */
@@ -179,10 +183,27 @@ export interface TraceSnapshot {
 
 /** Sprint 9: the Runner's tag marker and link readout (both seats). */
 export interface TaggedSnapshot {
-  /** "Tagged 1", or null while untagged. */
+  /**
+   * "Tagged 1", or null while untagged. Sprint 10: in the stats column under Link;
+   * `hit` (where the Runner taps it) is the whole stats column.
+   */
   tagged: { text: string; box: Box; hit: Box } | null;
-  /** "Link 1" (the engine's link), or null with no identity. */
+  /** "Link 1" (the engine's link), or null with no identity. Sprint 10: under Memory. */
   link: { text: string; box: Box } | null;
+  /** Sprint 10: the whole stats column (Memory, Link, Tagged). */
+  stats: Box;
+}
+
+/** Sprint 10 (S-10-1): a side's scored-agenda pile on the table. */
+export interface ScoredPileSnapshot {
+  box: Box;
+  /** "2 agendas · 3 points", or '' while empty. */
+  text: string;
+  count: number;
+  /** The face-up latest agenda, or null while empty. */
+  top: string | null;
+  /** Takes taps (open it) / holds (read it): only with cards in it. */
+  tappable: boolean;
 }
 
 export interface ScoreSnapshot {
@@ -255,6 +276,8 @@ export interface LayoutSnapshot {
   runButton: { box: Box; label: string; lit: boolean; picking: boolean } | null;
   /** Both sides' points, shown to both seats. */
   score: Record<Side, ScoreSnapshot>;
+  /** Sprint 10: both sides' scored piles (far right of each row). */
+  scored: Record<Side, ScoredPileSnapshot>;
   /** uid of the installed card picked for its choices (Corp agendas: Advance / Score), or null. */
   selectedInstalled: string | null;
   /** The transient hint toast, if one is visible. */
@@ -283,6 +306,10 @@ export interface LayoutSnapshot {
    * `centre`: where the big card sits (tap it to pick the card, hold it to lift it).
    */
   handView: { index: number; cardId: string; lifted: boolean; centre: Box } | null;
+  /** Sprint 10 (S-10-1): a scored pile opened big with a tap (slide to read, tap outside to close). */
+  pileView: { side: Side; index: number; cardId: string; count: number; centre: Box } | null;
+  /** Sprint 10 (S-10-5): the discard step's view: the big card's stamp, the marked hand indices, its Confirm. */
+  discardView: { index: number; stamped: boolean; marked: number[]; confirm: { box: Box; label: string; lit: boolean } } | null;
   /**
    * S-07-6: a hand card lifted out of the hand view, following the finger.
    * `box`: where it is drawn now; `hover`: the place under the finger, if any (lit or dimmed).
@@ -327,6 +354,8 @@ export type AnimKind =
   | 'server_open'
   /** S-07-1: an empty remote server's column folds away. */
   | 'server_close'
+  // Sprint 10 (S-10-5): a server column sliding to its new place after one was removed (`text`: its id).
+  | 'column_shift'
   /** The ICE flips face up. */
   | 'ice_rez'
   /** S-07-2: an asset or upgrade flips face up (rezzed in the Corp's turn). */
@@ -377,6 +406,9 @@ export type AnimKind =
   | 'choice_open'
   /** S-07-6: the hand view opens (`text`: the card in the middle). */
   | 'hand_open'
+  // Sprint 10: a scored pile opened with a tap; a card marked / unmarked in the discard view.
+  | 'pile_open'
+  | 'discard_mark'
   /** S-07-6: a card lifts out of the hand view (the view fades out; `text`: its card id). */
   | 'card_lift'
   /** S-07-6: a lifted card let go away from a lit place flies back to the hand. */

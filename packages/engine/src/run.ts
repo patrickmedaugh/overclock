@@ -448,6 +448,8 @@ export interface EffectContext {
   readonly uid?: string;
   /** The server named in the `play` action (run events with no fixed server). */
   readonly server?: ServerId;
+  /** Sprint 10: the amount named in `activate` (a `take_credits{amount:'chosen'}` effect). */
+  readonly amount?: number;
   /**
    * Called once the effect's own events are out, right before it ends the run or the game
    * (ICE: `subroutine_resolved` goes before `run_ended` / `game_over`).
@@ -515,7 +517,8 @@ export function resolveEffect(state: GameState, effect: Effect, owner: Side, eve
     case 'take_credits': {
       const card = ctx.uid !== undefined ? installedCard(state, ctx.uid) : undefined;
       if (!card) return state;
-      const n = effect.amount === 'all' ? card.hostedCredits : Math.min(effect.amount, card.hostedCredits);
+      const want = effect.amount === 'all' ? card.hostedCredits : effect.amount === 'chosen' ? (ctx.amount ?? 0) : effect.amount;
+      const n = Math.min(want, card.hostedCredits);
       if (n <= 0) return state;
       const s = setHosted(state, card.uid, card.hostedCredits - n, events);
       events.push({ type: 'credit_gained', player: owner, amount: n });
@@ -934,7 +937,8 @@ export function doActivate(state: GameState, a: ActionOf<'activate'>): { state: 
   if (ability.credits > 0) events.push({ type: 'credits_spent', player: a.player, amount: ability.credits });
   events.push({ type: 'ability_triggered', uid: installed.uid, cardId: installed.cardId, trigger: ability.when === 'click' ? 'click' : 'successful_run' });
   for (const effect of ability.effects) {
-    s = resolveEffect(s, effect, a.player, events, { cardId: installed.cardId, uid: installed.uid });
+    const ctx = { cardId: installed.cardId, uid: installed.uid, ...(a.amount !== undefined ? { amount: a.amount } : {}) };
+    s = resolveEffect(s, effect, a.player, events, ctx);
     if (s.phase === 'over') return { state: s, events };
   }
   s = trashIfEmpty(s, installed.uid, events);

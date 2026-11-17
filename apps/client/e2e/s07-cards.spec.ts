@@ -327,7 +327,8 @@ test.describe('S-07-4 Cyberfeeder and Bank Job', () => {
     expect(installedIn(l, cf).hosted?.text).toBe('1');
   });
 
-  test('Bank Job shows 8; a run on a remote offers "Take 8 credits from Bank Job" or "Access cards"; taking gives 8 and accesses nothing', async ({ page }) => {
+  // Sprint 10 (S-10-3): "Take credits" opens the amount control at the most (8): "Take 8" takes all, as before.
+  test('Bank Job shows 8; a run on a remote offers "Take credits" or "Access cards"; taking 8 gives 8 and accesses nothing', async ({ page }) => {
     await openBoard(page, 1);
     const plan = await toStep(page, 1, 'runner_bank_job_remote');
     const bj = plan.info['bankJobUid']!;
@@ -335,11 +336,14 @@ test.describe('S-07-4 Cyberfeeder and Bank Job', () => {
     expect(installedIn(l, bj).hosted?.text).toBe('8');
     l = await startRun(page, plan.info['server']!);
     expect(l.run!.step).toBe('success');
-    expect(l.run!.buttons.map((b) => b.label)).toEqual(['Take 8 credits from Bank Job', 'Access cards']);
+    expect(l.run!.buttons.map((b) => b.label)).toEqual(['Take credits', 'Access cards']);
     await shot(page, 's07-4-bank-job-choice');
+    await tap(page, runButtonOf(l, 'Take credits').box);
+    await page.waitForFunction(() => window.__overclock!.layout().run?.amount?.amount === 8);
+    l = await layout(page);
     const credits = (await getView(page)).players.runner.credits;
     await page.evaluate(() => window.__overclock!.clearAnims());
-    const m = await measureTap(page, runButtonOf(l, 'Take 8 credits from Bank Job').box);
+    const m = await measureTap(page, runButtonOf(l, 'Take 8').box);
     expect(m.events.some((e) => e.type === 'card_accessed')).toBe(false);
     expect(m.view.players.runner.credits).toBe(credits + 8);
     expect(m.view.run).toBeNull();

@@ -287,7 +287,9 @@ describe('QA S-07-4 Cyberfeeder and Bank Job', () => {
     s = toRunner(s, ['r10'], 5);
     s = run(s, [runnerInstall(0), runOn('remote1')]).state;
     expect(s.run!.step).toBe('success');
-    const r = run(s, [activate('i2')]);
+    // Sprint 10: Bank Job names an amount (1..8); 8 takes all.
+    expect(rejection(apply(s, activate('i2')).events)).toBe('invalid_action');
+    const r = run(s, [{ ...activate('i2'), amount: 8 } as Action]);
     expect(r.state.players.runner.scoreArea).toEqual([]);
     expect(r.events.some((e) => e.type === 'card_accessed' || e.type === 'agenda_stolen')).toBe(false);
     expect(r.state.servers.find((x) => x.id === 'remote1')!.content.map((c) => c.cardId)).toEqual(['c08']);
@@ -360,6 +362,7 @@ interface Tally {
   akitaroRez: number;
   armitageTakes: number;
   bankJobTakes: number;
+  bankJobPartial: number;
   successSteps: number;
   cyberPays: number;
   iceWallAdv: number;
@@ -421,7 +424,31 @@ function checkStep(
   for (const c of s.rig) {
     if (c.cardId === 'r08') expect([0, 1], where).toContain(c.hostedCredits);
     if (c.cardId === 'r02') expect([2, 4, 6, 8, 10, 12], where).toContain(c.hostedCredits);
-    if (c.cardId === 'r10') expect(c.hostedCredits, where).toBe(8);
+    // Sprint 10: a partial take leaves Bank Job with 1..8 (taking the last credit trashes it).
+    if (c.cardId === 'r10') expect([1, 2, 3, 4, 5, 6, 7, 8], where).toContain(c.hostedCredits);
+  }
+  // Bank Job's credits only go down, and only by the amount named in an activate on it.
+  for (const c of s.rig) {
+    if (c.cardId !== 'r10') continue;
+    const was = before.rig.find((x) => x.uid === c.uid);
+    if (!was) {
+      expect(c.hostedCredits, where).toBe(8);
+      continue;
+    }
+    const took = a.type === 'activate' && a.uid === c.uid ? ((a as { amount?: number }).amount ?? 0) : 0;
+    expect(c.hostedCredits, where).toBe(was.hostedCredits - took);
+  }
+  if (a.type === 'activate') {
+    const was = before.rig.find((x) => x.uid === a.uid);
+    if (was?.cardId === 'r10') {
+      const amt = (a as { amount?: number }).amount;
+      expect(Number.isInteger(amt) && amt! >= 1 && amt! <= was.hostedCredits, where).toBe(true);
+      if (amt === was.hostedCredits) {
+        expect(s.rig.some((x) => x.uid === a.uid), `${where}: emptied Bank Job left the rig`).toBe(false);
+        expect(s.players.runner.discard.some((x) => (typeof x === 'string' ? x : (x as { cardId: string }).cardId) === 'r10'), `${where}: Bank Job in the Heap`).toBe(true);
+      }
+      tally.bankJobPartial += amt! < was.hostedCredits ? 1 : 0;
+    }
   }
   // Memory limit follows Akamatsu.
   expect(rv.memory.limit, where).toBe(4 + s.rig.filter((c) => c.cardId === 'r09').length);
@@ -480,11 +507,11 @@ function checkStep(
 
 describe('QA random play with Sprint 7 cards (own invariants)', () => {
   it('250 games: hidden info, hosted credits, memory, Cyberfeeder, PAD, Bank Job step, empty remotes, ids, Ice Wall strength', () => {
-    const tally: Tally = { games: 0, actions: 0, pads: 0, akitaroRez: 0, armitageTakes: 0, bankJobTakes: 0, successSteps: 0, cyberPays: 0, iceWallAdv: 0, removed: 0, iceWallEnc: 0 };
+    const tally: Tally = { games: 0, actions: 0, pads: 0, akitaroRez: 0, armitageTakes: 0, bankJobTakes: 0, bankJobPartial: 0, successSteps: 0, cyberPays: 0, iceWallAdv: 0, removed: 0, iceWallEnc: 0 };
     for (let seed = 7000; seed < 7250; seed++) sweep(seed, tally);
     // The sweep really exercised the new cards.
     console.log('QA sprint 7 sweep', JSON.stringify(tally));
     expect(tally.games).toBe(250);
-    for (const k of ['pads', 'akitaroRez', 'armitageTakes', 'bankJobTakes', 'successSteps', 'cyberPays', 'iceWallAdv', 'removed', 'iceWallEnc'] as const) expect(tally[k], k).toBeGreaterThan(0);
+    for (const k of ['pads', 'akitaroRez', 'armitageTakes', 'bankJobTakes', 'bankJobPartial', 'successSteps', 'cyberPays', 'iceWallAdv', 'removed', 'iceWallEnc'] as const) expect(tally[k], k).toBeGreaterThan(0);
   }, 120_000);
 });

@@ -67,8 +67,10 @@ export type Action =
    * run step `success`. Pays the ability's clicks and credits.
    * Sprint 9: `uid` may also be a scored uid (`scoredUid('corp', i)`, `score:corp:<i>`): `ability` then
    * indexes that agenda's `scoredAbilities` (Corp, own action phase).
+   * Sprint 10: `amount` is required for (and only for) an ability with a `take_credits{amount:'chosen'}`
+   * effect (Bank Job): an integer 1..the card's hosted credits.
    */
-  | { readonly type: 'activate'; readonly player: Side; readonly uid: string; readonly ability: number }
+  | { readonly type: 'activate'; readonly player: Side; readonly uid: string; readonly ability: number; readonly amount?: number }
   /**
    * Sprint 8: answer an open `trash_target` choice (Corp: `uid` = the Runner card to trash, one of
    * the candidates) or `prevent_trash` choice (Runner: `uid` = the preventer to trash instead).

@@ -36,11 +36,14 @@ async function scoreFlow(page: Page, prefix: string): Promise<LayoutSnapshot> {
   let l = await waitIdle(page);
   const card = l.servers.flatMap((s) => s.content).find((c) => c.uid === plan.info.uid)!;
   await tap(page, card.box);
-  await tap(page, targetOf(await layout(page), 'advance').box);
+  // Sprint 10 (S-10-3, approved): once the agenda is ready only Score is offered. QA edit: Advance is
+  // checked full size on the first tap (one short), Score full size once ready, and Advance is gone.
+  const first = await layout(page);
+  expectFull(first, 'Advance', targetOf(first, 'advance').box);
+  await tap(page, targetOf(first, 'advance').box);
   l = await waitIdle(page);
-  expect(l.targets.map((t) => t.kind)).toEqual(['advance', 'score']);
+  expect(l.targets.map((t) => t.kind)).toEqual(['score']);
   await shot(page, `${prefix}01-score`);
-  expectFull(l, 'Advance', targetOf(l, 'advance').box);
   expectFull(l, 'Score', targetOf(l, 'score').box);
   expectCleanLayout(l);
   const before = await getView(page);
@@ -121,7 +124,7 @@ async function railFlow(page: Page, prefix: string, short: boolean): Promise<voi
 test.describe('Round 3: owner short screen 891x296 (touch, DPR 2.625)', () => {
   test.use({ viewport: { width: 891, height: 296 }, deviceScaleFactor: 2.625, isMobile: true, hasTouch: true });
   test.beforeEach(() => test.skip(test.info().project.name !== 'phone', 'short size runs once, under the phone project'));
-  test('C1: Advance + Score full size, Score scores', async ({ page }) => {
+  test('C1: Advance full size, then only Score (full size), Score scores', async ({ page }) => {
     await scoreFlow(page, 'short-');
   });
   test('C2: PSF "Do 1 meat damage · 1 click" full size; a Runner card goes to the Heap with the notice', async ({ page }) => {

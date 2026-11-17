@@ -19,7 +19,7 @@ import type { Action, Side } from '@overclock/engine';
 import { LocalMatch } from '@overclock/match';
 import { planToStep } from '@overclock/match/testing';
 import { type Page, expect, test } from '@playwright/test';
-import { getView, layout, pickHand, runButtonOf, tap, waitEndTurnArmed, waitIdle } from './helpers';
+import { getView, layout, markDiscard, pickHand, runButtonOf, tap, waitEndTurnArmed, waitIdle } from './helpers';
 import { type Phone, act, frames, joinGame, layoutOf, loseSignal, openPhone, regainSignal, startTestGame, tapButton, view, waitPlaying, waitView } from './online';
 
 const SHOTS = join(dirname(fileURLToPath(import.meta.url)), '../../../docs/sprints/sprint-06-qa');
@@ -466,12 +466,14 @@ test.describe('QA S-06-5 pass-the-phone cover', () => {
       await waitEndTurnArmed(page);
       await recordFrames(page);
       await tap(page, (await layout(page)).endTurn!.box);
-      // A hand-size discard: pick the first card, confirm.
-      let k = await layout(page);
+      // A hand-size discard: pick the first card(s), confirm. Sprint 10 (S-10-5, approved) QA edit: the
+      // discard step opens the hand big with a tap; tap the big card to mark it, Confirm in the view.
+      const k = await layout(page);
       if (k.picker) {
-        await tap(page, k.hand[0]!.box);
-        k = await layout(page);
-        await tap(page, k.picker!.confirm.box);
+        const n = k.picker.remaining;
+        const d = await markDiscard(page, Array.from({ length: n }, (_, i) => i));
+        expect(d.discardView!.confirm.lit).toBe(true);
+        await tap(page, d.discardView!.confirm.box);
       }
       await page.waitForFunction(() => window.__overclock!.layout().cover !== null);
       await page.waitForTimeout(300);

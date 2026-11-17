@@ -115,3 +115,28 @@ export function hintFor(reason: RejectReason, view: HintView | null, option?: Pi
       return 'Only after the Runner made a run';
   }
 }
+
+/**
+ * S-10-6: a toast's identical lines in a row collapse into one with a count:
+ * "PAD Campaign: +1 credit" four times -> "PAD Campaign: +1 credit ×4" (keeps it short
+ * enough to stay readable in the small rail slot).
+ */
+export function collapseRepeats(text: string): string {
+  const out: string[] = [];
+  let prev: string | null = null;
+  let n = 0;
+  const flush = () => {
+    if (prev !== null) out.push(n > 1 ? `${prev} ×${n}` : prev);
+  };
+  for (const line of text.split('\n')) {
+    if (line === prev) {
+      n++;
+      continue;
+    }
+    flush();
+    prev = line;
+    n = 1;
+  }
+  flush();
+  return out.join('\n');
+}

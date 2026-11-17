@@ -56,11 +56,9 @@ test.describe('S-03-2 advance and score', () => {
     expectSnappy(m, ['advance_pop']);
     l = await waitIdle(page);
     expect((await installed(page, plan.info.uid!)).counter).toBe(String(need));
-    // Enough counters now: Score shows next to Advance (the agenda stays picked).
-    expect(l.targets.map((t) => [t.kind, t.label])).toEqual([
-      ['advance', 'Advance · 1 credit'],
-      ['score', 'Score'],
-    ]);
+    // Enough counters now: Score shows (the agenda stays picked). Sprint 10 (S-10-3): Advance
+    // stops at the requirement, so only Score is offered.
+    expect(l.targets.map((t) => [t.kind, t.label])).toEqual([['score', 'Score']]);
     expectCleanLayout(l);
     await test.info().attach('advance and score', { body: await page.screenshot(), contentType: 'image/png' });
     const pts = getCard(plan.info.cardId!)!.agendaPoints!;

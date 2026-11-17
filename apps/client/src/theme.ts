@@ -62,6 +62,8 @@ export const timing = {
   serverOpen: 300,
   /** S-07-1: a removed server's column folds away (<= 200 by the tech plan). */
   serverClose: 180,
+  /** Sprint 10 (S-10-5): lanes right of a removed server slide over (<= 300 ms; input never blocked). */
+  columnShift: 220,
   /** Run steps (Sprint 3): each <= 300ms on the skippable fx queue. */
   runStep: 200,
   rezFlip: 220,

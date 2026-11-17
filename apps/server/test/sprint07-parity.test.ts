@@ -105,7 +105,7 @@ describe('Sprint 7 abilities through the online room: both phones agree, same as
     const g = onlineGame(seed, 'runner_bank_job_remote');
     const runIt = g.send({ type: 'run', player: 'runner', server: g.info.server as ServerId });
     expect(runIt.corp.view.run).toMatchObject({ step: 'success', waitingOn: 'runner' });
-    const u = g.send({ type: 'activate', player: 'runner', uid: g.info.bankJobUid!, ability: 0 });
+    const u = g.send({ type: 'activate', player: 'runner', uid: g.info.bankJobUid!, ability: 0, amount: 8 }); // Sprint 10: the max
     for (const side of ['corp', 'runner'] as const) {
       expect(u[side].events.at(-1)).toEqual({ type: 'run_ended', server: g.info.server, outcome: 'access_replaced' });
       expect(u[side].events).toContainEqual({ type: 'credit_gained', player: 'runner', amount: 8 });
@@ -116,7 +116,7 @@ describe('Sprint 7 abilities through the online room: both phones agree, same as
     const m = new LocalMatch(seed, { deckSet: p.deckSet });
     for (const a of p.actions) m.submit(a.player, a);
     m.submit('runner', { type: 'run', player: 'runner', server: p.info.server as ServerId });
-    const hs = m.submit('runner', { type: 'activate', player: 'runner', uid: p.info.bankJobUid!, ability: 0 });
+    const hs = m.submit('runner', { type: 'activate', player: 'runner', uid: p.info.bankJobUid!, ability: 0, amount: 8 });
     expect(hs.corp.events.map((e) => e.type)).toEqual(u.corp.events.map((e) => e.type));
   });
 });

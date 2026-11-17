@@ -1,12 +1,22 @@
-// S-00-4: Long-press a hand card to zoom it; release to let go.
-// S-07-6: outside the discard picker a press on the hand opens the hand view
-// (s07-hand.spec.ts), so the hold-to-zoom checks run where it still lives: the
-// hand-limit discard picker. The last two tests cover the hand view's side.
+// S-00-4: Long-press a card to zoom it; release to let go.
+// S-07-6: a press on the hand opens the hand view (s07-hand.spec.ts); Sprint 10 (S-10-5):
+// so does the discard step's. The hold-to-zoom checks run where it still lives: a card on
+// the table (here the Corp's own installed card). The last tests cover the hand views.
 import { type Page, expect, test } from '@playwright/test';
 import { getCard } from '@overclock/cards';
+import type { Box } from './helpers';
 import { dispatch, inside, layout, openBoard, pressAndHold, safeRect, tap, waitIdle } from './helpers';
 
-/** The Corp ends turn 1 holding 6 cards: the discard picker is up. */
+/** The Corp installs its first hand card in a new server: returns that card (seen face up by the Corp). */
+async function toInstalled(page: Page): Promise<{ cardId: string; box: Box }> {
+  await dispatch(page, { type: 'install', player: 'corp', handIndex: 0, server: 'new' });
+  const l = await waitIdle(page);
+  const c = l.servers.flatMap((s) => [...s.content, ...s.ice]).find((x) => x.cardId !== null)!;
+  expect(c, 'an installed card').toBeTruthy();
+  return { cardId: c.cardId!, box: c.box };
+}
+
+/** The Corp ends turn 1 holding 6 cards: the discard step is up. */
 async function toDiscardPicker(page: Page): Promise<void> {
   await dispatch(page, { type: 'end_turn', player: 'corp' });
   await waitIdle(page);
@@ -14,11 +24,9 @@ async function toDiscardPicker(page: Page): Promise<void> {
 }
 
 test.describe('S-00-4 zoom', () => {
-  test('long-press zooms a hand card to readable size and release closes it', async ({ page }) => {
+  test('long-press zooms a card to readable size and release closes it', async ({ page }) => {
     await openBoard(page);
-    await toDiscardPicker(page);
-    const l = await layout(page);
-    const target = l.hand[1]!;
+    const target = await toInstalled(page);
     const release = await pressAndHold(page, target.box);
     await page.waitForFunction(
       (id) => {
@@ -50,8 +58,7 @@ test.describe('S-00-4 zoom', () => {
 
   test('zooms only after the ~350ms long-press delay, not before', async ({ page }) => {
     await openBoard(page);
-    await toDiscardPicker(page);
-    const l = await layout(page);
+    const target = await toInstalled(page);
     // Record (in the page) when the press started and when the zoom first appeared.
     await page.evaluate(() => {
       const w = window as unknown as { __downAt?: number; __zoomAt?: number };
@@ -62,7 +69,7 @@ test.describe('S-00-4 zoom', () => {
       };
       requestAnimationFrame(poll);
     });
-    const release = await pressAndHold(page, l.hand[0]!.box);
+    const release = await pressAndHold(page, target.box);
     await page.waitForFunction(() => (window as unknown as { __zoomAt?: number }).__zoomAt !== undefined);
     const delay = await page.evaluate(() => {
       const w = window as unknown as { __downAt: number; __zoomAt: number };
@@ -76,15 +83,14 @@ test.describe('S-00-4 zoom', () => {
 
   test('releasing early never zooms', async ({ page }) => {
     await openBoard(page);
-    await toDiscardPicker(page);
-    const l = await layout(page);
-    const release = await pressAndHold(page, l.hand[0]!.box);
+    const target = await toInstalled(page);
+    const release = await pressAndHold(page, target.box);
     await release();
     await page.waitForTimeout(600);
     expect((await layout(page)).zoom).toBeNull();
   });
 
-  test('a quick tap on a hand card in the discard picker marks it and does not zoom', async ({ page }) => {
+  test('S-10-5: a quick tap on a hand card in the discard step opens it big and marks nothing', async ({ page }) => {
     await openBoard(page);
     await toDiscardPicker(page);
     const l = await layout(page);
@@ -92,9 +98,9 @@ test.describe('S-00-4 zoom', () => {
     await tap(page, l.hand[0]!.box);
     await page.waitForTimeout(500);
     const after = await layout(page);
-    expect(after.zoom).toBeNull();
-    expect(after.handView).toBeNull();
-    expect(after.hand[0]!.marked).toBe(true);
+    expect(after.discardView).toMatchObject({ index: 0, marked: [] });
+    expect(after.zoom!.cardId).toBe(l.hand[0]!.cardId);
+    expect(after.hand[0]!.marked).toBe(false);
     expect(await page.evaluate(() => window.__overclock!.getView())).toEqual(view);
   });
 

@@ -1,6 +1,8 @@
 // S-01-1: Corp goes first and turns alternate. S-01-3: End turn.
 import { expect, test } from '@playwright/test';
 import {
+  closeDiscardView,
+  markDiscard,
   dispatch,
   expectCleanLayout,
   expectSnappy,
@@ -39,7 +41,9 @@ test.describe('S-01-1 turn order', () => {
     await tap(page, l.endTurn!.box);
     l = await waitIdle(page);
     expect(l.picker?.label).toBe('Discard 1');
-    await tap(page, l.hand[0]!.box);
+    // S-10-5: tap the hand (it opens big), tap the card to mark it, back to the board.
+    await markDiscard(page, [0]);
+    l = await closeDiscardView(page);
     l = await layout(page);
     await tap(page, l.picker!.confirm.box);
     l = await waitIdle(page);
@@ -155,7 +159,8 @@ test.describe('S-01-3 End turn', () => {
     await dispatch(page, { type: 'end_turn', player: 'corp' });
     let l = await waitIdle(page);
     expect(l.picker?.remaining).toBe(4);
-    for (let i = 0; i < 4; i++) await tap(page, l.hand[i]!.box);
+    await markDiscard(page, [0, 1, 2, 3]);
+    l = await closeDiscardView(page);
     l = await layout(page);
     const m = await measureTap(page, l.picker!.confirm.box);
     expect(m.view.viewer).toBe('runner');

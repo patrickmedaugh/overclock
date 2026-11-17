@@ -4,6 +4,8 @@ import { fileURLToPath } from 'node:url';
 import { getCard } from '@overclock/cards';
 import { expect, test, type Page } from '@playwright/test';
 import {
+  closeDiscardView,
+  markDiscard,
   type Box,
   type LayoutSnapshot,
   dispatch,
@@ -207,8 +209,9 @@ test.describe('S-02-6 phones sideways, computers unchanged', () => {
     expect(l.picker?.label).toBe('Discard 3');
     expectCleanLayout(l);
     await shoot(page, 'hand-limit-sideways');
-    for (const i of [0, 1, 2]) await tap(page, l.hand[i]!.box);
-    l = await layout(page);
+    // S-10-5: the discard step opens the hand big with a tap; a tap there marks.
+    await markDiscard(page, [0, 1, 2]);
+    l = await closeDiscardView(page);
     m = await measureTap(page, l.picker!.confirm.box);
     expectSnappy(m, ['discard_flight', 'turn_change']);
     expect(m.view.viewer).toBe('runner');

@@ -36,6 +36,7 @@ export type ServerId = CentralServerId | `remote${number}`;
  * Sprint 7 (DSL v2, hosted credits; need an installed source card):
  * - `place_credits`: put `amount` credits from the bank on the source card.
  * - `take_credits`: move up to `amount` (or `'all'`) of the source card's credits to its owner.
+ *   Sprint 10: `'chosen'` = the player picks 1..hosted credits (`activate.amount`; Bank Job).
  * Sprint 8 (DSL v3):
  * - `gain_clicks`: the card's owner gains `amount` clicks (Biotic Labor).
  * - `brain_damage`: the Runner's maximum hand size drops by `amount` for the rest of the game, then
@@ -62,9 +63,10 @@ export type Effect =
   | { readonly op: 'place_credits'; readonly amount: number }
   /**
    * Sprint 7: move up to `amount` credits (`'all'` = every one) from the source card to its
-   * owner's pool. Stops at what the card holds.
+   * owner's pool. Stops at what the card holds. Sprint 10: `'chosen'` = the amount named in the
+   * `activate` action (1..what the card holds; Bank Job).
    */
-  | { readonly op: 'take_credits'; readonly amount: number | 'all' }
+  | { readonly op: 'take_credits'; readonly amount: number | 'all' | 'chosen' }
   /** Sprint 8: the owner gains `amount` clicks. */
   | { readonly op: 'gain_clicks'; readonly amount: number }
   /** Sprint 8: brain damage to the Runner (hand size −amount for good, then random discards). */

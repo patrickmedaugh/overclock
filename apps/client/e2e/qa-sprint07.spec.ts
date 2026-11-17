@@ -308,7 +308,9 @@ test.describe('QA S-07-4 Cyberfeeder and Bank Job', () => {
     expectGoodPill(installedIn(l, cf), '1');
   });
 
-  test('Bank Job: pill 8; remote run asks "Take 8 credits from Bank Job" / "Access cards"; taking: +8, nothing accessed, to the Heap, note', async ({ page }) => {
+  test('Bank Job: pill 8; remote run asks "Take credits" / "Access cards"; Take credits opens at 8, "Take 8": +8, nothing accessed, to the Heap, note', async ({ page }) => {
+    // Sprint 10 (S-10-3, approved): the Runner now picks the amount. QA edit: "Take credits" then the
+    // amount control opens at the most it holds; "Take 8" keeps every Sprint 7 check (take all).
     await openBoard(page, 1);
     const plan = await toStep(page, 1, 'runner_bank_job_remote');
     const bj = plan.info['bankJobUid']!;
@@ -318,13 +320,24 @@ test.describe('QA S-07-4 Cyberfeeder and Bank Job', () => {
     l = await startRun(page, plan.info['server']!);
     expect(l.run!.step).toBe('success');
     expect(l.run!.buttons.map((b) => [b.label, b.lit])).toEqual([
-      ['Take 8 credits from Bank Job', true],
+      ['Take credits', true],
       ['Access cards', true],
     ]);
     for (const b of l.run!.buttons) expectGoodButton(l, b.box, b.label);
     await shot(page, '18-s07-4-bank-job-choice');
     const credits = (await getView(page)).players.runner.credits;
-    const m = await measureTap(page, runButtonOf(l, 'Take 8 credits from Bank Job').box);
+    await tap(page, runButtonOf(l, 'Take credits').box);
+    await page.waitForFunction(() => window.__overclock!.layout().run?.amount != null);
+    const opened = await getView(page);
+    expect(opened.players.runner.credits, 'opening the amount control takes nothing yet').toBe(credits);
+    expect(opened.run?.step).toBe('success');
+    expect(opened.rig.find((c) => c.uid === bj)?.hostedCredits).toBe(8);
+    l = await layout(page);
+    expect(l.run!.amount!.amount).toBe(8);
+    const take8 = runButtonOf(l, 'Take 8');
+    expect(take8.lit).toBe(true);
+    for (const b of l.run!.buttons) expectGoodButton(l, b.box, b.label);
+    const m = await measureTap(page, take8.box);
     expect(m.events.some((e) => e.type === 'card_accessed')).toBe(false);
     expect(m.view.players.runner.credits).toBe(credits + 8);
     l = await waitIdle(page);

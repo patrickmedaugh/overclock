@@ -95,7 +95,7 @@ describe('S-09-4 AC2: SEA Source after a successful run last turn starts a Trace
     s = { ...s, rig: s.rig.map((c) => ({ ...c, hostedCredits: 8 })) };
     s = act(s, { type: 'run', player: 'runner', server: 'remote1' }).state;
     expect(s.run?.step).toBe('success');
-    s = act(s, { type: 'activate', player: 'runner', uid: 'i1', ability: 0 }).state;
+    s = act(s, { type: 'activate', player: 'runner', uid: 'i1', ability: 0, amount: 8 }).state; // Sprint 10: the max
     expect(s.run).toBeNull();
     s = finishTurn(s).state;
     expect(rejection(apply(s, playSea).events)).toBeNull();

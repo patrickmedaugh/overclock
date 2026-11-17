@@ -16,12 +16,12 @@ import { CAROUSEL_SLIDE_MS, Carousel, type CarouselFace, listIndex } from './car
 import { createCardBack, createCardFace, createZoomFace, dropCardTextures, flushZoomFaces, glowRoundRect, hasZoomFace, retireCardTextures, smallFaceLayout, textOverflows, textsOf } from './cardFace';
 import { framesAreSlow } from './frameClock';
 import { Cover } from './cover';
-import { centeredBox } from './geometry';
+import { centeredBox, clearOf, freeRect } from './geometry';
 import { Hand, type HandCard } from './hand';
 import { DROP_WAIT_MS, LIFT_MS, RETURN_MS, SWIPE_TOLERANCE, VIEW_FADE_MS, type ViewHit, ghostCenter, swipeIndex, targetAt, viewHit } from './handGesture';
 import type { AnimRecord, Box, EndTurnClock, InstalledSnapshot, Insets, LayoutSnapshot, SideLayout, TargetSnapshot } from './hook-types';
 import type { Decision, Presentation } from './session';
-import { choiceHint, conditionText, hintFor, rejectText } from './hints';
+import { choiceHint, collapseRepeats, conditionText, hintFor, rejectText } from './hints';
 import { basicOptionLabel, bidWaitText, isTraceChoice, linkText, meatDamageText, tagsChangedText, taggedText, taggedTrashText, traceNotices } from './traceText';
 import { attachPress, inputTime, noteRelease } from './input';
 import type { FederatedPointerEvent } from 'pixi.js';
@@ -34,7 +34,7 @@ import { RUN_END, iceReport, installNotices, isRunChoice, installedOptionLabel, 
 import { SIDE_NAME, TERMS, badPublicityText, handMaxText, plural, pointsText, priceText, serverLabel, tempCreditsText, zoneName } from './terms';
 import { sideColor, theme, timing } from './theme';
 import { ease, type Tweens } from './tween';
-import { ActionButton, Counter, DeckPile, DiscardPile, MemoryCounter, PanelButton, ScorePill, StatusTag, TargetMarker, fitText, placeAt } from './widgets';
+import { ActionButton, Counter, DeckPile, DiscardPile, MemoryCounter, PanelButton, ScorePill, ScoredPile, StatLine, StatusTag, TargetMarker, fitText, placeAt } from './widgets';
 
 type Pos = 'top' | 'bottom';
 const SIDES: readonly Side[] = ['corp', 'runner'];
@@ -78,9 +78,7 @@ function targetKey(kind: TargetSnapshot['kind'], where: { server?: string; uid?:
  */
 function runnerNote(view: PlayerView): string | null {
   const parts: string[] = [];
-  // Sprint 9 (S-09-2): "Tagged 1" comes first (the note turns red while tagged).
-  const tags = view.players.runner.tags ?? 0;
-  if (tags > 0) parts.push(taggedText(tags));
+  // Sprint 10 (S-10-2): "Tagged 1" moved to the stats column (under Memory and Link).
   const max = view.players.runner.maxHandSize;
   if (max < 5) parts.push(handMaxText(max));
   if (view.run && view.run.tempCredits > 0) parts.push(tempCreditsText(view.run.tempCredits));
@@ -125,6 +123,13 @@ function boundsOf(c: Container): Box {
   return { x: b.x, y: b.y, width: b.width, height: b.height };
 }
 
+function inBox(b: Box, x: number, y: number): boolean {
+  return x >= b.x && x <= b.x + b.width && y >= b.y && y <= b.y + b.height;
+}
+
+/** S-10-6: a toast's text is never drawn smaller than this (px). */
+export const HINT_MIN_PX = 10;
+
 /** True if `c` is `root` or inside it. */
 function isUnder(c: Container | null, root: Container | null): boolean {
   for (let n: Container | null = c; n; n = n.parent) if (n === root) return true;
@@ -163,11 +168,6 @@ interface IdentityWidget {
   root: Container;
   box: Box;
   detach: () => void;
-  /** Sprint 9: the Runner's link ("Link 1"), a pill along the card's bottom edge. */
-  link: Container;
-  linkText: Text;
-  linkBg: Graphics;
-  linkKey: string;
 }
 
 /** One side's name, hand count, credits and clicks, for one position (top / bottom). */
@@ -212,6 +212,8 @@ interface ColumnWidgets {
   label: Text;
   frame: Graphics;
   frameKey: string;
+  /** Sprint 10 (S-10-5): where the column was drawn last (x), so a move can slide. */
+  x: number | null;
 }
 
 interface ActiveTarget {
@@ -234,6 +236,11 @@ interface Generation {
   /** U2: identity cards (the Corp's in the HQ slot, the Runner's left of the Stack). */
   identities: Partial<Record<Side, IdentityWidget>>;
   memory: MemoryCounter;
+  /** Sprint 10 (S-10-2): "Link 1" and the red "Tagged 1", under Memory. */
+  link: StatLine;
+  tagged: StatLine;
+  /** Sprint 10 (S-10-1): the scored-agenda piles, far right of each row. */
+  scoredPiles: Record<Side, ScoredPile>;
   columns: Map<string, ColumnWidgets>;
   installed: Map<string, InstalledCard>;
   targets: Map<string, TargetMarker>;
@@ -319,7 +326,7 @@ export class Board {
   private runPicking = false;
   /** Installed card picked for its choices (Corp agenda: Advance / Score). */
   private pickedInstalled: string | null = null;
-  private hint: { text: string; root: Container; box: Box; kind: 'hint' | 'notice'; slot: string; wide: boolean } | null = null;
+  private hint: { text: string; root: Container; box: Box; kind: 'hint' | 'notice'; slot: string; wide: boolean; area: Box } | null = null;
   /** QA-S9-1: the notices waiting for the cover include a trace result (shown in the wide slot). */
   private pendingWide = false;
   private zoom: {
@@ -340,6 +347,16 @@ export class Board {
     list: { ids: string[]; start: number; startX: number; step: number } | null;
     /** S-07-6: the hand view (stays open after the finger lifts; takes every tap while open). */
     view: boolean;
+    /**
+     * Sprint 10: what an open view browses: the hand (S-07-6), a scored pile (S-10-1) or the
+     * hand in the discard step (S-10-5: a tap marks / unmarks the big card).
+     */
+    mode: 'hand' | 'pile' | 'discard';
+    /** S-10-1: the pile a pile view shows. */
+    pile: { side: Side; ids: string[] } | null;
+    /** S-10-5: the "DISCARD" stamp over a marked big card, and the view's Confirm ("Discard 2"). */
+    stamp: Container | null;
+    confirm: PanelButton | null;
   } | null = null;
   /** S-07-6: the finger pressing in the hand view (one at a time). */
   private viewPress: {
@@ -623,9 +640,13 @@ export class Board {
     // hand view closes when the hand changed, or a run or the discard picker starts.
     if (this.lift) this.closeZoom(true);
     else if (this.zoom?.view) {
-      const ids = view.players[view.viewer].hand ?? [];
-      const same = this.view?.viewer === view.viewer && ids.length === this.hands[view.viewer].ids.length && ids.every((id, i) => id === this.hands[view.viewer].ids[i]);
-      if (!same || panelUp(view) || view.pendingDiscard > 0) this.closeZoom(true);
+      const z = this.zoom;
+      const ids = z.pile ? view.players[z.pile.side].scored : (view.players[view.viewer].hand ?? []);
+      const was = z.pile ? z.pile.ids : this.hands[view.viewer].ids;
+      const same = this.view?.viewer === view.viewer && ids.length === was.length && ids.every((id, i) => id === was[i]);
+      // S-10-5: the discard step's view stays only through the discard step (the hand view never does).
+      const wrongStep = z.mode === 'discard' ? view.pendingDiscard === 0 : view.pendingDiscard > 0;
+      if (!same || panelUp(view) || wrongStep) this.closeZoom(true);
     }
     const prev = this.view;
     if (prev?.choice && prev.choice.kind === 'free_rez') this.lastChoiceCard = prev.choice.cardId;
@@ -680,6 +701,8 @@ export class Board {
     const reportText = rejected ? null : iceReport(events);
     if (reportText) this.openReport(reportText, layout);
     const newStep = this.applyView(view, true);
+    // S-10-5: a card trashed from the table fills Archives when it lands there, not before.
+    if (events.some((e) => e.type === 'card_trashed' || e.type === 'corp_card_trashed')) this.gen?.discards.corp.set(prev.players.corp.discardCount, prev.players.corp.discard);
     for (const l of leaving) this.flyFromHand(l.e, l.card, layout);
     const notices: string[] = [];
     for (const e of events) {
@@ -735,8 +758,10 @@ export class Board {
     const zero = { x: 0, y: 0, width: 0, height: 0 };
     const side = (s: Side): SideLayout => {
       const seat = this.seatOf(s);
+      // Credits / clicks: resting boxes. A pop (x1.18 for 200 ms) briefly reaches past the 8 px gap
+      // between the two pills by design; a snapshot taken before the next frame used to report that.
       if (!gen || !seat || !layout) return { deck: zero, credits: zero, clicks: zero, discard: zero, label: zero };
-      return { deck: gen.decks[s].box(), credits: seat.credits.box(), clicks: seat.clicks.box(), discard: gen.discards[s].box(), label: layout[seat.pos].label };
+      return { deck: gen.decks[s].box(), credits: seat.credits.restBox(), clicks: seat.clicks.restBox(), discard: gen.discards[s].box(), label: layout[seat.pos].label };
     };
     const inst = (v: InstalledView): InstalledSnapshot => {
       const c = gen?.installed.get(v.uid);
@@ -837,12 +862,12 @@ export class Board {
       run: gen?.run.snapshot ?? null,
       trace: gen?.run.traceSnapshot ?? null,
       runnerStatus: {
-        tagged: runner && runner.tag.tagged && runner.tag.text ? { text: runner.tag.text, box: { ...runner.tag.box }, hit: runner.pos === 'bottom' ? this.tagHit(runner.tag.box) : { ...runner.tag.box } } : null,
-        link: (() => {
-          const w = gen?.identities.runner;
-          if (!w || !w.root.visible || !w.link.visible) return null;
-          return { text: w.linkText.text, box: boundsOf(w.link) };
-        })(),
+        tagged:
+          gen && gen.tagged.text
+            ? { text: gen.tagged.text, box: { ...gen.tagged.box }, hit: runner?.pos === 'bottom' && layout ? { ...layout.rig.stats } : { ...gen.tagged.box } }
+            : null,
+        link: gen && gen.link.text ? { text: gen.link.text, box: { ...gen.link.box } } : null,
+        stats: layout ? { ...layout.rig.stats } : zero,
       },
       runButton:
         gen && gen.runButton.root.visible
@@ -852,6 +877,12 @@ export class Board {
         corp: { text: gen?.scores.corp.text ?? '', box: gen ? { ...gen.scores.corp.box } : zero },
         runner: { text: gen?.scores.runner.text ?? '', box: gen ? { ...gen.scores.runner.box } : zero },
       },
+      scored: Object.fromEntries(
+        SIDES.map((sd) => {
+          const p = gen?.scoredPiles[sd];
+          return [sd, p ? { box: p.box(), text: p.text, count: p.count, top: p.top, tappable: p.root.eventMode === 'static' } : { box: zero, text: '', count: 0, top: null, tappable: false }];
+        }),
+      ) as LayoutSnapshot['scored'],
       selectedInstalled: this.pickedInstalled,
       hint: this.hint && this.hint.root.alpha > 0.05 ? { text: this.hint.text, box: this.hint.box } : null,
       dialog: this.leave ? this.leave.dialog.snapshot() : null,
@@ -865,7 +896,20 @@ export class Board {
         layout && this.buildText.visible && this.buildText.text
           ? { text: this.buildText.text, box: this.buildTextBox() }
           : null,
-      handView: this.zoom?.view && this.zoom.cardId && layout ? { index: this.zoom.index, cardId: this.zoom.cardId, lifted: this.lift !== null, centre: { ...layout.zoom } } : null,
+      handView: this.zoom?.view && this.zoom.mode !== 'pile' && this.zoom.cardId && layout ? { index: this.zoom.index, cardId: this.zoom.cardId, lifted: this.lift !== null, centre: { ...layout.zoom } } : null,
+      pileView:
+        this.zoom?.view && this.zoom.pile && this.zoom.cardId && layout
+          ? { side: this.zoom.pile.side, index: this.zoom.index, cardId: this.zoom.cardId, count: this.zoom.pile.ids.length, centre: { ...layout.zoom } }
+          : null,
+      discardView:
+        this.zoom?.view && this.zoom.mode === 'discard' && this.zoom.confirm && layout
+          ? {
+              index: this.zoom.index,
+              stamped: this.zoom.stamp?.visible ?? false,
+              marked: [...this.marked].sort((a, b) => a - b),
+              confirm: { box: { ...this.zoom.confirm.box }, label: this.zoom.confirm.text, lit: this.zoom.confirm.lit },
+            }
+          : null,
       drag: this.dragSnapshot(),
       // While a card is lifted the hand view is faded out: no zoom is on screen.
       zoom: this.zoom && !this.lift
@@ -1055,7 +1099,7 @@ export class Board {
     }
     const hqRoot = layout.corp.servers[0]?.root;
     if (hqRoot) placeAt(gen.hq.root, hqRoot);
-    for (const s of SIDES) this.placeIdentity(gen, layout, s, identityOf(view, s), rowOf(s).identity, s === 'runner' ? view.players.runner.link : null);
+    for (const s of SIDES) this.placeIdentity(gen, layout, s, identityOf(view, s), rowOf(s).identity);
     // The Corp's identity stands for HQ: it takes the HQ marker's slot (the hand count is in the Corp's name row).
     gen.hq.root.visible = !gen.identities.corp?.root.visible;
 
@@ -1070,14 +1114,26 @@ export class Board {
         const frame = new Graphics();
         frame.eventMode = 'none';
         label.eventMode = 'none';
-        col = { label, frame, frameKey: '' };
+        col = { label, frame, frameKey: '', x: null };
         this.boardLayer.addChildAt(frame, 0);
         this.boardLayer.addChild(label);
         gen.columns.set(slots.id, col);
         fitText(label, slots.column.width - 2);
       }
-      col.label.position.set(slots.label.x + slots.label.width / 2, slots.label.y + slots.label.height / 2);
       const c = slots.column;
+      // S-10-5: a lane that moves because one before it was removed slides over (never jumps,
+      // so it can't look like the removed lane turned into it). Input is never blocked.
+      const dx = animate && col.x !== null && slots.id !== 'new' && Math.abs(col.x - c.x) > 0.5 ? col.x - c.x : 0;
+      col.x = c.x;
+      this.fx.cancel(col.frame);
+      this.fx.cancel(col.label);
+      col.label.position.set(slots.label.x + slots.label.width / 2 + dx, slots.label.y + slots.label.height / 2);
+      col.frame.x = dx;
+      if (dx !== 0) {
+        this.callbacks.log({ kind: 'column_shift', text: slots.id, scheduledMs: timing.columnShift, box: { ...c } });
+        this.fx.add({ target: col.frame, to: { x: 0 }, duration: timing.columnShift, ease: ease.outCubic, owner: col.frame });
+        this.fx.add({ target: col.label, to: { x: slots.label.x + slots.label.width / 2 }, duration: timing.columnShift, ease: ease.outCubic, owner: col.label });
+      }
       const key = `${c.x},${c.y},${c.width},${c.height}`;
       if (col.frameKey !== key && slots.id !== 'new') {
         col.frameKey = key;
@@ -1122,6 +1178,8 @@ export class Board {
     }
 
     placeAt(gen.memory.root, layout.rig.memory);
+    placeAt(gen.scoredPiles.corp.root, layout.corp.scored);
+    placeAt(gen.scoredPiles.runner.root, layout.rig.scored);
     this.placeCenter(gen, layout, viewer);
     return layout;
   }
@@ -1162,7 +1220,27 @@ export class Board {
       );
     }
     const memory = new MemoryCounter(layout.rig.memory, s);
-    this.boardLayer.addChild(hq.root, decks.corp.root, decks.runner.root, discards.corp.root, discards.runner.root, memory.root);
+    // Sprint 10 (S-10-2): Link and Tagged under Memory. The Runner taps the stats column for Remove 1 tag.
+    const link = new StatLine('link', 'link');
+    const tagged = new StatLine('tagged', 'tagged');
+    detachers.push(this.pressFeedback(tagged.root, () => this.onTagTap()));
+    // Sprint 10 (S-10-1): the scored piles. Hold to read (as the other piles); a tap opens them (U2).
+    const scoredPiles = { corp: new ScoredPile(layout.corp.scored, 'corp', s), runner: new ScoredPile(layout.rig.scored, 'runner', s) };
+    for (const side of SIDES) {
+      const pile = scoredPiles[side];
+      detachers.push(
+        this.attachHoldZoom(
+          pile.root,
+          () => {
+            const ids = [...(this.view?.players[side].scored ?? [])];
+            return ids.length > 0 ? { ids, side: 'corp', from: pile.box() } : null;
+          },
+          () => this.onScoredPileTap(side),
+        ),
+      );
+      pile.root.eventMode = 'none';
+    }
+    this.boardLayer.addChild(hq.root, decks.corp.root, decks.runner.root, discards.corp.root, discards.runner.root, memory.root, link.root, tagged.root, scoredPiles.corp.root, scoredPiles.runner.root);
 
     const banner = new Text({
       text: '',
@@ -1249,6 +1327,9 @@ export class Board {
       hq,
       identities: {},
       memory,
+      link,
+      tagged,
+      scoredPiles,
       columns: new Map(),
       installed: new Map(),
       targets: new Map(),
@@ -1305,8 +1386,6 @@ export class Board {
       if (pos === 'bottom') gen.detachers.push(this.pressFeedback(credits.root, () => this.boardTap(() => this.callbacks.onCreditsTap())));
       else credits.root.eventMode = 'none';
       const tag = new StatusTag(`tag:${side}`, side === 'corp' ? 'bad' : 'run');
-      // Sprint 9 (S-09-2): the Runner taps his own "Tagged 1" note for Remove 1 tag.
-      if (side === 'runner' && pos === 'bottom') gen.detachers.push(this.pressFeedback(tag.root, () => this.onTagTap()));
       root.addChild(label, credits.root, clicks.root, tag.root);
       this.boardLayer.addChild(root);
       w = { side, pos, root, label, name, handText: hand, credits, clicks, tag };
@@ -1398,7 +1477,7 @@ export class Board {
   }
 
   /** U2: draws (or hides) `side`'s identity card in its slot; hold it to read it. */
-  private placeIdentity(gen: Generation, layout: BoardLayout, side: Side, ref: IdentityRef | null, slot: Box | null, link: number | null = null): void {
+  private placeIdentity(gen: Generation, layout: BoardLayout, side: Side, ref: IdentityRef | null, slot: Box | null): void {
     let w = gen.identities[side];
     if (w && (!ref || w.cardId !== ref.cardId)) {
       w.detach();
@@ -1414,19 +1493,10 @@ export class Board {
       const root = new Container();
       root.label = `identity:${side}`;
       root.hitArea = new Rectangle(-u / 2, -uh / 2, u, uh);
+      // Sprint 10 (S-10-2): nothing is drawn over the identity (Link moved to the stats column).
       root.addChild(createCardFace(def, u, uh, 'small'));
-      // Sprint 9: the Runner's link (the engine's number) on a pill across the bottom of his identity.
-      const linkBox = new Container();
-      linkBox.label = 'link';
-      const linkBg = new Graphics();
-      const linkLabel = new Text({ text: '', style: { fontFamily: theme.monoFamily, fontSize: Math.max(11, Math.round(u * 0.17)), fontWeight: '800', fill: theme.ink } });
-      linkLabel.anchor.set(0.5);
-      linkBox.addChild(linkBg, linkLabel);
-      linkBox.visible = false;
-      linkBox.eventMode = 'none';
-      root.addChild(linkBox);
       const cardId = ref.cardId;
-      const widget: IdentityWidget = { uid: ref.uid, cardId, root, box: slot, detach: () => {}, link: linkBox, linkText: linkLabel, linkBg, linkKey: '' };
+      const widget: IdentityWidget = { uid: ref.uid, cardId, root, box: slot, detach: () => {} };
       widget.detach = this.attachHoldZoom(root, () => ({ ids: [cardId], side, from: widget.box }));
       this.boardLayer.addChild(root);
       gen.identities[side] = widget;
@@ -1435,27 +1505,6 @@ export class Board {
     w.uid = ref.uid;
     w.box = slot;
     placeAt(w.root, slot);
-    this.setLink(w, link, layout.unit.width, layout.unit.height);
-  }
-
-  /** Sprint 9: "Link 1" across the bottom of the Runner's identity (hidden for the Corp's). */
-  private setLink(w: IdentityWidget, link: number | null, u: number, uh: number): void {
-    w.link.visible = link !== null;
-    if (link === null) return;
-    const text = linkText(link);
-    const key = `${text}:${u}`;
-    if (w.linkKey === key) return;
-    w.linkKey = key;
-    w.linkText.text = text;
-    fitText(w.linkText, u - 10);
-    const pw = Math.min(u - 4, Math.ceil(w.linkText.width) + 12);
-    const ph = Math.ceil(w.linkText.height) + 2;
-    w.linkBg.clear();
-    w.linkBg.roundRect(-pw / 2, -ph / 2, pw, ph, ph / 2).fill({ color: theme.runner, alpha: 0.95 }).stroke({ width: 1.5, color: theme.ink });
-    // In the art window (the name and type stay readable).
-    const def = getCard(w.cardId);
-    const f = def ? smallFaceLayout(def, u, uh) : null;
-    w.link.position.set(0, f ? Math.min(f.art.y + f.art.height - ph / 2, f.name.y - ph / 2 - 1) : uh / 2 - ph / 2 - 3);
   }
 
   /** QA-S7-2: the advancement tag (green, chevron, dark digits) in the card's top-right corner. */
@@ -1569,13 +1618,22 @@ export class Board {
     const { sub, action } = layout;
     if (layout.mode === 'landscape') {
       // Below Play (or below Score too, while a picked agenda shows two choices).
-      const above = this.pickedInstalled !== null || this.lastRunShown(this.view) ? layout.action2 : action;
+      // QA-S10-2: only when the second slot is really in use (an agenda that shows Advance alone
+      // leaves it empty, and on a short screen the words need that room).
+      const above = this.secondSlotUsed(layout) || this.lastRunShown(this.view) ? layout.action2 : action;
       const y = above.y + above.height + 4;
       return { x: sub.x, y, width: sub.width, height: Math.max(0, sub.y + sub.height - y) };
     }
     // Column: left of Play (and of the second choice, while a picked agenda shows two).
-    const right = this.pickedInstalled !== null || this.lastRunShown(this.view) ? layout.action2.x : action.x;
+    const right = this.secondSlotUsed(layout) || this.lastRunShown(this.view) ? layout.action2.x : action.x;
     return { x: sub.x, y: sub.y, width: Math.max(0, right - 6 - sub.x), height: sub.height };
+  }
+
+  /** A picked thing's button sits in the second choice slot (Score beside Advance, a second ability). */
+  private secondSlotUsed(layout: BoardLayout): boolean {
+    if (this.pickedInstalled === null) return false;
+    const b = layout.action2;
+    return this.activeTargets.some((t) => t.marker.root.visible && Math.abs(t.marker.box.x - b.x) < 0.5 && Math.abs(t.marker.box.y - b.y) < 0.5);
   }
 
   // ---- view -> widgets ----------------------------------------------------
@@ -1604,22 +1662,20 @@ export class Board {
       w.label.scale.set(Math.min(1, row.width / Math.max(1, w.handText.x + w.handText.width)));
       // The client shows the engine's numbers; it never adds run-only credits to the Runner's credits.
       const note = s === 'corp' ? (view.badPublicity > 0 ? badPublicityText(view.badPublicity) : null) : runnerNote(view);
-      const tagged = s === 'runner' && (p.tags ?? 0) > 0;
-      w.tag.set(layout[w.pos].tag, note, layout.mode === 'landscape' && w.pos === 'bottom' ? 'center' : 'right', tagged);
-      // Sprint 9: the Runner's own red note takes taps (a 44 px tall area reaching up from it, clear of the credits pill).
-      const tappable = tagged && w.pos === 'bottom';
-      w.tag.root.eventMode = tappable ? 'static' : 'none';
-      if (tappable) {
-        const hit = this.tagHit(w.tag.box);
-        w.tag.root.hitArea = new Rectangle(hit.x - (w.tag.box.x + w.tag.box.width / 2), hit.y - (w.tag.box.y + w.tag.box.height / 2), hit.width, hit.height);
-        w.tag.root.cursor = 'pointer';
-      }
+      w.tag.set(layout[w.pos].tag, note, layout.mode === 'landscape' && w.pos === 'bottom' ? 'center' : 'right');
       const mine = s === viewer;
       gen.decks[s].setActionable(mine && view.legalActions.some((a) => a.type === 'draw'));
       w.credits.setActionable(mine && view.legalActions.some((a) => a.type === 'gain_credit'));
     }
     gen.hq.setCount(view.players.corp.handCount);
     gen.memory.set(view.memory.used, view.memory.limit);
+    this.applyStats(gen, layout, view);
+    for (const s of SIDES) {
+      const pile = gen.scoredPiles[s];
+      pile.set(view.players[s].scored, view.players[s].points);
+      // An empty pile is a faint outline that takes no taps.
+      pile.root.eventMode = view.players[s].scored.length > 0 ? 'static' : 'none';
+    }
 
     const banner = gen.banner;
     banner.visible = !view.result;
@@ -1660,6 +1716,15 @@ export class Board {
     } else if (this.pickedInstalled !== null) {
       // Sprint 9: the tag marker / score pill picked: "Tap it again".
       helpText = this.pickedInstalled === TAGS_PICK || isScoredUid(this.pickedInstalled) ? 'Tap a lit button.\nTap it again to cancel.' : 'Tap a lit button.\nTap the card again to cancel.';
+      // S-10-1: an unscored agenda with a scored ability (Private Security Force) says, dimmed
+      // beside its Advance / Score, that the ability needs it scored first (words from card data).
+      const first = this.scoreFirstText(view, this.pickedInstalled);
+      if (first) {
+        // QA-S10-2: a short rail keeps just these words, at a readable size.
+        const room = this.helpBox(layout).height;
+        const line = Number(help.style.lineHeight) || 14;
+        helpText = room < 3 * line + 4 ? first : `${first}\n${helpText}`;
+      }
     } else if (pending > 0) {
       const k = pending - this.marked.size;
       main.text = k > 0 ? `Discard ${k}` : 'Tap Confirm';
@@ -1689,8 +1754,6 @@ export class Board {
     help.position.set(hb.x + hb.width / 2, hb.y);
     fitText(help, hb.width, hb.height);
     this.syncHelp();
-    // QA-S8-3: a toast shown before a run started (or ended) moves to the slot for now.
-    if (this.hint && this.hint.slot !== JSON.stringify(this.hintSlot(layout, this.hint.wide))) this.showHint(this.hint.text, this.hint.kind, this.hint.wide);
 
     const button = gen.button;
     if (view.result) {
@@ -1751,9 +1814,18 @@ export class Board {
     const picked = this.pickedInstalled !== null ? gen.installed.get(this.pickedInstalled) : undefined;
     // Sprint 9: a picked tag marker or score pill is outlined the same way.
     const pickedBox =
-      picked?.box ?? (this.pickedInstalled === TAGS_PICK ? this.seatOf('runner')?.tag.box : this.pickedInstalled && isScoredUid(this.pickedInstalled) ? gen.scores[viewer].box : undefined);
+      picked?.box ?? (this.pickedInstalled === TAGS_PICK ? gen.tagged.box : this.pickedInstalled && isScoredUid(this.pickedInstalled) ? gen.scoredPiles[viewer].box() : undefined);
     if (pickedBox) glowRoundRect(pm, pickedBox.x - 3, pickedBox.y - 3, pickedBox.width + 6, pickedBox.height + 6, 5, theme.credit, 3, 1.4);
+    // QA-S8-3: a toast shown before a run started (or ended) moves to the slot for now.
+    // S-10-6: checked once every button is in place, so a toast never covers one.
+    if (this.hint && this.hint.slot !== JSON.stringify(this.hintSlot(layout, this.hint.wide))) this.showHint(this.hint.text, this.hint.kind, this.hint.wide);
     return newStep;
+  }
+
+  /** S-10-5: Archives shows the view's pile again (a trashed card has landed on it). */
+  private syncArchives(): void {
+    const v = this.view;
+    if (v) this.gen?.discards.corp.set(v.players.corp.discardCount, v.players.corp.discard);
   }
 
   /** "+3" / "-5" floating up from the viewer's credits. */
@@ -2003,8 +2075,12 @@ export class Board {
         const from = before.get(`uid:${e.uid}`);
         const pile = gen.discards.corp;
         this.callbacks.log({ kind: 'corp_trash_flight', scheduledMs: timing.runFlight, box: pile.box() });
-        if (from) this.flyCard(e.cardId, 'corp', from, pile.box(), 0, () => pile.pop(this.ui));
-        else pile.pop(this.ui);
+        const land = () => {
+          this.syncArchives();
+          pile.pop(this.ui);
+        };
+        if (from) this.flyCard(e.cardId, 'corp', from, pile.box(), 0, land);
+        else land();
         return;
       }
       case 'clicks_gained': {
@@ -2020,8 +2096,9 @@ export class Board {
       }
       case 'tags_changed': {
         // Sprint 9 (S-09-2): the red "Tagged N" note pops, "+1 tag" / "-1 tag" floats from it.
-        const tag = this.seatOf('runner')?.tag;
-        const b = tag?.text ? tag.box : this.seatOf('runner')?.credits.box();
+        // Sprint 10: it lives in the stats column (its slot is kept while untagged).
+        const tag = this.gen?.tagged;
+        const b = tag?.text ? tag.box : this.layout?.rig.tagged;
         const text = `${e.amount > 0 ? '+' : '−'}${plural(Math.abs(e.amount), TERMS.tag.toLowerCase(), `${TERMS.tag.toLowerCase()}s`)}`;
         this.callbacks.log({ kind: 'tags_changed', text, scheduledMs: timing.tagPop, ...(b ? { box: { ...b } } : {}) });
         if (tag?.text) tag.pop(this.fx, timing.tagPop);
@@ -2062,24 +2139,39 @@ export class Board {
       }
       case 'agenda_stolen': {
         const from = before.get(`access:${e.cardId}`) ?? layout.access;
+        // S-10-1: it lands on the Runner's scored pile; the score label pops too.
         const pill = gen.scores.runner;
-        this.callbacks.log({ kind: 'score_flight', scheduledMs: timing.runFlight, box: { ...pill.box } });
-        this.flyCard(e.cardId, 'corp', from, pill.box, 0, () => pill.pop(this.ui));
+        const pile = gen.scoredPiles.runner;
+        this.callbacks.log({ kind: 'score_flight', scheduledMs: timing.runFlight, box: pile.box() });
+        this.flyCard(e.cardId, 'corp', from, pile.box(), 0, () => {
+          pile.pop(this.ui);
+          pill.pop(this.ui);
+        });
         return;
       }
       case 'agenda_scored': {
         const from = before.get(`uid:${e.uid}`);
         const pill = gen.scores.corp;
-        this.callbacks.log({ kind: 'score_flight', scheduledMs: timing.runFlight, box: { ...pill.box } });
-        if (from) this.flyCard(e.cardId, 'corp', from, pill.box, 0, () => pill.pop(this.ui));
-        else pill.pop(this.ui);
+        const pile = gen.scoredPiles.corp;
+        this.callbacks.log({ kind: 'score_flight', scheduledMs: timing.runFlight, box: pile.box() });
+        const land = () => {
+          pile.pop(this.ui);
+          pill.pop(this.ui);
+        };
+        if (from) this.flyCard(e.cardId, 'corp', from, pile.box(), 0, land);
+        else land();
         return;
       }
       case 'card_trashed': {
         const from = before.get(`access:${e.cardId}`) ?? (e.uid ? before.get(`uid:${e.uid}`) : undefined);
         const pile = gen.discards.corp;
         this.callbacks.log({ kind: 'trash_flight', scheduledMs: timing.runFlight, box: pile.box() });
-        if (from) this.flyCard(e.cardId, 'corp', from, pile.box(), 0, () => pile.pop(this.ui));
+        const land = () => {
+          this.syncArchives();
+          pile.pop(this.ui);
+        };
+        if (from) this.flyCard(e.cardId, 'corp', from, pile.box(), 0, land);
+        else this.syncArchives();
         return;
       }
       case 'card_advanced': {
@@ -2209,18 +2301,9 @@ export class Board {
       this.fx.finishAll();
       return;
     }
-    const hand = this.hands[view.viewer];
     if (view.pendingDiscard > 0) {
-      const pending = view.pendingDiscard;
-      if (this.marked.has(index)) this.marked.delete(index);
-      else if (this.marked.size < pending) this.marked.add(index);
-      else {
-        this.showHint('Enough picked. Tap one to undo.');
-        return;
-      }
-      hand.setMarked(this.marked);
-      this.applyView(view, true);
-      this.callbacks.changed();
+      // S-10-5: the discard step opens the hand big, like everywhere else; a tap there marks.
+      this.openHandView(index, undefined, true);
       return;
     }
     if (this.selected === index) {
@@ -2230,14 +2313,73 @@ export class Board {
     this.openHandView(index);
   }
 
-  /** A hold on the hand strip: the discard picker zooms the card (slide to read on); otherwise the hand view opens on it. */
-  private onStripHold(side: Side, cardId: string, from: Box, index: number): void {
-    if (this.view?.pendingDiscard) {
-      this.openZoom(cardId, side, from, { hand: { ids: this.hands[side].ids, index } });
+  /** A hold on the hand strip: the hand view opens on it (S-10-5: in the discard step too, in its discard mode). */
+  private onStripHold(_side: Side, _cardId: string, from: Box, index: number): void {
+    if (this.flipPending) return;
+    this.openHandView(index, from, (this.view?.pendingDiscard ?? 0) > 0);
+  }
+
+  /**
+   * S-10-5: the discard step's view: a tap on the big card marks it to throw away (or unmarks
+   * it). No more than the engine's count can be marked.
+   */
+  private toggleDiscardMark(index: number): void {
+    const view = this.view;
+    if (!view) return;
+    const pending = view.pendingDiscard;
+    if (this.marked.has(index)) this.marked.delete(index);
+    else if (this.marked.size < pending) this.marked.add(index);
+    else {
+      this.showHint('Enough picked. Tap one to undo.');
       return;
     }
-    if (this.flipPending) return;
-    this.openHandView(index, from);
+    this.hands[view.viewer].setMarked(this.marked);
+    this.applyView(view, true);
+    this.syncDiscardView();
+    const stamp = this.zoom?.stamp;
+    if (stamp?.visible) {
+      this.ui.cancel(stamp.scale);
+      stamp.scale.set(1.25);
+      this.ui.add({ target: stamp.scale, to: { x: 1, y: 1 }, duration: 160, ease: ease.outBack, owner: stamp });
+    }
+    this.callbacks.log({ kind: 'discard_mark', text: String(index), scheduledMs: 160 });
+    this.callbacks.changed();
+  }
+
+  /** S-10-5: where the discard view's Confirm sits: End turn's place in the rail, bottom right in the column. */
+  private discardConfirmBox(layout: BoardLayout): Box {
+    if (layout.mode === 'landscape') return { ...layout.endTurn };
+    const w = layout.endTurn.width;
+    const h = layout.endTurn.height;
+    const pad = layout.pad;
+    return { x: layout.safe.x + layout.safe.width - pad - w, y: layout.safe.y + layout.safe.height - pad - h, width: w, height: h };
+  }
+
+  /** S-10-5: the stamp over the big card (marked or not) and the view's Confirm ("Discard 2", lit only at the engine's count). */
+  private syncDiscardView(): void {
+    const zoom = this.zoom;
+    const view = this.view;
+    const layout = this.layout;
+    if (!zoom || zoom.mode !== 'discard' || !view || !layout) return;
+    if (zoom.stamp) zoom.stamp.visible = this.marked.has(zoom.index);
+    const pending = view.pendingDiscard;
+    zoom.confirm?.set(this.discardConfirmBox(layout), `Discard ${pending}`, this.marked.size === pending && pending > 0, theme.warn, this.marked.size === pending && pending > 0);
+  }
+
+  /** S-10-5: a red "DISCARD" stamp, turned a little, across the middle of a w x h card. */
+  private discardStamp(w: number, h: number): Container {
+    const c = new Container();
+    c.label = 'discard-stamp';
+    const t = new Text({ text: 'DISCARD', style: { fontFamily: theme.monoFamily, fontSize: Math.round(w * 0.16), fontWeight: '800', fill: theme.tagged, letterSpacing: 2 } });
+    t.anchor.set(0.5);
+    const bw = t.width + w * 0.08;
+    const bh = t.height + h * 0.03;
+    const g = new Graphics();
+    g.roundRect(-bw / 2, -bh / 2, bw, bh, 6).fill({ color: 0x000000, alpha: 0.7 }).stroke({ width: Math.max(3, w * 0.015), color: theme.tagged });
+    c.addChild(g, t);
+    c.rotation = -0.2;
+    c.visible = false;
+    return c;
   }
 
   /**
@@ -2499,11 +2641,23 @@ export class Board {
     return parts.join(' · ');
   }
 
-  /** Sprint 9: where the Runner's tag note takes taps: 44 px tall, reaching up from the note (never over his credits). */
-  private tagHit(b: Box): Box {
-    const h = Math.max(44, b.height);
-    const w = Math.max(44, b.width);
-    return { x: b.x + b.width / 2 - w / 2, y: b.y + b.height - h, width: w, height: h };
+  /**
+   * Sprint 10 (S-10-2): "Link 1" and "Tagged 1" under Memory (numbers from the view). The
+   * Runner's own Tagged takes taps on the whole stats column (>= 44 px; Memory and Link take none).
+   */
+  private applyStats(gen: Generation, layout: BoardLayout, view: PlayerView): void {
+    const runner = view.players.runner;
+    gen.link.set(layout.rig.link, identityOf(view, 'runner') ? linkText(runner.link) : null);
+    const tags = runner.tags ?? 0;
+    gen.tagged.set(layout.rig.tagged, tags > 0 ? taggedText(tags) : null);
+    const tappable = tags > 0 && view.viewer === 'runner';
+    gen.tagged.root.eventMode = tappable ? 'static' : 'none';
+    if (tappable) {
+      const st = layout.rig.stats;
+      const t = gen.tagged.box;
+      gen.tagged.root.hitArea = new Rectangle(st.x - (t.x + t.width / 2), st.y - (t.y + t.height / 2), st.width, st.height);
+      gen.tagged.root.cursor = 'pointer';
+    }
   }
 
   /** Sprint 9 (S-09-2): the Runner taps his "Tagged 1" note: Remove 1 tag shows where Play goes (dim with the reason). */
@@ -2534,6 +2688,24 @@ export class Board {
     this.callbacks.changed();
   }
 
+  /**
+   * S-10-1: "Do 1 meat damage: score it first" for the viewer's own installed, unscored agenda
+   * whose card has scored abilities (card data, not an engine option); null otherwise.
+   */
+  private scoreFirstText(view: PlayerView, uid: string): string | null {
+    if (view.viewer !== 'corp' || isScoredUid(uid) || uid === TAGS_PICK) return null;
+    const installed = view.corpServers.some((srv) => srv.content.some((c) => c.uid === uid));
+    const id = installed ? this.installedCardId(uid) : null;
+    const def = id ? getCard(id) : undefined;
+    const label = def?.type === 'agenda' ? def.scoredAbilities?.[0]?.label : undefined;
+    return label ? `${label.replace(/\s*\{gain\}\s*/g, ' ').trim()}: score it first` : null;
+  }
+
+  /** Sprint 10 (S-10-1): a tap on a scored pile. */
+  private onScoredPileTap(side: Side): void {
+    this.openPileView(side);
+  }
+
   /** Sprint 9 (S-09-3): a tap on the viewer's own score pill shows its scored agenda's ability (Private Security Force). */
   private onScoreTap(side: Side): void {
     const view = this.view;
@@ -2548,6 +2720,11 @@ export class Board {
       this.cancelSelection();
       return;
     }
+    this.pickScored(view, key);
+  }
+
+  /** Sprint 9 / S-10-1: shows a scored agenda's buttons (`score:corp:<i>`), from the score pill or the pile. */
+  private pickScored(view: PlayerView, key: string): void {
     if (this.pickedInstalled === key) {
       this.cancelSelection();
       return;
@@ -2812,6 +2989,8 @@ export class Board {
     this.centerLayer.addChild(root);
     const button = { x: root.x - btnW / 2, y: root.y + btn.y - btnH / 2, width: btnW, height: btnH };
     this.gameOver = { text: `${lines.title}: ${lines.reason}`, title: lines.title, reason: lines.reason, root, button };
+    // QA-S9-5: the build date is never drawn inside the game-over box.
+    this.syncHelp();
     if (animate) {
       root.scale.set(0.6);
       root.alpha = 0;
@@ -2848,6 +3027,8 @@ export class Board {
    * `wide` (QA-S9-1): a long notice (a trace's result) gets a wide bubble over the table instead of the rail's slot.
    */
   private showHint(text: string, kind: 'hint' | 'notice' = 'hint', wide = false): void {
+    // S-10-6: the same line several times (PAD Campaign at a turn's start) shows once, "×4".
+    text = collapseRepeats(text);
     if (this.hint) {
       this.ui.cancel(this.hint.root);
       this.hint.root.destroy({ children: true });
@@ -2856,37 +3037,53 @@ export class Board {
     const layout = this.layout;
     if (!layout) return;
     const s = Math.min(layout.scale, 1.2);
-    const area = this.hintSlot(layout, wide);
+    const primary = this.hintSlot(layout, wide);
     const root = new Container();
     const padX = Math.max(6, Math.round(8 * s));
     const padY = Math.max(5, Math.round(6 * s));
     // Room for the glow ring around the bubble.
     const ring = 3;
+    const fontSize = Math.max(12, Math.round(15 * s));
     const label = new Text({
       text,
-      style: {
-        fontFamily: theme.fontFamily,
-        fontSize: Math.max(12, Math.round(15 * s)),
-        fontWeight: '700',
-        fill: 0x140a00,
-        align: 'center',
-        wordWrap: true,
-        wordWrapWidth: Math.max(60, area.width - 2 * padX - 2 * ring),
-        lineHeight: Math.max(14, Math.round(17 * s)),
-      },
+      style: { fontFamily: theme.fontFamily, fontSize, fontWeight: '700', fill: 0x140a00, align: 'center', wordWrap: true, wordWrapWidth: 60, lineHeight: Math.max(14, Math.round(17 * s)) },
     });
     label.anchor.set(0.5);
-    const w = label.width + 2 * padX;
-    const h = Math.max(32, label.height + 2 * padY);
+    // The slot is sized so hints wrap at full size; shrink only if one ever does not fit, and
+    // never below HINT_MIN_PX: a slot too small for that (buttons took the room) gives way to
+    // the room over the table, clear of every button.
+    // Wrapped at the slot's width scaled back up by `k`, then drawn at `k`: a narrow slot
+    // gets fewer, smaller lines rather than many lines that would not fit its height.
+    const minK = HINT_MIN_PX / fontSize;
+    const at = (a: Box, k: number) => {
+      label.style.wordWrapWidth = Math.max(60, (a.width - 2 * ring) / k - 2 * padX);
+      const w = label.width + 2 * padX;
+      const h = Math.max(32, label.height + 2 * padY);
+      return { a, w, h, fit: Math.min(1, (a.width - 2 * ring) / w, (a.height - 2 * ring) / h) };
+    };
+    /** The largest size (down to 10 px text) at which the toast fits `a`; `ok` false if none does. */
+    const measure = (a: Box) => {
+      for (let k = 1; k >= minK - 1e-9; k -= 0.05) {
+        const m = at(a, Math.max(k, minK));
+        if (m.fit >= Math.max(k, minK) - 1e-6) return { ...m, fit: Math.min(m.fit, 1), ok: true };
+      }
+      return { ...at(a, minK), ok: false };
+    };
+    let m = measure(primary);
+    if (!m.ok) {
+      const table = measure(this.tableHintSlot(layout));
+      m = table.ok || table.fit > m.fit ? table : measure(primary);
+    }
+    const fit = Math.max(m.fit, minK);
+    const { a: area, w, h } = m;
     const g = new Graphics();
     const tone = kind === 'notice' ? theme.runner : theme.warn;
     g.roundRect(-w / 2, -h / 2, w, h, Math.min(h / 2, 18)).fill({ color: tone });
     g.roundRect(-w / 2 - ring, -h / 2 - ring, w + 2 * ring, h + 2 * ring, Math.min(h / 2, 18) + ring).stroke({ width: 3, color: tone, alpha: 0.35 });
     root.addChild(g, label);
-    // The slot is sized so hints wrap at full size; shrink only if one ever does not fit.
-    const fit = Math.min(1, (area.width - 2 * ring) / w, (area.height - 2 * ring) / h);
     root.scale.set(fit);
-    const hint = { text, root, box: { x: 0, y: 0, width: w * fit, height: h * fit }, kind, slot: JSON.stringify(area), wide };
+    // `slot` is the usual slot (re-checked as buttons come and go); `area` is where it went.
+    const hint = { text, root, box: { x: 0, y: 0, width: w * fit, height: h * fit }, kind, slot: JSON.stringify(primary), wide, area };
     this.positionHint(hint);
     root.alpha = 0;
     this.hintLayer.addChild(root);
@@ -2926,8 +3123,12 @@ export class Board {
     // In the column the build date shares the hint's slot: hide it while a hint shows.
     // Sideways during a run, the run panel uses the build date's line (QA-S8-2).
     // Short sideways screens hide it (zero-height line) so a picked card's two buttons fit.
+    // QA-S9-5: hidden while the game-over box is up.
     this.buildText.visible =
-      !(this.hint && this.layout?.mode === 'portrait') && !(this.layout?.mode === 'landscape' && panelUp(this.view)) && (this.layout?.buildLabel.height ?? 1) > 0;
+      !this.gameOver &&
+      !(this.hint && this.layout?.mode === 'portrait') &&
+      !(this.layout?.mode === 'landscape' && panelUp(this.view)) &&
+      (this.layout?.buildLabel.height ?? 1) > 0;
   }
 
   /** Where the build date's text is drawn (CSS px). */
@@ -2940,7 +3141,7 @@ export class Board {
   private placeBuildLabel(layout: BoardLayout): void {
     const t = this.buildText;
     // QA-S8-2: sideways, the run panel uses the build date's line while a run is on.
-    t.visible = !(layout.mode === 'landscape' && panelUp(this.view)) && layout.buildLabel.height > 0;
+    t.visible = !this.gameOver && !(layout.mode === 'landscape' && panelUp(this.view)) && layout.buildLabel.height > 0;
     if (layout.buildLabel.height <= 0) return;
     const when = this.callbacks.buildTime;
     const rail = layout.mode === 'landscape';
@@ -2959,9 +3160,71 @@ export class Board {
   }
 
   /** Where the toast goes: the hint slot, or (sideways, during a run) End turn's slot, clear of the run panel. */
-  private hintSlot(layout: BoardLayout, wide = false): Box {
-    const slot = this.baseHintSlot(layout, wide);
+  /** S-10-6: the room over the table (the wide trace note's), clear of every button and of the game-over box. */
+  private tableHintSlot(layout: BoardLayout): Box {
+    // QA-S10-1: only where nothing is drawn (no card, label, pile, counter, button or panel):
+    // the biggest truly free part of the board.
+    const free = freeRect(layout.board, this.drawnBoxes(layout), 80, 24, Math.max(3, Math.round(4 * layout.scale)));
+    const slot = free ?? { x: layout.board.x, y: layout.board.y, width: 0, height: 0 };
     return this.gameOver ? this.clearOfGameOver(layout, slot) : slot;
+  }
+
+  /** QA-S10-1: everything drawn on the board now that a toast must not cover. */
+  private drawnBoxes(layout: BoardLayout): Box[] {
+    const gen = this.gen;
+    const view = this.view;
+    if (!gen || !view) return [];
+    const out: Box[] = [...this.buttonBoxes()];
+    for (const pos of ['top', 'bottom'] as const) {
+      const r = layout[pos];
+      out.push(r.label, r.deck, r.discard);
+      if (r.identity) out.push(r.identity);
+    }
+    for (const seat of gen.seats.values()) if (seat.root.visible && seat.tag.text) out.push({ ...seat.tag.box });
+    out.push(layout.scores.corp, layout.scores.runner, layout.corp.scored, layout.rig.scored, layout.rig.stats, layout.rig.stack, layout.rig.heap);
+    for (const srv of layout.corp.servers) {
+      out.push(srv.label);
+      if (srv.root) out.push(srv.root);
+    }
+    for (const c of gen.installed.values()) out.push({ ...c.box });
+    const hand = this.hands[view.viewer];
+    if (hand.container.visible) for (const h of hand.boxes()) out.push(h.box);
+    if (panelUp(view)) out.push(layout.runInfo, layout.runButtons);
+    if (gen.run.snapshot?.access) out.push(layout.access);
+    if (this.report) out.push({ ...this.report.box });
+    if (this.lastRunStrip) out.push({ ...this.lastRunStrip.box });
+    if (this.gameOver) out.push(layout.gameOver);
+    return out;
+  }
+
+  private hintSlot(layout: BoardLayout, wide = false): Box {
+    let slot = this.baseHintSlot(layout, wide);
+    // S-10-6 (QA-S9-4): a toast never covers a button (End turn, Last run, a lit choice included).
+    const gap = Math.max(4, Math.round(6 * layout.scale));
+    const buttons = this.buttonBoxes();
+    slot = clearOf(slot, buttons, gap);
+    // Too little room left (a short screen with two buttons in the rail): over the table instead.
+    if (!wide && (slot.width < 80 || slot.height < 32)) {
+      const table = clearOf(this.baseHintSlot(layout, true), buttons, gap);
+      if (table.width * table.height > slot.width * slot.height) slot = table;
+    }
+    return this.gameOver ? this.clearOfGameOver(layout, slot) : slot;
+  }
+
+  /** S-10-6: every button and pill on screen now (End turn, Run, Last run, lit choices, credits / clicks). */
+  private buttonBoxes(): Box[] {
+    const gen = this.gen;
+    const layout = this.layout;
+    if (!gen || !layout) return [];
+    // Resting places (layout boxes), not drawn ones: a button popping (scaled up for a moment)
+    // must not move the toast.
+    const out: Box[] = [];
+    if (gen.button.root.visible) out.push({ ...layout.endTurn });
+    if (gen.runButton.root.visible) out.push({ ...gen.runButton.box });
+    if (gen.lastRunButton.root.visible) out.push({ ...gen.lastRunButton.box });
+    for (const t of this.activeTargets) if (t.marker.root.visible) out.push({ ...t.marker.box });
+    for (const pos of ['top', 'bottom'] as const) out.push({ ...layout[pos].credits }, { ...layout[pos].clicks });
+    return out;
   }
 
   private baseHintSlot(layout: BoardLayout, wide: boolean): Box {
@@ -2999,11 +3262,13 @@ export class Board {
     return { x: g.x, y: g.y - gap - ha, width: g.width, height: ha };
   }
 
-  private positionHint(hint: { root: Container; box: Box; wide?: boolean }): void {
+  private positionHint(hint: { root: Container; box: Box; wide?: boolean; area?: Box }): void {
     const layout = this.layout;
     if (!layout) return;
-    const a = this.hintSlot(layout, hint.wide ?? false);
-    const run = this.runNoticeSlot(layout, this.view) !== null || (!!hint.wide && JSON.stringify(a) !== JSON.stringify(this.hintSlot(layout)));
+    const usual = this.hintSlot(layout, hint.wide ?? false);
+    const a = hint.area ?? usual;
+    // Over the table (a wide note, or a toast that moved there for room): centred in its slot.
+    const run = this.runNoticeSlot(layout, this.view) !== null || JSON.stringify(a) !== JSON.stringify(this.hintSlot(layout));
     const cx = a.x + a.width / 2;
     // Sideways the slot is tall (the help text's room): sit at its bottom, by the viewer's name.
     const cy = layout.mode === 'landscape' && !run ? a.y + a.height - 3 - hint.box.height / 2 : a.y + a.height / 2;
@@ -3017,7 +3282,13 @@ export class Board {
     cardId: string | null,
     side: Side,
     from: Box,
-    opts: { hand?: { ids: string[]; index: number }; list?: { ids: string[]; index: number; startX: number }; view?: boolean } = {},
+    opts: {
+      hand?: { ids: string[]; index: number };
+      list?: { ids: string[]; index: number; startX: number };
+      view?: boolean;
+      pile?: { side: Side; ids: string[]; index: number };
+      discard?: boolean;
+    } = {},
   ): void {
     const layout = this.layout;
     if (!layout) return;
@@ -3029,11 +3300,12 @@ export class Board {
     const { width: vw, height: vh } = layout.viewport;
     const z = layout.zoom;
     const root = new Container();
-    const view = opts.view === true && !!opts.hand;
+    const view = opts.view === true && (!!opts.hand || !!opts.pile);
+    const mode: 'hand' | 'pile' | 'discard' = opts.pile ? 'pile' : opts.discard ? 'discard' : 'hand';
     // A held zoom takes no taps (the finger that holds it is already down). The hand view takes every tap while open.
     root.eventMode = view ? 'static' : 'none';
     if (view) {
-      root.label = 'hand-view';
+      root.label = mode === 'pile' ? 'pile-view' : 'hand-view';
       root.hitArea = new Rectangle(0, 0, vw, vh);
       root.on('pointerdown', (e) => this.onViewDown(e));
       root.on('globalpointermove', (e) => this.onViewMove(e));
@@ -3069,7 +3341,7 @@ export class Board {
     card.position.set(from.x + from.width / 2, from.y + from.height / 2);
     card.scale.set(Math.min(from.width, from.height) / z.width);
     root.addChild(dim);
-    const browse = opts.hand ?? opts.list ?? null;
+    const browse = opts.hand ?? opts.list ?? opts.pile ?? null;
     let carousel: Carousel | null = null;
     if (browse && browse.ids.length > 1) {
       carousel = new Carousel(cx, cy, z.width, z.height, this.ui, (id) => this.carouselFace(id));
@@ -3085,10 +3357,21 @@ export class Board {
       root.addChild(frame);
     }
     root.addChild(card);
+    // S-10-5: the discard step's view: a stamp over a marked card, and its own Confirm.
+    let stamp: Container | null = null;
+    let confirm: PanelButton | null = null;
+    if (view && mode === 'discard') {
+      stamp = this.discardStamp(z.width, z.height);
+      stamp.position.set(cx, cy);
+      confirm = new PanelButton(layout.scale, 'button:discard-confirm');
+      root.addChild(stamp, confirm.root);
+    }
     root.alpha = 0;
     this.zoomLayer.addChild(root);
     const list = opts.list ? { ids: opts.list.ids, start: opts.list.index, startX: opts.list.startX, step: Math.max(28, Math.round(z.width * 0.18)) } : null;
-    this.zoom = { cardId: def ? cardId : null, root, card, width: z.width, height: z.height, texts, overflow, frame, carousel, index: browse?.index ?? 0, list, view };
+    const pile = opts.pile ? { side: opts.pile.side, ids: opts.pile.ids } : null;
+    this.zoom = { cardId: def ? cardId : null, root, card, width: z.width, height: z.height, texts, overflow, frame, carousel, index: browse?.index ?? 0, list, view, mode, pile, stamp, confirm };
+    this.syncDiscardView();
     this.ui.add({ target: root, to: { alpha: 1 }, duration: timing.zoomIn, owner: root });
     this.ui.add({ target: card, to: { x: cx, y: cy }, duration: timing.zoomIn, ease: ease.outCubic, owner: card });
     this.ui.add({ target: card.scale, to: { x: 1, y: 1 }, duration: timing.zoomIn, ease: ease.outBack, owner: card });
@@ -3143,6 +3426,7 @@ export class Board {
       zoom.carousel.show(zoom.carousel.cardIds, index, prev, slide);
       this.callbacks.log({ kind: 'carousel_slide', text: cardId, scheduledMs: slide ? CAROUSEL_SLIDE_MS : 0 });
     }
+    this.syncDiscardView();
     this.callbacks.changed();
     this.callbacks.log({ kind: 'zoom_swap', text: cardId, scheduledMs: 0, inputAt, predrawn });
   }
@@ -3206,7 +3490,7 @@ export class Board {
   // ---- S-07-6 hand view: tap to open, long-press to lift, drag to play ------
 
   /** Opens the hand view on hand card `index` (`from`: where it grows from; default its strip slot). */
-  private openHandView(index: number, from?: Box): void {
+  private openHandView(index: number, from?: Box, discard = false): void {
     const view = this.view;
     if (!view || panelUp(view)) return;
     const hand = this.hands[view.viewer];
@@ -3216,7 +3500,7 @@ export class Board {
     const box = from ?? hand.boxes()[index]?.box;
     if (!box) return;
     if (!this.predraw) this.startPredraw(ids, index);
-    this.openZoom(cardId, view.viewer, box, { hand: { ids, index }, view: true });
+    this.openZoom(cardId, view.viewer, box, { hand: { ids, index }, view: true, discard });
     this.callbacks.log({ kind: 'hand_open', text: cardId, scheduledMs: timing.zoomIn });
     this.callbacks.changed();
   }
@@ -3234,7 +3518,7 @@ export class Board {
     if (!centre || !view) return;
     const x = e.global.x;
     const y = e.global.y;
-    const strip = this.hands[view.viewer].boxes().map((h) => h.box);
+    const strip = zoom.mode === 'pile' ? [] : this.hands[view.viewer].boxes().map((h) => h.box);
     const hit = viewHit(x, y, centre, zoom.carousel?.snapshot() ?? [], strip);
     const native: unknown = e.nativeEvent;
     const now = performance.now();
@@ -3243,7 +3527,7 @@ export class Board {
     const press = { id: e.pointerId, x, y, lastX: x, lastY: y, at, hit, start: zoom.index, swiped: false, timer: null as ReturnType<typeof setTimeout> | null };
     // Long-press the big card to lift it (judged by when the finger went down). A timer that runs
     // late (the page stalled) waits one frame, so a release queued meanwhile is handled first (QA-S3-7).
-    if (hit.kind === 'centre') {
+    if (hit.kind === 'centre' && zoom.mode === 'hand') {
       press.timer = setTimeout(() => {
         press.timer = null;
         if (this.viewPress !== press) return;
@@ -3277,13 +3561,12 @@ export class Board {
     }
     if (!p.swiped) return;
     // Swipe: the cards follow the finger sideways, one card per step.
-    const hand = this.hands[view.viewer];
-    const ids = hand.ids;
+    const ids = this.viewIds();
     const i = swipeIndex(p.start, x - p.x, Math.max(40, Math.round(zoom.width * 0.32)), ids.length);
     const id = ids[i];
     if (id === undefined || i === zoom.index) return;
     const native: unknown = e.nativeEvent;
-    this.swapZoom(id, hand.boxes()[i]?.box ?? null, native instanceof Event ? native.timeStamp : performance.now(), i);
+    this.swapZoom(id, this.viewStripBox(i), native instanceof Event ? native.timeStamp : performance.now(), i);
   }
 
   private onViewUp(e: FederatedPointerEvent, cancelled: boolean): void {
@@ -3316,7 +3599,21 @@ export class Board {
     const zoom = this.zoom;
     const view = this.view;
     if (!zoom?.view || !view) return;
+    // S-10-5: the discard view's Confirm (pressed and let go on it).
+    const cb = zoom.confirm?.box;
+    if (cb && inBox(cb, p.x, p.y) && inBox(cb, e.global.x, e.global.y)) {
+      this.onDiscardConfirm();
+      return;
+    }
     if (p.hit.kind === 'centre') {
+      if (zoom.mode === 'discard') {
+        this.toggleDiscardMark(zoom.index);
+        return;
+      }
+      if (zoom.mode === 'pile') {
+        this.onPileCentreTap();
+        return;
+      }
       // Today's pick: the view closes, the card is outlined and its places light up.
       const index = zoom.index;
       this.closeZoom();
@@ -3325,12 +3622,73 @@ export class Board {
       return;
     }
     if (p.hit.kind === 'card') {
-      const id = this.hands[view.viewer].ids[p.hit.index];
-      if (id !== undefined && p.hit.index !== zoom.index) this.swapZoom(id, this.hands[view.viewer].boxes()[p.hit.index]?.box ?? null, upAt, p.hit.index);
+      const id = this.viewIds()[p.hit.index];
+      if (id !== undefined && p.hit.index !== zoom.index) this.swapZoom(id, this.viewStripBox(p.hit.index), upAt, p.hit.index);
       return;
     }
     // Outside the cards: the view closes (the tap does nothing else).
     this.closeZoom();
+    this.callbacks.changed();
+  }
+
+  /** The cards an open view browses (Sprint 10: a scored pile's, or the hand's). */
+  private viewIds(): readonly string[] {
+    const zoom = this.zoom;
+    const view = this.view;
+    if (zoom?.pile) return zoom.pile.ids;
+    return view ? this.hands[view.viewer].ids : [];
+  }
+
+  /** The hand-strip slot of card `i` (the frame follows it); none for a pile view. */
+  private viewStripBox(i: number): Box | null {
+    const view = this.view;
+    if (!view || this.zoom?.pile) return null;
+    return this.hands[view.viewer].boxes()[i]?.box ?? null;
+  }
+
+  /** S-10-5: Confirm in the discard view: the marked cards go (the engine's count), else says how many more. */
+  private onDiscardConfirm(): void {
+    const view = this.view;
+    if (!view) return;
+    const k = view.pendingDiscard - this.marked.size;
+    if (k > 0) {
+      this.showHint(`Pick ${plural(k, 'more card', 'more cards')}`);
+      this.callbacks.changed();
+      return;
+    }
+    this.closeZoom(true);
+    this.callbacks.onDiscard([...this.marked].sort((a, b) => a - b));
+  }
+
+  /**
+   * S-10-1: a scored pile is open and its big card was tapped. The viewer's own scored agenda
+   * with abilities (Private Security Force) shows its buttons ("Do 1 meat damage · 1 click");
+   * any other card stays open to read.
+   */
+  private onPileCentreTap(): void {
+    const zoom = this.zoom;
+    const view = this.view;
+    if (!zoom?.pile || !view) return;
+    const key = `score:${zoom.pile.side}:${zoom.index}`;
+    if (zoom.pile.side !== view.viewer || panelUp(view) || view.choice || (view.installedOptions[key] ?? []).length === 0) return;
+    this.closeZoom();
+    this.pickScored(view, key);
+  }
+
+  /** S-10-1: a tap on a scored pile opens it big, like the hand (slide to read, tap outside to close). */
+  private openPileView(side: Side): void {
+    const view = this.view;
+    const gen = this.gen;
+    if (!view || !gen || this.flipPending) {
+      this.fx.finishAll();
+      return;
+    }
+    const ids = [...view.players[side].scored];
+    if (ids.length === 0) return;
+    this.cancelSelection();
+    const index = ids.length - 1;
+    this.openZoom(ids[index]!, 'corp', gen.scoredPiles[side].box(), { pile: { side, ids, index }, view: true });
+    this.callbacks.log({ kind: 'pile_open', text: ids[index]!, scheduledMs: timing.zoomIn });
     this.callbacks.changed();
   }
 

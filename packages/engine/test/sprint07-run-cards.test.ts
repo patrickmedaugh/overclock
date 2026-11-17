@@ -10,7 +10,8 @@ const install = (handIndex: number): Action => ({ type: 'install', player: 'runn
 const runOn = (server: ServerId): Action => ({ type: 'run', player: 'runner', server });
 const pass = (player: 'corp' | 'runner'): Action => ({ type: 'pass', player });
 const rez = (uid: string): Action => ({ type: 'rez', player: 'corp', uid });
-const activate = (uid: string, ability = 0): Action => ({ type: 'activate', player: 'runner', uid, ability });
+/** Sprint 10: Bank Job names the amount (these tests take the max, 8). */
+const takeCredits = (uid: string, amount = 8): Action => ({ type: 'activate', player: 'runner', uid, ability: 0, amount });
 const breakSub = (uid: string, sub = 0): Action => ({ type: 'use_ability', player: 'runner', uid, ability: 0, sub });
 const pump = (uid: string): Action => ({ type: 'use_ability', player: 'runner', uid, ability: 1 });
 
@@ -146,16 +147,17 @@ describe('S-07-4 AC5-AC7: Bank Job', () => {
     return r.state;
   }
 
-  it('AC6: a successful run on a remote stops at step success: "Take 8 credits from Bank Job" or "Access cards"', () => {
+  it('AC6: a successful run on a remote stops at step success: "Take credits" (Sprint 10: 1..8) or "Access cards"', () => {
     const s = atSuccess();
     expect(s.run).toMatchObject({ step: 'success', position: -1, access: null });
     const rv = viewFor('runner', s).run!;
     expect(rv).toMatchObject({ step: 'success', waitingOn: 'runner', iceUid: null, ice: null, access: null, letFire: null });
+    const amounts = [1, 2, 3, 4, 5, 6, 7, 8];
     expect(rv.options).toEqual([
-      { action: activate('i2'), cost: 0, reject: null, gain: 8 },
+      ...amounts.map((n) => ({ action: takeCredits('i2', n), cost: 0, reject: null, gain: n })),
       { action: pass('runner'), cost: 0, reject: null },
     ]);
-    expect(legalActions(s, 'runner')).toEqual([activate('i2'), pass('runner')]);
+    expect(legalActions(s, 'runner')).toEqual([...amounts.map((n) => takeCredits('i2', n)), pass('runner')]);
     expect(viewFor('corp', s).run).toMatchObject({ step: 'success', waitingOn: 'runner', options: [] });
     expect(legalActions(s, 'corp')).toEqual([]);
     expect(liveness(s)).toBe('runner');
@@ -164,7 +166,7 @@ describe('S-07-4 AC5-AC7: Bank Job', () => {
   it('AC6: take the credits: +8, nothing accessed, the run ends access_replaced, Bank Job to the Heap', () => {
     const s = atSuccess();
     const credits = s.players.runner.credits;
-    const r = apply(s, activate('i2'));
+    const r = apply(s, takeCredits('i2'));
     expect(r.events).toEqual([
       { type: 'ability_triggered', uid: 'i2', cardId: 'r10', trigger: 'successful_run' },
       { type: 'hosted_credits_changed', uid: 'i2', credits: 0 },
@@ -213,9 +215,9 @@ describe('S-07-4 AC5-AC7: Bank Job', () => {
 
   it('activate Bank Job outside step success: wrong_phase (listed nowhere in installedOptions)', () => {
     const s = run(game(['c03'], [corpInstall(0, 'new')], ['r10'], 5), [install(0)]).state;
-    expect(rejection(apply(s, activate('i2')).events)).toBe('wrong_phase');
+    expect(rejection(apply(s, takeCredits('i2')).events)).toBe('wrong_phase');
     expect(viewFor('runner', s).installedOptions).toEqual({});
     const atAccess = apply(atSuccess(), pass('runner')).state;
-    expect(rejection(apply(atAccess, activate('i2')).events)).toBe('wrong_phase');
+    expect(rejection(apply(atAccess, takeCredits('i2')).events)).toBe('wrong_phase');
   });
 });

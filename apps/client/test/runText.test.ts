@@ -175,15 +175,17 @@ describe('S-07-2/3/5 buttons of a picked card on the table', () => {
     expect(installedOptionLabel(opt({ type: 'score', player: 'corp', uid: 'a' }), null)).toBe('Score');
     const take: CardOption = { ...opt({ type: 'activate', player: 'runner', uid: 'r', ability: 0 }), clicks: 1, gain: 2 };
     expect(installedOptionLabel(take, 'r02')).toBe('Take 2 credits · 1 click');
-    expect(abilityLabel('r10', 0, 8)).toBe('Take 8 credits from Bank Job');
+    // Sprint 10 (S-10-3): Bank Job names no amount on its button; the amount control picks it.
+    expect(abilityLabel('r10', 0, 8)).toBe('Take credits');
   });
 });
 
 describe('S-07-4 run panel: Bank Job and Cyberfeeder', () => {
-  it('step success: "Take 8 credits from Bank Job" or "Access cards"', () => {
-    const options: CardOption[] = [{ ...opt({ type: 'activate', player: 'runner', uid: 'b1', ability: 0 }), gain: 8 }, opt({ type: 'pass', player: 'runner' })];
+  it('step success: "Take credits" (Sprint 10: one option per amount) or "Access cards"', () => {
+    const take = (n: number): CardOption => ({ ...opt({ type: 'activate', player: 'runner', uid: 'b1', ability: 0, amount: n }), gain: n });
+    const options: CardOption[] = [take(1), take(2), opt({ type: 'pass', player: 'runner' })];
     const run: RunView = { ...base, step: 'success', iceUid: null, ice: null, options };
-    expect(options.map((o) => optionLabel(o, run, options, { b1: 'r10' }))).toEqual(['Take 8 credits from Bank Job', 'Access cards']);
+    expect(options.map((o) => optionLabel(o, run, options, { b1: 'r10' }))).toEqual(['Take credits', 'Take credits', 'Access cards']);
     expect(stepLabel(run, 'runner')).toBe('Got into Server 1');
   });
 

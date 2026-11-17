@@ -511,6 +511,48 @@ maxHandSize(state, side) = 5 − brainDamage    // exported
 - Test-mode `create.test.deckSet?: 'core' | 'starter'` (production ignores `test`; always `'core'`). `PROTOCOL_VERSION` stays 1. `ONLINE_OPTIONS = {rezWindow: 'always', deckSet: 'core'}`.
 - `@overclock/match/testing`: `planToStep(seed, goal, maxActions?, options?)` plans on `options.deckSet ?? goalDeckSet(goal)` (Sprint 3–7 goals: `'starter'`; Sprint 8 goals: `'core'`) and returns `plan.deckSet`; `planBusyBoard(seed, goal?, maxActions?, deckSet = 'starter')` returns `deckSet`. Create the page's game with the plan's `deckSet`.
 
+## Sprint 10 interface (pinned: implement exactly this; changes go through the architect)
+
+Everything in the Sprint 1–9 interfaces still holds unless noted. Tech plan: `docs/sprints/sprint-10-tech-plan.md`. `RULES_VERSION = 4` (live online games expire on deploy). `PROTOCOL_VERSION` stays 1. No new events, no new view fields.
+
+**E1 status:** types (`take_credits.amount: 'chosen'`, `activate.amount`), the `activateAmount` check (last in `activate`), `abilityGain(installed, ability, amount?)`, `'chosen'` resolution, `RULES_VERSION = 4`. Bank Job still takes all until E3.
+
+**E4 status:** `SPRINT10_GOALS` (10 goals, see the `@overclock/match` section). Sprint 10 engine work is complete.
+
+**E3 status:** Bank Job (r10) uses `take_credits{amount:'chosen'}`, label "Take credits"; step `success` lists one `activate` per amount 1..N then `pass` (shared `abilityOptions`, also used for click abilities); the AI Runner takes the highest offered amount; 300-game property run and online room parity (`apps/server/test/sprint10-parity.test.ts`).
+
+**E2 status:** advance cap on (`belowRequirement` → `condition_not_met`, `atAdvanceLimit(state, uid)` exported from `rules.ts`); `installedOptions` lists only `score` for an agenda at its requirement; Ice Wall unchanged; the AI is never offered it.
+
+### Card DSL (`@overclock/cards`, additive)
+```ts
+| { op: 'take_credits'; amount: number | 'all' | 'chosen' }   // 'chosen': the player names 1..hosted credits in `activate.amount`
+// Bank Job (r10): cardAbilities[0] = { label: 'Take credits', when: 'successful_run_remote', clicks: 0, credits: 0,
+//   requires: 'hosted_credits', replacesAccess: true, effects: [{ op: 'take_credits', amount: 'chosen' }] }
+```
+
+### Actions
+```ts
+| { type: 'activate'; player; uid; ability; amount?: number }
+//   checks: … → activateCredits → activateAmount:
+//   invalid_action: amount given but not an integer; given for an ability with no 'chosen' effect; missing for one with it
+//   bad_target: amount outside 1..the card's hosted credits
+| { type: 'advance'; player; uid }
+//   checks: … → hasClick → ownAdvanceable → belowRequirement → canAffordAdvance
+//   belowRequirement: an installed agenda with advancements >= advancementRequirement → condition_not_met
+//   (advanceable ICE: no limit). Rejections go only to the sender's seat.
+```
+
+### Rules helpers
+- `hasChosenAmount(ability)`; `abilityGain(installed, ability, amount?)` (a `'chosen'` take gives `amount`, capped at the card's credits).
+
+### View (no new fields)
+- Run step `success`: per usable `replacesAccess` ability with a `'chosen'` effect, **one `activate` option per amount 1..N** (N = hosted credits; `amount` set, `gain` = amount, cost 0), ascending; then `pass` (= Access cards). Mirrors `trace_bid`.
+- Corp `installedOptions`: an agenda at its requirement lists only `score` (no `advance`); one short lists `advance` (and `score` only once it qualifies). Ice Wall unchanged.
+- Taking every credit still trashes Bank Job (`trashWhenEmpty`); the run ends `access_replaced`. Events as Sprint 7 (`ability_triggered`, `hosted_credits_changed`, `credit_gained`, `rig_card_trashed`?, `run_ended`).
+
+### AI
+- Runner at step `success`: takes the highest offered amount. Corp: never sees `advance` on an agenda at its requirement.
+
 ## Sprint 9 interface (pinned: implement exactly this; changes go through the architect)
 
 Everything in the Sprint 1–8 interfaces still holds unless noted. Tech plan: `docs/sprints/sprint-09-tech-plan.md`. No engine or client code checks a card id. `RULES_VERSION = 3` (live online games expire on deploy). `PROTOCOL_VERSION` stays 1.
@@ -680,6 +722,17 @@ The planner answers a free-rez choice it did not aim for with Skip.
 - `sea_source_not_ready` — the same, but no successful run last turn: the play option has `reject: 'condition_not_met'`. `info: {handIndex}`.
 - `globalsec_installed` / `globalsec_two_installed` — Runner's action step, ≥ 1 click, exactly 1 / 2 Access to Globalsec installed (link 2 / 3), Hunter installed on a remote the Corp can rez (or face up). `info: {uids, link, hunterServer}`. A run on `hunterServer` starts the trace with that link.
 - Retired: `pipeline_katana_encounter` (throws; Neural Katana left the deck) → `pipeline_hunter_encounter` (in `SPRINT8_GOALS`).
+
+**Test-only (Sprint 10):** ten `planToStep` goals on the **core decks** (`SPRINT10_GOALS`; `plan.deckSet === 'core'`). **All work for seeds 1-100 and 12345, pass-the-phone and online (`{rezWindow: 'always'}`)**; tests pin 1, 7, 42, 12345 (`packages/match/test/sprint10-goals.test.ts`). Bank Job keeps using the Sprint 7 goal `runner_bank_job_remote` (starter decks; a run there now lists Take 1..8, then Access cards).
+- `agenda_at_requirement` — Corp's action step, ≥ 1 click, ≥ 1 credit, an installed agenda holding exactly its requirement; `installedOptions[uid]` = `[score]` only, and `advance` is refused `condition_not_met` (to the Corp's seat only). `info: {uid, server, cardId, advancements}` (seeds 1 / 12345: Priority Requisition at 5; 7 / 42: Private Security Force at 4).
+- `agenda_one_short` — the same, one counter short: `installedOptions[uid]` = `[advance]`; after it, `[score]`. Same `info`.
+- `ice_wall_advanced` — Corp's action step, ≥ 1 click, ≥ 1 credit, an Ice Wall with ≥ 1 counter (usually 1) and Advance legal. `info: {uid, server, advancements}`.
+- `corp_two_scored` — Corp's action step, ≥ 1 click, ≥ 2 agendas scored, one of them Private Security Force (never 7 points). `info: {count, points, scored: 'c09,c10', psfUid: 'score:corp:<i>'}`. The Runner is not tagged, so PSF's option is listed with `condition_not_met`.
+- `runner_two_stolen` — Runner's action step (no run), ≥ 1 click, ≥ 2 agendas stolen (under 7 points). `info: {count, points, scored}`.
+- `psf_installed_unscored` — Corp's action step, ≥ 1 click, ≥ 1 credit, Private Security Force installed (not scored), < 4 counters: `installedOptions[uid]` = `[advance]` (no engine option for its scored ability). `info: {uid, server, advancements}`.
+- `runner_tagged_full_rig` — Runner's action step (no run), tagged, ≥ 4 rig cards (usually exactly 4) including exactly one Access to Globalsec (link 2), got tagged by Hunter. `info: {tags, link: '2', rig, globalsecUid}`.
+- `remote_single_card_no_ice` — Runner's action step, ≥ 1 click, a remote with no ICE holding one card he can take (an agenda whose steal does not win, or an asset he can afford to trash), with another remote after it. `info: {server, uid, cardId, kind: 'steal' | 'trash', otherServer}` (seeds 1, 7, 42: `remote1` with an asset to trash; 12345: an agenda to steal). Taking it → `server_removed{server}`; the other servers keep their ids and order.
+- `runner_must_discard` / `corp_must_discard` — that side's discard step at the end of its first turn (drew with every click): `pendingDiscard` 4, hand 9. `info: {count, hand}`.
 
 The client and AI may import only the public index of engine/cards/match. The client may not import `apply`, `newGame`, `legalActions`, `viewFor` or `replay` (it goes through the match).
 

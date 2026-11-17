@@ -89,6 +89,8 @@ function elements(l: BoardLayout, opts: { fanned?: boolean } = {}): [string, Box
   }
   out.push(['newServer.label', l.corp.newServer.label]);
   out.push(['rig.stack', l.rig.stack], ['rig.heap', l.rig.heap], ['rig.install', l.rig.install], ['rig.memory', l.rig.memory]);
+  // Sprint 10: Link and Tagged under Memory; both scored piles.
+  out.push(['rig.link', l.rig.link], ['rig.tagged', l.rig.tagged], ['rig.scored', l.rig.scored], ['corp.scored', l.corp.scored]);
   if (l.rig.identity) out.push(['rig.identity', l.rig.identity]);
   l.rig.cards.forEach((b, i) => out.push([`rig.card${i}`, b]));
   out.push(['banner', l.banner], ['sub', l.sub], ['endTurn', l.endTurn], ['hand', l.handArea]);
@@ -151,6 +153,10 @@ function targets(l: BoardLayout): [string, Box][] {
     ['newServer', l.corp.newServer.column],
     ['stack', l.rig.stack],
     ['heap', l.rig.heap],
+    // Sprint 10: the scored piles (tap to open) and Tagged (its tap area is the whole stats column).
+    ['corp.scored', l.corp.scored],
+    ['rig.scored', l.rig.scored],
+    ['rig.stats', l.rig.stats],
   ];
   for (const s of l.corp.servers) {
     out.push([`${s.id}.column`, s.column]);
@@ -395,6 +401,77 @@ describe('identity cards on the table (U2, S-08-1)', () => {
     expect(l.top.identity).toBeNull();
     expect(l.bottom.identity).toBeNull();
     expect(computeLayout(844, 390, {}, { viewer: 'runner', shape: { ...BUSY, identities: { corp: false, runner: false } } })).toEqual(l);
+  });
+});
+
+describe('Sprint 10: scored piles and the stats column (S-10-1, S-10-2)', () => {
+  const IDS = { corp: true, runner: true } as const;
+  const SIZES: [number, number][] = [[844, 390], [640, 360], [891, 296], [1280, 800]];
+  const CASES = SIZES.flatMap(([w, h]) => SIDES.map((v) => [w, h, v] as const));
+  const none = { top: 0, right: 0, bottom: 0, left: 0 };
+  /** The busy board's card size before Sprint 10 (both identities out): the piles cost no card size. */
+  const BUSY_UNIT: Record<string, number> = { '844x390': 54, '640x360': 49, '891x296': 40, '1280x800': 59 };
+
+  it.each(CASES)('%ix%i, %s viewing: every box is clear of every other (empty, busy, past busy), piles and stats inside their bands', (w, h, viewer) => {
+    for (const base of [EMPTY_SHAPE, BUSY, OVERFLOW]) {
+      for (const shape of [base, { ...base, identities: IDS }]) {
+        const l = computeLayout(w, h, none, { viewer, shape });
+        expectClean(l, w, h, none);
+        expect(inside(l.corp.scored, l.corp.band), 'corp pile in the Corp band').toBe(true);
+        expect(inside(l.rig.scored, l.rig.band), 'runner pile in the rig band').toBe(true);
+        for (const b of [l.rig.memory, l.rig.link, l.rig.tagged]) expect(inside(b, l.rig.stats), 'stats in their column').toBe(true);
+        // The Corp pile never sits on a server's ICE or cards (only New server may be under it, trimmed).
+        for (const s of l.corp.servers) for (const b of [s.column]) expect(overlaps(b, l.corp.scored), `${s.id} column vs corp pile`).toBe(false);
+        expect(overlaps(l.corp.newServer.column, l.corp.scored), 'New server column vs corp pile').toBe(false);
+      }
+    }
+  });
+
+  it.each(CASES)('%ix%i, %s viewing: both piles at the far right of their rows; Memory, Link, Tagged just left of the Runner pile', (w, h, viewer) => {
+    const l = computeLayout(w, h, none, { viewer, shape: { ...BUSY, identities: IDS } });
+    expect(l.corp.scored.x + l.corp.scored.width).toBe(l.corp.band.x + l.corp.band.width);
+    expect(l.rig.scored.x + l.rig.scored.width).toBe(l.rig.band.x + l.rig.band.width);
+    expect(l.rig.stats.x + l.rig.stats.width).toBeLessThanOrEqual(l.rig.scored.x);
+    expect(l.rig.stats.x).toBeGreaterThanOrEqual(l.rig.install.x + l.rig.install.width);
+    expect(l.rig.memory.y).toBeLessThan(l.rig.link.y);
+    expect(l.rig.link.y).toBeLessThan(l.rig.tagged.y);
+    // Everything to the right of the last server column is the pile (nothing else drawn there).
+    for (const b of [l.corp.scored, l.rig.scored]) {
+      expect(b.width, 'pile width').toBeGreaterThanOrEqual(MIN_TOUCH);
+      expect(b.height, 'pile height').toBeGreaterThanOrEqual(MIN_TOUCH);
+    }
+    expect(l.rig.stats.width).toBeGreaterThanOrEqual(MIN_TOUCH);
+    expect(l.rig.stats.height).toBeGreaterThanOrEqual(MIN_TOUCH);
+  });
+
+  it.each(SIZES)('%ix%i: the piles and the stats column cost no card size on the busy board', (w, h) => {
+    for (const viewer of SIDES) {
+      expect(computeLayout(w, h, none, { viewer, shape: { ...BUSY, identities: IDS } }).unit.width).toBe(BUSY_UNIT[`${w}x${h}`]);
+    }
+  });
+
+  // Architect sign-off (DECISIONS 2026-11-17): with a notch the busy board may lose 1 card px at
+  // 640x360 (45 -> 44) and 2 at 568x320 for the piles. Pinned so it can never drift further.
+  it.each([
+    [640, 360, { left: 47 }, 44],
+    [640, 360, { right: 47 }, 44],
+    [568, 320, {}, 41],
+    [568, 320, { left: 47 }, 36],
+  ] as const)('%ix%i notch %j: busy-board card size is pinned at %i px (architect-approved shrink)', (w, h, ins, unit) => {
+    for (const viewer of SIDES) {
+      const l = computeLayout(w, h, { ...none, ...ins }, { viewer, shape: { ...BUSY, identities: IDS } });
+      expect(l.unit.width).toBe(unit);
+    }
+  });
+
+  it('Tagged has its own slot whether or not it shows: the stats column does not move as cards are installed', () => {
+    for (const [w, h] of SIZES) {
+      const a = computeLayout(w, h, none, { shape: { ...EMPTY_SHAPE, identities: IDS } });
+      const b = computeLayout(w, h, none, { shape: { ...BUSY, identities: IDS } });
+      expect(b.rig.stats).toEqual(a.rig.stats);
+      expect(b.rig.scored).toEqual(a.rig.scored);
+      expect(b.corp.scored).toEqual(a.corp.scored);
+    }
   });
 });
 

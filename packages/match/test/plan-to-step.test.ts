@@ -41,7 +41,7 @@ describe('planToStep (Sprint 3 e2e setup helper)', () => {
       }
     }
     expect(ok).toBeGreaterThanOrEqual(75);
-  });
+  }, 30_000); // CPU-bound; other workers run the long goal sweeps at the same time
 
   it('Sprint 4: corp_score_priority_requisition works unless Priority Requisition is the bottom card of R&D', () => {
     let ok = 0;
