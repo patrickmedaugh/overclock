@@ -121,9 +121,16 @@ test.describe('S-10-5 Archives keeps its lane', () => {
     l = await startRun(page, server);
     const take = l.run!.buttons.find((b) => /^(Trash|Steal)/.test(b.label))!;
     await page.evaluate(() => window.__overclock!.clearAnims());
+    // Read the board inside the same release the game handled (not racing the 300 ms flight).
+    await page.evaluate(() => {
+      const w = window as unknown as { __now?: unknown };
+      w.__now = undefined;
+      window.addEventListener('pointerup', () => (w.__now = window.__overclock!.layout()), { once: true });
+    });
     await tap(page, take.box);
+    await page.waitForFunction(() => (window as unknown as { __now?: unknown }).__now !== undefined);
+    const now = await page.evaluate(() => (window as unknown as { __now: LayoutSnapshot }).__now);
     // Right after the tap: Archives still shows its old count until the card lands on it.
-    const now = await layout(page);
     expect(now.text.corpDiscard, 'Archives fills when the card lands, not before').toBe(archivesBefore);
     const anims = await page.evaluate(() => window.__overclock!.anims());
     const archRoot = now.corp.discard;

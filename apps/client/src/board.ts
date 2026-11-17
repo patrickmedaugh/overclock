@@ -209,6 +209,8 @@ interface ColumnWidgets {
   label: Text;
   frame: Graphics;
   frameKey: string;
+  /** Sprint 10 (S-10-5): where the column was drawn last (x), so a move can slide. */
+  x: number | null;
 }
 
 interface ActiveTarget {
@@ -696,6 +698,8 @@ export class Board {
     const reportText = rejected ? null : iceReport(events);
     if (reportText) this.openReport(reportText, layout);
     const newStep = this.applyView(view, true);
+    // S-10-5: a card trashed from the table fills Archives when it lands there, not before.
+    if (events.some((e) => e.type === 'card_trashed' || e.type === 'corp_card_trashed')) this.gen?.discards.corp.set(prev.players.corp.discardCount, prev.players.corp.discard);
     for (const l of leaving) this.flyFromHand(l.e, l.card, layout);
     const notices: string[] = [];
     for (const e of events) {
@@ -1105,14 +1109,26 @@ export class Board {
         const frame = new Graphics();
         frame.eventMode = 'none';
         label.eventMode = 'none';
-        col = { label, frame, frameKey: '' };
+        col = { label, frame, frameKey: '', x: null };
         this.boardLayer.addChildAt(frame, 0);
         this.boardLayer.addChild(label);
         gen.columns.set(slots.id, col);
         fitText(label, slots.column.width - 2);
       }
-      col.label.position.set(slots.label.x + slots.label.width / 2, slots.label.y + slots.label.height / 2);
       const c = slots.column;
+      // S-10-5: a lane that moves because one before it was removed slides over (never jumps,
+      // so it can't look like the removed lane turned into it). Input is never blocked.
+      const dx = animate && col.x !== null && slots.id !== 'new' && Math.abs(col.x - c.x) > 0.5 ? col.x - c.x : 0;
+      col.x = c.x;
+      this.fx.cancel(col.frame);
+      this.fx.cancel(col.label);
+      col.label.position.set(slots.label.x + slots.label.width / 2 + dx, slots.label.y + slots.label.height / 2);
+      col.frame.x = dx;
+      if (dx !== 0) {
+        this.callbacks.log({ kind: 'column_shift', text: slots.id, scheduledMs: timing.columnShift, box: { ...c } });
+        this.fx.add({ target: col.frame, to: { x: 0 }, duration: timing.columnShift, ease: ease.outCubic, owner: col.frame });
+        this.fx.add({ target: col.label, to: { x: slots.label.x + slots.label.width / 2 }, duration: timing.columnShift, ease: ease.outCubic, owner: col.label });
+      }
       const key = `${c.x},${c.y},${c.width},${c.height}`;
       if (col.frameKey !== key && slots.id !== 'new') {
         col.frameKey = key;
@@ -1719,8 +1735,6 @@ export class Board {
     help.position.set(hb.x + hb.width / 2, hb.y);
     fitText(help, hb.width, hb.height);
     this.syncHelp();
-    // QA-S8-3: a toast shown before a run started (or ended) moves to the slot for now.
-    if (this.hint && this.hint.slot !== JSON.stringify(this.hintSlot(layout, this.hint.wide))) this.showHint(this.hint.text, this.hint.kind, this.hint.wide);
 
     const button = gen.button;
     if (view.result) {
@@ -1783,7 +1797,16 @@ export class Board {
     const pickedBox =
       picked?.box ?? (this.pickedInstalled === TAGS_PICK ? gen.tagged.box : this.pickedInstalled && isScoredUid(this.pickedInstalled) ? gen.scoredPiles[viewer].box() : undefined);
     if (pickedBox) glowRoundRect(pm, pickedBox.x - 3, pickedBox.y - 3, pickedBox.width + 6, pickedBox.height + 6, 5, theme.credit, 3, 1.4);
+    // QA-S8-3: a toast shown before a run started (or ended) moves to the slot for now.
+    // S-10-6: checked once every button is in place, so a toast never covers one.
+    if (this.hint && this.hint.slot !== JSON.stringify(this.hintSlot(layout, this.hint.wide))) this.showHint(this.hint.text, this.hint.kind, this.hint.wide);
     return newStep;
+  }
+
+  /** S-10-5: Archives shows the view's pile again (a trashed card has landed on it). */
+  private syncArchives(): void {
+    const v = this.view;
+    if (v) this.gen?.discards.corp.set(v.players.corp.discardCount, v.players.corp.discard);
   }
 
   /** "+3" / "-5" floating up from the viewer's credits. */
@@ -2033,8 +2056,12 @@ export class Board {
         const from = before.get(`uid:${e.uid}`);
         const pile = gen.discards.corp;
         this.callbacks.log({ kind: 'corp_trash_flight', scheduledMs: timing.runFlight, box: pile.box() });
-        if (from) this.flyCard(e.cardId, 'corp', from, pile.box(), 0, () => pile.pop(this.ui));
-        else pile.pop(this.ui);
+        const land = () => {
+          this.syncArchives();
+          pile.pop(this.ui);
+        };
+        if (from) this.flyCard(e.cardId, 'corp', from, pile.box(), 0, land);
+        else land();
         return;
       }
       case 'clicks_gained': {
@@ -2120,7 +2147,12 @@ export class Board {
         const from = before.get(`access:${e.cardId}`) ?? (e.uid ? before.get(`uid:${e.uid}`) : undefined);
         const pile = gen.discards.corp;
         this.callbacks.log({ kind: 'trash_flight', scheduledMs: timing.runFlight, box: pile.box() });
-        if (from) this.flyCard(e.cardId, 'corp', from, pile.box(), 0, () => pile.pop(this.ui));
+        const land = () => {
+          this.syncArchives();
+          pile.pop(this.ui);
+        };
+        if (from) this.flyCard(e.cardId, 'corp', from, pile.box(), 0, land);
+        else this.syncArchives();
         return;
       }
       case 'card_advanced': {
@@ -3093,8 +3125,8 @@ export class Board {
   /** Where the toast goes: the hint slot, or (sideways, during a run) End turn's slot, clear of the run panel. */
   private hintSlot(layout: BoardLayout, wide = false): Box {
     let slot = this.baseHintSlot(layout, wide);
-    // S-10-6 (QA-S9-4): the wide toast over the table never covers a button (End turn included).
-    if (wide) slot = clearOf(slot, this.buttonBoxes(), Math.max(4, Math.round(6 * layout.scale)));
+    // S-10-6 (QA-S9-4): a toast never covers a button (End turn, Last run, a lit choice included).
+    slot = clearOf(slot, this.buttonBoxes(), Math.max(4, Math.round(6 * layout.scale)));
     return this.gameOver ? this.clearOfGameOver(layout, slot) : slot;
   }
 
