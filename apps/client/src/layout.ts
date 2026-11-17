@@ -882,6 +882,8 @@ export interface BidBoxes {
   inc: Box;
   max: Box;
   go: Box;
+  /** Sprint 10 (Bank Job amount): a small Back at the left end, when asked for. */
+  back: Box | null;
 }
 
 /**
@@ -890,16 +892,16 @@ export interface BidBoxes {
  * and Bid. Every button is at least 44 px each way (the strip is >= 72 px tall
  * on the smallest phone); the group is centred and shrinks only down to 44 px.
  */
-export function bidLayout(area: Box, scale: number): BidBoxes {
-  const units = { dec: 1, tile: 1.7, inc: 1, max: 1.25, go: 1.9 };
-  const sum = units.dec + units.tile + units.inc + units.max + units.go;
+export function bidLayout(area: Box, scale: number, withBack = false): BidBoxes {
+  const units = { back: withBack ? 1.15 : 0, dec: 1, tile: 1.7, inc: 1, max: 1.25, go: 1.9 };
+  const sum = units.back + units.dec + units.tile + units.inc + units.max + units.go;
   const gap = Math.max(4, Math.round(6 * Math.min(scale, 1.2)));
   const wide = gap * 3;
-  const gaps = 3 * gap + wide;
+  const gaps = 3 * gap + wide + (withBack ? wide : 0);
   const maxH = Math.max(MIN_TOUCH, Math.round(64 * Math.min(scale, 1.2)));
   const h = Math.max(MIN_TOUCH, Math.min(maxH, area.height, Math.floor((area.width - gaps) / sum)));
   const w = (k: number) => Math.round(h * k);
-  const total = w(units.dec) + w(units.tile) + w(units.inc) + w(units.max) + w(units.go) + gaps;
+  const total = w(units.back) + w(units.dec) + w(units.tile) + w(units.inc) + w(units.max) + w(units.go) + gaps;
   const y = Math.round(area.y + (area.height - h) / 2);
   let x = Math.round(area.x + Math.max(0, (area.width - total) / 2));
   const next = (k: number, after: number): Box => {
@@ -907,12 +909,13 @@ export function bidLayout(area: Box, scale: number): BidBoxes {
     x += b.width + after;
     return b;
   };
+  const back = withBack ? next(units.back, wide) : null;
   const dec = next(units.dec, gap);
   const tile = next(units.tile, gap);
   const inc = next(units.inc, wide);
   const max = next(units.max, gap);
   const go = next(units.go, 0);
-  return { dec, tile, inc, max, go };
+  return { dec, tile, inc, max, go, back };
 }
 
 /**

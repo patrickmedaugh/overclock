@@ -100,7 +100,7 @@ export interface PanelButtonSnapshot {
    * subroutine (`sub`, `picked`), `confirm` breaks the picked ones, `back` closes the pick.
    * Absent for a plain option.
    */
-  role?: 'multi' | 'toggle' | 'confirm' | 'back' | 'bid_dec' | 'bid_inc' | 'bid_max' | 'bid_go';
+  role?: 'multi' | 'toggle' | 'confirm' | 'back' | 'bid_dec' | 'bid_inc' | 'bid_max' | 'bid_go' | 'amount_open' | 'amount_back';
   sub?: number;
   picked?: boolean;
 }
@@ -133,6 +133,8 @@ export interface RunSnapshot {
   buttons: PanelButtonSnapshot[];
   /** Accessed cards, drawn large. */
   access: { cards: { cardId: string | null; stolen: boolean; box: Box }[] } | null;
+  /** Sprint 10 (S-10-3): the amount control (Bank Job "Take credits"): the amount shown, its limits (the engine's offered amounts), the big number. */
+  amount: { tile: Box; amount: number; low: number; high: number; caption: string; numberPx: number; captionPx: number } | null;
 }
 
 /** Sprint 9: one button of the trace bid control. */
