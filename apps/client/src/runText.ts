@@ -147,6 +147,27 @@ export function labelLadder(p: RunOptionParts): string[] {
   return [...new Set(out)];
 }
 
+/** One rung of the ladder: a label and the smallest text size it may be drawn at. */
+export interface LabelRung {
+  text: string;
+  minPx: number;
+}
+
+/**
+ * Sprint 11: `labelLadder` with text floors for `PanelButton`: the full label and the
+ * cut subroutine texts at `floor`; before the card name is cut, the label may shrink to
+ * `lastFloor` (the name is worth a smaller letter).
+ */
+export function labelRungs(p: RunOptionParts, floor: number, lastFloor: number): LabelRung[] {
+  const ladder = labelLadder(p);
+  const named = p.who === null ? -1 : ladder.findIndex((x) => !x.startsWith(`${p.who}: `));
+  const k = named < 0 ? ladder.length : named;
+  const out = ladder.slice(0, k).map((text) => ({ text, minPx: floor }));
+  if (lastFloor < floor) out.push({ text: ladder[k - 1]!, minPx: lastFloor });
+  out.push(...ladder.slice(k).map((text) => ({ text, minPx: lastFloor })));
+  return out;
+}
+
 /**
  * The label of one run option, e.g. "Rez Wall of Static · 3 credits", "Don't rez",
  * "Battering Ram: +1 str · 1 credit", "Battering Ram: break barrier sub · 2 credits",

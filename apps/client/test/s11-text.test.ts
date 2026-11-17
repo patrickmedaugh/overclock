@@ -2,7 +2,7 @@
 // only when the engine offers a pick of N >= 2; the shortening ladder (owner Q1 A).
 import type { CardOption, RunView } from '@overclock/engine';
 import { describe, expect, it } from 'vitest';
-import { labelLadder, optionLabel, partsLabel, runOptionParts } from '../src/runText';
+import { labelLadder, labelRungs, optionLabel, partsLabel, runOptionParts } from '../src/runText';
 import { minButtonPx } from '../src/runDisplay';
 import { ICE_TYPE } from '../src/terms';
 
@@ -106,10 +106,17 @@ describe('S-11-1 shortening ladder: subroutine text first, then the card name; n
     expect(partsLabel({ who: 'Battering Ram', source: 'r17', what: '+1 str', price: '1 credit' }, Infinity, 9)).toBe('Battering…: +1 str · 1 credit');
   });
 
-  it('the text floor before shortening: 14 px on a phone and a computer, 11.5 on the small phones', () => {
-    expect(minButtonPx(1)).toBe(14);
-    expect(minButtonPx(0.9)).toBe(11.5);
-    expect(minButtonPx(0.8)).toBe(11.5);
-    expect(minButtonPx(1.4)).toBe(14);
+  it('the text floors: 14 px where buttons draw at 14+; else 12 before the subroutine text is cut, 11.5 before the name is', () => {
+    expect(minButtonPx(1)).toEqual({ floor: 14, last: 14 });
+    expect(minButtonPx(0.9)).toEqual({ floor: 12, last: 11.5 });
+    expect(minButtonPx(1.4)).toEqual({ floor: 14, last: 14 });
+    const rungs = labelRungs(parts, 12, 11.5);
+    expect(rungs[0]).toEqual({ text: 'Gordian Blade: break code gate sub "End the run" · 1 credit', minPx: 12 });
+    // The shortest subroutine text, first at 12, then again at 11.5, then the name cuts at 11.5.
+    const i = rungs.findIndex((r) => r.minPx === 11.5);
+    expect(rungs[i - 1]!.text).toBe(rungs[i]!.text);
+    expect(rungs[i]!.text).toBe('Gordian Blade: break code gate sub "End…" · 1 credit');
+    expect(rungs.slice(i + 1).every((r) => r.minPx === 11.5 && !r.text.startsWith('Gordian Blade:'))).toBe(true);
+    expect(labelRungs(parts, 14, 14).every((r) => r.minPx === 14)).toBe(true);
   });
 });

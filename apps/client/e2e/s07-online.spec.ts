@@ -106,7 +106,7 @@ test.describe('S-07-2/3/4 online: both phones show the same result as pass-the-p
     await startRun(runner.page, server);
     await runner.page.waitForFunction(() => window.__overclock!.layout().run?.step === 'success');
     // Sprint 10 (S-10-3): "Take credits" opens the amount control at 8; "Take 8" takes all.
-    await tap(runner.page, runButtonOf(await layoutOf(runner), 'Take credits').box);
+    await tap(runner.page, runButtonOf(await layoutOf(runner), 'Bank Job: take credits').box);
     await runner.page.waitForFunction(() => window.__overclock!.layout().run?.amount?.amount === 8);
     const l = await layoutOf(runner);
     const take = runButtonOf(l, 'Take 8');

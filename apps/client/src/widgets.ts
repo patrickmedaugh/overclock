@@ -8,6 +8,7 @@ import { createCardBack, createCardFace, glowRoundRect } from './cardFace';
 import { centeredBox } from './geometry';
 import type { Box } from './hook-types';
 import { TERMS, scoredPileText } from './terms';
+import type { LabelRung } from './runText';
 import { sideColor, theme, timing } from './theme';
 import { ease, type Tweens } from './tween';
 
@@ -613,17 +614,17 @@ export class PanelButton {
   /**
    * `glow`: filled and bright (e.g. Run while servers are lit). `big`: a large label
    * (Sprint 9: the bid control's − and +). Sprint 11: `text` may be a ladder of ever
-   * shorter labels (`labelLadder`): the first that fits at `minPx` or more is drawn
-   * (the last one, shrunk, if none does).
+   * shorter labels (`labelRungs`): the first drawn at its `minPx` or more wins (the
+   * last one, shrunk, if none fits).
    */
-  set(b: Box, text: string | readonly string[], lit: boolean, color: number, glow = false, big = false, minPx = 0): void {
+  set(b: Box, text: string | readonly LabelRung[], lit: boolean, color: number, glow = false, big = false): void {
     this.box = { ...b };
     this.lit = lit;
     placeAt(this.root, b);
     const { width: w, height: h } = b;
     this.root.hitArea = new Rectangle(-w / 2, -h / 2, w, h);
-    const ladder = typeof text === 'string' ? [text] : text;
-    const key = `${w}x${h}:${ladder.join('|')}:${lit}:${color}:${glow}:${big}:${minPx}`;
+    const ladder: readonly LabelRung[] = typeof text === 'string' ? [{ text, minPx: 0 }] : text;
+    const key = `${w}x${h}:${ladder.map((r) => `${r.text}@${r.minPx}`).join('|')}:${lit}:${color}:${glow}:${big}`;
     if (key === this.drawn) return;
     this.drawn = key;
     const base = Math.max(12, Math.round(14 * Math.min(this.scale, 1.15)));
@@ -644,21 +645,25 @@ export class PanelButton {
       this.label.style.fill = theme.textDim;
     }
     this.label.style.wordWrapWidth = Math.max(30, w - 10);
+    // Sprint 11: run labels (a ladder) may use the button's height to 2 px from its edge (a 4th line at 640x360).
+    const padY = typeof text === 'string' ? 4 : 2;
     const fits = (i: number): boolean => {
-      this.label.text = ladder[i]!;
-      fitText(this.label, w - 8, h - 4);
-      return this.fontPx >= minPx - 0.01;
+      this.label.text = ladder[i]!.text;
+      fitText(this.label, w - 8, h - padY);
+      return this.fontPx >= ladder[i]!.minPx - 0.01;
     };
-    // The first rung that fits (labels only get shorter down the ladder): a binary search.
+    // The first rung that fits. Labels get shorter down the ladder, so a binary search finds
+    // it; word wrapping is not quite monotonic, so a miss walks on to the next rung that fits.
     let lo = 0;
-    let hi = ladder.length - 1;
     if (ladder.length > 1 && !fits(0)) {
       lo = 1;
+      let hi = ladder.length - 1;
       while (lo < hi) {
         const mid = (lo + hi) >> 1;
         if (fits(mid)) hi = mid;
         else lo = mid + 1;
       }
+      while (lo < ladder.length - 1 && !fits(lo)) lo++;
     }
     fits(lo);
   }

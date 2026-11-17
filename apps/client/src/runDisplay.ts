@@ -12,7 +12,7 @@ import { createCardBack, createCardFace, glowRoundRect } from './cardFace';
 import type { Box, RunSnapshot, TraceSnapshot } from './hook-types';
 import type { Decision } from './session';
 import { type BoardLayout, accessSlots, bidLayout, buttonGrid } from './layout';
-import { type RigIds, type RunOptionParts, choiceOptionLabel, choiceStepLabel, decidingText, infoLines, isRunChoice, labelLadder, nameOf, runOptionParts, runTitle, stepLabel } from './runText';
+import { type RigIds, type RunOptionParts, choiceOptionLabel, choiceStepLabel, decidingText, infoLines, isRunChoice, labelLadder, labelRungs, nameOf, runOptionParts, runTitle, stepLabel } from './runText';
 import { TERMS, priceText, serverLabel } from './terms';
 import {
   type TraceChoice,
@@ -83,12 +83,14 @@ const plainParts = (what: string): RunOptionParts => ({ who: null, source: null,
 
 /**
  * Sprint 11: the smallest label text a run button may draw before its label is shortened
- * (`labelLadder`): the QA-S3-4 floors. A button drawn at 14 px or more (844x390, desktop)
- * keeps 14; a smaller one (640x360, 891x296) may shrink to 11.5 px.
+ * (`labelRungs`), within the QA-S3-4 floors (844x390 14 px, desktop 12, 640x360 11.5). A
+ * button drawn at 14 px or more keeps 14; a smaller one (640x360, 891x296, a small desktop
+ * window) may shrink to 12 px before its subroutine text is cut, and to 11.5 before its
+ * card name is.
  */
-export function minButtonPx(scale: number): number {
+export function minButtonPx(scale: number): { floor: number; last: number } {
   const base = Math.max(12, Math.round(14 * Math.min(scale, 1.15)));
-  return base >= 14 ? 14 : 11.5;
+  return base >= 14 ? { floor: 14, last: 14 } : { floor: 12, last: 11.5 };
 }
 
 const FROM: Record<string, string> = { hq: 'From HQ', rd: 'From R&D', archives: 'From Archives' };
@@ -609,7 +611,7 @@ export class RunDisplay {
       this.shown.forEach((x, i) => {
         const b = this.button(i);
         b.root.visible = true;
-        b.set(boxes[i]!, x.parts ? labelLadder(x.parts) : x.label, x.lit ?? x.option.reject === null, color, false, false, floor);
+        b.set(boxes[i]!, x.parts ? labelRungs(x.parts, floor.floor, floor.last) : x.label, x.lit ?? x.option.reject === null, color);
         if (animate && newStep) b.pop(this.ui);
       });
       for (let i = this.shown.length; i < this.pool.length; i++) this.pool[i]!.root.visible = false;

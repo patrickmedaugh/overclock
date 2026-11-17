@@ -46,7 +46,7 @@ function expectBigAmount(l: LayoutSnapshot): void {
 async function takeAmount(page: Page, amount: number): Promise<LayoutSnapshot> {
   let l = await layout(page);
   if (!l.run?.amount) {
-    await tap(page, runButtonOf(l, 'Take credits').box);
+    await tap(page, runButtonOf(l, 'Bank Job: take credits').box);
     await page.waitForFunction(() => window.__overclock!.layout().run?.amount != null);
     l = await layout(page);
   }
@@ -65,9 +65,9 @@ test.describe('S-10-3 Bank Job lets you choose', () => {
     const bj = plan.info['bankJobUid']!;
     let l = await startRun(page, plan.info['server']!);
     expect(l.run!.step).toBe('success');
-    expect(l.run!.buttons.map((b) => b.label)).toEqual(['Take credits', 'Access cards']);
+    expect(l.run!.buttons.map((b) => b.label)).toEqual(['Bank Job: take credits', 'Access cards']);
     await shot(page, 's10-3-bank-job-choice');
-    await tap(page, runButtonOf(l, 'Take credits').box);
+    await tap(page, runButtonOf(l, 'Bank Job: take credits').box);
     await page.waitForFunction(() => window.__overclock!.layout().run?.amount != null);
     l = await layout(page);
     // Opens at the most it holds (one tap takes all, as before).
@@ -99,7 +99,7 @@ test.describe('S-10-3 Bank Job lets you choose', () => {
     await tap(page, runButtonOf(l, 'Back').box);
     await page.waitForFunction(() => window.__overclock!.layout().run?.amount === null);
     l = await layout(page);
-    expect(l.run!.buttons.map((b) => b.label)).toEqual(['Take credits', 'Access cards']);
+    expect(l.run!.buttons.map((b) => b.label)).toEqual(['Bank Job: take credits', 'Access cards']);
     await tap(page, runButtonOf(l, 'Access cards').box);
     l = await waitIdle(page);
     expect(l.run?.step).toBe('access');
