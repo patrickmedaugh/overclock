@@ -116,3 +116,44 @@ On 891×296, tapping an installed, unscored Private Security Force shows Advance
 
 ## IP check
 No new image files outside screenshots. Card art is still drawn at runtime (glyphs). Real card names and text are allowed by the owner's 2026-11-12 rule. Pass.
+
+---
+
+# Round 2 (fix ef61d82)
+
+**Result: 31 of 31 acceptance criteria pass.** QA-S10-1 and QA-S10-2 are **fixed** and re-verified. No new bugs.
+
+## Re-verified bugs
+- **QA-S10-1 FIXED.** At 891×296 the "Hunter: Trace 3 – …" notice now sits in free board space between Server 1 and the Corp's pile. It covers no card, label or counter (`891x296-18a-notice-after-trace.png`). The QA test (no `test.fail` marker now) passes at all 4 sizes, and so does ui-dev's `s10-stats.spec.ts:129` at phone-short.
+- **QA-S10-2 FIXED.** At 891×296 "Do 1 meat damage: score it first" is drawn right under Advance in the rail (`891x296-09-psf-score-it-first.png`). The pixel check passes at all 4 sizes.
+- ui-dev removed only the two `test.fail` lines in `qa-sprint10.spec.ts`. I checked the diff and approve it.
+
+## Regression run (local, `--retries=0`, all 4 sizes)
+`qa-sprint10`, `s10-stats`, `s10-scored`, `s10-board`: **191 passed, 0 failed, 1 skipped** (the online test, which is skipped at 891×296 on purpose).
+
+## The `qa-sprint10.spec.ts` refusal-toast failure ui-dev saw on 640×360
+Judged correct: it was a test-timing problem, not a product bug. The refused tap ("No clicks left") also shakes the clicks pill as feedback: ±6 px for 260 ms. The test read the layout during the shake, so the pill box was 1 px past the screen edge. At rest it is inside.
+
+Fix (not loosened): the test now lets the shake run, waits until the pill is back at its exact resting box, then does the full layout check. It also now requires that the toast is still showing at that point. The shake is a `ui` tween, so the usual "board idle" wait doesn't cover it. Repeated 5× at 640×360 and 5× at 891×296: 10/10 pass.
+
+## Owner's stat-line screenshots (backlog item, not a Sprint 10 fix)
+The owner's photos (`docs/sprints/sprint-10-owner/stats-*.jpg`, on main, Android Chrome, GitHub Pages build) show the bottom stat line of the big card in the hand view ending early:
+- Wall of Static reads "Strength :"
+- Ichi 1.0 reads "Strength ." (the Ice Wall side card too)
+- Corroder reads "Strength 2 · Memory" with the 1 missing
+
+What it is: **the line is clipped on the right, not truncated and not a missing glyph.** The letters before the cut are whole, and the last digit is sliced. The left edge of a "3" looks like ":", and of a "4" or "1" like ".". On Corroder the cut falls just after "Memory", so the 1 is gone. There is no "…" (it is not a deliberate shorten), and the digit is not replaced by a box (it is not a missing font character).
+
+At the same size and pixel density in our test browser (Chromium on Linux, 891×296, DPR 2.625), the line draws in full on all three cards: "Strength 3", "Strength 4", "Strength 2 · Memory 1" (`891x296-r2-statline-wall-of-static.png`, `-ichi.png`, `-corroder.png`). The hook reports no text overflow. So it depends on the phone's fonts.
+
+Likely cause, for the backlog: the stat line uses the mono font list `ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace` (`theme.monoFamily`, `cardFace.ts` `statsLine`). On Android only the generic `monospace` applies. The text image seems to be measured narrower than it is drawn with that font, so its right end is cut off.
+
+Suggested fixes, for the team to pick:
+- draw the stat line in the normal UI font, or
+- give that text a little right padding, or
+- measure it again once fonts are ready.
+
+In every case, check on a real Android phone or an emulator; desktop Chromium does not reproduce it.
+
+## CI on the head
+Recorded in the next section, once CI has run on the round-2 QA commit.

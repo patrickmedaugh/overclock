@@ -802,7 +802,18 @@ test.describe('QA toasts (S-10-6 follow-up): 10 px floor and repeated lines coll
     await page.evaluate(() => window.__overclock!.clearAnims());
     await tap(page, l.runner.credits);
     await page.waitForFunction(() => window.__overclock!.anims().some((a) => a.kind === 'hint'), undefined, { timeout: 3000 });
-    l = await layout(page);
+    // Round 2: the refused tap also shakes the clicks pill (±6 px for 260 ms, the "no clicks" feedback);
+    // its mid-shake box can poke 1 px past the screen edge. The layout check is about where things rest,
+    // so read it once the pill is back at its resting box (the shake is a `ui` tween, not in `animating`);
+    // the toast (~1.4 s) must still be up then.
+    const rest = l.runner.clicks;
+    await page.waitForTimeout(280); // the shake starts and ends at its resting x: let it run first
+    await page.waitForFunction((b) => {
+      const c = window.__overclock!.layout().runner.clicks;
+      return c.x === b.x && c.y === b.y && c.width === b.width && c.height === b.height;
+    }, rest, { polling: 'raf', timeout: 2000 });
+    l = await waitIdle(page);
+    expect(l.hint, 'the refusal toast is still showing once the shake is over').not.toBeNull();
     const all = await page.evaluate(() => window.__overclock!.anims());
     const t = all.find((a) => a.kind === 'hint' && a.fontPx !== undefined);
     expect(t, `a hint record with its size in ${JSON.stringify(all.filter((a) => a.kind === 'hint'))}`).toBeTruthy();
