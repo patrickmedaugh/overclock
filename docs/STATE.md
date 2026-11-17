@@ -1,6 +1,6 @@
 # Project state
 
-phase: QA
+phase: DEMO
 running_since: 2026-11-17T16:29Z
 sprint: 11
 open_pr: none (Sprint 11 proposal PR #25 merged 1ed29f0 after owner "Approved" in chat 2026-11-17 ~16:29 UTC)
@@ -9,6 +9,9 @@ last_owner_activity: 2026-11-17 ~16:00 UTC — owner approved Sprint 10 in chat 
 ## Sprint 11 BUILD summary (branch sprint-11, head e8b86b7) — code-complete 2026-11-17
 - Tech plan docs/sprints/sprint-11-tech-plan.md. Engine E1 save/load in packages/match (seed + accepted actions, golden fixture), E2 online Leave for now + 7-day idle (protocol additive, RULES_VERSION 4 unchanged), E3 300-game save/restore property test + goal ice_wall_ram_gordian. UI U1 break buttons "Card: break <type> sub · price", one-option break sends at once, "Pick up to N"; U2 pass-the-phone Continue game; U3 online Leave for now + "Continue game · CODE"; U4 card stats in UI font, wrapping "Str 4" pairs.
 - Architect approved (e8b86b7). Leave-for-now waits ≤1.5 s ("Saving…") accepted. CI e2e red only in QA-owned specs with old labels: qa-sprint03-pass2 :314 :343 :440 :511, qa-sprint03 :183, qa-sprint06 :336 (+ :222 should check /Continue game/), qa-sprint07 :311 :354, qa-sprint08 :388 :433 :463, qa-sprint10 :511 :564 — QA to update text without loosening floors. Android font clipping and real app-kill restore need an owner phone check.
+
+## Sprint 11 QA summary — 2026-11-17
+- docs/sprints/sprint-11-qa.md (round 1). 19/21 AC pass, 0 fail, 2 owner phone checks (S-11-3 AC2 real Android app kill; S-11-4 AC1 Android font: Wall of Static, Ichi 1.0, Corroder). No bugs. QA-owned specs updated to Sprint 11 labels (no floors loosened); new qa-sprint11 e2e/unit/match tests. CI fully green on bfd35a7 (e2e 1,543 pass / 0 fail / 0 flaky). Deploy (Pages) + APK app-sprint-11 published from bfd35a7.
 
 ## Sprint 10 BUILD summary (branch sprint-10, head 9fd8688) — code-complete 2026-11-17
 - Tech plan docs/sprints/sprint-10-tech-plan.md. Engine E1–E4 (advance cap, Bank Job chosen amount, RULES_VERSION 4, SPRINT10_GOALS). UI U1–U5 (scored piles far right both rows, Memory/Link/Tagged column, pile tap-to-open + PSF from pile + 'score it first' hint, Bank Job amount control, Archives lane slide + fills on landing, discard view tap-to-open, toasts clear of buttons with 10px floor and repeat collapse).
