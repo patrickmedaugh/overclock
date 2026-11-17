@@ -75,6 +75,8 @@ export const ONLINE_TIMING = {
   /** After coming back (page shown again, network back): a quicker check of the old socket. */
   wakePongWait: 3_000,
   ackWait: 5_000,
+  /** Sprint 11: Leave for now waits this long at most for the service to close the socket (it got `leave`). */
+  leaveWait: 1_500,
 } as const;
 
 const OPEN = 1;
@@ -256,13 +258,37 @@ export class OnlineMatch implements Session {
    * other player reads "The Runner left for now. The game is saved"; offline it just
    * sees this phone go away.
    */
-  leave(): void {
-    if (this.phaseNow.kind === 'playing') {
-      this.send({ v: 1, t: 'leave' });
-      // A finished game stays forgotten (no Continue for it).
-      if (!this.current?.result) this.store();
+  leave(): Promise<void> {
+    const s = this.socket;
+    if (this.phaseNow.kind !== 'playing' || !s || s.readyState !== OPEN || this.stopped) {
+      if (this.phaseNow.kind === 'playing' && !this.current?.result) this.store();
+      this.stop();
+      return Promise.resolve();
     }
+    this.send({ v: 1, t: 'leave' });
+    // A finished game stays forgotten (no Continue for it).
+    if (!this.current?.result) this.store();
+    // The service answers `leave` by closing this socket. Wait for that (short), so the message
+    // isn't lost when the page goes to the start screen right after; then close it ourselves anyway.
+    this.socket = null;
     this.stop();
+    return new Promise((resolve) => {
+      let timer: unknown = null;
+      const done = () => {
+        if (timer !== null) this.deps.clearTimeout(timer);
+        timer = null;
+        s.onclose = null;
+        try {
+          s.close(1000, 'left');
+        } catch {
+          // already closed
+        }
+        resolve();
+      };
+      s.onopen = s.onmessage = s.onerror = null;
+      s.onclose = done;
+      timer = this.deps.setTimeout(done, ONLINE_TIMING.leaveWait);
+    });
   }
 
   /**

@@ -372,7 +372,8 @@ describe('OnlineMatch: coming back', () => {
 
   it('leave() stops for good but keeps the seat for Continue', () => {
     const { m } = joined();
-    m.leave();
+    void m.leave();
+    clock.advance(ONLINE_TIMING.leaveWait);
     expect(sockets[0]!.closed).not.toBeNull();
     clock.advance(60_000);
     expect(sockets).toHaveLength(1);
@@ -382,22 +383,54 @@ describe('OnlineMatch: coming back', () => {
 });
 
 describe('Sprint 11: Leave for now', () => {
-  it('in a started game, leave() tells the service first (leave), then closes normally; the seat stays with a fresh savedAt', () => {
+  it('in a started game, leave() tells the service first (leave) and resolves when the service closes the socket; the seat stays with a fresh savedAt', async () => {
     const { m } = joined();
     clock.advance(5_000);
-    m.leave();
+    let done = false;
+    const p = m.leave().then(() => {
+      done = true;
+    });
     const s = sockets[0]!;
     expect(s.msgs().at(-1)).toEqual({ v: 1, t: 'leave' });
+    // Not closed by us yet: the service closes it after reading leave.
+    expect(s.closed).toBeNull();
+    s.serverClose(1000);
+    await p;
+    expect(done).toBe(true);
     expect(s.closed).toEqual({ code: 1000, reason: 'left' });
+    // No reconnect after that.
+    clock.advance(60_000);
+    expect(sockets).toHaveLength(1);
     expect(JSON.parse(store.getItem(STORAGE_KEY)!)).toEqual({ server: SERVER, code: 'K7QF', seat: 'runner', token: 'tok', rulesVersion: RULES_VERSION, savedAt: 6_000 });
     expect(m.status().connection).toBe('closed');
+  });
+
+  it('leave() closes the socket itself if the service does not within leaveWait', async () => {
+    const { m } = joined();
+    const p = m.leave();
+    expect(sockets[0]!.closed).toBeNull();
+    clock.advance(ONLINE_TIMING.leaveWait);
+    await p;
+    expect(sockets[0]!.closed).toEqual({ code: 1000, reason: 'left' });
+    expect(clock.pending()).toBe(0);
+  });
+
+  it('leave() while reconnecting: nothing to send, stops at once, the seat stays', async () => {
+    const { m } = joined();
+    last().serverClose();
+    expect(m.status().connection).toBe('reconnecting');
+    await m.leave();
+    expect(m.status().connection).toBe('closed');
+    clock.advance(60_000);
+    expect(sockets).toHaveLength(1);
+    expect(store.getItem(STORAGE_KEY)).not.toBeNull();
   });
 
   it('leave() of a finished game does not store it again (no Continue for it)', () => {
     const { m } = joined();
     last().serverSend({ v: 1, t: 'update', seq: 1, view: { ...runnerView, result: { winner: 'runner', reason: 'agenda_points' } } as PlayerView, events: [] });
     expect(store.getItem(STORAGE_KEY)).toBeNull();
-    m.leave();
+    void m.leave();
     expect(store.getItem(STORAGE_KEY)).toBeNull();
   });
 
@@ -427,7 +460,7 @@ describe('Sprint 11: Leave for now', () => {
     last().serverOpen();
     last().serverSend({ v: 1, t: 'seated', code: 'K7QF', seat: 'corp', token: 'tok' });
     last().serverSend({ v: 1, t: 'lobby', code: 'K7QF', seat: 'corp' });
-    m.leave();
+    void m.leave();
     expect(last().msgs().some((x) => (x as { t?: string }).t === 'leave')).toBe(false);
   });
 

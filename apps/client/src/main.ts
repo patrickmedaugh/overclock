@@ -222,8 +222,10 @@ async function start(): Promise<void> {
       const m = session;
       board.setOnline(true);
       leaveGame = () => {
-        m.leave();
-        window.location.assign(startUrl());
+        // Sprint 11: Leave for now: the service is told (the other player reads it), then the start screen.
+        const left = m.leave();
+        board.setStatus('Saving…');
+        void left.then(() => window.location.assign(startUrl()));
       };
       newGame = () => {
         m.forget();

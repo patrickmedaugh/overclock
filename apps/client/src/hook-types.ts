@@ -505,6 +505,8 @@ export interface OverclockTestHook {
     phase: 'connecting' | 'lobby' | 'playing' | 'failed';
     connection: 'local' | 'connecting' | 'open' | 'reconnecting' | 'closed';
     opponent: 'none' | 'here' | 'away';
+    /** Sprint 11: the other player chose Leave for now (only while they are away). */
+    left?: true;
     busy: boolean;
     /**
      * Wall-clock ms (`Date.now()` scale, from `performance.timeOrigin`) when the board last took a
