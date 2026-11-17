@@ -469,8 +469,8 @@ function abilityOption(state: GameState, action: ActionOf<'activate'>, c: Instal
 
 /**
  * Per own installed card uid, listed off-turn too with the reason in `reject` (like `handOptions`).
- * Corp (servers in order; ICE innermost first, then content): agenda `advance` (cost 1) and, once it
- * has enough counters, `score`; unrezzed asset/upgrade `rez` (cost = rez cost, Sprint 7); click
+ * Corp (servers in order; ICE innermost first, then content): agenda `advance` (cost 1) until it
+ * has enough counters, then only `score` (Sprint 10); unrezzed asset/upgrade `rez` (cost = rez cost, Sprint 7); click
  * abilities of rezzed cards. Runner (Sprint 7, rig order): one `activate` per `click` ability.
  * Sprint 9 (Corp): per scored agenda with `scoredAbilities` (key `score:corp:<i>`) its `activate` options;
  * while the Runner is tagged, one `trash_resource` (cost 2, `clicks: 1`) per rig resource
@@ -491,8 +491,9 @@ export function installedOptions(state: GameState, player: Side): Record<string,
       const card = getCard(c.cardId);
       const opts: CardOption[] = [];
       if (card?.type === 'agenda') {
-        opts.push(option(state, { type: 'advance', player, uid: c.uid }, ADVANCE_COST));
+        // Sprint 10: advance stops at the requirement; from then on only Score is offered.
         if (c.advancements >= (card.advancementRequirement ?? 0)) opts.push(option(state, { type: 'score', player, uid: c.uid }, 0));
+        else opts.push(option(state, { type: 'advance', player, uid: c.uid }, ADVANCE_COST));
       } else if (card?.type === 'ice' && card.advanceable) {
         // Sprint 7: advanceable ICE (Ice Wall), face up or down.
         opts.push(option(state, { type: 'advance', player, uid: c.uid }, ADVANCE_COST));

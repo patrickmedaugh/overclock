@@ -160,7 +160,7 @@ describe('S-03-2 AC4: 7 agenda points win at once', () => {
   });
 });
 
-describe('installedOptions (Corp: advance, then score once ready)', () => {
+describe('installedOptions (Corp: advance, then only score once ready)', () => {
   it('advance per installed agenda; score appears with enough counters; non-advanceable ICE is not listed', () => {
     let s = corpInstalled(['c08', 'c04', 'c03', 'c09'], 3, 5);
     expect(viewFor('corp', s).installedOptions).toEqual({
@@ -170,14 +170,11 @@ describe('installedOptions (Corp: advance, then score once ready)', () => {
       i4: [{ action: advance('corp', 'i4'), cost: 1, reject: null }],
     });
     s = run(s, [advance('corp', 'i1'), advance('corp', 'i1')]).state;
-    expect(viewFor('corp', s).installedOptions.i1).toEqual([
-      { action: advance('corp', 'i1'), cost: 1, reject: null },
-      { action: score('corp', 'i1'), cost: 0, reject: null },
-    ]);
+    // Sprint 10: at its requirement an agenda offers only Score (advance stops there).
+    expect(viewFor('corp', s).installedOptions.i1).toEqual([{ action: score('corp', 'i1'), cost: 0, reject: null }]);
     expect(viewFor('runner', s).installedOptions).toEqual({});
     // Advance and score are in legalActions, after installs/plays.
-    expect(legalActions(s, 'corp').slice(-4)).toEqual([
-      advance('corp', 'i1'),
+    expect(legalActions(s, 'corp').slice(-3)).toEqual([
       score('corp', 'i1'),
       { type: 'rez', player: 'corp', uid: 'i3' },
       advance('corp', 'i4'),

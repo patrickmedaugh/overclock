@@ -1558,7 +1558,8 @@ function s9CorpMove(goal: StepGoal, v: PlayerView): Action {
   }
   if (want.exact !== undefined && me.credits > want.exact) {
     // hunter_corp_broke: burn credits by advancing an installed agenda (never scored; the Runner never runs it).
-    const agenda = agendas(v)[0];
+    // Sprint 10: only one below its requirement (advance stops there); else install another.
+    const agenda = agendas(v).find((a) => a.advancements < a.need);
     if (agenda) return { type: 'advance', player: 'corp', uid: agenda.uid };
     return installNewOf(isAgendaId) ?? draw(2);
   }

@@ -515,7 +515,9 @@ maxHandSize(state, side) = 5 − brainDamage    // exported
 
 Everything in the Sprint 1–9 interfaces still holds unless noted. Tech plan: `docs/sprints/sprint-10-tech-plan.md`. `RULES_VERSION = 4` (live online games expire on deploy). `PROTOCOL_VERSION` stays 1. No new events, no new view fields.
 
-**E1 status:** types (`take_credits.amount: 'chosen'`, `activate.amount`), the `activateAmount` check (last in `activate`), `abilityGain(installed, ability, amount?)`, `'chosen'` resolution, `RULES_VERSION = 4`. Bank Job still takes all and the advance cap is not on until E2/E3.
+**E1 status:** types (`take_credits.amount: 'chosen'`, `activate.amount`), the `activateAmount` check (last in `activate`), `abilityGain(installed, ability, amount?)`, `'chosen'` resolution, `RULES_VERSION = 4`. Bank Job still takes all until E3.
+
+**E2 status:** advance cap on (`belowRequirement` → `condition_not_met`, `atAdvanceLimit(state, uid)` exported from `rules.ts`); `installedOptions` lists only `score` for an agenda at its requirement; Ice Wall unchanged; the AI is never offered it.
 
 ### Card DSL (`@overclock/cards`, additive)
 ```ts

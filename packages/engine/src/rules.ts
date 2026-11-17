@@ -552,6 +552,15 @@ const ownAgenda = (s: GameState, a: ActionOf<'score'>): RejectReason | null =>
 const ownAdvanceable = (s: GameState, a: ActionOf<'advance'>): RejectReason | null =>
   a.player === 'corp' && advanceTarget(s, a.uid) ? null : 'bad_target';
 
+/** Sprint 10: an agenda at (or past) its advancement requirement can't be advanced again (house rule). ICE: no limit. */
+export function atAdvanceLimit(s: GameState, uid: unknown): boolean {
+  const agenda = installedAgenda(s, uid);
+  return !!agenda && agenda.advancements >= (getCard(agenda.cardId)?.advancementRequirement ?? 0);
+}
+
+const belowRequirement = (s: GameState, a: ActionOf<'advance'>): RejectReason | null =>
+  atAdvanceLimit(s, a.uid) ? 'condition_not_met' : null;
+
 const canAffordAdvance = (s: GameState, a: ActionOf<'advance'>): RejectReason | null =>
   s.players[a.player].credits >= ADVANCE_COST ? null : 'no_credits';
 
@@ -723,7 +732,7 @@ export const RULES: RuleTable = {
   ],
   steal: [playerShape, cardShape, notOver, decides, atStep('access'), stealTarget],
   trash: [playerShape, cardShape, notOver, decides, atStep('access'), trashTarget, canAffordTrash],
-  advance: [playerShape, uidShape, notOver, yourTurn, inPhase('action'), hasClick, ownAdvanceable, canAffordAdvance],
+  advance: [playerShape, uidShape, notOver, yourTurn, inPhase('action'), hasClick, ownAdvanceable, belowRequirement, canAffordAdvance],
   score: [playerShape, uidShape, notOver, yourTurn, inPhase('action'), ownAgenda, enoughCounters],
   activate: [
     playerShape,
