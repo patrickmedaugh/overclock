@@ -511,6 +511,42 @@ maxHandSize(state, side) = 5 − brainDamage    // exported
 - Test-mode `create.test.deckSet?: 'core' | 'starter'` (production ignores `test`; always `'core'`). `PROTOCOL_VERSION` stays 1. `ONLINE_OPTIONS = {rezWindow: 'always', deckSet: 'core'}`.
 - `@overclock/match/testing`: `planToStep(seed, goal, maxActions?, options?)` plans on `options.deckSet ?? goalDeckSet(goal)` (Sprint 3–7 goals: `'starter'`; Sprint 8 goals: `'core'`) and returns `plan.deckSet`; `planBusyBoard(seed, goal?, maxActions?, deckSet = 'starter')` returns `deckSet`. Create the page's game with the plan's `deckSet`.
 
+## Sprint 10 interface (pinned: implement exactly this; changes go through the architect)
+
+Everything in the Sprint 1–9 interfaces still holds unless noted. Tech plan: `docs/sprints/sprint-10-tech-plan.md`. `RULES_VERSION = 4` (live online games expire on deploy). `PROTOCOL_VERSION` stays 1. No new events, no new view fields.
+
+**E1 status:** types (`take_credits.amount: 'chosen'`, `activate.amount`), the `activateAmount` check (last in `activate`), `abilityGain(installed, ability, amount?)`, `'chosen'` resolution, `RULES_VERSION = 4`. Bank Job still takes all and the advance cap is not on until E2/E3.
+
+### Card DSL (`@overclock/cards`, additive)
+```ts
+| { op: 'take_credits'; amount: number | 'all' | 'chosen' }   // 'chosen': the player names 1..hosted credits in `activate.amount`
+// Bank Job (r10): cardAbilities[0] = { label: 'Take credits', when: 'successful_run_remote', clicks: 0, credits: 0,
+//   requires: 'hosted_credits', replacesAccess: true, effects: [{ op: 'take_credits', amount: 'chosen' }] }
+```
+
+### Actions
+```ts
+| { type: 'activate'; player; uid; ability; amount?: number }
+//   checks: … → activateCredits → activateAmount:
+//   invalid_action: amount given but not an integer; given for an ability with no 'chosen' effect; missing for one with it
+//   bad_target: amount outside 1..the card's hosted credits
+| { type: 'advance'; player; uid }
+//   checks: … → hasClick → ownAdvanceable → belowRequirement → canAffordAdvance
+//   belowRequirement: an installed agenda with advancements >= advancementRequirement → condition_not_met
+//   (advanceable ICE: no limit). Rejections go only to the sender's seat.
+```
+
+### Rules helpers
+- `hasChosenAmount(ability)`; `abilityGain(installed, ability, amount?)` (a `'chosen'` take gives `amount`, capped at the card's credits).
+
+### View (no new fields)
+- Run step `success`: per usable `replacesAccess` ability with a `'chosen'` effect, **one `activate` option per amount 1..N** (N = hosted credits; `amount` set, `gain` = amount, cost 0), ascending; then `pass` (= Access cards). Mirrors `trace_bid`.
+- Corp `installedOptions`: an agenda at its requirement lists only `score` (no `advance`); one short lists `advance` (and `score` only once it qualifies). Ice Wall unchanged.
+- Taking every credit still trashes Bank Job (`trashWhenEmpty`); the run ends `access_replaced`. Events as Sprint 7 (`ability_triggered`, `hosted_credits_changed`, `credit_gained`, `rig_card_trashed`?, `run_ended`).
+
+### AI
+- Runner at step `success`: takes the highest offered amount. Corp: never sees `advance` on an agenda at its requirement.
+
 ## Sprint 9 interface (pinned: implement exactly this; changes go through the architect)
 
 Everything in the Sprint 1–8 interfaces still holds unless noted. Tech plan: `docs/sprints/sprint-09-tech-plan.md`. No engine or client code checks a card id. `RULES_VERSION = 3` (live online games expire on deploy). `PROTOCOL_VERSION` stays 1.
