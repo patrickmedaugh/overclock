@@ -121,18 +121,19 @@ describe('Sprint 7 planToStep goals', () => {
       });
     });
 
-    it.each(SEEDS)('runner_bank_job_remote (seed %i): Take 8 credits from Bank Job instead of access; Heap; same on both', (seed) => {
+    it.each(SEEDS)('runner_bank_job_remote (seed %i): Take credits (Sprint 10: 1..8; the max, 8) instead of access; Heap; same on both', (seed) => {
       const { m, info } = setup(seed, 'runner_bank_job_remote', options);
       const credits = m.view('runner').players.runner.credits;
       ok(m, { type: 'run', player: 'runner', server: info.server as ServerId });
       const rv = m.view('runner').run!;
       expect(rv.step).toBe('success');
+      const take = (amount: number): Action => ({ type: 'activate', player: 'runner', uid: info.bankJobUid!, ability: 0, amount });
       expect(rv.options).toEqual([
-        { action: { type: 'activate', player: 'runner', uid: info.bankJobUid, ability: 0 }, cost: 0, reject: null, gain: 8 },
+        ...[1, 2, 3, 4, 5, 6, 7, 8].map((n) => ({ action: take(n), cost: 0, reject: null, gain: n })),
         { action: { type: 'pass', player: 'runner' }, cost: 0, reject: null },
       ]);
       expect(m.view('corp').run).toMatchObject({ step: 'success', waitingOn: 'runner', options: [] });
-      const u = ok(m, rv.options[0]!.action);
+      const u = ok(m, take(8));
       both(u, (events, view) => {
         expect(events).toEqual([
           { type: 'ability_triggered', uid: info.bankJobUid, cardId: 'r10', trigger: 'successful_run' },

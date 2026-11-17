@@ -53,6 +53,7 @@ function chooseTraceBid(view: PlayerView, offered: readonly Action[]): Action | 
  * the costliest offered ICE, else skips; Sprint 8: in a `trash_target` choice it
  * trashes the costliest program, in a `prevent_trash` choice it saves the card; Sprint 9: trace bids
  * (`chooseTraceBid`) and tag actions (`chooseTagAction`: PSF, trash a resource, remove a tag).
+ * Sprint 10: at run step `success` it takes the most credits offered (Bank Job, `chooseTakeAmount`).
  */
 export function chooseAction(view: PlayerView): Action | null {
   if (view.choice && view.choice.options.length > 0) {
@@ -62,7 +63,21 @@ export function chooseAction(view: PlayerView): Action | null {
     if (view.choice.kind === 'trace_corp' || view.choice.kind === 'trace_runner') return chooseTraceBid(view, offered);
     return chooseFreeRez(view, offered);
   }
-  return chooseTagAction(view) ?? view.legalActions[0] ?? null;
+  return chooseTagAction(view) ?? chooseTakeAmount(view) ?? view.legalActions[0] ?? null;
+}
+
+/**
+ * Sprint 10, run step `success` (Bank Job: one `activate` per amount): take the highest offered amount
+ * (first card offered on a tie). Null when no amount is offered.
+ */
+function chooseTakeAmount(view: PlayerView): Action | null {
+  if (view.run?.step !== 'success') return null;
+  let best: Action | null = null;
+  for (const a of view.legalActions) {
+    if (a.type !== 'activate' || a.amount === undefined) continue;
+    if (best === null || (best.type === 'activate' && a.amount > (best.amount ?? 0))) best = a;
+  }
+  return best;
 }
 
 /** Credits needed to keep before removing a tag (the 2-credit cost plus a 2-credit cushion). */

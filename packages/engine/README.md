@@ -517,6 +517,8 @@ Everything in the Sprint 1–9 interfaces still holds unless noted. Tech plan: `
 
 **E1 status:** types (`take_credits.amount: 'chosen'`, `activate.amount`), the `activateAmount` check (last in `activate`), `abilityGain(installed, ability, amount?)`, `'chosen'` resolution, `RULES_VERSION = 4`. Bank Job still takes all until E3.
 
+**E3 status:** Bank Job (r10) uses `take_credits{amount:'chosen'}`, label "Take credits"; step `success` lists one `activate` per amount 1..N then `pass` (shared `abilityOptions`, also used for click abilities); the AI Runner takes the highest offered amount; 300-game property run and online room parity (`apps/server/test/sprint10-parity.test.ts`).
+
 **E2 status:** advance cap on (`belowRequirement` → `condition_not_met`, `atAdvanceLimit(state, uid)` exported from `rules.ts`); `installedOptions` lists only `score` for an agenda at its requirement; Ice Wall unchanged; the AI is never offered it.
 
 ### Card DSL (`@overclock/cards`, additive)
