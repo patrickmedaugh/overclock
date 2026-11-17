@@ -86,7 +86,8 @@ Local re-run of exactly these tests at all sizes, `--retries=0`: 46 passed, 1 sk
 
 ## Checks
 - `npm run lint`, `npm run typecheck`: pass. `npm test`: all unit suites pass (2,338 tests across the 8 workspaces, including the 2 new QA files).
-- Full e2e: CI on the QA commit (see below; QA uses CI as this round's full pass, per `docs/TESTING.md`).
+- Full e2e on the QA commit bfd35a7 (CI run 44152755768, all 4 shards, CI retries=1): **1,543 passed, 0 failed, 0 flaky, 14 skipped** (shards 384 / 384 / 386 / 389). `checks` (lint, typecheck, unit), `guard-mutation`, build, Android and deploy: all green. QA used this CI run as the round's full pass instead of a local re-run (`docs/TESTING.md`).
+- Before the QA commit, CI on e8b86b7 (run 44143599428) was red only because of the QA-owned specs listed above (40 failures in 13 tests, all old labels).
 
 ## Needs the owner's phone
 1. **Card numbers (S-11-4 AC1):** open a big card for Wall of Static, Ichi 1.0 and Corroder in the hand view and check that "Strength 3", "Strength 4" and "Strength 2 · Memory 1" show in full.
