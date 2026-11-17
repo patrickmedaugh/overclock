@@ -127,6 +127,9 @@ function inBox(b: Box, x: number, y: number): boolean {
   return x >= b.x && x <= b.x + b.width && y >= b.y && y <= b.y + b.height;
 }
 
+/** S-10-6: a toast's text is never drawn smaller than this (px). */
+export const HINT_MIN_PX = 10;
+
 /** True if `c` is `root` or inside it. */
 function isUnder(c: Container | null, root: Container | null): boolean {
   for (let n: Container | null = c; n; n = n.parent) if (n === root) return true;
@@ -323,7 +326,7 @@ export class Board {
   private runPicking = false;
   /** Installed card picked for its choices (Corp agenda: Advance / Score). */
   private pickedInstalled: string | null = null;
-  private hint: { text: string; root: Container; box: Box; kind: 'hint' | 'notice'; slot: string; wide: boolean } | null = null;
+  private hint: { text: string; root: Container; box: Box; kind: 'hint' | 'notice'; slot: string; wide: boolean; area: Box } | null = null;
   /** QA-S9-1: the notices waiting for the cover include a trace result (shown in the wide slot). */
   private pendingWide = false;
   private zoom: {
@@ -3016,37 +3019,42 @@ export class Board {
     const layout = this.layout;
     if (!layout) return;
     const s = Math.min(layout.scale, 1.2);
-    const area = this.hintSlot(layout, wide);
+    const primary = this.hintSlot(layout, wide);
     const root = new Container();
     const padX = Math.max(6, Math.round(8 * s));
     const padY = Math.max(5, Math.round(6 * s));
     // Room for the glow ring around the bubble.
     const ring = 3;
+    const fontSize = Math.max(12, Math.round(15 * s));
     const label = new Text({
       text,
-      style: {
-        fontFamily: theme.fontFamily,
-        fontSize: Math.max(12, Math.round(15 * s)),
-        fontWeight: '700',
-        fill: 0x140a00,
-        align: 'center',
-        wordWrap: true,
-        wordWrapWidth: Math.max(60, area.width - 2 * padX - 2 * ring),
-        lineHeight: Math.max(14, Math.round(17 * s)),
-      },
+      style: { fontFamily: theme.fontFamily, fontSize, fontWeight: '700', fill: 0x140a00, align: 'center', wordWrap: true, wordWrapWidth: 60, lineHeight: Math.max(14, Math.round(17 * s)) },
     });
     label.anchor.set(0.5);
-    const w = label.width + 2 * padX;
-    const h = Math.max(32, label.height + 2 * padY);
+    // The slot is sized so hints wrap at full size; shrink only if one ever does not fit, and
+    // never below HINT_MIN_PX: a slot too small for that (buttons took the room) gives way to
+    // the room over the table, clear of every button.
+    const measure = (a: Box) => {
+      label.style.wordWrapWidth = Math.max(60, a.width - 2 * padX - 2 * ring);
+      const w = label.width + 2 * padX;
+      const h = Math.max(32, label.height + 2 * padY);
+      return { a, w, h, fit: Math.min(1, (a.width - 2 * ring) / w, (a.height - 2 * ring) / h) };
+    };
+    let m = measure(primary);
+    if (fontSize * m.fit < HINT_MIN_PX) {
+      const table = measure(this.tableHintSlot(layout));
+      m = table.fit > m.fit ? table : measure(primary);
+    }
+    const fit = Math.max(m.fit, HINT_MIN_PX / fontSize);
+    const { a: area, w, h } = m;
     const g = new Graphics();
     const tone = kind === 'notice' ? theme.runner : theme.warn;
     g.roundRect(-w / 2, -h / 2, w, h, Math.min(h / 2, 18)).fill({ color: tone });
     g.roundRect(-w / 2 - ring, -h / 2 - ring, w + 2 * ring, h + 2 * ring, Math.min(h / 2, 18) + ring).stroke({ width: 3, color: tone, alpha: 0.35 });
     root.addChild(g, label);
-    // The slot is sized so hints wrap at full size; shrink only if one ever does not fit.
-    const fit = Math.max(0.01, Math.min(1, (area.width - 2 * ring) / w, (area.height - 2 * ring) / h));
     root.scale.set(fit);
-    const hint = { text, root, box: { x: 0, y: 0, width: w * fit, height: h * fit }, kind, slot: JSON.stringify(area), wide };
+    // `slot` is the usual slot (re-checked as buttons come and go); `area` is where it went.
+    const hint = { text, root, box: { x: 0, y: 0, width: w * fit, height: h * fit }, kind, slot: JSON.stringify(primary), wide, area };
     this.positionHint(hint);
     root.alpha = 0;
     this.hintLayer.addChild(root);
@@ -3123,6 +3131,12 @@ export class Board {
   }
 
   /** Where the toast goes: the hint slot, or (sideways, during a run) End turn's slot, clear of the run panel. */
+  /** S-10-6: the room over the table (the wide trace note's), clear of every button and of the game-over box. */
+  private tableHintSlot(layout: BoardLayout): Box {
+    const slot = clearOf(this.baseHintSlot(layout, true), this.buttonBoxes(), Math.max(4, Math.round(6 * layout.scale)));
+    return this.gameOver ? this.clearOfGameOver(layout, slot) : slot;
+  }
+
   private hintSlot(layout: BoardLayout, wide = false): Box {
     let slot = this.baseHintSlot(layout, wide);
     // S-10-6 (QA-S9-4): a toast never covers a button (End turn, Last run, a lit choice included).
@@ -3188,11 +3202,13 @@ export class Board {
     return { x: g.x, y: g.y - gap - ha, width: g.width, height: ha };
   }
 
-  private positionHint(hint: { root: Container; box: Box; wide?: boolean }): void {
+  private positionHint(hint: { root: Container; box: Box; wide?: boolean; area?: Box }): void {
     const layout = this.layout;
     if (!layout) return;
-    const a = this.hintSlot(layout, hint.wide ?? false);
-    const run = this.runNoticeSlot(layout, this.view) !== null || (!!hint.wide && JSON.stringify(a) !== JSON.stringify(this.hintSlot(layout)));
+    const usual = this.hintSlot(layout, hint.wide ?? false);
+    const a = hint.area ?? usual;
+    // Over the table (a wide note, or a toast that moved there for room): centred in its slot.
+    const run = this.runNoticeSlot(layout, this.view) !== null || JSON.stringify(a) !== JSON.stringify(this.hintSlot(layout));
     const cx = a.x + a.width / 2;
     // Sideways the slot is tall (the help text's room): sit at its bottom, by the viewer's name.
     const cy = layout.mode === 'landscape' && !run ? a.y + a.height - 3 - hint.box.height / 2 : a.y + a.height / 2;

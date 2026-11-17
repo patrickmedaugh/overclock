@@ -84,6 +84,29 @@ test.describe('S-10-6 two small screen fixes', () => {
     await shot(page, 's10-6-trace-note-clear');
   });
 
+  test('a refusal toast with Run and Last run in the rail: readable (>= 10 px), on screen and clear of every button', async ({ page }) => {
+    await core(page, 1);
+    const plan = await toStep(page, 1, 'remote_single_card_no_ice');
+    let l = await startRun(page, plan.info['server']!);
+    await tap(page, l.run!.buttons.find((b) => /^(Trash|Steal)/.test(b.label))!.box);
+    l = await waitIdle(page);
+    // Short screens: both rail buttons up, little room left under them.
+    expect(l.runButton).not.toBeNull();
+    expect(l.lastRun.button).not.toBeNull();
+    await page.evaluate(() => window.__overclock!.clearAnims());
+    // A refused move (the Corp can't draw on the Runner's turn): the game's refusal shows as a toast.
+    await page.evaluate(() => window.__overclock!.dispatch({ type: 'draw', player: 'corp' }));
+    await page.waitForFunction(() => window.__overclock!.layout().hint !== null);
+    l = await layout(page);
+    const toast = (await page.evaluate(() => window.__overclock!.anims())).find((a) => a.kind === 'hint');
+    expect(toast, 'the refusal shows').toBeTruthy();
+    expect(toast!.fontPx!, 'toast text >= 10 px').toBeGreaterThanOrEqual(10);
+    expect(l.hint).not.toBeNull();
+    for (const [name, b] of buttons(l)) expect(overlaps(l.hint!.box, b), `toast vs ${name}`).toBe(false);
+    expectCleanLayout(l);
+    await shot(page, 's10-6-refusal-toast');
+  });
+
   test('the game-over box never has the build date drawn inside it', async ({ page }) => {
     await core(page, 1);
     let l = await layout(page);
