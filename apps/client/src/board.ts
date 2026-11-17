@@ -16,7 +16,7 @@ import { CAROUSEL_SLIDE_MS, Carousel, type CarouselFace, listIndex } from './car
 import { createCardBack, createCardFace, createZoomFace, dropCardTextures, flushZoomFaces, glowRoundRect, hasZoomFace, retireCardTextures, smallFaceLayout, textOverflows, textsOf } from './cardFace';
 import { framesAreSlow } from './frameClock';
 import { Cover } from './cover';
-import { centeredBox, clearOf } from './geometry';
+import { centeredBox, clearOf, freeRect } from './geometry';
 import { Hand, type HandCard } from './hand';
 import { DROP_WAIT_MS, LIFT_MS, RETURN_MS, SWIPE_TOLERANCE, VIEW_FADE_MS, type ViewHit, ghostCenter, swipeIndex, targetAt, viewHit } from './handGesture';
 import type { AnimRecord, Box, EndTurnClock, InstalledSnapshot, Insets, LayoutSnapshot, SideLayout, TargetSnapshot } from './hook-types';
@@ -1616,13 +1616,22 @@ export class Board {
     const { sub, action } = layout;
     if (layout.mode === 'landscape') {
       // Below Play (or below Score too, while a picked agenda shows two choices).
-      const above = this.pickedInstalled !== null || this.lastRunShown(this.view) ? layout.action2 : action;
+      // QA-S10-2: only when the second slot is really in use (an agenda that shows Advance alone
+      // leaves it empty, and on a short screen the words need that room).
+      const above = this.secondSlotUsed(layout) || this.lastRunShown(this.view) ? layout.action2 : action;
       const y = above.y + above.height + 4;
       return { x: sub.x, y, width: sub.width, height: Math.max(0, sub.y + sub.height - y) };
     }
     // Column: left of Play (and of the second choice, while a picked agenda shows two).
-    const right = this.pickedInstalled !== null || this.lastRunShown(this.view) ? layout.action2.x : action.x;
+    const right = this.secondSlotUsed(layout) || this.lastRunShown(this.view) ? layout.action2.x : action.x;
     return { x: sub.x, y: sub.y, width: Math.max(0, right - 6 - sub.x), height: sub.height };
+  }
+
+  /** A picked thing's button sits in the second choice slot (Score beside Advance, a second ability). */
+  private secondSlotUsed(layout: BoardLayout): boolean {
+    if (this.pickedInstalled === null) return false;
+    const b = layout.action2;
+    return this.activeTargets.some((t) => t.marker.root.visible && Math.abs(t.marker.box.x - b.x) < 0.5 && Math.abs(t.marker.box.y - b.y) < 0.5);
   }
 
   // ---- view -> widgets ----------------------------------------------------
@@ -1708,7 +1717,12 @@ export class Board {
       // S-10-1: an unscored agenda with a scored ability (Private Security Force) says, dimmed
       // beside its Advance / Score, that the ability needs it scored first (words from card data).
       const first = this.scoreFirstText(view, this.pickedInstalled);
-      if (first) helpText = `${first}\n${helpText}`;
+      if (first) {
+        // QA-S10-2: a short rail keeps just these words, at a readable size.
+        const room = this.helpBox(layout).height;
+        const line = Number(help.style.lineHeight) || 14;
+        helpText = room < 3 * line + 4 ? first : `${first}\n${helpText}`;
+      }
     } else if (pending > 0) {
       const k = pending - this.marked.size;
       main.text = k > 0 ? `Discard ${k}` : 'Tap Confirm';
@@ -3146,15 +3160,39 @@ export class Board {
   /** Where the toast goes: the hint slot, or (sideways, during a run) End turn's slot, clear of the run panel. */
   /** S-10-6: the room over the table (the wide trace note's), clear of every button and of the game-over box. */
   private tableHintSlot(layout: BoardLayout): Box {
-    const b = layout.board;
-    const sc = Math.min(layout.scale, 1.2);
-    const w = Math.min(b.width - 2 * layout.pad, Math.round(560 * sc));
-    const h = Math.min(b.height / 2, Math.round(110 * sc));
-    const over = { x: Math.round(b.x + (b.width - w) / 2), y: Math.round(b.y + b.height * 0.4 - h / 2), width: w, height: h };
-    // During a run its panel (info and buttons) stays clear too.
-    const panel = panelUp(this.view) ? [layout.runInfo, layout.runButtons] : [];
-    const slot = clearOf(over, [...this.buttonBoxes(), ...panel], Math.max(4, Math.round(6 * layout.scale)));
+    // QA-S10-1: only where nothing is drawn (no card, label, pile, counter, button or panel):
+    // the biggest truly free part of the board.
+    const free = freeRect(layout.board, this.drawnBoxes(layout), 80, 24, Math.max(3, Math.round(4 * layout.scale)));
+    const slot = free ?? { x: layout.board.x, y: layout.board.y, width: 0, height: 0 };
     return this.gameOver ? this.clearOfGameOver(layout, slot) : slot;
+  }
+
+  /** QA-S10-1: everything drawn on the board now that a toast must not cover. */
+  private drawnBoxes(layout: BoardLayout): Box[] {
+    const gen = this.gen;
+    const view = this.view;
+    if (!gen || !view) return [];
+    const out: Box[] = [...this.buttonBoxes()];
+    for (const pos of ['top', 'bottom'] as const) {
+      const r = layout[pos];
+      out.push(r.label, r.deck, r.discard);
+      if (r.identity) out.push(r.identity);
+    }
+    for (const seat of gen.seats.values()) if (seat.root.visible && seat.tag.text) out.push({ ...seat.tag.box });
+    out.push(layout.scores.corp, layout.scores.runner, layout.corp.scored, layout.rig.scored, layout.rig.stats, layout.rig.stack, layout.rig.heap);
+    for (const srv of layout.corp.servers) {
+      out.push(srv.label);
+      if (srv.root) out.push(srv.root);
+    }
+    for (const c of gen.installed.values()) out.push({ ...c.box });
+    const hand = this.hands[view.viewer];
+    if (hand.container.visible) for (const h of hand.boxes()) out.push(h.box);
+    if (panelUp(view)) out.push(layout.runInfo, layout.runButtons);
+    if (gen.run.snapshot?.access) out.push(layout.access);
+    if (this.report) out.push({ ...this.report.box });
+    if (this.lastRunStrip) out.push({ ...this.lastRunStrip.box });
+    if (this.gameOver) out.push(layout.gameOver);
+    return out;
   }
 
   private hintSlot(layout: BoardLayout, wide = false): Box {

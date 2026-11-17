@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { clearOf } from '../src/geometry';
+import { clearOf, freeRect } from '../src/geometry';
 import { collapseRepeats } from '../src/hints';
 import type { Box } from '../src/hook-types';
 
@@ -37,5 +37,24 @@ describe('collapseRepeats (S-10-6: toasts stay short enough to read)', () => {
     expect(collapseRepeats('A\nB\nA')).toBe('A\nB\nA');
     expect(collapseRepeats('Not enough credits')).toBe('Not enough credits');
     expect(collapseRepeats(collapseRepeats('X\nX'))).toBe('X ×2');
+  });
+});
+
+describe('freeRect (QA-S10-1: a toast over the table only where nothing is drawn)', () => {
+  const region = { x: 0, y: 0, width: 300, height: 100 };
+  it('the whole region when nothing is in it', () => {
+    expect(freeRect(region, [], 10, 10)).toEqual(region);
+  });
+  it('the biggest free part, clear of every box (with the gap)', () => {
+    const boxes = [
+      { x: 0, y: 0, width: 120, height: 100 },
+      { x: 200, y: 0, width: 100, height: 40 },
+    ];
+    const r = freeRect(region, boxes, 10, 10, 2)!;
+    for (const b of boxes) expect(overlaps(r, b)).toBe(false);
+    expect(r).toEqual({ x: 122, y: 42, width: 178, height: 58 });
+  });
+  it('null when nothing big enough is free', () => {
+    expect(freeRect(region, [{ x: 0, y: 0, width: 295, height: 100 }], 10, 10)).toBeNull();
   });
 });

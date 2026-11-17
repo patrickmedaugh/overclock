@@ -238,7 +238,6 @@ test.describe('QA S-10-1 scored-agenda piles', () => {
   test('AC5 drawn (QA-S10-2): the "score it first" words are really on screen under Advance (pixels, not just the hook)', async ({ page }) => {
     // QA-S10-2: at 891x296 the hook reports the words but the rail has no room under Advance + the
     // hidden Score slot, so nothing is drawn. Expected to fail there until fixed (ui-dev removes the marker).
-    test.fail(test.info().project.name === 'phone-short', 'QA-S10-2: hint not drawn on the short screen');
     await core(page);
     const plan = await toStep(page, 1, 'psf_installed_unscored');
     let l = await waitIdle(page);
@@ -423,7 +422,6 @@ test.describe('QA-S10-1 a notice over the table covers a card on the short scree
   test('after Hunter\'s trace (runner_tagged_full_rig), the notice never covers a card or counter', async ({ page }) => {
     // QA-S10-1: since 6296a1d/9fd8688 a toast that does not fit its rail slot at 10 px moves over the table;
     // at 891x296 "Hunter: Trace 3 – …" covers Server 1's ICE (same failure as s10-stats:129 in CI on 9fd8688).
-    test.fail(test.info().project.name === 'phone-short', 'QA-S10-1: notice covers Server 1 ICE at 891x296');
     await core(page);
     await toStep(page, 1, 'runner_tagged_full_rig');
     const l = await layout(page);

@@ -32,3 +32,42 @@ export function clearOf(slot: Box, boxes: readonly Box[], gap = 0): Box {
   }
   return r;
 }
+
+/**
+ * QA-S10-1: the largest rectangle inside `region` that overlaps none of `obstacles` (each
+ * kept `gap` px away), or null when none is at least `minW` x `minH`. Candidate edges are
+ * the region's and the obstacles' (a small, exact search: boards hold a few dozen boxes).
+ */
+export function freeRect(region: Box, obstacles: readonly Box[], minW: number, minH: number, gap = 0): Box | null {
+  const rx2 = region.x + region.width;
+  const ry2 = region.y + region.height;
+  const obs = obstacles
+    .map((o) => ({ x1: o.x - gap, y1: o.y - gap, x2: o.x + o.width + gap, y2: o.y + o.height + gap }))
+    .filter((o) => o.x2 > region.x && o.x1 < rx2 && o.y2 > region.y && o.y1 < ry2);
+  const ys = [...new Set([region.y, ry2, ...obs.flatMap((o) => [o.y1, o.y2])].map((y) => Math.min(ry2, Math.max(region.y, y))))].sort((a, b) => a - b);
+  let best: Box | null = null;
+  for (let i = 0; i < ys.length; i++) {
+    for (let j = i + 1; j < ys.length; j++) {
+      const y1 = ys[i]!;
+      const y2 = ys[j]!;
+      if (y2 - y1 < minH) continue;
+      const blocked = obs
+        .filter((o) => o.y1 < y2 && o.y2 > y1)
+        .map((o) => [Math.max(region.x, o.x1), Math.min(rx2, o.x2)] as const)
+        .sort((a, b) => a[0] - b[0]);
+      let x = region.x;
+      const gaps: [number, number][] = [];
+      for (const [a, b] of blocked) {
+        if (a > x) gaps.push([x, a]);
+        x = Math.max(x, b);
+      }
+      if (rx2 > x) gaps.push([x, rx2]);
+      for (const [a, b] of gaps) {
+        const w = b - a;
+        if (w < minW) continue;
+        if (!best || w * (y2 - y1) > best.width * best.height) best = { x: a, y: y1, width: w, height: y2 - y1 };
+      }
+    }
+  }
+  return best;
+}
