@@ -86,11 +86,11 @@ describe('LocalMatch', () => {
     expect(u.runner.view.players.corp.discardCount).toBe(1);
   });
 
-  it('actions() + replay(seed, actions) rebuilds the same game (rejections included as no-ops)', () => {
+  it('actions() + replay(seed, actions) rebuilds the same game (Sprint 11: accepted actions only)', () => {
     const m = new LocalMatch(99);
     const script: Array<['corp' | 'runner', Action]> = [
       ['corp', { type: 'gain_credit', player: 'corp' }],
-      ['runner', { type: 'draw', player: 'runner' }], // not_your_turn: logged, no-op
+      ['runner', { type: 'draw', player: 'runner' }], // not_your_turn: rejected, not logged
       ['runner', { type: 'draw', player: 'corp' }], // seat mismatch: not logged
       ['corp', endTurn('corp')],
       ['corp', { type: 'discard', player: 'corp', handIndices: [0] }],
@@ -99,7 +99,8 @@ describe('LocalMatch', () => {
     ];
     for (const [seat, a] of script) m.submit(seat, a);
     const log = m.actions();
-    expect(log).toHaveLength(6);
+    expect(log).toHaveLength(5);
+    expect(log).not.toContainEqual({ type: 'draw', player: 'runner' });
     const rebuilt = replay(99, log).state;
     expect(viewFor('corp', rebuilt)).toEqual(m.view('corp'));
     expect(viewFor('runner', rebuilt)).toEqual(m.view('runner'));

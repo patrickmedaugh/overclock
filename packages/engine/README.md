@@ -511,6 +511,38 @@ maxHandSize(state, side) = 5 − brainDamage    // exported
 - Test-mode `create.test.deckSet?: 'core' | 'starter'` (production ignores `test`; always `'core'`). `PROTOCOL_VERSION` stays 1. `ONLINE_OPTIONS = {rezWindow: 'always', deckSet: 'core'}`.
 - `@overclock/match/testing`: `planToStep(seed, goal, maxActions?, options?)` plans on `options.deckSet ?? goalDeckSet(goal)` (Sprint 3–7 goals: `'starter'`; Sprint 8 goals: `'core'`) and returns `plan.deckSet`; `planBusyBoard(seed, goal?, maxActions?, deckSet = 'starter')` returns `deckSet`. Create the page's game with the plan's `deckSet`.
 
+## Sprint 11 interface (pinned: implement exactly this; changes go through the architect)
+
+Everything in the Sprint 1–10 interfaces still holds unless noted. Tech plan: `docs/sprints/sprint-11-tech-plan.md`. **No rule changes: `RULES_VERSION` stays 4** (live online games survive the deploy). `PROTOCOL_VERSION` stays 1 (additive optional fields only). No engine, card, view or event changes.
+
+**E1 status:** `LocalMatch` keeps an accepted-only log; `save()` / `LocalMatch.load()`; `SavedGame`, `SAVE_FORMAT`, `parseSavedGame`, `LoadResult`, `LoadFailure` exported from `@overclock/match`; golden save fixture (`packages/match/test/fixtures/sprint11-saves.json`).
+
+### Saved games (`@overclock/match`, `src/saved-game.ts`)
+```ts
+const SAVE_FORMAT = 1;
+interface SavedGame {            // plain JSON; ~30–60 KB for a 400-move game (pretty-printed less)
+  format: 1;
+  rulesVersion: number;          // RULES_VERSION the game was played under
+  seed: number;                  // uint32
+  options: GameOptions;          // {rezWindow, deckSet}, defaults filled in
+  actions: Action[];             // every ACCEPTED action, in order
+}
+type LoadFailure = 'broken' | 'outdated' | 'finished';
+type LoadResult = { ok: true; match: LocalMatch } | { ok: false; reason: LoadFailure };
+
+class LocalMatch {
+  save(): SavedGame;                       // detached copy of the log; no state; cheap (call after the move's presentation)
+  static load(x: unknown): LoadResult;     // x = the SavedGame object or its JSON string; never throws
+  actions(): readonly Action[];            // Sprint 11: accepted actions only (was: everything that reached the engine)
+}
+parseSavedGame(x: unknown): SavedGame | 'broken' | 'outdated';   // shape check only (load uses it)
+```
+- `load` order: shape → `broken` (not JSON, not an object, `format` not 1, bad `rulesVersion`/`seed`/`options`, an action without a string `type` and a side `player`); a **higher** integer `format` → `outdated`; `rulesVersion !== RULES_VERSION` → `outdated`; replay with `apply` — **any** action refused → `outdated` (the rules changed under the save without a bump), a throw → `broken`; the replayed game is over (`phase 'over'` / `result`) → `finished`; else `{ok: true, match}` with `match.save()` equal to the input's fields.
+- `submit` no longer logs refused actions (a seat mismatch never was). `replay(seed, actions(), options)` still rebuilds the game; `restore` / `fromSnapshot` are unchanged.
+- Restore cost: replay only (no views), a 400-action game loads in well under 50 ms in Node (`sprint11-save.test.ts`).
+- Golden fixture: `test/saved-game.test.ts` pins the sha256 of the state three saved games (core, core online rules, starter; up to 406 actions) replay to. Any engine/card change that alters replay fails it: **bump `RULES_VERSION`**, then re-pin with `UPDATE_FIXTURES=1 npx vitest run test/saved-game.test.ts` (from `packages/match`).
+- Client storage (ui-dev): `localStorage['overclock.hotseat.v1'] = JSON.stringify(match.save())`; one slot.
+
 ## Sprint 10 interface (pinned: implement exactly this; changes go through the architect)
 
 Everything in the Sprint 1–9 interfaces still holds unless noted. Tech plan: `docs/sprints/sprint-10-tech-plan.md`. `RULES_VERSION = 4` (live online games expire on deploy). `PROTOCOL_VERSION` stays 1. No new events, no new view fields.
@@ -737,6 +769,7 @@ The planner answers a free-rez choice it did not aim for with Skip.
 The client and AI may import only the public index of engine/cards/match. The client may not import `apply`, `newGame`, `legalActions`, `viewFor` or `replay` (it goes through the match).
 
 ## Rules for contributors
+- Sprint 11: any engine or card-data change that can change the result of replaying a saved action list must bump `RULES_VERSION` (saved games and live online games under the old version then show "can't continue"). The golden save fixture in `@overclock/match` (`test/saved-game.test.ts`) fails CI otherwise.
 - Every new action/event is added here, to the validation table and to the sprint tech plan.
 - Every action has Vitest tests for its success path and each rejection reason.
 - Card behavior belongs in `@overclock/cards` data + the effect DSL, not in engine special cases.

@@ -8,6 +8,7 @@ import {
   apply,
   newGame,
   replay,
+  RULES_VERSION,
   viewEvents,
   viewFor,
   type Action,
@@ -17,6 +18,10 @@ import {
   type PlayerView,
   type Side,
 } from '@overclock/engine';
+import { parseSavedGame, SAVE_FORMAT, type LoadFailure, type SavedGame } from './saved-game';
+
+/** Sprint 11: `LocalMatch.load` result. */
+export type LoadResult = { readonly ok: true; readonly match: LocalMatch } | { readonly ok: false; readonly reason: LoadFailure };
 
 export interface SeatUpdate {
   readonly view: PlayerView;
@@ -33,6 +38,7 @@ export class LocalMatch {
   /** Sprint 6: the rule options this game was created with (defaults filled in). */
   readonly options: GameOptions;
   private state: GameState;
+  /** Sprint 11: accepted actions only (rejections never change the state, so they are not kept). */
   private readonly log: Action[] = [];
 
   constructor(seed: number, options?: Partial<GameOptions>) {
@@ -84,20 +90,64 @@ export class LocalMatch {
     const copy = seatAction(seat, action);
     if (copy === null) return this.rejected(seat, [{ type: 'action_rejected', reason: 'invalid_action' }]);
 
-    // Everything that reaches the engine is logged (rejections are no-ops in replay).
-    this.log.push(copy);
     const result = apply(this.state, copy);
     this.state = result.state;
     if (result.events.some((e) => e.type === 'action_rejected')) return this.rejected(seat, [...result.events]);
+    // Sprint 11: only accepted actions are logged, so a save never holds a move the rules refused.
+    this.log.push(copy);
 
     const update = {} as Record<Side, SeatUpdate>;
     for (const s of SIDES) update[s] = { view: this.view(s), events: viewEvents(s, result.events) };
     return update;
   }
 
-  /** Every action that reached the engine, in order: `replay(seed, actions())` rebuilds this game. */
+  /** Every accepted action, in order: `replay(seed, actions(), options)` rebuilds this game. */
   actions(): readonly Action[] {
     return this.log.map((a) => JSON.parse(JSON.stringify(a)) as Action);
+  }
+
+  /**
+   * Sprint 11 (S-11-3): this game as a save (plain JSON, detached). Cheap: it copies the
+   * accepted-action log, no state. Write it after the move's presentation, never in the tap path.
+   */
+  save(): SavedGame {
+    return {
+      format: SAVE_FORMAT,
+      rulesVersion: RULES_VERSION,
+      seed: this.seed,
+      options: { ...this.options },
+      actions: this.actions(),
+    };
+  }
+
+  /**
+   * Sprint 11 (S-11-3): rebuilds a game from `save()` output (the object or its JSON string)
+   * by replaying it under this build's rules. Never throws.
+   * - `broken`: not a save (bad JSON or shape), or the replay crashed.
+   * - `outdated`: `rulesVersion !== RULES_VERSION`, a newer save `format`, or any saved action
+   *   is refused on replay (the rules changed without a version bump).
+   * - `finished`: the replayed game is over.
+   */
+  static load(x: unknown): LoadResult {
+    const saved = parseSavedGame(x);
+    if (saved === 'broken' || saved === 'outdated') return { ok: false, reason: saved };
+    if (saved.rulesVersion !== RULES_VERSION) return { ok: false, reason: 'outdated' };
+    let m: LocalMatch;
+    try {
+      m = new LocalMatch(saved.seed, saved.options);
+      let state = m.state;
+      for (const a of saved.actions) {
+        const r = apply(state, a);
+        if (r.events.some((e) => e.type === 'action_rejected')) return { ok: false, reason: 'outdated' };
+        state = r.state;
+      }
+      m.state = state;
+    } catch {
+      return { ok: false, reason: 'broken' };
+    }
+    if (m.state.phase === 'over' || m.state.result !== null) return { ok: false, reason: 'finished' };
+    m.log.push(...saved.actions); // already a detached copy (parseSavedGame)
+    return { ok: true, match: m };
   }
 
   private rejected(seat: Side, events: GameEvent[]): MatchUpdate {
