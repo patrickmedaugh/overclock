@@ -65,6 +65,24 @@ test.describe('QA-S2-1 hints are readable and clear of the board', () => {
     expect(seen).toEqual(['Only after the Runner made a run', 'Not your turn', 'Not enough credits', 'No clicks left']);
   });
 
+  test('the layout check reads resting pills: a credit pop on the same frame as the snapshot', async ({ page }) => {
+    // CI root cause (PR #24): the 3rd "gain a credit" pops both pills (x1.18 for 200 ms, a `ui` tween that
+    // `animating` does not cover); the snapshot read before the next frame reported the popped boxes,
+    // which reach past the 8 px gap between them. Dispatch and snapshot in one task, so no frame runs between.
+    await openBoard(page, 5);
+    await toRunnerTurn(page);
+    const rest = await waitIdle(page);
+    const l = await page.evaluate(() => {
+      const h = window.__overclock!;
+      h.dispatch({ type: 'gain_credit', player: 'runner' });
+      return h.layout();
+    });
+    expect(l.text.runnerCredits, 'the number changed (so it popped)').not.toBe(rest.text.runnerCredits);
+    expect(l.runner.credits).toEqual(rest.runner.credits);
+    expect(l.runner.clicks).toEqual(rest.runner.clicks);
+    expectCleanLayout(l);
+  });
+
   test('sideways, the help text steps aside while a hint shows and comes back after', async ({ page }) => {
     await openBoard(page, 14);
     const l0 = await layout(page);

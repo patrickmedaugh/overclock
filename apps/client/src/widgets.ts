@@ -111,8 +111,18 @@ export class Counter {
     return this.valueText.text;
   }
 
+  /** The pill as drawn now (scaled while it pops, moved while it shakes). */
   box(): Box {
     return centeredBox(this.root, this.w, this.h, this.inner.scale.x, this.inner.scale.y, this.inner.x);
+  }
+
+  /**
+   * Where the pill rests: its box without the 200 ms pop (x1.18) or the 260 ms "no clicks" shake.
+   * The layout snapshot reports this (the toast is placed against resting boxes too), so a layout
+   * check never depends on whether a frame ran since the number changed.
+   */
+  restBox(): Box {
+    return centeredBox(this.root, this.w, this.h);
   }
 
   setActionable(on: boolean): void {

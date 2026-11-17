@@ -21,7 +21,9 @@ export interface Insets {
 /** One side's widgets, wherever they are drawn (top or bottom row). */
 export interface SideLayout {
   deck: Box;
+  /** Resting box: without the credit pop's scale-up or the "no clicks" shake. */
   credits: Box;
+  /** Resting box, as for `credits`. */
   clicks: Box;
   discard: Box;
   label: Box;

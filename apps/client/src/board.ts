@@ -758,8 +758,10 @@ export class Board {
     const zero = { x: 0, y: 0, width: 0, height: 0 };
     const side = (s: Side): SideLayout => {
       const seat = this.seatOf(s);
+      // Credits / clicks: resting boxes. A pop (x1.18 for 200 ms) briefly reaches past the 8 px gap
+      // between the two pills by design; a snapshot taken before the next frame used to report that.
       if (!gen || !seat || !layout) return { deck: zero, credits: zero, clicks: zero, discard: zero, label: zero };
-      return { deck: gen.decks[s].box(), credits: seat.credits.box(), clicks: seat.clicks.box(), discard: gen.discards[s].box(), label: layout[seat.pos].label };
+      return { deck: gen.decks[s].box(), credits: seat.credits.restBox(), clicks: seat.clicks.restBox(), discard: gen.discards[s].box(), label: layout[seat.pos].label };
     };
     const inst = (v: InstalledView): InstalledSnapshot => {
       const c = gen?.installed.get(v.uid);
