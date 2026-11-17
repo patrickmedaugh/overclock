@@ -19,7 +19,8 @@ export function centeredBox(c: Container, w: number, h: number, sx = 1, sy = 1, 
 export function clearOf(slot: Box, boxes: readonly Box[], gap = 0): Box {
   let r = { ...slot };
   for (const b of boxes) {
-    if (!(r.x < b.x + b.width + gap && b.x - gap < r.x + r.width && r.y < b.y + b.height + gap && b.y - gap < r.y + r.height)) continue;
+    // Only a box that really overlaps is cut around (one that merely sits next to the slot is left alone).
+    if (!(r.x < b.x + b.width && b.x < r.x + r.width && r.y < b.y + b.height && b.y < r.y + r.height)) continue;
     const cuts: Box[] = [
       { x: r.x, y: r.y, width: b.x - gap - r.x, height: r.height },
       { x: b.x + b.width + gap, y: r.y, width: r.x + r.width - (b.x + b.width + gap), height: r.height },

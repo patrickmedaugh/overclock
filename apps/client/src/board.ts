@@ -3044,7 +3044,7 @@ export class Board {
     g.roundRect(-w / 2 - ring, -h / 2 - ring, w + 2 * ring, h + 2 * ring, Math.min(h / 2, 18) + ring).stroke({ width: 3, color: tone, alpha: 0.35 });
     root.addChild(g, label);
     // The slot is sized so hints wrap at full size; shrink only if one ever does not fit.
-    const fit = Math.max(0.4, Math.min(1, (area.width - 2 * ring) / w, (area.height - 2 * ring) / h));
+    const fit = Math.max(0.01, Math.min(1, (area.width - 2 * ring) / w, (area.height - 2 * ring) / h));
     root.scale.set(fit);
     const hint = { text, root, box: { x: 0, y: 0, width: w * fit, height: h * fit }, kind, slot: JSON.stringify(area), wide };
     this.positionHint(hint);
@@ -3140,16 +3140,16 @@ export class Board {
   /** S-10-6: every button and pill on screen now (End turn, Run, Last run, lit choices, credits / clicks). */
   private buttonBoxes(): Box[] {
     const gen = this.gen;
-    if (!gen) return [];
+    const layout = this.layout;
+    if (!gen || !layout) return [];
+    // Resting places (layout boxes), not drawn ones: a button popping (scaled up for a moment)
+    // must not move the toast.
     const out: Box[] = [];
-    if (gen.button.root.visible) out.push(gen.button.box());
+    if (gen.button.root.visible) out.push({ ...layout.endTurn });
     if (gen.runButton.root.visible) out.push({ ...gen.runButton.box });
     if (gen.lastRunButton.root.visible) out.push({ ...gen.lastRunButton.box });
     for (const t of this.activeTargets) if (t.marker.root.visible) out.push({ ...t.marker.box });
-    for (const side of SIDES) {
-      const seat = this.seatOf(side);
-      if (seat) out.push(seat.credits.box(), seat.clicks.box());
-    }
+    for (const pos of ['top', 'bottom'] as const) out.push({ ...layout[pos].credits }, { ...layout[pos].clicks });
     return out;
   }
 

@@ -5,7 +5,7 @@
 // - Snappiness: the longest turn change (4 discards, then the Corp's free draw) never keeps input away > 600ms.
 import { expect, test, type Page } from '@playwright/test';
 import type { Box } from './helpers';
-import { center, dispatch, getView, layout, measureTap, openBoard, pressAndHold, safeRect, sendTap, tap, toRunnerTurn, waitEndTurnArmed, waitIdle } from './helpers';
+import { center, closeDiscardView, dispatch, getView, layout, markDiscard, measureTap, openBoard, pressAndHold, safeRect, sendTap, toRunnerTurn, waitEndTurnArmed, waitIdle } from './helpers';
 
 interface Stats {
   mean: number;
@@ -76,9 +76,10 @@ test.describe('QA S-01-5 discard flight', () => {
     let l = await waitIdle(page);
     const pile = l.runner.discard;
     expect(l.text.runnerDiscard).toBe('0');
-    await tap(page, l.hand[0]!.box);
-    await tap(page, l.hand[4]!.box);
-    l = await layout(page);
+    // QA reviews (ui-dev, Sprint 10 S-10-5): the discard step now opens the hand big with a tap and a
+    // tap on the big card marks it; only the marking steps changed, every check is as before.
+    await markDiscard(page, [0, 4]);
+    l = await closeDiscardView(page);
     const m = await measureTap(page, l.picker!.confirm.box);
     const flight = m.anims.find((a) => a.kind === 'discard_flight');
     expect(flight?.box).toEqual(pile);
@@ -215,8 +216,10 @@ test.describe('QA snappiness: longest turn change', () => {
     await dispatch(page, { type: 'end_turn', player: 'runner' });
     let l = await waitIdle(page);
     expect(l.picker?.remaining).toBe(4);
-    for (const i of [0, 1, 2, 3]) await tap(page, l.hand[i]!.box);
-    l = await layout(page);
+    // QA reviews (ui-dev, Sprint 10 S-10-5): the discard step now opens the hand big with a tap and a
+    // tap on the big card marks it; only the marking steps changed, every check is as before.
+    await markDiscard(page, [0, 1, 2, 3]);
+    l = await closeDiscardView(page);
     await watchTurnChange(page, 'deck', 600);
     const m = await measureTap(page, l.picker!.confirm.box);
     expect(m.view.activePlayer).toBe('corp');
@@ -245,8 +248,10 @@ test.describe('QA snappiness: longest turn change', () => {
     for (let i = 0; i < 4; i++) await dispatch(page, { type: 'draw', player: 'runner' });
     await dispatch(page, { type: 'end_turn', player: 'runner' });
     let l = await waitIdle(page);
-    for (const i of [0, 1, 2, 3]) await tap(page, l.hand[i]!.box);
-    l = await layout(page);
+    // QA reviews (ui-dev, Sprint 10 S-10-5): the discard step now opens the hand big with a tap and a
+    // tap on the big card marks it; only the marking steps changed, every check is as before.
+    await markDiscard(page, [0, 1, 2, 3]);
+    l = await closeDiscardView(page);
     // Tap End turn every few ms from the moment of Confirm until it answers.
     await watchTurnChange(page, 'endTurn', 0);
     const m = await measureTap(page, l.picker!.confirm.box);
@@ -425,8 +430,10 @@ test.describe('QA round 2: End turn double-tap guard', () => {
     for (let i = 0; i < 4; i++) await dispatch(page, { type: 'draw', player: 'runner' });
     await dispatch(page, { type: 'end_turn', player: 'runner' });
     let l = await waitIdle(page);
-    for (const i of [0, 1, 2, 3]) await tap(page, l.hand[i]!.box);
-    l = await layout(page);
+    // QA reviews (ui-dev, Sprint 10 S-10-5): the discard step now opens the hand big with a tap and a
+    // tap on the big card marks it; only the marking steps changed, every check is as before.
+    await markDiscard(page, [0, 1, 2, 3]);
+    l = await closeDiscardView(page);
     await checkGuard(page, l.picker!.confirm.box);
     const v = await getView(page);
     expect(v.activePlayer).toBe('corp');
