@@ -1,7 +1,7 @@
 // Sprint 13 (S-13-1..5): plain words for the deck builder. Codes in, words out: every number and
 // every rule comes from `@overclock/cards` (`deckStatus`, `addBlock`, `checkDeck`); nothing here
 // counts cards or decides what is legal.
-import { type AddBlock, type CardType, type DeckProblem, type DeckStatus, type Faction, getCard } from '@overclock/cards';
+import { type AddBlock, type CardType, type DeckProblem, type DeckStatus, type Faction, MAX_COPIES, getCard } from '@overclock/cards';
 import type { Side } from '@overclock/engine';
 import { plural } from './terms';
 
@@ -30,6 +30,7 @@ export const DECK_TEXT = {
   onlineStandard: 'Online games use the standard decks for now.',
   newer: 'These decks were saved by a newer version of the game. Update to change them.',
   notKept: "Decks can't be kept on this device (storage is off).",
+  otherSide: "This deck's identity is for the other side",
 } as const;
 
 const SIDE_WORD: Record<Side, string> = { corp: 'Corp', runner: 'Runner' };
@@ -129,7 +130,7 @@ export function problemText(p: DeckProblem, identity: string): string {
         ? `${plural(p.min - p.points, 'agenda point', 'agenda points')} short`
         : `${plural(p.points - p.max, 'agenda point', 'agenda points')} too many`;
     case 'too_many_copies':
-      return `${cardName(p.cardId)}: max 3 copies`;
+      return `${cardName(p.cardId)}: max ${MAX_COPIES} copies`;
     case 'agenda_faction': {
       const card = getCard(p.cardId);
       const idf = getCard(identity)?.faction;

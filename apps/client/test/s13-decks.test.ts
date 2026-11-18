@@ -174,3 +174,14 @@ describe('New game after a game with own decks (lead decision)', () => {
     expect(picksOf({ corp: dealOf({ identity: corp.identity, cards: { ...corp.cards } }) }, lib)).toEqual({ corp: STANDARD_ID.corp, runner: STANDARD_ID.runner });
   });
 });
+
+describe('deckSummary: Ready = what the game deals (architect review)', () => {
+  it('a hand-edited store deck with the other side\'s identity is not Ready (the game would refuse it)', async () => {
+    const { deckSummary } = await import('../src/decksScreen');
+    const base = { id: 'x', name: 'X', standard: false, createdAt: 0, updatedAt: 0 } as const;
+    expect(deckSummary({ ...base, side: 'corp', identity: HB, cards: corpCounts() }).ready).toBe(true);
+    const wrong = deckSummary({ ...base, side: 'runner', identity: HB, cards: corpCounts() });
+    expect(wrong.ready).toBe(false);
+    expect(wrong.note).toBe(DECK_TEXT.otherSide);
+  });
+});

@@ -74,11 +74,17 @@ export function checkDeck(deck: DeckDef, opts: { readonly minDeckSize?: number }
   const used = deckInfluence(deck);
   if (used > limit) out.push({ kind: 'influence', used, limit });
   if (identity?.side === 'corp') {
-    const lo = 2 * Math.floor(size / 5) + 2;
+    const { min: lo, max: hi } = agendaRangeFor(size);
     const points = deckAgendaPoints(deck);
-    if (points < lo || points > lo + 1) out.push({ kind: 'agenda_points', points, min: lo, max: lo + 1 });
+    if (points < lo || points > hi) out.push({ kind: 'agenda_points', points, min: lo, max: hi });
   }
   return out;
+}
+
+/** The Corp's legal agenda points for a deck of `size` cards: [2·⌊size/5⌋ + 2, that + 1] (one formula for `checkDeck` and `deckStatus`). */
+function agendaRangeFor(size: number): { min: number; max: number } {
+  const lo = 2 * Math.floor(size / 5) + 2;
+  return { min: lo, max: lo + 1 };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -141,14 +147,13 @@ export function deckStatus(deck: DeckDef): DeckStatus {
   const identity = BY_ID.get(deck.identity);
   const problems = checkDeck(deck);
   const size = deck.cards.length;
-  const lo = 2 * Math.floor(size / 5) + 2;
   return {
     size,
     minSize: identity?.minDeckSize ?? 0,
     influence: deckInfluence(deck),
     influenceLimit: identity?.influenceLimit ?? 0,
     agendaPoints: deckAgendaPoints(deck),
-    agendaRange: identity?.side === 'corp' ? { min: lo, max: lo + 1 } : null,
+    agendaRange: identity?.side === 'corp' ? agendaRangeFor(size) : null,
     problems,
     legal: problems.length === 0,
   };

@@ -4,7 +4,7 @@
 // dimmed + and "Ready to play" come from `deckStatus` / `addBlock` (`@overclock/cards`); the words
 // come from `deckText.ts`.
 import { type CardDef, type DeckDef, MAX_COPIES, addBlock, deckPool, deckStatus, getCard } from '@overclock/cards';
-import type { Side } from '@overclock/engine';
+import { type Side, isPlayableDeck } from '@overclock/engine';
 import { type DeckEntry, type DeckLibrary, STANDARD_ID, dealOf } from './deckStore';
 import {
   DECK_TEXT,
@@ -65,11 +65,17 @@ export function deckName(d: DeckEntry): string {
   return d.standard ? standardDeckName(d.side, d.identity) : d.name;
 }
 
-/** "45 cards" and the Ready tick or the first red note. */
+/**
+ * "45 cards" and the Ready tick or the first red note. Ready = `isPlayableDeck` (exactly what the
+ * game deals: `checkDeck` clean and the identity is the deck's side), so the picker never offers a
+ * deck `newGame` would refuse (e.g. a hand-edited store with the other side's identity).
+ */
 export function deckSummary(d: DeckEntry): { count: string; ready: boolean; note: string } {
-  const s = deckStatus(dealOf(d));
+  const deal = dealOf(d);
+  const s = deckStatus(deal);
   const n = deckNote(s, d.identity);
-  return { count: cardCountText(s.size), ready: n.ready, note: n.text };
+  const ready = isPlayableDeck(deal, d.side);
+  return { count: cardCountText(s.size), ready, note: n.ready && !ready ? DECK_TEXT.otherSide : n.text };
 }
 
 export function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls = '', text?: string): HTMLElementTagNameMap[K] {
