@@ -11,7 +11,7 @@ import {
 describe('card pool', () => {
   it('Sprint 8: 12 starter cards per side, plus 6 Haas-Bioroid / 4 Kate cards and one identity each; Sprint 9: +3 Corp, +1 Runner', () => {
     expect(RUNNER_CARDS).toHaveLength(18);
-    expect(CORP_CARDS).toHaveLength(23);
+    expect(CORP_CARDS).toHaveLength(25);
     expect(ALL_CARDS.filter((c) => c.type === 'identity').map((c) => c.id)).toEqual(['r13', 'c13']);
   });
 

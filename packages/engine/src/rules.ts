@@ -863,7 +863,7 @@ export const RULES: RuleTable = {
     canAffordBasic,
   ],
   // Sprint 12: answers `look_install` / `archives_pick`.
-  select: [playerShape, selectShape, notOver, decides, selectPhase, selectTarget, notBuiltYet],
+  select: [playerShape, selectShape, notOver, decides, selectPhase, selectTarget],
 };
 
 /** Memory used by the Runner's installed programs (card data `memory`). */
@@ -974,7 +974,6 @@ function canAffordBasic(s: GameState, a: Action): RejectReason | null {
 
 /** Sprint 12 E1 stub: the new play fields and `select` are refused until E2–E4 implement them. */
 function notBuiltYet(_s: GameState, a: Action): RejectReason | null {
-  if (a.type === 'select' && _s.choice?.kind === 'archives_pick') return 'not_implemented';
   if (a.type === 'play' && (a.installIndex !== undefined || a.mode !== undefined || a.uid !== undefined)) return 'not_implemented';
   return null;
 }

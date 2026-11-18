@@ -355,6 +355,35 @@ export const CORP_CARDS: readonly CardDef[] = [
     // Sprint 12: always looks (the "may" is played as one tap; DECISIONS 2026-11-18); the rest go to Archives face down.
     onScore: [{ op: 'look_install_top', count: 3, types: ['ice'] }],
   },
+  {
+    id: 'c24',
+    name: 'Archived Memories',
+    side: 'corp',
+    type: 'operation',
+    faction: 'haas_bioroid',
+    influence: 2,
+    code: '01058',
+    cost: 0,
+    text: 'Add 1 card from Archives to HQ.',
+    art: 'glyph:archive-return',
+    // Sprint 12: any Archives card (face down too) except this copy; dimmed while Archives is empty.
+    playIf: 'corp_archives_not_empty',
+    onPlay: [{ op: 'archives_to_hand' }],
+  },
+  {
+    id: 'c25',
+    name: 'Experiential Data',
+    side: 'corp',
+    type: 'upgrade',
+    faction: 'haas_bioroid',
+    influence: 1,
+    code: '01066',
+    cost: 2,
+    trashCost: 2,
+    text: 'All ICE protecting this server has +1 strength.',
+    art: 'glyph:signal-boost',
+    iceStrengthBonus: 1,
+  },
 ];
 
 /**

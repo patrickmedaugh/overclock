@@ -549,6 +549,7 @@ export function resolveEffect(state: GameState, effect: Effect, owner: Side, eve
     case 'look_install_top':
       return lookAtTop(state, owner, effect.count, effect.types, ctx, events);
     case 'archives_to_hand':
+      return openArchivesPick(state, owner, ctx, events);
     case 'install_from_hand':
     case 'expose':
       return state; // Sprint 12 E1 stubs (no card uses them yet)
@@ -571,6 +572,29 @@ function lookAtTop(state: GameState, owner: Side, count: number, types: readonly
   events.push({ type: 'choice_opened', kind: 'look_install', player: owner, cardId });
   const choice: ChoiceState = { kind: 'look_install', player: owner, cardId, resume: 'action', looked, types };
   return { ...withPlayer(state, owner, { deck: deck.slice(n) }), phase: 'choice', choice };
+}
+
+/**
+ * Sprint 12 (Archived Memories): the Corp picks one Archives card (face up or down) for HQ: an
+ * `archives_pick` choice (mandatory). The copy being played lies on top of Archives and is never
+ * offered; with nothing else there nothing happens (its play condition prevents that).
+ */
+function openArchivesPick(state: GameState, owner: Side, ctx: EffectContext, events: Events): GameState {
+  const ownIndex = state.players[owner].discard.length - 1;
+  if (ownIndex < 1) return state;
+  const cardId = ctx.cardId as string;
+  events.push({ type: 'choice_opened', kind: 'archives_pick', player: owner, cardId });
+  return { ...state, phase: 'choice', choice: { kind: 'archives_pick', player: owner, cardId, resume: 'action', ownIndex } };
+}
+
+/** Sprint 12: answers `archives_pick` (validated): the Archives card goes to the end of HQ (`card_returned_to_hand`). */
+function pickFromArchives(state: GameState, a: ActionOf<'select'>, events: Events): GameState {
+  const player = (state.choice as ChoiceState).player;
+  const pile = state.players[player].discard;
+  const entry = pile[a.card] as { cardId: string; faceUp: boolean };
+  const s = closeChoice(state, false, events);
+  events.push({ type: 'card_returned_to_hand', player, archivesIndex: a.card, faceUp: entry.faceUp, cardId: entry.cardId });
+  return withPlayer(s, player, { discard: pile.filter((_, i) => i !== a.card), hand: [...s.players[player].hand, entry.cardId] });
 }
 
 /**
@@ -647,6 +671,7 @@ export function placeRunnerCard(state: GameState, cardId: string, events: Events
 export function doSelect(state: GameState, a: ActionOf<'select'>): { state: GameState; events: GameEvent[] } {
   const events: Events = [];
   const choice = state.choice as ChoiceState;
+  if (choice.kind === 'archives_pick') return { state: pickFromArchives(state, a, events), events };
   const looked = choice.looked ?? [];
   const cardId = looked[a.card] as string;
   const rest = looked.filter((_, i) => i !== a.card);
