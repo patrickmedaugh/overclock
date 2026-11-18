@@ -84,7 +84,7 @@ A second QA session went over round 3 again instead of trusting the section abov
 | S-12-6 Melange "Click ×3" | PASSED QA |
 
 ### CI on the final head
-(pending)
+`ci` run 44259561965 on **3d3b16e** (cb1895c code + QA report and screenshots only): `checks` (lint, typecheck, unit) success, `guard-mutation` success, `e2e` success (shards 1/4, 2/4, 3/4, 4/4 all success). This is the regression check for all of Sprint 12. The only later commit adds this line.
 
 ---
 
