@@ -57,6 +57,35 @@ On every size each price is on its own card, above the card's name, with the nam
 
 IP: no change (no new image or font files except QA screenshots).
 
+### Round 3 re-check by a second QA pass (2026-11-18)
+A second QA session went over round 3 again instead of trusting the section above.
+- **QA's own file:** `git diff e68d4e1..cb1895c -- 'apps/client/e2e/qa-*'`: one line removed (the `test.fail(... 'phone-short' ...)` mark on "QA-S12-2 seed 203"). The `>= 10 px` check itself is unchanged. ui-dev's other test change: `s12-runner` `expectPricesClearOfNames` floor 8 → 10 px (tighter, fine).
+- **Code read (`TargetMarker.set`, widgets.ts):** after trying the label options, `k = Math.max(k, minPx / base)` forces 10 px even when the last option doesn't fit, so in theory text could spill past its pill. The committed tests check the pill, not the drawn text, so QA measured the drawn text directly (below).
+- **Specs:** `qa-sprint12` + `s12-runner`, 4 sizes, `--retries=0`: **105 passed, 3 skipped (online, 891×296), 0 failed**, same as above.
+- **Drawn-text probe (temporary local hook line plus a scratch spec, both deleted afterwards; `board.ts` restored from git):** for every lit Grip card, the text on screen, its measured box, text inside pill, pill inside target, pill **and text** clear of every Grip card name, target ≥ 44 px.
+  - Seeds 201–212, all 4 sizes: 136 cards, **0 failures**. Text 10 / 11 / 10 / 10 px (desktop / 844×390 / 640×360 / 891×296), same as the table above.
+  - **Seeds 1–40 at 891×296 and 640×360** (to reach the widest price, The Toolbox "5 credits (−4)"): 131 cards per size, **0 failures**, all 10 px. At 891×296, "5 credits" (11 cards) fits inside its 44 px pill at 10 px. The costliest program or hardware is The Toolbox (9), so no price can be wider than "6 credits", which is the same width.
+  - At 891×296 the "(−N)" shows only on Pipeline / Corroder (26 of 131); on the rest only the price shows. At 640×360 every card shows it.
+  - Not reached in any real game probed: a **dimmed** Grip card with a reason (e.g. can't afford). The code drops the reason first and keeps the price at ≥ 10 px, the same price-only text measured above. This isn't part of S-12-3's acceptance criteria (AC4 is about Modded itself being dimmed, which `s12-runner` "no program or hardware in the Grip" covers and which passes).
+- **Screenshots:** `docs/sprints/sprint-12-qa/r3b-modded-toolbox-{phone-short,phone-small}-3.png` (seed 3: The Toolbox "5 credits", which at 891×296 fills the card's whole width but stays readable and on its own card). QA also looked at seeds 203 and 212 at 891×296: every price is on its own card above a readable name.
+- **S-12-3 AC3 judgement:** agree with the section above. AC3 is about what Modded charges (3 less, never below 0, Kate's 1 still applies, no extra click). Tests check that on real taps, and the price on screen is the real cost. Showing "(−N)" isn't required, so **PASS**. Whether the owner wants the discount visible on his 891×296 phone is an **owner phone check**, not a fail (already listed above).
+- **Regression / full pass:** CI on `01087b1` (cb1895c code + QA report only): `checks`, `guard-mutation`, `e2e` (shards 1/4–4/4) all success. This round's CI result for the newest QA-report head is recorded in the commit that follows this one (see "CI on the final head" below).
+
+**Result of the re-check: agrees with round 3. QA-S12-1 and QA-S12-2 fixed; S-12-3 passes QA; all 6 stories passed QA; no open bugs. One owner phone check (discount hidden on most cards at 891×296).**
+
+### Final per-story results (round 3, after re-check)
+| Story | Result |
+|---|---|
+| S-12-1 Accelerated Beta Test | PASSED QA |
+| S-12-2 Archived Memories / Experiential Data | PASSED QA |
+| S-12-3 The Toolbox and Modded | PASSED QA (QA-S12-1, QA-S12-2 fixed; owner phone check: "(−N)" hidden on most cards at 891×296) |
+| S-12-4 Infiltration | PASSED QA |
+| S-12-5 Full 45-card decks | PASSED QA |
+| S-12-6 Melange "Click ×3" | PASSED QA |
+
+### CI on the final head
+(pending)
+
 ---
 
 ## Round 2 (2026-11-18, head 5d4dfef + QA commit)
