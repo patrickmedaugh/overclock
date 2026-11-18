@@ -515,7 +515,7 @@ maxHandSize(state, side) = 5 − brainDamage    // exported
 
 Deck builder (plan: `docs/sprints/sprint-13-tech-plan.md`). **No rule or card change: `RULES_VERSION` stays 5.** `SAVE_FORMAT` 1 → 2 (E3). `PROTOCOL_VERSION` stays 1; online games and the room never take `decks`.
 
-Status: **E1–E3** are in. E2: the deck helpers are pinned by `packages/cards/test/sprint13-decks.test.ts`. E3: `GameOptions.decks` **deals** (`newGame`, `LocalMatch`, `HotSeat`), `newGame` throws `illegal_deck`, `SAVE_FORMAT = 2` (format-1 saves load), tests `packages/engine/test/sprint13-custom-decks.test.ts` (deckStatus ≡ checkDeck ≡ newGame on 300 random decks) and `packages/match/test/sprint13-saves.test.ts` (golden `fixtures/sprint13-saves.json`). `parseDeckStore` is a first working version until E4.
+Status: **E1–E3** are in. E2: the deck helpers are pinned by `packages/cards/test/sprint13-decks.test.ts`. E3: `GameOptions.decks` **deals** (`newGame`, `LocalMatch`, `HotSeat`), `newGame` throws `illegal_deck`, `SAVE_FORMAT = 2` (format-1 saves load), tests `packages/engine/test/sprint13-custom-decks.test.ts` (deckStatus ≡ checkDeck ≡ newGame on 300 random decks) and `packages/match/test/sprint13-saves.test.ts` (golden `fixtures/sprint13-saves.json`). E4: `parseDeckStore` pinned by `packages/match/test/sprint13-saved-decks.test.ts`; RULES_SPEC "Deck building (Sprint 13)" and the GLOSSARY words (checked by `packages/cards/test/sprint13-docs.test.ts`).
 
 ### Deck rules helpers (`@overclock/cards`, `src/deck.ts`; all built on `checkDeck`)
 - `IDENTITIES: Readonly<Record<Side, string>>` — `{corp: 'c13', runner: 'r13'}` (Haas-Bioroid, Kate).
@@ -538,7 +538,7 @@ Status: **E1–E3** are in. E2: the deck helpers are pinned by `packages/cards/t
 - `DECK_STORE_FORMAT = 1`.
 - `StoredDeck = {id: string (client UUID), side: Side, name: string, identity: string, cards: Readonly<Record<string, number>>, createdAt: number, updatedAt: number}` (ms).
 - `DeckStore = {format: 1, decks: readonly StoredDeck[]}`.
-- `parseDeckStore(x: unknown): DeckStore | 'broken' | 'newer'` — `x` = parsed object or raw JSON string; returns a detached copy. Unknown card ids are kept. `'broken'`: the client copies it to `overclock.decks.v1.bak`; `'newer'`: list shown read-only.
+- `parseDeckStore(x: unknown): DeckStore | 'broken' | 'newer'` — `x` = parsed object or raw JSON string; returns a detached copy. Unknown card ids are kept. `'broken'`: the client copies it to `overclock.decks.v1.bak`; `'newer'`: list shown read-only. E4 details: counts must be whole numbers 0…`MAX_STORED_COPIES` (200, exported) or the store is `'broken'`; counts of 0 are dropped; over-limit counts (4+) and decks whose identity is the other side's are kept (not Ready); two decks with the same `id` → the newest `updatedAt` is kept, in the first one's place; unknown fields are dropped.
 - Client I/O (`apps/client/src/deckStore.ts`): `localStorage['overclock.decks.v1']`.
 
 ## Sprint 12 interface (pinned: implement exactly this; changes go through the architect)

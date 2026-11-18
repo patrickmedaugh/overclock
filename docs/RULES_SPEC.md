@@ -1,4 +1,4 @@
-# Rules spec (our own words) — v0 (rules version 5, Sprint 12)
+# Rules spec (our own words) — v0 (rules version 5, Sprint 13)
 
 The engine implements this document. It is a simplified, genre-standard ruleset; extend it as sprints add mechanics. Ambiguities → simplest ruling, logged in `DECISIONS.md`.
 
@@ -35,6 +35,20 @@ The engine implements this document. It is a simplified, genre-standard ruleset;
 - "Each turn" means every player-turn: the counts start afresh at the start of every turn, for both sides.
 - **Deck rules** (checked automatically on both core decks): at least 30 cards (house), at most 3 copies of a card, only the identity's side, no identity in the list, agendas only of the identity's faction or neutral, other-faction cards' influence at most the identity's limit (15), and a Corp deck of 30 cards holds 14–15 agenda points. *(Sprint 12: the 45-card decks pass the identities' own minimum of 45; 45 cards need 20–21 agenda points.)*
 - **Face-down Corp cards never do anything:** their "when your turn begins", abilities and bonuses only work once rezzed.
+
+## Deck building (Sprint 13)
+- **Build your own deck.** Each player may build decks for their side from every card in this game's pool (Corp 24 cards, Runner 20; new cards join the list by themselves). The identity stays fixed this sprint: Haas-Bioroid for the Corp, Kate for the Runner. A new deck starts as a copy of the standard deck or empty (the player picks each time, owner Q1 A).
+- **The rules a deck must meet to be "Ready to play"** (the same check the game itself makes; nothing else is checked):
+  - **Size:** at least the identity's minimum, **45 cards** (owner Q2 A). There is no maximum.
+  - **Copies:** at most **3** of any one card.
+  - **Side:** only cards of the identity's side; no identity card in the list.
+  - **Agendas:** only agendas of the identity's faction or neutral ones. A Haas-Bioroid deck can't hold Hostile Takeover (Weyland).
+  - **Influence:** cards from another faction cost their influence dots (neutral cards have none); the total may be at most the identity's limit, **15**.
+  - **Agenda points (Corp):** the deck's agenda points must be exactly 2 × (deck size ÷ 5, rounded down) + 2, or one more. 45–49 cards need 20–21; 50–54 cards need 22–23.
+- **What the editor stops and what it only shows.** The **+** is turned off when the card would break the copies, side or agenda-faction rule (it says why when tapped). Influence over 15, too few cards and agenda points out of range never stop a **+**: the bar shows them in red, and the deck is not Ready until they are fixed.
+- **Unfinished decks** are kept but can't be picked for a game (owner Q3 A). Decks are kept on the device they were built on (owner Q4 A), in a versioned format that can later be uploaded.
+- **Dealing.** A picked deck is shuffled from the game's seed like the standard decks, so a game with the same decks and seed always deals the same way. The game refuses a deck that is not Ready (it never deals something the editor would refuse). Standard-vs-standard games are exactly as before.
+- **Saved games keep the dealt lists**, so changing or deleting a deck later never changes a game in progress. Online games use the standard decks for now.
 
 ## Corp cards
 - Installed face down. **Rez** = pay the card's rez cost to turn it face up; it stays face up for the rest of the game.

@@ -25,6 +25,10 @@
 - **"When scored" bonus** — some agendas do something extra the moment the Corp scores them (never when the Runner steals them). Hostile Takeover gives the Corp 7 credits and 1 bad publicity; Priority Requisition lets the Corp flip one face-down ICE face up for free (tap a lit ICE, or **Skip**).
 - **Bad publicity** — a black mark against the Corp, shown as "Bad publicity 1" by the Corp's credits. For each one, the Runner gets 1 extra credit at the start of every run, usable only during that run (shown as "+1 for this run"); left-over ones disappear when the run ends.
 - **Run-only credits** — the Runner's extra credits from bad publicity ("+1 for this run"). They are spent first during the run and vanish when it ends.
+- **Identity** — the card that says who you are playing (Haas-Bioroid for the Corp, Kate for the Runner). It sits face up beside your cards all game, gives you a small bonus, and sets your deck's rules: the smallest deck size (45) and how much influence you may spend (15).
+- **Influence** — the "budget" for cards from other factions (teams). Each such card costs its dots (1–4); your own faction's cards and neutral cards cost nothing. A deck may spend up to its identity's limit (15). Shown in the deck editor as "Influence 8 / 15".
+- **Agenda points** — the points printed on an agenda card. When building a Corp deck they must add up to the right amount for its size (45 cards: 20 or 21), so a bigger deck needs more agendas. Shown in the deck editor as "Agenda points 21 (needs 20–21)".
+- **Ready to play** — a built deck that meets every deck rule, so it can be picked for a game.
 - **Points** — agenda points in a player's score area, shown as "Corp 1 point" / "Runner 2 points". 7 points wins.
 - **Net damage** — the Runner discards that many random cards from the Grip to the Heap.
 - **Brain damage** — like net damage (random cards from the Grip to the Heap), and the Runner's hand limit also goes down by 1 for each point, for the rest of the game (shown as "Hand max 4").
