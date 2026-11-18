@@ -32,18 +32,20 @@ describe('run panel labels', () => {
     }
   });
 
-  it('breaker abilities: +N strength and Break "subroutine", each with its price', () => {
+  it('breaker abilities: card name first, +N str and break <type> sub "subroutine", each with its price (S-11-1)', () => {
     const options = [
       opt({ type: 'use_ability', player: 'runner', uid: 'i5', ability: 0, sub: 1 }, 1, 'too_weak'),
       opt({ type: 'use_ability', player: 'runner', uid: 'i5', ability: 1 }, 1),
       opt({ type: 'pass', player: 'runner' }),
     ];
     const run = { ...base, options };
-    expect(options.map((o) => optionLabel(o, run, options, rig))).toEqual(['Break "End the run" · 1 credit', '+1 strength · 1 credit', 'Let it through']);
+    // One open subroutine for Gordian Blade here: no subroutine text.
+    expect(options.map((o) => optionLabel(o, run, options, rig))).toEqual(['Gordian Blade: break code gate sub · 1 credit', 'Gordian Blade: +1 str · 1 credit', 'Let it through']);
     expect(infoLines(run, rig)).toEqual(['Strength 2', 'Gordian Blade 2']);
     // Two breakers able to act: each label names its breaker.
     const two = [...options, opt({ type: 'use_ability', player: 'runner', uid: 'i6', ability: 1 }, 1)];
-    expect(optionLabel(two[1]!, { ...run, options: two }, two, rig)).toBe('Gordian Blade: +1 strength · 1 credit');
+    expect(optionLabel(two[1]!, { ...run, options: two }, two, rig)).toBe('Gordian Blade: +1 str · 1 credit');
+    expect(optionLabel(two[3]!, { ...run, options: two }, two, rig)).toBe('Corroder: +1 str · 1 credit');
   });
 
   it('no breaker for the ICE says so', () => {
@@ -185,7 +187,7 @@ describe('S-07-4 run panel: Bank Job and Cyberfeeder', () => {
     const take = (n: number): CardOption => ({ ...opt({ type: 'activate', player: 'runner', uid: 'b1', ability: 0, amount: n }), gain: n });
     const options: CardOption[] = [take(1), take(2), opt({ type: 'pass', player: 'runner' })];
     const run: RunView = { ...base, step: 'success', iceUid: null, ice: null, options };
-    expect(options.map((o) => optionLabel(o, run, options, { b1: 'r10' }))).toEqual(['Take credits', 'Take credits', 'Access cards']);
+    expect(options.map((o) => optionLabel(o, run, options, { b1: 'r10' }))).toEqual(['Bank Job: take credits', 'Bank Job: take credits', 'Access cards']);
     expect(stepLabel(run, 'runner')).toBe('Got into Server 1');
   });
 
@@ -197,7 +199,7 @@ describe('S-07-4 run panel: Bank Job and Cyberfeeder', () => {
     expect(payText(part, r)).toBe('2 credits · Cyberfeeder pays 1');
     expect(payText(opt({ type: 'use_ability', player: 'runner', uid: 'i5', ability: 0 }, 1), r)).toBe('1 credit');
     const options = [full];
-    expect(optionLabel(full, { ...base, ice: { cardId: 'c05', strength: 1, subroutines: [{ text: 'End the run', broken: false }] }, options }, options, r)).toBe('Break "End the run" · Cyberfeeder pays');
+    expect(optionLabel(full, { ...base, ice: { cardId: 'c05', strength: 1, subroutines: [{ text: 'End the run', broken: false }] }, options }, options, r)).toBe('Corroder: break barrier sub · Cyberfeeder pays');
   });
 
   it('Bank Job taken: the end notice says what it gave and that nothing was accessed', () => {

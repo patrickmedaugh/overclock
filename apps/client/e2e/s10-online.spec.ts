@@ -45,7 +45,7 @@ test.describe('S-10-3 online: Bank Job amount', () => {
     const bj = plan.info['bankJobUid']!;
     await startRun(runner.page, server);
     await runner.page.waitForFunction(() => window.__overclock!.layout().run?.step === 'success');
-    await tap(runner.page, runButtonOf(await layoutOf(runner), 'Take credits').box);
+    await tap(runner.page, runButtonOf(await layoutOf(runner), 'Bank Job: take credits').box);
     await runner.page.waitForFunction(() => window.__overclock!.layout().run?.amount?.amount === 8);
     for (let n = 8; n > 3; n--) {
       await tap(runner.page, runButtonOf(await layoutOf(runner), '−').box);

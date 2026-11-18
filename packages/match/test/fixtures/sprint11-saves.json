@@ -1,0 +1,4498 @@
+[
+ {
+  "name": "core pass-the-phone",
+  "save": {
+   "format": 1,
+   "rulesVersion": 4,
+   "seed": 1117,
+   "options": {
+    "rezWindow": "affordable",
+    "deckSet": "core"
+   },
+   "actions": [
+    {
+     "type": "install",
+     "player": "corp",
+     "handIndex": 3,
+     "server": "hq"
+    },
+    {
+     "type": "install",
+     "player": "corp",
+     "handIndex": 3,
+     "server": "new"
+    },
+    {
+     "type": "install",
+     "player": "corp",
+     "handIndex": 3,
+     "server": "new"
+    },
+    {
+     "type": "end_turn",
+     "player": "corp"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote1"
+    },
+    {
+     "type": "steal",
+     "player": "runner",
+     "card": 0
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote2"
+    },
+    {
+     "type": "steal",
+     "player": "runner",
+     "card": 0
+    },
+    {
+     "type": "install",
+     "player": "runner",
+     "handIndex": 0
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "hq"
+    },
+    {
+     "type": "rez",
+     "player": "corp",
+     "uid": "i1"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "trace_bid",
+     "player": "corp",
+     "credits": 2
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "end_turn",
+     "player": "runner"
+    },
+    {
+     "type": "install",
+     "player": "corp",
+     "handIndex": 2,
+     "server": "new"
+    },
+    {
+     "type": "install",
+     "player": "corp",
+     "handIndex": 2,
+     "server": "rd"
+    },
+    {
+     "type": "end_turn",
+     "player": "corp"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "archives"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote3"
+    },
+    {
+     "type": "rez",
+     "player": "corp",
+     "uid": "i5"
+    },
+    {
+     "type": "use_ability",
+     "player": "runner",
+     "uid": "i4",
+     "ability": 1
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "archives"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote3"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "end_turn",
+     "player": "runner"
+    },
+    {
+     "type": "gain_credit",
+     "player": "corp"
+    },
+    {
+     "type": "install",
+     "player": "corp",
+     "handIndex": 2,
+     "server": "remote3"
+    },
+    {
+     "type": "advance",
+     "player": "corp",
+     "uid": "i7"
+    },
+    {
+     "type": "end_turn",
+     "player": "corp"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "archives"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote3"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "rd"
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "hq"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "trace_bid",
+     "player": "corp",
+     "credits": 0
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "end_turn",
+     "player": "runner"
+    },
+    {
+     "type": "play",
+     "player": "corp",
+     "handIndex": 2
+    },
+    {
+     "type": "gain_credit",
+     "player": "corp"
+    },
+    {
+     "type": "advance",
+     "player": "corp",
+     "uid": "i7"
+    },
+    {
+     "type": "end_turn",
+     "player": "corp"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "archives"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "rd"
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote3"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "hq"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "end_turn",
+     "player": "runner"
+    },
+    {
+     "type": "end_turn",
+     "player": "corp"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "archives"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote3"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "hq"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "archives"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "end_turn",
+     "player": "runner"
+    },
+    {
+     "type": "gain_credit",
+     "player": "corp"
+    },
+    {
+     "type": "advance",
+     "player": "corp",
+     "uid": "i7"
+    },
+    {
+     "type": "end_turn",
+     "player": "corp"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "rd"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "hq"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote3"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote3"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "end_turn",
+     "player": "runner"
+    },
+    {
+     "type": "install",
+     "player": "corp",
+     "handIndex": 4,
+     "server": "new"
+    },
+    {
+     "type": "advance",
+     "player": "corp",
+     "uid": "i7"
+    },
+    {
+     "type": "gain_credit",
+     "player": "corp"
+    },
+    {
+     "type": "end_turn",
+     "player": "corp"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote4"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "archives"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "end_turn",
+     "player": "runner"
+    },
+    {
+     "type": "gain_credit",
+     "player": "corp"
+    },
+    {
+     "type": "install",
+     "player": "corp",
+     "handIndex": 4,
+     "server": "new"
+    },
+    {
+     "type": "play",
+     "player": "corp",
+     "handIndex": 3
+    },
+    {
+     "type": "end_turn",
+     "player": "corp"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote3"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "archives"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "archives"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "archives"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "end_turn",
+     "player": "runner"
+    },
+    {
+     "type": "install",
+     "player": "corp",
+     "handIndex": 3,
+     "server": "new"
+    },
+    {
+     "type": "rez",
+     "player": "corp",
+     "uid": "i10"
+    },
+    {
+     "type": "end_turn",
+     "player": "corp"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote3"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote6"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "archives"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "hq"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "end_turn",
+     "player": "runner"
+    },
+    {
+     "type": "advance",
+     "player": "corp",
+     "uid": "i7"
+    },
+    {
+     "type": "install",
+     "player": "corp",
+     "handIndex": 3,
+     "server": "new"
+    },
+    {
+     "type": "score",
+     "player": "corp",
+     "uid": "i7"
+    },
+    {
+     "type": "rez",
+     "player": "corp",
+     "uid": "i6"
+    },
+    {
+     "type": "gain_credit",
+     "player": "corp"
+    },
+    {
+     "type": "rez",
+     "player": "corp",
+     "uid": "i9"
+    },
+    {
+     "type": "end_turn",
+     "player": "corp"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote7"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote4"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote3"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "rd"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "end_turn",
+     "player": "runner"
+    },
+    {
+     "type": "install",
+     "player": "corp",
+     "handIndex": 3,
+     "server": "hq"
+    },
+    {
+     "type": "rez",
+     "player": "corp",
+     "uid": "i12"
+    },
+    {
+     "type": "gain_credit",
+     "player": "corp"
+    },
+    {
+     "type": "gain_credit",
+     "player": "corp"
+    },
+    {
+     "type": "rez",
+     "player": "corp",
+     "uid": "i11"
+    },
+    {
+     "type": "end_turn",
+     "player": "corp"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote6"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote3"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote7"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote5"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "end_turn",
+     "player": "runner"
+    },
+    {
+     "type": "rez",
+     "player": "corp",
+     "uid": "i8"
+    },
+    {
+     "type": "install",
+     "player": "corp",
+     "handIndex": 3,
+     "server": "hq"
+    },
+    {
+     "type": "end_turn",
+     "player": "corp"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote3"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "archives"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "rd"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote5"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "end_turn",
+     "player": "runner"
+    },
+    {
+     "type": "install",
+     "player": "corp",
+     "handIndex": 3,
+     "server": "hq"
+    },
+    {
+     "type": "play",
+     "player": "corp",
+     "handIndex": 1
+    },
+    {
+     "type": "gain_credit",
+     "player": "corp"
+    },
+    {
+     "type": "play",
+     "player": "corp",
+     "handIndex": 1
+    },
+    {
+     "type": "play",
+     "player": "corp",
+     "handIndex": 0
+    },
+    {
+     "type": "end_turn",
+     "player": "corp"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote6"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote4"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote3"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote3"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "end_turn",
+     "player": "runner"
+    },
+    {
+     "type": "install",
+     "player": "corp",
+     "handIndex": 0,
+     "server": "remote5"
+    },
+    {
+     "type": "end_turn",
+     "player": "corp"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote4"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote5"
+    },
+    {
+     "type": "rez",
+     "player": "corp",
+     "uid": "i15"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "end_turn",
+     "player": "runner"
+    },
+    {
+     "type": "install",
+     "player": "corp",
+     "handIndex": 0,
+     "server": "rd"
+    },
+    {
+     "type": "gain_credit",
+     "player": "corp"
+    },
+    {
+     "type": "end_turn",
+     "player": "corp"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "hq"
+    },
+    {
+     "type": "pass",
+     "player": "corp"
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "archives"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote6"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote4"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "end_turn",
+     "player": "runner"
+    },
+    {
+     "type": "play",
+     "player": "corp",
+     "handIndex": 0
+    },
+    {
+     "type": "gain_credit",
+     "player": "corp"
+    },
+    {
+     "type": "gain_credit",
+     "player": "corp"
+    },
+    {
+     "type": "end_turn",
+     "player": "corp"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "rd"
+    },
+    {
+     "type": "rez",
+     "player": "corp",
+     "uid": "i16"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "trace_bid",
+     "player": "corp",
+     "credits": 10
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote6"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "end_turn",
+     "player": "runner"
+    },
+    {
+     "type": "install",
+     "player": "corp",
+     "handIndex": 0,
+     "server": "new"
+    },
+    {
+     "type": "gain_credit",
+     "player": "corp"
+    },
+    {
+     "type": "rez",
+     "player": "corp",
+     "uid": "i17"
+    },
+    {
+     "type": "gain_credit",
+     "player": "corp"
+    },
+    {
+     "type": "end_turn",
+     "player": "corp"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "hq"
+    },
+    {
+     "type": "rez",
+     "player": "corp",
+     "uid": "i14"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "trace_bid",
+     "player": "corp",
+     "credits": 7
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "rd"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "trace_bid",
+     "player": "corp",
+     "credits": 15
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "hq"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "trace_bid",
+     "player": "corp",
+     "credits": 3
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "rd"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "trace_bid",
+     "player": "corp",
+     "credits": 0
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "end_turn",
+     "player": "runner"
+    },
+    {
+     "type": "install",
+     "player": "corp",
+     "handIndex": 0,
+     "server": "remote3"
+    },
+    {
+     "type": "advance",
+     "player": "corp",
+     "uid": "i18"
+    },
+    {
+     "type": "advance",
+     "player": "corp",
+     "uid": "i18"
+    },
+    {
+     "type": "end_turn",
+     "player": "corp"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "rd"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "trace_bid",
+     "player": "corp",
+     "credits": 0
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "rd"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "trace_bid",
+     "player": "corp",
+     "credits": 0
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "archives"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "hq"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "trace_bid",
+     "player": "corp",
+     "credits": 2
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "end_turn",
+     "player": "runner"
+    },
+    {
+     "type": "install",
+     "player": "corp",
+     "handIndex": 0,
+     "server": "archives"
+    },
+    {
+     "type": "advance",
+     "player": "corp",
+     "uid": "i19"
+    },
+    {
+     "type": "advance",
+     "player": "corp",
+     "uid": "i18"
+    },
+    {
+     "type": "end_turn",
+     "player": "corp"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "hq"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "trace_bid",
+     "player": "corp",
+     "credits": 3
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote3"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "archives"
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "archives"
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "end_turn",
+     "player": "runner"
+    },
+    {
+     "type": "advance",
+     "player": "corp",
+     "uid": "i19"
+    },
+    {
+     "type": "gain_credit",
+     "player": "corp"
+    },
+    {
+     "type": "install",
+     "player": "corp",
+     "handIndex": 0,
+     "server": "remote5"
+    },
+    {
+     "type": "end_turn",
+     "player": "corp"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "rd"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "trace_bid",
+     "player": "corp",
+     "credits": 0
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote3"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote5"
+    },
+    {
+     "type": "rez",
+     "player": "corp",
+     "uid": "i20"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote5"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "end_turn",
+     "player": "runner"
+    },
+    {
+     "type": "install",
+     "player": "corp",
+     "handIndex": 0,
+     "server": "remote3"
+    },
+    {
+     "type": "gain_credit",
+     "player": "corp"
+    },
+    {
+     "type": "end_turn",
+     "player": "corp"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote5"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote6"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "archives"
+    },
+    {
+     "type": "pass",
+     "player": "corp"
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote8"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "end_turn",
+     "player": "runner"
+    },
+    {
+     "type": "install",
+     "player": "corp",
+     "handIndex": 0,
+     "server": "new"
+    },
+    {
+     "type": "advance",
+     "player": "corp",
+     "uid": "i19"
+    },
+    {
+     "type": "advance",
+     "player": "corp",
+     "uid": "i20"
+    },
+    {
+     "type": "rez",
+     "player": "corp",
+     "uid": "i22"
+    },
+    {
+     "type": "end_turn",
+     "player": "corp"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote6"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "rd"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "trace_bid",
+     "player": "corp",
+     "credits": 0
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote8"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote8"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "end_turn",
+     "player": "runner"
+    },
+    {
+     "type": "advance",
+     "player": "corp",
+     "uid": "i18"
+    },
+    {
+     "type": "score",
+     "player": "corp",
+     "uid": "i18"
+    },
+    {
+     "type": "install",
+     "player": "corp",
+     "handIndex": 0,
+     "server": "archives"
+    },
+    {
+     "type": "advance",
+     "player": "corp",
+     "uid": "i20"
+    },
+    {
+     "type": "end_turn",
+     "player": "corp"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote9"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "hq"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "trace_bid",
+     "player": "corp",
+     "credits": 2
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "rd"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "trace_bid",
+     "player": "corp",
+     "credits": 0
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "archives"
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "end_turn",
+     "player": "runner"
+    },
+    {
+     "type": "advance",
+     "player": "corp",
+     "uid": "i19"
+    },
+    {
+     "type": "gain_credit",
+     "player": "corp"
+    },
+    {
+     "type": "advance",
+     "player": "corp",
+     "uid": "i20"
+    },
+    {
+     "type": "end_turn",
+     "player": "corp"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "archives"
+    },
+    {
+     "type": "pass",
+     "player": "corp"
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote3"
+    },
+    {
+     "type": "rez",
+     "player": "corp",
+     "uid": "i21"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "hq"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "end_turn",
+     "player": "runner"
+    },
+    {
+     "type": "advance",
+     "player": "corp",
+     "uid": "i20"
+    },
+    {
+     "type": "advance",
+     "player": "corp",
+     "uid": "i20"
+    },
+    {
+     "type": "install",
+     "player": "corp",
+     "handIndex": 1,
+     "server": "remote3"
+    },
+    {
+     "type": "end_turn",
+     "player": "corp"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote5"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "archives"
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote5"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote9"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    }
+   ]
+  },
+  "stateSha256": "05308700cbb0cd5a330a5c70a50add08e2c01d2fc1184c6222dd06317c59cf8f",
+  "facts": {
+   "turn": 50,
+   "activePlayer": "runner",
+   "corp": [
+    1,
+    2
+   ],
+   "runner": [
+    0,
+    2
+   ]
+  }
+ },
+ {
+  "name": "core online rules",
+  "save": {
+   "format": 1,
+   "rulesVersion": 4,
+   "seed": 21,
+   "options": {
+    "rezWindow": "always",
+    "deckSet": "core"
+   },
+   "actions": [
+    {
+     "type": "install",
+     "player": "corp",
+     "handIndex": 4,
+     "server": "new"
+    },
+    {
+     "type": "install",
+     "player": "corp",
+     "handIndex": 4,
+     "server": "new"
+    },
+    {
+     "type": "install",
+     "player": "corp",
+     "handIndex": 0,
+     "server": "hq"
+    },
+    {
+     "type": "end_turn",
+     "player": "corp"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote1"
+    },
+    {
+     "type": "pass",
+     "player": "corp"
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote1"
+    },
+    {
+     "type": "rez",
+     "player": "corp",
+     "uid": "i1"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "trace_bid",
+     "player": "corp",
+     "credits": 5
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "hq"
+    },
+    {
+     "type": "pass",
+     "player": "corp"
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "rd"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "end_turn",
+     "player": "runner"
+    },
+    {
+     "type": "install",
+     "player": "corp",
+     "handIndex": 3,
+     "server": "rd"
+    },
+    {
+     "type": "install",
+     "player": "corp",
+     "handIndex": 0,
+     "server": "remote1"
+    },
+    {
+     "type": "install",
+     "player": "corp",
+     "handIndex": 1,
+     "server": "remote1"
+    },
+    {
+     "type": "end_turn",
+     "player": "corp"
+    },
+    {
+     "type": "install",
+     "player": "runner",
+     "handIndex": 4
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "hq"
+    },
+    {
+     "type": "pass",
+     "player": "corp"
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "rd"
+    },
+    {
+     "type": "pass",
+     "player": "corp"
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote2"
+    },
+    {
+     "type": "steal",
+     "player": "runner",
+     "card": 0
+    },
+    {
+     "type": "end_turn",
+     "player": "runner"
+    },
+    {
+     "type": "install",
+     "player": "corp",
+     "handIndex": 1,
+     "server": "new"
+    },
+    {
+     "type": "install",
+     "player": "corp",
+     "handIndex": 0,
+     "server": "new"
+    },
+    {
+     "type": "advance",
+     "player": "corp",
+     "uid": "i6"
+    },
+    {
+     "type": "end_turn",
+     "player": "corp"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "rd"
+    },
+    {
+     "type": "pass",
+     "player": "corp"
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote3"
+    },
+    {
+     "type": "pass",
+     "player": "corp"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote1"
+    },
+    {
+     "type": "pass",
+     "player": "corp"
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "play",
+     "player": "runner",
+     "handIndex": 3
+    },
+    {
+     "type": "end_turn",
+     "player": "runner"
+    },
+    {
+     "type": "discard",
+     "player": "runner",
+     "handIndices": [
+      5
+     ]
+    },
+    {
+     "type": "install",
+     "player": "corp",
+     "handIndex": 0,
+     "server": "new"
+    },
+    {
+     "type": "advance",
+     "player": "corp",
+     "uid": "i6"
+    },
+    {
+     "type": "end_turn",
+     "player": "corp"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote3"
+    },
+    {
+     "type": "pass",
+     "player": "corp"
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote5"
+    },
+    {
+     "type": "pass",
+     "player": "corp"
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "install",
+     "player": "runner",
+     "handIndex": 4
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote4"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "end_turn",
+     "player": "runner"
+    },
+    {
+     "type": "gain_credit",
+     "player": "corp"
+    },
+    {
+     "type": "advance",
+     "player": "corp",
+     "uid": "i6"
+    },
+    {
+     "type": "gain_credit",
+     "player": "corp"
+    },
+    {
+     "type": "end_turn",
+     "player": "corp"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "archives"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "hq"
+    },
+    {
+     "type": "pass",
+     "player": "corp"
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "hq"
+    },
+    {
+     "type": "pass",
+     "player": "corp"
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "hq"
+    },
+    {
+     "type": "pass",
+     "player": "corp"
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "end_turn",
+     "player": "runner"
+    },
+    {
+     "type": "advance",
+     "player": "corp",
+     "uid": "i10"
+    },
+    {
+     "type": "end_turn",
+     "player": "corp"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "rd"
+    },
+    {
+     "type": "pass",
+     "player": "corp"
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote1"
+    },
+    {
+     "type": "pass",
+     "player": "corp"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "hq"
+    },
+    {
+     "type": "pass",
+     "player": "corp"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote4"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "end_turn",
+     "player": "runner"
+    },
+    {
+     "type": "end_turn",
+     "player": "corp"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote1"
+    },
+    {
+     "type": "pass",
+     "player": "corp"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "archives"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote1"
+    },
+    {
+     "type": "pass",
+     "player": "corp"
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote5"
+    },
+    {
+     "type": "pass",
+     "player": "corp"
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "end_turn",
+     "player": "runner"
+    },
+    {
+     "type": "install",
+     "player": "corp",
+     "handIndex": 2,
+     "server": "new"
+    },
+    {
+     "type": "end_turn",
+     "player": "corp"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "archives"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote3"
+    },
+    {
+     "type": "rez",
+     "player": "corp",
+     "uid": "i8"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote3"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote1"
+    },
+    {
+     "type": "pass",
+     "player": "corp"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "steal",
+     "player": "runner",
+     "card": 0
+    },
+    {
+     "type": "end_turn",
+     "player": "runner"
+    },
+    {
+     "type": "install",
+     "player": "corp",
+     "handIndex": 2,
+     "server": "new"
+    },
+    {
+     "type": "advance",
+     "player": "corp",
+     "uid": "i10"
+    },
+    {
+     "type": "end_turn",
+     "player": "corp"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote1"
+    },
+    {
+     "type": "pass",
+     "player": "corp"
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote6"
+    },
+    {
+     "type": "pass",
+     "player": "corp"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote6"
+    },
+    {
+     "type": "pass",
+     "player": "corp"
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote5"
+    },
+    {
+     "type": "pass",
+     "player": "corp"
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "end_turn",
+     "player": "runner"
+    },
+    {
+     "type": "install",
+     "player": "corp",
+     "handIndex": 3,
+     "server": "remote7"
+    },
+    {
+     "type": "advance",
+     "player": "corp",
+     "uid": "i13"
+    },
+    {
+     "type": "gain_credit",
+     "player": "corp"
+    },
+    {
+     "type": "end_turn",
+     "player": "corp"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "hq"
+    },
+    {
+     "type": "pass",
+     "player": "corp"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "archives"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "rd"
+    },
+    {
+     "type": "pass",
+     "player": "corp"
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote1"
+    },
+    {
+     "type": "pass",
+     "player": "corp"
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "end_turn",
+     "player": "runner"
+    },
+    {
+     "type": "advance",
+     "player": "corp",
+     "uid": "i13"
+    },
+    {
+     "type": "end_turn",
+     "player": "corp"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote3"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote7"
+    },
+    {
+     "type": "pass",
+     "player": "corp"
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote5"
+    },
+    {
+     "type": "pass",
+     "player": "corp"
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote7"
+    },
+    {
+     "type": "pass",
+     "player": "corp"
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "end_turn",
+     "player": "runner"
+    },
+    {
+     "type": "gain_credit",
+     "player": "corp"
+    },
+    {
+     "type": "advance",
+     "player": "corp",
+     "uid": "i10"
+    },
+    {
+     "type": "end_turn",
+     "player": "corp"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote4"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote4"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "hq"
+    },
+    {
+     "type": "pass",
+     "player": "corp"
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote5"
+    },
+    {
+     "type": "pass",
+     "player": "corp"
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "end_turn",
+     "player": "runner"
+    },
+    {
+     "type": "install",
+     "player": "corp",
+     "handIndex": 5,
+     "server": "remote1"
+    },
+    {
+     "type": "advance",
+     "player": "corp",
+     "uid": "i14"
+    },
+    {
+     "type": "gain_credit",
+     "player": "corp"
+    },
+    {
+     "type": "rez",
+     "player": "corp",
+     "uid": "i15"
+    },
+    {
+     "type": "end_turn",
+     "player": "corp"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "rd"
+    },
+    {
+     "type": "pass",
+     "player": "corp"
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote3"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "rd"
+    },
+    {
+     "type": "pass",
+     "player": "corp"
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "rd"
+    },
+    {
+     "type": "pass",
+     "player": "corp"
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "end_turn",
+     "player": "runner"
+    },
+    {
+     "type": "install",
+     "player": "corp",
+     "handIndex": 5,
+     "server": "remote6"
+    },
+    {
+     "type": "gain_credit",
+     "player": "corp"
+    },
+    {
+     "type": "advance",
+     "player": "corp",
+     "uid": "i14"
+    },
+    {
+     "type": "end_turn",
+     "player": "corp"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote5"
+    },
+    {
+     "type": "rez",
+     "player": "corp",
+     "uid": "i10"
+    },
+    {
+     "type": "use_ability",
+     "player": "runner",
+     "uid": "i7",
+     "ability": 1
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote4"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote6"
+    },
+    {
+     "type": "pass",
+     "player": "corp"
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote3"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "end_turn",
+     "player": "runner"
+    },
+    {
+     "type": "gain_credit",
+     "player": "corp"
+    },
+    {
+     "type": "gain_credit",
+     "player": "corp"
+    },
+    {
+     "type": "advance",
+     "player": "corp",
+     "uid": "i13"
+    },
+    {
+     "type": "end_turn",
+     "player": "corp"
+    },
+    {
+     "type": "discard",
+     "player": "corp",
+     "handIndices": [
+      5
+     ]
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote3"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "trace_bid",
+     "player": "corp",
+     "credits": 1
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote7"
+    },
+    {
+     "type": "pass",
+     "player": "corp"
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote4"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "rd"
+    },
+    {
+     "type": "pass",
+     "player": "corp"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "end_turn",
+     "player": "runner"
+    },
+    {
+     "type": "install",
+     "player": "corp",
+     "handIndex": 5,
+     "server": "archives"
+    },
+    {
+     "type": "gain_credit",
+     "player": "corp"
+    },
+    {
+     "type": "rez",
+     "player": "corp",
+     "uid": "i16"
+    },
+    {
+     "type": "gain_credit",
+     "player": "corp"
+    },
+    {
+     "type": "end_turn",
+     "player": "corp"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "rd"
+    },
+    {
+     "type": "pass",
+     "player": "corp"
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "hq"
+    },
+    {
+     "type": "pass",
+     "player": "corp"
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote4"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote6"
+    },
+    {
+     "type": "pass",
+     "player": "corp"
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "end_turn",
+     "player": "runner"
+    },
+    {
+     "type": "advance",
+     "player": "corp",
+     "uid": "i13"
+    },
+    {
+     "type": "advance",
+     "player": "corp",
+     "uid": "i10"
+    },
+    {
+     "type": "install",
+     "player": "corp",
+     "handIndex": 5,
+     "server": "new"
+    },
+    {
+     "type": "end_turn",
+     "player": "corp"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote7"
+    },
+    {
+     "type": "pass",
+     "player": "corp"
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote8"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote3"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "trace_bid",
+     "player": "corp",
+     "credits": 1
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote6"
+    },
+    {
+     "type": "pass",
+     "player": "corp"
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "end_turn",
+     "player": "runner"
+    },
+    {
+     "type": "end_turn",
+     "player": "corp"
+    },
+    {
+     "type": "discard",
+     "player": "corp",
+     "handIndices": [
+      5
+     ]
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote6"
+    },
+    {
+     "type": "pass",
+     "player": "corp"
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "rd"
+    },
+    {
+     "type": "pass",
+     "player": "corp"
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote7"
+    },
+    {
+     "type": "rez",
+     "player": "corp",
+     "uid": "i14"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote4"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "end_turn",
+     "player": "runner"
+    },
+    {
+     "type": "install",
+     "player": "corp",
+     "handIndex": 5,
+     "server": "remote8"
+    },
+    {
+     "type": "advance",
+     "player": "corp",
+     "uid": "i10"
+    },
+    {
+     "type": "advance",
+     "player": "corp",
+     "uid": "i13"
+    },
+    {
+     "type": "score",
+     "player": "corp",
+     "uid": "i13"
+    },
+    {
+     "type": "rez",
+     "player": "corp",
+     "uid": "i12"
+    },
+    {
+     "type": "end_turn",
+     "player": "corp"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote1"
+    },
+    {
+     "type": "pass",
+     "player": "corp"
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote3"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote7"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote1"
+    },
+    {
+     "type": "pass",
+     "player": "corp"
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "end_turn",
+     "player": "runner"
+    },
+    {
+     "type": "install",
+     "player": "corp",
+     "handIndex": 5,
+     "server": "remote6"
+    },
+    {
+     "type": "advance",
+     "player": "corp",
+     "uid": "i10"
+    },
+    {
+     "type": "gain_credit",
+     "player": "corp"
+    },
+    {
+     "type": "end_turn",
+     "player": "corp"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote8"
+    },
+    {
+     "type": "pass",
+     "player": "corp"
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote8"
+    },
+    {
+     "type": "pass",
+     "player": "corp"
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "archives"
+    },
+    {
+     "type": "pass",
+     "player": "corp"
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote1"
+    },
+    {
+     "type": "pass",
+     "player": "corp"
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "end_turn",
+     "player": "runner"
+    },
+    {
+     "type": "play",
+     "player": "corp",
+     "handIndex": 0
+    },
+    {
+     "type": "install",
+     "player": "corp",
+     "handIndex": 4,
+     "server": "remote3"
+    },
+    {
+     "type": "advance",
+     "player": "corp",
+     "uid": "i10"
+    },
+    {
+     "type": "end_turn",
+     "player": "corp"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote6"
+    },
+    {
+     "type": "pass",
+     "player": "corp"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "archives"
+    },
+    {
+     "type": "pass",
+     "player": "corp"
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote6"
+    },
+    {
+     "type": "pass",
+     "player": "corp"
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote3"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "end_turn",
+     "player": "runner"
+    },
+    {
+     "type": "advance",
+     "player": "corp",
+     "uid": "i10"
+    },
+    {
+     "type": "install",
+     "player": "corp",
+     "handIndex": 4,
+     "server": "remote5"
+    },
+    {
+     "type": "rez",
+     "player": "corp",
+     "uid": "i22"
+    },
+    {
+     "type": "gain_credit",
+     "player": "corp"
+    },
+    {
+     "type": "end_turn",
+     "player": "corp"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote6"
+    },
+    {
+     "type": "pass",
+     "player": "corp"
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "archives"
+    },
+    {
+     "type": "pass",
+     "player": "corp"
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "archives"
+    },
+    {
+     "type": "pass",
+     "player": "corp"
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote5"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "end_turn",
+     "player": "runner"
+    },
+    {
+     "type": "advance",
+     "player": "corp",
+     "uid": "i10"
+    },
+    {
+     "type": "advance",
+     "player": "corp",
+     "uid": "i21"
+    },
+    {
+     "type": "install",
+     "player": "corp",
+     "handIndex": 4,
+     "server": "new"
+    },
+    {
+     "type": "end_turn",
+     "player": "corp"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "archives"
+    },
+    {
+     "type": "pass",
+     "player": "corp"
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote7"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote6"
+    },
+    {
+     "type": "pass",
+     "player": "corp"
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote9"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "end_turn",
+     "player": "runner"
+    },
+    {
+     "type": "advance",
+     "player": "corp",
+     "uid": "i10"
+    },
+    {
+     "type": "advance",
+     "player": "corp",
+     "uid": "i10"
+    },
+    {
+     "type": "install",
+     "player": "corp",
+     "handIndex": 4,
+     "server": "remote7"
+    },
+    {
+     "type": "end_turn",
+     "player": "corp"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote4"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote5"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote6"
+    },
+    {
+     "type": "pass",
+     "player": "corp"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote1"
+    },
+    {
+     "type": "pass",
+     "player": "corp"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "trace_bid",
+     "player": "corp",
+     "credits": 0
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "end_turn",
+     "player": "runner"
+    },
+    {
+     "type": "advance",
+     "player": "corp",
+     "uid": "i14"
+    },
+    {
+     "type": "advance",
+     "player": "corp",
+     "uid": "i14"
+    },
+    {
+     "type": "install",
+     "player": "corp",
+     "handIndex": 4,
+     "server": "new"
+    },
+    {
+     "type": "rez",
+     "player": "corp",
+     "uid": "i25"
+    },
+    {
+     "type": "end_turn",
+     "player": "corp"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote5"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote8"
+    },
+    {
+     "type": "pass",
+     "player": "corp"
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote7"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "rd"
+    },
+    {
+     "type": "pass",
+     "player": "corp"
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    }
+   ]
+  },
+  "stateSha256": "0fb21f8009efa6a7eb0448444f2bb6fa4ee9d0595c8eae1f62185b9f637b8e8b",
+  "facts": {
+   "turn": 50,
+   "activePlayer": "runner",
+   "corp": [
+    0,
+    1
+   ],
+   "runner": [
+    0,
+    2
+   ]
+  }
+ },
+ {
+  "name": "starter",
+  "save": {
+   "format": 1,
+   "rulesVersion": 4,
+   "seed": 11,
+   "options": {
+    "rezWindow": "affordable",
+    "deckSet": "starter"
+   },
+   "actions": [
+    {
+     "type": "install",
+     "player": "corp",
+     "handIndex": 5,
+     "server": "hq"
+    },
+    {
+     "type": "install",
+     "player": "corp",
+     "handIndex": 3,
+     "server": "hq"
+    },
+    {
+     "type": "advance",
+     "player": "corp",
+     "uid": "i1"
+    },
+    {
+     "type": "end_turn",
+     "player": "corp"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "hq"
+    },
+    {
+     "type": "rez",
+     "player": "corp",
+     "uid": "i2"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "play",
+     "player": "runner",
+     "handIndex": 0,
+     "server": "archives"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "hq"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "hq"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "end_turn",
+     "player": "runner"
+    },
+    {
+     "type": "install",
+     "player": "corp",
+     "handIndex": 1,
+     "server": "hq"
+    },
+    {
+     "type": "advance",
+     "player": "corp",
+     "uid": "i2"
+    },
+    {
+     "type": "install",
+     "player": "corp",
+     "handIndex": 2,
+     "server": "new"
+    },
+    {
+     "type": "rez",
+     "player": "corp",
+     "uid": "i3"
+    },
+    {
+     "type": "end_turn",
+     "player": "corp"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote1"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "archives"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote1"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "archives"
+    },
+    {
+     "type": "end_turn",
+     "player": "runner"
+    },
+    {
+     "type": "install",
+     "player": "corp",
+     "handIndex": 3,
+     "server": "remote1"
+    },
+    {
+     "type": "play",
+     "player": "corp",
+     "handIndex": 0
+    },
+    {
+     "type": "install",
+     "player": "corp",
+     "handIndex": 2,
+     "server": "rd"
+    },
+    {
+     "type": "end_turn",
+     "player": "corp"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "hq"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "rd"
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "rd"
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "install",
+     "player": "runner",
+     "handIndex": 3
+    },
+    {
+     "type": "end_turn",
+     "player": "runner"
+    },
+    {
+     "type": "install",
+     "player": "corp",
+     "handIndex": 4,
+     "server": "new"
+    },
+    {
+     "type": "install",
+     "player": "corp",
+     "handIndex": 1,
+     "server": "new"
+    },
+    {
+     "type": "install",
+     "player": "corp",
+     "handIndex": 1,
+     "server": "archives"
+    },
+    {
+     "type": "end_turn",
+     "player": "corp"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote2"
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "rd"
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "hq"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote2"
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "end_turn",
+     "player": "runner"
+    },
+    {
+     "type": "gain_credit",
+     "player": "corp"
+    },
+    {
+     "type": "advance",
+     "player": "corp",
+     "uid": "i1"
+    },
+    {
+     "type": "gain_credit",
+     "player": "corp"
+    },
+    {
+     "type": "end_turn",
+     "player": "corp"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote2"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "archives"
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote1"
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "archives"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "end_turn",
+     "player": "runner"
+    },
+    {
+     "type": "install",
+     "player": "corp",
+     "handIndex": 3,
+     "server": "new"
+    },
+    {
+     "type": "advance",
+     "player": "corp",
+     "uid": "i9"
+    },
+    {
+     "type": "gain_credit",
+     "player": "corp"
+    },
+    {
+     "type": "end_turn",
+     "player": "corp"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "archives"
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "rd"
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "archives"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "rd"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "steal",
+     "player": "runner",
+     "card": 0
+    },
+    {
+     "type": "end_turn",
+     "player": "runner"
+    },
+    {
+     "type": "install",
+     "player": "corp",
+     "handIndex": 3,
+     "server": "new"
+    },
+    {
+     "type": "advance",
+     "player": "corp",
+     "uid": "i12"
+    },
+    {
+     "type": "end_turn",
+     "player": "corp"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote2"
+    },
+    {
+     "type": "jack_out",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "hq"
+    },
+    {
+     "type": "pass",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote4"
+    },
+    {
+     "type": "steal",
+     "player": "runner",
+     "card": 0
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote5"
+    },
+    {
+     "type": "steal",
+     "player": "runner",
+     "card": 0
+    },
+    {
+     "type": "end_turn",
+     "player": "runner"
+    },
+    {
+     "type": "install",
+     "player": "corp",
+     "handIndex": 3,
+     "server": "new"
+    },
+    {
+     "type": "gain_credit",
+     "player": "corp"
+    },
+    {
+     "type": "advance",
+     "player": "corp",
+     "uid": "i13"
+    },
+    {
+     "type": "end_turn",
+     "player": "corp"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote6"
+    }
+   ]
+  },
+  "stateSha256": "699e13bb3e5424e95dea15fc66aceb02462ab0c17c10f3f27d17be19bb64e7e8",
+  "facts": {
+   "turn": 16,
+   "activePlayer": "runner",
+   "corp": [
+    0,
+    0
+   ],
+   "runner": [
+    1,
+    3
+   ]
+  }
+ },
+ {
+  "name": "Heimdall 1.0 vs Battering Ram (planned)",
+  "save": {
+   "format": 1,
+   "rulesVersion": 4,
+   "seed": 7,
+   "options": {
+    "rezWindow": "affordable",
+    "deckSet": "core"
+   },
+   "actions": [
+    {
+     "type": "install",
+     "player": "corp",
+     "handIndex": 2,
+     "server": "new"
+    },
+    {
+     "type": "gain_credit",
+     "player": "corp"
+    },
+    {
+     "type": "gain_credit",
+     "player": "corp"
+    },
+    {
+     "type": "end_turn",
+     "player": "corp"
+    },
+    {
+     "type": "draw",
+     "player": "runner"
+    },
+    {
+     "type": "draw",
+     "player": "runner"
+    },
+    {
+     "type": "draw",
+     "player": "runner"
+    },
+    {
+     "type": "draw",
+     "player": "runner"
+    },
+    {
+     "type": "end_turn",
+     "player": "runner"
+    },
+    {
+     "type": "discard",
+     "player": "runner",
+     "handIndices": [
+      0,
+      1,
+      2,
+      3
+     ]
+    },
+    {
+     "type": "end_turn",
+     "player": "corp"
+    },
+    {
+     "type": "discard",
+     "player": "corp",
+     "handIndices": [
+      0
+     ]
+    },
+    {
+     "type": "draw",
+     "player": "runner"
+    },
+    {
+     "type": "draw",
+     "player": "runner"
+    },
+    {
+     "type": "draw",
+     "player": "runner"
+    },
+    {
+     "type": "draw",
+     "player": "runner"
+    },
+    {
+     "type": "end_turn",
+     "player": "runner"
+    },
+    {
+     "type": "discard",
+     "player": "runner",
+     "handIndices": [
+      0,
+      1,
+      2,
+      3
+     ]
+    },
+    {
+     "type": "end_turn",
+     "player": "corp"
+    },
+    {
+     "type": "discard",
+     "player": "corp",
+     "handIndices": [
+      0
+     ]
+    },
+    {
+     "type": "draw",
+     "player": "runner"
+    },
+    {
+     "type": "draw",
+     "player": "runner"
+    },
+    {
+     "type": "draw",
+     "player": "runner"
+    },
+    {
+     "type": "draw",
+     "player": "runner"
+    },
+    {
+     "type": "end_turn",
+     "player": "runner"
+    },
+    {
+     "type": "discard",
+     "player": "runner",
+     "handIndices": [
+      1,
+      2,
+      3,
+      4
+     ]
+    },
+    {
+     "type": "end_turn",
+     "player": "corp"
+    },
+    {
+     "type": "discard",
+     "player": "corp",
+     "handIndices": [
+      0
+     ]
+    },
+    {
+     "type": "draw",
+     "player": "runner"
+    },
+    {
+     "type": "install",
+     "player": "runner",
+     "handIndex": 5
+    },
+    {
+     "type": "gain_credit",
+     "player": "runner"
+    },
+    {
+     "type": "gain_credit",
+     "player": "runner"
+    },
+    {
+     "type": "end_turn",
+     "player": "runner"
+    },
+    {
+     "type": "end_turn",
+     "player": "corp"
+    },
+    {
+     "type": "discard",
+     "player": "corp",
+     "handIndices": [
+      0
+     ]
+    },
+    {
+     "type": "gain_credit",
+     "player": "runner"
+    },
+    {
+     "type": "gain_credit",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote1"
+    },
+    {
+     "type": "rez",
+     "player": "corp",
+     "uid": "i1"
+    },
+    {
+     "type": "use_ability",
+     "player": "runner",
+     "uid": "i2",
+     "ability": 1
+    },
+    {
+     "type": "use_ability",
+     "player": "runner",
+     "uid": "i2",
+     "ability": 1
+    },
+    {
+     "type": "use_ability",
+     "player": "runner",
+     "uid": "i2",
+     "ability": 1
+    },
+    {
+     "type": "use_ability",
+     "player": "runner",
+     "uid": "i2",
+     "ability": 0,
+     "subs": [
+      1,
+      2
+     ]
+    }
+   ]
+  },
+  "stateSha256": "fa19889f07eb7f094deef66a56f827378e7e68530e6facd37540903af357fa91",
+  "facts": {
+   "turn": 10,
+   "activePlayer": "runner",
+   "corp": [
+    0,
+    0
+   ],
+   "runner": [
+    0,
+    0
+   ]
+  }
+ },
+ {
+  "name": "Ice Wall vs Ram and Gordian (planned)",
+  "save": {
+   "format": 1,
+   "rulesVersion": 4,
+   "seed": 42,
+   "options": {
+    "rezWindow": "always",
+    "deckSet": "core"
+   },
+   "actions": [
+    {
+     "type": "draw",
+     "player": "corp"
+    },
+    {
+     "type": "draw",
+     "player": "corp"
+    },
+    {
+     "type": "draw",
+     "player": "corp"
+    },
+    {
+     "type": "end_turn",
+     "player": "corp"
+    },
+    {
+     "type": "discard",
+     "player": "corp",
+     "handIndices": [
+      0,
+      1,
+      3,
+      4
+     ]
+    },
+    {
+     "type": "draw",
+     "player": "runner"
+    },
+    {
+     "type": "draw",
+     "player": "runner"
+    },
+    {
+     "type": "draw",
+     "player": "runner"
+    },
+    {
+     "type": "draw",
+     "player": "runner"
+    },
+    {
+     "type": "end_turn",
+     "player": "runner"
+    },
+    {
+     "type": "discard",
+     "player": "runner",
+     "handIndices": [
+      0,
+      2,
+      3,
+      4
+     ]
+    },
+    {
+     "type": "draw",
+     "player": "corp"
+    },
+    {
+     "type": "draw",
+     "player": "corp"
+    },
+    {
+     "type": "draw",
+     "player": "corp"
+    },
+    {
+     "type": "end_turn",
+     "player": "corp"
+    },
+    {
+     "type": "discard",
+     "player": "corp",
+     "handIndices": [
+      2,
+      3,
+      4,
+      5
+     ]
+    },
+    {
+     "type": "install",
+     "player": "runner",
+     "handIndex": 4
+    },
+    {
+     "type": "draw",
+     "player": "runner"
+    },
+    {
+     "type": "draw",
+     "player": "runner"
+    },
+    {
+     "type": "draw",
+     "player": "runner"
+    },
+    {
+     "type": "end_turn",
+     "player": "runner"
+    },
+    {
+     "type": "discard",
+     "player": "runner",
+     "handIndices": [
+      1,
+      2
+     ]
+    },
+    {
+     "type": "draw",
+     "player": "corp"
+    },
+    {
+     "type": "draw",
+     "player": "corp"
+    },
+    {
+     "type": "draw",
+     "player": "corp"
+    },
+    {
+     "type": "end_turn",
+     "player": "corp"
+    },
+    {
+     "type": "discard",
+     "player": "corp",
+     "handIndices": [
+      2,
+      4,
+      5,
+      6
+     ]
+    },
+    {
+     "type": "draw",
+     "player": "runner"
+    },
+    {
+     "type": "draw",
+     "player": "runner"
+    },
+    {
+     "type": "draw",
+     "player": "runner"
+    },
+    {
+     "type": "gain_credit",
+     "player": "runner"
+    },
+    {
+     "type": "end_turn",
+     "player": "runner"
+    },
+    {
+     "type": "discard",
+     "player": "runner",
+     "handIndices": [
+      1,
+      2,
+      3
+     ]
+    },
+    {
+     "type": "draw",
+     "player": "corp"
+    },
+    {
+     "type": "draw",
+     "player": "corp"
+    },
+    {
+     "type": "draw",
+     "player": "corp"
+    },
+    {
+     "type": "end_turn",
+     "player": "corp"
+    },
+    {
+     "type": "discard",
+     "player": "corp",
+     "handIndices": [
+      3,
+      4,
+      5,
+      6
+     ]
+    },
+    {
+     "type": "gain_credit",
+     "player": "runner"
+    },
+    {
+     "type": "install",
+     "player": "runner",
+     "handIndex": 4
+    },
+    {
+     "type": "gain_credit",
+     "player": "runner"
+    },
+    {
+     "type": "gain_credit",
+     "player": "runner"
+    },
+    {
+     "type": "end_turn",
+     "player": "runner"
+    },
+    {
+     "type": "draw",
+     "player": "corp"
+    },
+    {
+     "type": "install",
+     "player": "corp",
+     "handIndex": 6,
+     "server": "new"
+    },
+    {
+     "type": "end_turn",
+     "player": "corp"
+    },
+    {
+     "type": "discard",
+     "player": "corp",
+     "handIndices": [
+      3
+     ]
+    },
+    {
+     "type": "gain_credit",
+     "player": "runner"
+    },
+    {
+     "type": "run",
+     "player": "runner",
+     "server": "remote1"
+    },
+    {
+     "type": "rez",
+     "player": "corp",
+     "uid": "i3"
+    },
+    {
+     "type": "use_ability",
+     "player": "runner",
+     "uid": "i1",
+     "ability": 1
+    },
+    {
+     "type": "use_ability",
+     "player": "runner",
+     "uid": "i1",
+     "ability": 0,
+     "subs": [
+      0
+     ]
+    }
+   ]
+  },
+  "stateSha256": "fa37906ea77e9cfa3a545b5f398d6817dbc734d4b8a70bb1c911dc534cca8af8",
+  "facts": {
+   "turn": 10,
+   "activePlayer": "runner",
+   "corp": [
+    5,
+    0
+   ],
+   "runner": [
+    0,
+    0
+   ]
+  }
+ }
+]

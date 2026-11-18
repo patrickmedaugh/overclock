@@ -4,8 +4,9 @@
 import { expect, test } from '@playwright/test';
 import { expectCleanLayout, expectSnappy, getView, layout, measureTap, openBoard, runButtonOf, tap, toStep, waitIdle } from './helpers';
 
-const PUMP = '+1 strength · 1 credit';
-const BREAK = 'Break "End the run" · 1 credit';
+// Sprint 11 (S-11-1): card name first, the ICE type, short words.
+const PUMP = 'Corroder: +1 str · 1 credit';
+const BREAK = 'Corroder: break barrier sub · 1 credit';
 
 test.describe('S-03-4 break ICE with icebreakers', () => {
   test('a matching breaker shows its buttons with prices; Break is dimmed while the breaker is too weak', async ({ page }) => {
@@ -67,9 +68,9 @@ test.describe('S-03-4 break ICE with icebreakers', () => {
     }
     const l = await layout(page);
     expect((await getView(page)).players.runner.credits).toBe(0);
-    expect(runButtonOf(l, /^Break/)).toMatchObject({ lit: false, reject: 'no_credits' });
+    expect(runButtonOf(l, /^Corroder: break/)).toMatchObject({ lit: false, reject: 'no_credits' });
     const before = await getView(page);
-    const m = await measureTap(page, runButtonOf(l, /^Break/).box);
+    const m = await measureTap(page, runButtonOf(l, /^Corroder: break/).box);
     expect(m.events).toEqual([{ type: 'action_rejected', reason: 'no_credits' }]);
     expect(m.view).toEqual(before);
     expect(m.anims.map((a) => [a.kind, a.text])).toEqual([['hint', 'Not enough credits']]);

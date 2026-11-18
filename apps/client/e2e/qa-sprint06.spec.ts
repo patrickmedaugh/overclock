@@ -216,10 +216,11 @@ test.describe('QA S-06-2 screens: Corp is deciding / game over on both phones', 
     await corp.page.waitForTimeout(500);
     await shot(corp.page, '07-online-game-over-corp');
     await shot(runner.page, '08-online-game-over-runner');
-    // Back to start on the Corp: start screen, no Rejoin for a finished game.
+    // Back to start on the Corp: start screen, no Continue (Sprint 6: "Rejoin") for a finished game.
+    // Fresh browser context, so no pass-the-phone save can show "Continue game" either.
     await tap(corp.page, (await layoutOf(corp)).gameOver!.buttonBox);
     await corp.page.waitForFunction(() => window.__overclockStart?.screen() === 'home');
-    await expect(corp.page.locator('#start').getByRole('button', { name: /Rejoin/ })).toHaveCount(0);
+    await expect(corp.page.locator('#start').getByRole('button', { name: /Continue game|Rejoin/ })).toHaveCount(0);
     await corp.context.close();
     await runner.context.close();
   });
@@ -333,7 +334,7 @@ test.describe('QA S-06-2 not your turn', () => {
 });
 
 test.describe('QA S-06-3 coming back', () => {
-  test('reload mid-game: Rejoin game CODE puts the Runner back in its seat with the same board; play goes on', async ({ browser }) => {
+  test('reload mid-game: Continue game · CODE (Sprint 6: Rejoin) puts the Runner back in its seat with the same board; play goes on', async ({ browser }) => {
     const { corp, runner, code } = await twoPhones(browser, 'corp', { seed: 11, actions: [] });
     await act(corp, { type: 'gain_credit', player: 'corp' });
     await waitView(runner, (v) => v.players.corp.credits === 6);
@@ -342,7 +343,8 @@ test.describe('QA S-06-3 coming back', () => {
     await runner.page.waitForFunction(() => document.body.dataset.ready === 'true' && !!window.__overclockStart);
     await corp.page.waitForFunction(() => window.__overclock!.layout().status?.text === 'Waiting for the other player to come back…');
     await shot(corp.page, '10-online-waiting-for-other-player');
-    const rejoin = runner.page.locator('#start').getByRole('button', { name: new RegExp(`Rejoin game ${code}`) });
+    // Sprint 11 (S-11-3): "Rejoin game CODE" is now "Continue game · CODE".
+    const rejoin = runner.page.locator('#start').getByRole('button', { name: new RegExp(`Continue game · ${code}`) });
     await expect(rejoin).toBeVisible();
     await shot(runner.page, '11-start-rejoin');
     // While the Runner is on its start screen, a third phone can't take the empty-looking seat.
@@ -350,7 +352,7 @@ test.describe('QA S-06-3 coming back', () => {
     await joinGame(third, code);
     await expect(third.page.locator('#start .error')).toHaveText('That game already has two players');
     await third.context.close();
-    await tapButton(runner.page, /Rejoin game/);
+    await tapButton(runner.page, new RegExp(`Continue game · ${code}`));
     await waitPlaying(runner);
     const back = await view(runner);
     expect(back).toEqual(before);

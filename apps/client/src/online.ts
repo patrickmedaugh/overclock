@@ -7,7 +7,7 @@
 // -> playing; or failed (no game, full, the network, ...). While playing, the
 // socket may drop: the match reconnects with backoff and catches up with a
 // full `sync` (no replayed animations).
-import type { Action, GameEvent, PlayerView, Side } from '@overclock/engine';
+import { type Action, type GameEvent, type PlayerView, RULES_VERSION, type Side } from '@overclock/engine';
 import {
   CREATE_PATH,
   type ClientMsg,
@@ -53,6 +53,8 @@ export interface OnlineDeps {
   random(): number;
   /** Is the page on screen? Pings only run while it is. */
   visible(): boolean;
+  /** Sprint 11: wall clock (ms since the epoch) for the stored seat's `savedAt`; default `Date.now`. */
+  now?(): number;
 }
 
 export type FailReason = ErrorCode | 'network';
@@ -73,6 +75,8 @@ export const ONLINE_TIMING = {
   /** After coming back (page shown again, network back): a quicker check of the old socket. */
   wakePongWait: 3_000,
   ackWait: 5_000,
+  /** Sprint 11: Leave for now waits this long at most for the service to close the socket (it got `leave`). */
+  leaveWait: 1_500,
 } as const;
 
 const OPEN = 1;
@@ -85,10 +89,22 @@ export function readStoredSeat(storage: StoreLike | null, server: string): Store
     if (!raw) return null;
     const s = JSON.parse(raw) as Partial<StoredSeat>;
     if (s.server !== server || typeof s.code !== 'string' || typeof s.token !== 'string' || (s.seat !== 'corp' && s.seat !== 'runner')) return null;
-    return { server: s.server, code: s.code, seat: s.seat, token: s.token };
+    const seat: { -readonly [K in keyof StoredSeat]: StoredSeat[K] } = { server: s.server, code: s.code, seat: s.seat, token: s.token };
+    if (typeof s.rulesVersion === 'number' && Number.isInteger(s.rulesVersion)) seat.rulesVersion = s.rulesVersion;
+    if (typeof s.savedAt === 'number' && Number.isFinite(s.savedAt)) seat.savedAt = s.savedAt;
+    return seat;
   } catch {
     return null;
   }
+}
+
+/**
+ * Sprint 11 (owner Q3 A): a seat stored under other rules can't continue (the device
+ * shows a plain note and forgets it). Seats from before Sprint 11 carry no version:
+ * the service still decides for them (it expires or refuses them as before).
+ */
+export function seatOutdated(seat: StoredSeat): boolean {
+  return seat.rulesVersion !== undefined && seat.rulesVersion !== RULES_VERSION;
 }
 
 export function forgetStoredSeat(storage: StoreLike | null): void {
@@ -111,6 +127,8 @@ export class OnlineMatch implements Session {
   private current: PlayerView | null = null;
   private last: GameEvent[] = [];
   private opponent: Presence = 'none';
+  /** Sprint 11: the other player chose Leave for now (only while they are away). */
+  private opponentLeft = false;
   private connection: Connection = 'connecting';
   private phaseNow: OnlinePhase = { kind: 'connecting' };
   private nextId = 1;
@@ -175,7 +193,7 @@ export class OnlineMatch implements Session {
   }
 
   status(): SessionStatus {
-    return { connection: this.connection, opponent: this.opponent };
+    return this.opponentLeft ? { connection: this.connection, opponent: this.opponent, left: true } : { connection: this.connection, opponent: this.opponent };
   }
 
   onPresent(cb: (p: Presentation) => void): () => void {
@@ -234,9 +252,43 @@ export class OnlineMatch implements Session {
     if (this.token) this.reconnectNow();
   }
 
-  /** Leaves this phone's seat (it stays stored, so Rejoin works). */
-  leave(): void {
+  /**
+   * Leaves this phone's seat for now (it stays stored, so "Continue game · CODE"
+   * works). Sprint 11: in a started game the service is told first (`leave`), so the
+   * other player reads "The Runner left for now. The game is saved"; offline it just
+   * sees this phone go away.
+   */
+  leave(): Promise<void> {
+    const s = this.socket;
+    if (this.phaseNow.kind !== 'playing' || !s || s.readyState !== OPEN || this.stopped) {
+      if (this.phaseNow.kind === 'playing' && !this.current?.result) this.store();
+      this.stop();
+      return Promise.resolve();
+    }
+    this.send({ v: 1, t: 'leave' });
+    // A finished game stays forgotten (no Continue for it).
+    if (!this.current?.result) this.store();
+    // The service answers `leave` by closing this socket. Wait for that (short), so the message
+    // isn't lost when the page goes to the start screen right after; then close it ourselves anyway.
+    this.socket = null;
     this.stop();
+    return new Promise((resolve) => {
+      let timer: unknown = null;
+      const done = () => {
+        if (timer !== null) this.deps.clearTimeout(timer);
+        timer = null;
+        s.onclose = null;
+        try {
+          s.close(1000, 'left');
+        } catch {
+          // already closed
+        }
+        resolve();
+      };
+      s.onopen = s.onmessage = s.onerror = null;
+      s.onclose = done;
+      timer = this.deps.setTimeout(done, ONLINE_TIMING.leaveWait);
+    });
   }
 
   /**
@@ -423,6 +475,7 @@ export class OnlineMatch implements Session {
         this.current = msg.view;
         this.last = [];
         this.opponent = msg.opponent;
+        this.opponentLeft = msg.opponent === 'away' && msg.left === true;
         this.setConnection('open');
         this.afterView();
         if (this.phaseNow.kind !== 'playing') this.setPhase({ kind: 'playing' });
@@ -456,6 +509,7 @@ export class OnlineMatch implements Session {
         return;
       case 'presence':
         this.opponent = msg.opponent;
+        this.opponentLeft = msg.opponent === 'away' && msg.left === true;
         this.emitStatus();
         return;
       case 'error':
@@ -481,7 +535,15 @@ export class OnlineMatch implements Session {
 
   private store(): void {
     if (!this.token || !this.code) return;
-    const seat: StoredSeat = { server: this.deps.server, code: this.code, seat: this.mySeat, token: this.token };
+    // Sprint 11: the rules version (an update can make the game unplayable here) and when it was saved.
+    const seat: StoredSeat = {
+      server: this.deps.server,
+      code: this.code,
+      seat: this.mySeat,
+      token: this.token,
+      rulesVersion: RULES_VERSION,
+      savedAt: this.deps.now ? this.deps.now() : Date.now(),
+    };
     try {
       this.deps.storage?.setItem(STORAGE_KEY, JSON.stringify(seat));
     } catch {
@@ -526,5 +588,6 @@ export function browserDeps(server: string): OnlineDeps {
     clearTimeout: (id) => window.clearTimeout(id as number),
     random: () => Math.random(),
     visible: () => document.visibilityState !== 'hidden',
+    now: () => Date.now(),
   };
 }

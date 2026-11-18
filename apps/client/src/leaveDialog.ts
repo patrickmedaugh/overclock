@@ -10,9 +10,12 @@ import { theme } from './theme';
 import { PanelButton, fitText } from './widgets';
 
 export const LEAVE_TITLE = 'Leave the game?';
-export const LEAVE_TEXT = "This game ends. It isn't saved.";
-/** Sprint 6, online: the seat is kept, so the start screen offers Rejoin. */
-export const LEAVE_TEXT_ONLINE = 'You can come back with Rejoin on the start screen.';
+/** Sprint 11 (S-11-3): the game saves itself after every move, so leaving loses nothing. */
+export const LEAVE_TEXT = 'The game is saved. Continue it from the start screen.';
+/** Online: the seat is kept and the other player is told you left for now. */
+export const LEAVE_TEXT_ONLINE = LEAVE_TEXT;
+/** Sprint 11: the leave button (the game is kept, so it is "for now"). */
+export const LEAVE_BUTTON = 'Leave for now';
 
 export interface LeaveDialogSnapshot {
   title: string;
@@ -83,16 +86,16 @@ export class LeaveDialog {
 
     const bw = Math.floor((w - 2 * pad - gap) / 2);
     const by = y + h - pad - btnH;
-    const add = (label: string, bx: number, color: number, glow: boolean, onTap: () => void) => {
-      const b = new PanelButton(s, `dialog:${label.toLowerCase()}`);
+    const add = (key: string, label: string, bx: number, color: number, glow: boolean, onTap: () => void) => {
+      const b = new PanelButton(s, `dialog:${key}`);
       b.set({ x: bx, y: by, width: bw, height: btnH }, label, true, color, glow);
       this.detachers.push(attachPress(b.root, { onTap }));
       this.root.addChild(b.root);
       this.buttons.push({ label, button: b });
     };
     // Stay is the safe, highlighted choice; Leave sits on the left, away from the thumb's reach for Stay.
-    add('Leave', x + pad, theme.warn, false, onLeave);
-    add('Stay', x + w - pad - bw, theme.runner, true, onStay);
+    add('leave', LEAVE_BUTTON, x + pad, theme.warn, false, onLeave);
+    add('stay', 'Stay', x + w - pad - bw, theme.runner, true, onStay);
   }
 
   snapshot(): LeaveDialogSnapshot {

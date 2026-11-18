@@ -106,6 +106,50 @@ test.describe('S-04-2 the app bundle', () => {
     expect(errors).toEqual([]);
   });
 
+  test('S-11-3: the app killed and opened again: Continue game brings the pass-the-phone game back', async ({ page, context }) => {
+    // Android may kill the app in the background; its WebView storage stays (DECISIONS 2026-11-17).
+    // Here: close the page and open the bundle again in the same browser storage.
+    const errors: string[] = [];
+    const watch = (p: Page) => p.on('pageerror', (e) => errors.push(e.message));
+    watch(page);
+    const saved = (p: Page) =>
+      p.evaluate(() => {
+        const raw = window.localStorage.getItem('overclock.hotseat.v1');
+        return raw === null ? null : (JSON.parse(raw) as { actions: { type: string }[] }).actions;
+      });
+    await page.goto('./');
+    await page.waitForFunction(() => document.body.dataset.ready === 'true');
+    await playHere(page);
+    await page.waitForTimeout(400);
+    // A real tap: the Corp's credits in the rail (+1 credit) — the app saves it by itself.
+    await page.touchscreen.tap(BOARD.width - 75, Math.round(BOARD.height * 0.66));
+    await expect.poll(() => saved(page)).toEqual([{ type: 'gain_credit', player: 'corp' }]);
+    const [before] = await pixelStats(page, [BOARD]);
+
+    await page.close();
+    const again = await context.newPage();
+    watch(again);
+    await again.goto('./');
+    await again.waitForFunction(() => document.body.dataset.ready === 'true');
+    const cont = again.getByRole('button', { name: /^Continue game/ });
+    await expect(cont).toContainText("On this device · Corp's turn");
+    await test.info().attach('app-continue', { body: await again.screenshot(), contentType: 'image/png' });
+    await cont.tap();
+    await expect(again.locator('#start')).toBeHidden();
+    // Behind the pass cover first; a tap lifts it and the board is drawn.
+    await again.waitForTimeout(300);
+    await test.info().attach('app-restored-cover', { body: await again.screenshot(), contentType: 'image/png' });
+    await again.touchscreen.tap(BOARD.width / 2, BOARD.height / 2);
+    await again.waitForTimeout(400);
+    const [after] = await pixelStats(again, [BOARD]);
+    expect(after!.spread).toBeGreaterThan(10);
+    expect(Math.abs(after!.mean - before!.mean), 'the same board as before').toBeLessThan(3);
+    await test.info().attach('app-restored', { body: await again.screenshot(), contentType: 'image/png' });
+    // Still the same saved game (nothing lost, nothing added).
+    expect(await saved(again)).toEqual([{ type: 'gain_credit', player: 'corp' }]);
+    expect(errors).toEqual([]);
+  });
+
   test('upright, the app still shows no rotate prompt (Android keeps it sideways)', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('./');

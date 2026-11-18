@@ -457,7 +457,7 @@ describe('cleanup (TTL wake-ups)', () => {
     expect(late.take()).toEqual([{ v: 1, t: 'error', code: 'no_game' }]);
   });
 
-  it('an idle game lasts 3 days from its last move; each move pushes it back', () => {
+  it('an idle game lasts IDLE_TTL_MS (Sprint 11: 7 days) from its last move; each move pushes it back', () => {
     const h = harness();
     const { host, guest } = started(h);
     h.clock.t += 1000;

@@ -22,7 +22,8 @@ test.describe('S-04-2 Back button', () => {
     expect(await back(page)).toBe('ask_leave');
     const l = await layout(page);
     expect(l.dialog?.title).toBe('Leave the game?');
-    expect(l.dialog?.buttons.map((b) => b.label).sort()).toEqual(['Leave', 'Stay']);
+    // Sprint 11: the game is saved, so the button says "Leave for now".
+    expect(l.dialog?.buttons.map((b) => b.label).sort()).toEqual(['Leave for now', 'Stay']);
     expect(inside(l.dialog!.box, safeRect(l))).toBe(true);
     for (const b of l.dialog!.buttons) {
       expect(inside(b.box, l.dialog!.box)).toBe(true);
@@ -66,10 +67,10 @@ test.describe('S-04-2 Back button', () => {
     expect(l.dialog).not.toBeNull();
   });
 
-  test('Leave closes the app', async ({ page }) => {
+  test('Leave for now closes the app', async ({ page }) => {
     await openBoard(page, 1);
     await back(page);
-    await tap(page, button(await layout(page), 'Leave'));
+    await tap(page, button(await layout(page), 'Leave for now'));
     await expect.poll(() => exits(page)).toBe(1);
     expect((await layout(page)).dialog).toBeNull();
   });

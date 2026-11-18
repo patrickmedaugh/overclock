@@ -32,9 +32,9 @@ test('Sprint 3 screens: Run, rez, encounter, access, advance, win', async ({ pag
   await openBoard(page, 2);
   await toStep(page, 2, 'wall_of_static_encounter');
   await shot(page, '04-encounter-wall-of-static');
-  await tap(page, runButtonOf(await layout(page), /strength/).box);
+  await tap(page, runButtonOf(await layout(page), /: \+1 str/).box);
   await waitIdle(page);
-  await tap(page, runButtonOf(await layout(page), /^Break/).box);
+  await tap(page, runButtonOf(await layout(page), /: break/).box);
   await shot(page, '05-subroutine-broken-continue');
 
   await openBoard(page, 2);

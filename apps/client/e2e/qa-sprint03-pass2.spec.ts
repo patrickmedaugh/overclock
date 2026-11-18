@@ -315,14 +315,16 @@ test.describe('QA S-03-4 icebreakers', () => {
     await toSituation(page, 'ninjaKatana');
     const before = await getView(page);
     let l = await layout(page);
-    const BREAK = 'Break "Do 3 net damage" · 1 credit';
+    // Sprint 11 (S-11-1): run buttons name their card and the ICE type; one subroutine, so no sub text.
+    const BREAK = 'Ninja: break sentry sub · 1 credit';
+    const PUMP = 'Ninja: +5 str · 3 credits';
     expect(l.run!.lines).toEqual(expect.arrayContaining(['Strength 3', 'Ninja 0']));
     expect(runButtonOf(l, BREAK)).toMatchObject({ lit: false, reject: 'too_weak' });
-    expect(runButtonOf(l, '+5 strength · 3 credits')).toMatchObject({ lit: true });
+    expect(runButtonOf(l, PUMP)).toMatchObject({ lit: true, fullLabel: PUMP, source: 'r06' });
     expect(l.run!.buttons.some((b) => b.label === 'Jack out')).toBe(false);
     expectCleanLayout(l);
     await shot(page, 'qa-08-ninja-vs-neural-katana');
-    let m = await measureTap(page, runButtonOf(l, '+5 strength · 3 credits').box);
+    let m = await measureTap(page, runButtonOf(l, PUMP).box);
     expectSnappy(m, ['strength_pop']);
     l = await waitIdle(page);
     expect(l.run!.lines).toContain('Ninja 5');
@@ -345,15 +347,15 @@ test.describe('QA S-03-4 icebreakers', () => {
     let l = await layout(page);
     expect(l.run!.stepLabel).toBe('Encounter: Enigma');
     expect(l.run!.lines).toEqual(expect.arrayContaining(['Strength 2', 'Gordian Blade 2']));
-    const pump = runButtonOf(l, /strength/);
-    expect(pump.label).toBe('+1 strength · 1 credit');
+    const pump = runButtonOf(l, /: \+1 str /);
+    expect(pump.label).toBe('Gordian Blade: +1 str · 1 credit');
     await tap(page, pump.box);
     l = await waitIdle(page);
     expect(l.run!.lines).toContain('Gordian Blade 3');
     await shot(page, 'qa-10-gordian-pumped-first-enigma');
     // Break both subroutines.
     for (let i = 0; i < 2; i++) {
-      await tap(page, runButtonOf(l, /^Break/).box);
+      await tap(page, runButtonOf(l, /^Gordian Blade: break code gate sub/).box);
       l = await waitIdle(page);
     }
     expect(l.run).toMatchObject({ step: 'continue' });
@@ -367,7 +369,9 @@ test.describe('QA S-03-4 icebreakers', () => {
     expect(l.run).toMatchObject({ step: 'encounter', stepLabel: 'Encounter: Enigma' });
     expect(l.run!.lines).toContain('Gordian Blade 3');
     // Strong enough already: both breaks are lit without another pump.
-    for (const b of l.run!.buttons.filter((x) => x.label.startsWith('Break'))) expect(b.lit).toBe(true);
+    const breaks = l.run!.buttons.filter((x) => (x.fullLabel ?? x.label).startsWith('Gordian Blade: break code gate sub'));
+    expect(breaks, 'both subroutines have a break button').toHaveLength(2);
+    for (const b of breaks) expect(b.lit).toBe(true);
     await shot(page, 'qa-11-gordian-still-3-at-second-enigma');
   });
 });
@@ -447,8 +451,8 @@ test.describe('QA snappiness: run steps', () => {
     // out of the 600ms animation rule; instead the next tap is checked to be answered at once
     // while the toast is still on screen.
     const steps: [RegExp, AnimRecord['kind'][], string | null][] = [
-      [/^\+1 strength/, ['strength_pop'], null],
-      [/^Break/, ['sub_broken', 'run_step'], null],
+      [/^Corroder: \+1 str · /, ['strength_pop'], null],
+      [/^Corroder: break barrier sub · /, ['sub_broken', 'run_step'], null],
       [/^Continue$/, [], 'Nothing to access in Server 1'],
     ];
     let toast: AnimRecord | undefined;
@@ -511,9 +515,9 @@ test.describe('QA-S3-3 a successful run with nothing to access ends silently', (
   test('Continue into a server that holds only ICE: some notice says the run got in and found nothing', async ({ page }) => {
     await openBoard(page, 2);
     await toStep(page, 2, 'wall_of_static_encounter');
-    await tap(page, runButtonOf(await layout(page), /^\+1 strength/).box);
+    await tap(page, runButtonOf(await layout(page), /^Corroder: \+1 str · /).box);
     await waitIdle(page);
-    await tap(page, runButtonOf(await layout(page), /^Break/).box);
+    await tap(page, runButtonOf(await layout(page), /^Corroder: break barrier sub · /).box);
     await waitIdle(page);
     const m = await measureTap(page, runButtonOf(await layout(page), 'Continue').box);
     expect(m.events.map((e) => e.type)).toEqual(['run_successful', 'run_ended']);
@@ -585,10 +589,10 @@ test.describe('QA Sprint 3 playthrough (screenshots)', () => {
     await openBoard(page, 2);
     await toStep(page, 2, 'wall_of_static_encounter');
     await shot(page, '08-encounter-wall-of-static-break-dim');
-    await tap(page, runButtonOf(await layout(page), /strength/).box);
+    await tap(page, runButtonOf(await layout(page), /^Corroder: \+1 str · /).box);
     await waitIdle(page);
     await shot(page, '09-corroder-raised-break-lit');
-    await tap(page, runButtonOf(await layout(page), /^Break/).box);
+    await tap(page, runButtonOf(await layout(page), /^Corroder: break barrier sub · /).box);
     await waitIdle(page);
     await shot(page, '10-subroutine-crossed-out-passed');
 
