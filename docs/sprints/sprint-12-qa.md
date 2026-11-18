@@ -1,5 +1,64 @@
 # Sprint 12 QA report
 
+## Round 3 (2026-11-18, ui-dev head cb1895c + QA commit)
+
+QA re-checked ui-dev's fix for QA-S12-2 (cb1895c: the price label tries "1 credit (−4)" on one line, then "1 credit" / "(−4)" on two lines, then just "1 credit"; it never shrinks below 10 px; the pill may be as wide as the target, never wider).
+
+**Result: QA-S12-2 is fixed. Every Modded price is 10 px or more at all 4 sizes, sits inside its own card, clear of every card name, targets at least 44 px. S-12-3 passes QA. All 6 stories passed QA. No open bugs.**
+
+### Change to QA's own test file
+`git diff e68d4e1..HEAD -- apps/client/e2e/qa-*`: one line removed, the `test.fail(... 'phone-short' ...)` mark on "QA-S12-2 seed 203: Modded price text >= 10 px". Nothing else in any qa-* file changed. The check itself (`>= 10`) is the same.
+
+### What QA checked
+1. `qa-sprint12.spec.ts` + `s12-runner.spec.ts` on all 4 sizes, `--retries=0`: **105 passed, 3 skipped (online at 891×296, as before), 0 failed**. This includes `QA-S12-2 seed 203` now passing on `phone-short` with no expected-failure mark, and `QA-S12-1 r2 seed 203 / 206 / 208` (inside own target, centred on own card, clear of every name, 44 px).
+2. The layout hook's `label` keeps the full text ("1 credit (−4)") even when the screen shows less, so tests that read `label` don't prove what is drawn. QA added a **local, not committed** line to the hook to read the drawn text and its measured width/height, and probed **every lit Grip card for seeds 201–212** (34 cards per size, 136 in all). Then it removed the line (the committed code is ui-dev's, unchanged).
+
+| Size | Target | Text size | What is drawn | Text inside pill | Pill inside target | Gap pill → name |
+|---|---|---|---|---|---|---|
+| 1280×800 | 81×113 | 10.0 px | "free (−n)" / "1 credit (−4)", one line, all 34 | yes, all | yes, all | 48.8 px |
+| 844×390 | 55×77 | 11.0 px | "free (−n)" one line; "1 credit" / "(−4)" two lines; discount on all 34 | yes, all | yes, all | 14.2–26.2 px |
+| 640×360 | 52×72 | 10.0 px | same as 844×390; discount on all 34 | yes, all | yes, all | 13.2–24.2 px |
+| 891×296 | 44×56 | 10.0 px | **just the price ("free", "1 credit") on 29 of 34**; "free" / "(−n)" on 5 (Pipeline, Corroder, whose names are one line so there is more room) | yes, all | yes, all | 3.6–7.9 px |
+
+0 of 136 cards break any rule (text < 10 px, text outside its pill, pill outside its target, pill touching the name, target < 44 px).
+
+### The discount at 891×296: does S-12-3 AC3 still hold?
+- AC3 says: "then it installs 3 credits cheaper (never below 0), with no extra click, and her own 1-credit discount still applies". It is about **what the install costs**, not about showing the discount. It does **not** require the "(−N)" to be on screen.
+- What the screen shows at 891×296 is the **real price you pay** ("free", "1 credit"), and it is correct on every card QA probed (cost − 3 − Kate's 1, never below 0). The tests confirm the credits paid on a real tap (Magnum Opus 1 credit, Pipeline 0).
+- So **AC3 PASS** at all sizes. The discount is shown at 844×390, 640×360 and 1280×800. At 891×296 only the price is shown on most cards.
+- If the owner wants the "(−N)" visible on his phone as well, that is a new request, not a failed criterion (PM: ask at the demo).
+
+### Which price is which
+On every size each price is on its own card, above the card's name, with the name fully readable (`r3-modded-prices-*.png`). The pill covers the card's printed cost badge (noted in round 2), so on the phone there is just one number per card: what you'll pay. That's clear, but at 891×296 you can't see the printed cost to compare (hold the card to see it).
+
+### Minor observations (no fix asked)
+- At 891×296 the discount shows on some cards and not others in the same hand (seed 212: Pipeline "free / (−3)", the others "free"). This depends on whether the card's name takes one or two lines. A little uneven; nothing is wrong.
+- Suggestion for the team: the layout hook could expose the drawn text (e.g. `shown`) so a committed test can check what is on screen, not the full label.
+
+### Screenshots (drawn at seed 203 / 212; taken with QA's local hook line, which doesn't change drawing)
+`docs/sprints/sprint-12-qa/r3-modded-prices-{phone-short-203,phone-short-212,phone-small-203,phone-203,desktop-203}.png` (phone-short = 891×296, phone-small = 640×360, phone = 844×390, desktop = 1280×800).
+
+### Checks
+- Local: the two Sprint 12 Modded specs above, all 4 sizes, `--retries=0`: 105 passed, 3 skipped.
+- Full pass and regression: CI on QA's round 3 commit (ui-dev's cb1895c code plus this report and screenshots only). Result is recorded below.
+
+### Final per-story results (round 3)
+| Story | Result |
+|---|---|
+| S-12-1 Accelerated Beta Test | PASSED QA |
+| S-12-2 Archived Memories / Experiential Data | PASSED QA |
+| S-12-3 The Toolbox and Modded | PASSED QA (QA-S12-1 and QA-S12-2 fixed) |
+| S-12-4 Infiltration | PASSED QA |
+| S-12-5 Full 45-card decks | PASSED QA |
+| S-12-6 Melange "Click ×3" | PASSED QA |
+
+### Needs the owner's phone (round 3)
+1. **Modded on your phone (891×296):** pick Modded with a few programs in hand. Each card shows what you'll pay ("free", "1 credit"). Most cards don't show the "(−4)" part at this size. Is that fine, or do you want the discount shown too?
+
+IP: no change (no new image or font files except QA screenshots).
+
+---
+
 ## Round 2 (2026-11-18, head 5d4dfef + QA commit)
 
 QA re-checked ui-dev's fix for QA-S12-1 (5d4dfef: Modded's price label moved above the card name, split into price / discount on two lines, shrinks to fit).
