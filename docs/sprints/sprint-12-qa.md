@@ -99,7 +99,8 @@ Local run of these 5 files at all sizes, `--retries=0`: 231 passed, 8 skipped, 8
 
 ## Checks
 - `npm run lint`, `npm run typecheck`: pass. `npm test`: all unit suites pass (2,528 tests across the 8 workspaces, including QA's new file).
-- Full e2e on the QA commit: see "CI on the QA head" below (QA uses CI as the round's full pass, `docs/TESTING.md`).
+- Full e2e on the QA commit 0e6ed89 (CI run 44237223897, all 4 shards, CI retries=1): **1,684 passed, 0 failed, 0 flaky, 17 skipped** (shards 419 / 420 / 425 / 420). `checks` (lint, typecheck, unit), `guard-mutation`, build and deploy: all green. QA used this CI run as the round's full pass instead of a local re-run (`docs/TESTING.md`). The only commit after it changes this report and nothing else.
+- Before the QA commits, CI on 172e7cd (run 44229750102) was red only in QA-owned specs (see above).
 
 ## Needs the owner's phone
 1. **Modded at 891×296 (QA-S12-1):** in a pass-the-phone game, when Kate has Modded and a few programs in hand, pick Modded and check whether you can tell which card each price belongs to.
