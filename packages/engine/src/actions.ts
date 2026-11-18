@@ -22,8 +22,21 @@ export type Action =
   /**
    * 1 click: play the operation/event at `handIndex` (pays its cost, goes face up to discard, resolves `onPlay`).
    * `server` is required for run events with no fixed server (Inside Job) and must be absent otherwise.
+   * Sprint 12 (each required for, and only allowed on, the cards that use it):
+   * - `installIndex`: the Grip card an `install_from_hand` effect installs (Modded), as an index into
+   *   the hand **before** playing (never `handIndex` itself).
+   * - `mode`: index into the card's `modes` (Infiltration: 0 = Gain 2 credits, 1 = Expose 1 card).
+   * - `uid`: the face-down installed Corp card an `expose` mode exposes.
    */
-  | { readonly type: 'play'; readonly player: Side; readonly handIndex: number; readonly server?: ServerId }
+  | {
+      readonly type: 'play';
+      readonly player: Side;
+      readonly handIndex: number;
+      readonly server?: ServerId;
+      readonly installIndex?: number;
+      readonly mode?: number;
+      readonly uid?: string;
+    }
   /** Runner, 1 click: start a run on `server`. */
   | { readonly type: 'run'; readonly player: Side; readonly server: ServerId }
   /**
@@ -88,7 +101,13 @@ export type Action =
    * Sprint 9: Corp basic action, 1 click + 2 credits: trash the Runner's installed resource `uid`
    * (own action phase; only while the Runner is tagged).
    */
-  | { readonly type: 'trash_resource'; readonly player: Side; readonly uid: string };
+  | { readonly type: 'trash_resource'; readonly player: Side; readonly uid: string }
+  /**
+   * Sprint 12: answer an open `look_install` choice (Corp; Accelerated Beta Test: `card` = index into the
+   * looked-at cards, `server` = where that ICE goes, an existing server or 'new') or `archives_pick`
+   * choice (Corp; Archived Memories: `card` = index into Archives, `server` absent).
+   */
+  | { readonly type: 'select'; readonly player: Side; readonly card: number; readonly server?: ServerId | 'new' };
 
 export type ActionType = Action['type'];
 

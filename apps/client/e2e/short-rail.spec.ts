@@ -64,7 +64,7 @@ for (const size of SIZES) {
     });
 
     test('Private Security Force in the score area, Runner tagged: "Do 1 meat damage · 1 click" shows in full', async ({ page }) => {
-      await page.goto('./?seed=1&play=here&cover=off');
+      await page.goto('./?seed=1&play=here&cover=off&decks=core');
       await page.waitForFunction(() => document.body.dataset.ready === 'true' && !!window.__overclock);
       await toStep(page, 1, 'psf_scored_tagged');
       let l = await waitIdle(page);

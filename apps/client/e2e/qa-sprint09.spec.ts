@@ -40,7 +40,7 @@ function snappy(m: TapMeasure): void {
 }
 
 async function core(page: Page, seed: number, cover: boolean): Promise<void> {
-  await page.goto(`./?seed=${seed}&play=here${cover ? '' : '&cover=off'}`);
+  await page.goto(`./?seed=${seed}&play=here&decks=core${cover ? '' : '&cover=off'}`); // Sprint 12: plans are on the 30-card core decks
   await page.waitForFunction(() => document.body.dataset.ready === 'true' && !!window.__overclock);
 }
 

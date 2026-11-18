@@ -58,7 +58,7 @@ async function scoreFlow(page: Page, prefix: string): Promise<LayoutSnapshot> {
 }
 
 async function psfFlow(page: Page, prefix: string): Promise<void> {
-  await page.goto('./?seed=1&play=here&cover=off');
+  await page.goto('./?seed=1&play=here&cover=off&decks=core'); // Sprint 12: plan on the 30-card core decks
   await page.waitForFunction(() => document.body.dataset.ready === 'true' && !!window.__overclock);
   await toStep(page, 1, 'psf_scored_tagged');
   let l = await waitIdle(page);

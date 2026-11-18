@@ -17,12 +17,12 @@ function onlineGame(seed: number, goal: StepGoal) {
   const h = harness({ testMode: true });
   const conns: Record<Side, FakeConn> = { corp: new FakeConn('corp'), runner: new FakeConn('runner') };
   h.room.connect(conns.corp, { kind: 'creator', code: 'S8PT' });
-  // Core is the default: no deckSet needed.
-  h.room.message(conns.corp, msg({ t: 'create', side: 'corp', test: { seed, actions: plan.actions } }));
+  // Sprint 12: the 30-card decks are a test fixture now (the default is 'core45'): name them.
+  h.room.message(conns.corp, msg({ t: 'create', side: 'corp', test: { seed, actions: plan.actions, deckSet: plan.deckSet } }));
   h.room.connect(conns.runner, { kind: 'player' });
   h.room.message(conns.runner, msg({ t: 'join' }));
   expect(h.room.seq()).toBe(plan.actions.length);
-  expect(h.store.get<RoomMeta>('meta')!.options).toEqual(ONLINE_OPTIONS);
+  expect(h.store.get<RoomMeta>('meta')!.options).toEqual({ ...ONLINE_OPTIONS, deckSet: 'core' });
   let id = 0;
   const send = (a: Action) => {
     const before = h.store.get<GameState>('state')!;
@@ -137,16 +137,17 @@ describe('Sprint 8 cards through the online room (core decks): both phones agree
 });
 
 describe('Sprint 8 test-mode deckSet (create.test.deckSet)', () => {
-  it("test mode: 'starter' plays the Sprint 7 decks without identities; absent = core", () => {
-    for (const [deckSet, identity] of [['starter', null], [undefined, 'c13']] as const) {
+  it("test mode: 'starter' plays the Sprint 7 decks without identities, 'core' the 30-card decks; absent = core45 (Sprint 12)", () => {
+    for (const [deckSet, identity] of [['starter', null], ['core', 'c13'], [undefined, 'c13']] as const) {
       const h = harness({ testMode: true });
       const c = new FakeConn('c');
       h.room.connect(c, { kind: 'creator', code: 'DKST' });
       h.room.message(c, msg({ t: 'create', side: 'corp', test: { seed: 3, actions: [], ...(deckSet ? { deckSet } : {}) } }));
       const state = h.store.get<GameState>('state')!;
-      expect(state.options.deckSet).toBe(deckSet ?? 'core');
+      expect(state.options.deckSet).toBe(deckSet ?? 'core45');
       expect(state.players.corp.identity).toBe(identity);
-      expect(h.store.get<RoomMeta>('meta')!.options.deckSet).toBe(deckSet ?? 'core');
+      expect(state.players.corp.hand.length + state.players.corp.deck.length).toBe(deckSet === 'starter' ? 17 : deckSet === 'core' ? 30 : 45);
+      expect(h.store.get<RoomMeta>('meta')!.options.deckSet).toBe(deckSet ?? 'core45');
     }
   });
 

@@ -15,6 +15,7 @@ export const RUNNER_CARDS: readonly CardDef[] = [
     type: 'event',
     faction: 'criminal',
     influence: 1,
+    code: '01019',
     cost: 0,
     text: 'Gain 3 credits.',
     art: 'glyph:coin-stack',
@@ -26,6 +27,8 @@ export const RUNNER_CARDS: readonly CardDef[] = [
     side: 'runner',
     type: 'resource',
     faction: 'neutral',
+    influence: 0,
+    code: '01053',
     cost: 1,
     text:
       'Place 12 credits from the bank on Armitage Codebusting when it is installed. When there are no credits left on Armitage Codebusting, trash it.\nClick: Take 2 credits from Armitage Codebusting.',
@@ -50,6 +53,7 @@ export const RUNNER_CARDS: readonly CardDef[] = [
     type: 'event',
     faction: 'shaper',
     influence: 2,
+    code: '01034',
     cost: 0,
     text: 'Draw 3 cards.',
     art: 'glyph:folder-open',
@@ -62,6 +66,7 @@ export const RUNNER_CARDS: readonly CardDef[] = [
     type: 'program',
     faction: 'anarch',
     influence: 2,
+    code: '01007',
     subtype: 'breaker_barrier',
     cost: 2,
     memory: 1,
@@ -80,6 +85,7 @@ export const RUNNER_CARDS: readonly CardDef[] = [
     type: 'program',
     faction: 'shaper',
     influence: 3,
+    code: '01043',
     subtype: 'breaker_code_gate',
     cost: 4,
     memory: 1,
@@ -98,6 +104,7 @@ export const RUNNER_CARDS: readonly CardDef[] = [
     type: 'program',
     faction: 'criminal',
     influence: 2,
+    code: '01027',
     subtype: 'breaker_sentry',
     cost: 4,
     memory: 1,
@@ -116,6 +123,7 @@ export const RUNNER_CARDS: readonly CardDef[] = [
     type: 'event',
     faction: 'shaper',
     influence: 2,
+    code: '01036',
     cost: 2,
     text: 'Make a run on R&D. If successful, access 2 additional cards from R&D.',
     art: 'glyph:pin',
@@ -128,6 +136,7 @@ export const RUNNER_CARDS: readonly CardDef[] = [
     type: 'hardware',
     faction: 'anarch',
     influence: 1,
+    code: '01005',
     cost: 2,
     text: '1 recurring credit.\nUse this credit to pay for using icebreakers or for installing virus programs.',
     art: 'glyph:lung',
@@ -140,6 +149,7 @@ export const RUNNER_CARDS: readonly CardDef[] = [
     type: 'hardware',
     faction: 'shaper',
     influence: 1,
+    code: '01038',
     cost: 1,
     text: '+1 memory.',
     art: 'glyph:halo',
@@ -152,6 +162,7 @@ export const RUNNER_CARDS: readonly CardDef[] = [
     type: 'resource',
     faction: 'criminal',
     influence: 2,
+    code: '01029',
     cost: 1,
     text:
       'Place 8 credits from the bank on Bank Job when it is installed. When there are no credits left on Bank Job, trash it.\nWhenever you make a successful run on a remote server, instead of accessing cards you may take any number of credits from Bank Job.',
@@ -178,6 +189,7 @@ export const RUNNER_CARDS: readonly CardDef[] = [
     type: 'event',
     faction: 'criminal',
     influence: 3,
+    code: '01021',
     cost: 2,
     text: 'Make a run. Bypass the first piece of ICE encountered during this run.',
     art: 'glyph:wave-cut',
@@ -190,6 +202,7 @@ export const RUNNER_CARDS: readonly CardDef[] = [
     type: 'resource',
     faction: 'shaper',
     influence: 1,
+    code: '01048',
     cost: 0,
     text: 'Trash: Prevent an installed program or an installed piece of hardware from being trashed.',
     art: 'glyph:mask',
@@ -202,6 +215,7 @@ export const RUNNER_CARDS: readonly CardDef[] = [
     side: 'runner',
     type: 'identity',
     faction: 'shaper',
+    code: '01033',
     cost: 0,
     minDeckSize: 45,
     influenceLimit: 15,
@@ -216,6 +230,8 @@ export const RUNNER_CARDS: readonly CardDef[] = [
     side: 'runner',
     type: 'event',
     faction: 'neutral',
+    influence: 0,
+    code: '01050',
     cost: 5,
     text: 'Gain 9 credits.',
     art: 'glyph:dice',
@@ -228,6 +244,7 @@ export const RUNNER_CARDS: readonly CardDef[] = [
     type: 'program',
     faction: 'shaper',
     influence: 2,
+    code: '01044',
     cost: 5,
     memory: 2,
     text: 'Click: Gain 2 credits.',
@@ -242,6 +259,7 @@ export const RUNNER_CARDS: readonly CardDef[] = [
     subtype: 'breaker_sentry',
     faction: 'shaper',
     influence: 1,
+    code: '01046',
     cost: 3,
     memory: 1,
     strength: 1,
@@ -260,6 +278,7 @@ export const RUNNER_CARDS: readonly CardDef[] = [
     subtype: 'breaker_barrier',
     faction: 'shaper',
     influence: 2,
+    code: '01042',
     cost: 5,
     memory: 2,
     strength: 3,
@@ -277,10 +296,61 @@ export const RUNNER_CARDS: readonly CardDef[] = [
     side: 'runner',
     type: 'resource',
     faction: 'neutral',
+    influence: 0,
+    code: '01052',
     cost: 1,
     link: 1,
     text: '+1 link.',
     art: 'glyph:relay-mast',
+  },
+  // ---- Sprint 12: Shaper + neutral. Numbers and 2012 wording checked against netrunner-cards-json pack/core.json (DECISIONS 2026-11-18). ----
+  {
+    id: 'r19',
+    name: 'The Toolbox',
+    side: 'runner',
+    type: 'hardware',
+    faction: 'shaper',
+    influence: 2,
+    code: '01041',
+    unique: true,
+    cost: 9,
+    text: '+2 memory. +2 link.\n2 recurring credits.\nUse these credits to pay for using icebreakers.',
+    art: 'glyph:toolbox',
+    memoryBonus: 2,
+    link: 2,
+    recurringCredits: { amount: 2, for: 'icebreaker' },
+  },
+  {
+    id: 'r20',
+    name: 'Modded',
+    side: 'runner',
+    type: 'event',
+    faction: 'shaper',
+    influence: 2,
+    code: '01035',
+    cost: 0,
+    text: 'Install a program or piece of hardware, lowering the install cost by 3.',
+    art: 'glyph:solder-iron',
+    // Sprint 12: the Grip card travels in `play.installIndex`; dimmed with no program or hardware in the Grip.
+    playIf: 'has_install_target',
+    onPlay: [{ op: 'install_from_hand', types: ['program', 'hardware'], discount: 3 }],
+  },
+  {
+    id: 'r21',
+    name: 'Infiltration',
+    side: 'runner',
+    type: 'event',
+    faction: 'neutral',
+    influence: 0,
+    code: '01049',
+    cost: 0,
+    text: 'Gain 2 credits or expose 1 card.',
+    art: 'glyph:peek-eye',
+    // Sprint 12: `play.mode` picks one; "expose" names a face-down installed Corp card in `play.uid`.
+    modes: [
+      { label: 'Gain 2 credits', effects: [{ op: 'gain_credits', amount: 2 }] },
+      { label: 'Expose 1 card', effects: [{ op: 'expose' }] },
+    ],
   },
 ];
 
@@ -316,5 +386,36 @@ export const RUNNER_CORE_DECK: DeckDef = {
     ...['r08', 'r08'], // Cyberfeeder
     'r12', // Sacrificial Construct
     ...['r18', 'r18'], // Access to Globalsec
+  ],
+};
+
+/**
+ * Sprint 12: the 45-card Kate deck (the real minimum; proposal S-12-5 table). The Sprint 11 30-card list plus
+ * 1 The Toolbox, 3 Modded, 3 Infiltration and one more Armitage Codebusting, Magnum Opus, Gordian Blade,
+ * Pipeline, Battering Ram, Akamatsu Mem Chip, Sacrificial Construct and Access to Globalsec. Influence 10 of 15.
+ * `RUNNER_CORE_DECK` (30) stays as a test fixture.
+ */
+export const RUNNER_CORE45_DECK: DeckDef = {
+  identity: 'r13',
+  cards: [
+    ...['r14', 'r14', 'r14'], // Sure Gamble
+    'r01', // Easy Mark
+    ...['r03', 'r03', 'r03'], // Diesel
+    ...['r21', 'r21', 'r21'], // Infiltration
+    ...['r20', 'r20', 'r20'], // Modded
+    ...['r02', 'r02', 'r02'], // Armitage Codebusting
+    'r10', // Bank Job
+    ...['r15', 'r15', 'r15'], // Magnum Opus
+    ...['r07', 'r07', 'r07'], // The Maker's Eye
+    'r11', // Inside Job
+    'r04', // Corroder
+    ...['r05', 'r05', 'r05'], // Gordian Blade
+    ...['r16', 'r16', 'r16'], // Pipeline
+    ...['r17', 'r17', 'r17'], // Battering Ram
+    ...['r09', 'r09', 'r09'], // Akamatsu Mem Chip
+    ...['r08', 'r08'], // Cyberfeeder
+    'r19', // The Toolbox
+    ...['r12', 'r12'], // Sacrificial Construct
+    ...['r18', 'r18', 'r18'], // Access to Globalsec
   ],
 };

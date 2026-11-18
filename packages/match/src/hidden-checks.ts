@@ -7,6 +7,8 @@
  *
  * A Corp card id may appear in the Runner's view only where the card is face up or
  * being accessed, and in its events only in events that reveal a card publicly.
+ * Sprint 12: `card_exposed` (the exposed card), `card_returned_to_hand` (only a face-up pick),
+ * Accelerated Beta Test's `looked` cards (count only).
  */
 import { viewFor, type GameEvent, type GameState, type PlayerView } from '@overclock/engine';
 
@@ -72,6 +74,17 @@ export function runnerEventLeaks(events: readonly GameEvent[], after: GameState)
       if (CORP_ID.test(JSON.stringify(e.outcome))) out.push(`subroutine_resolved outcome names a Corp card: ${JSON.stringify(e)}`);
       continue;
     }
+    if (e.type === 'card_exposed') {
+      // Sprint 12 (Infiltration): names the installed Corp card at `uid` (public; it stays face down).
+      const c = after.servers.flatMap((sv) => [...sv.ice, ...sv.content]).find((x) => x.uid === e.uid);
+      if (c?.cardId !== e.cardId) out.push(`card_exposed names ${e.cardId}, not the card at ${e.uid}`);
+      continue;
+    }
+    if (e.type === 'card_returned_to_hand') {
+      // Sprint 12 (Archived Memories): the id only for a card that lay face up in Archives.
+      if (e.cardId !== undefined && !e.faceUp) out.push(`card_returned_to_hand names face-down ${e.cardId}`);
+      continue;
+    }
     if (CORP_ID.test(JSON.stringify(e))) out.push(`event names a Corp card: ${JSON.stringify(e)}`);
   }
   return out;
@@ -113,6 +126,8 @@ export function runnerViewLeaks(s: GameState, v: PlayerView = viewFor('runner', 
     const ok = s.players.corp.scoreArea.includes(v.choice.cardId) || (ice?.rezzed === true && ice.cardId === v.choice.cardId) || played;
     check(ok, 'choice names a card neither in the score area, the rezzed current ICE nor the operation just played');
   }
+  // Sprint 12: the cards Accelerated Beta Test set aside are only counted for the Runner.
+  if (v.choice?.looked) check(v.choice.looked.every((x) => x === null), 'looked-at cards named');
   // Sprint 7: installed-card options only for the Runner's own rig cards.
   const rigUids = new Set(s.rig.map((c) => c.uid));
   for (const uid of Object.keys(v.installedOptions)) check(rigUids.has(uid), `Runner option on non-rig card ${uid}`);

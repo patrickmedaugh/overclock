@@ -118,3 +118,35 @@ describe('Sprint 8 allowlist (narrow): identities, trashed face-up Corp cards, i
     expect(runnerViewLeaks(s, { ...v, choice: { ...v.choice!, cardId: 'c17' } }).length).toBeGreaterThan(0);
   });
 });
+
+describe('Sprint 12: runnerViewLeaks / runnerEventLeaks know the new cards', () => {
+  it('report nothing over random 45-card games, and catch planted Sprint 12 leaks', () => {
+    for (let seed = 1; seed <= 12; seed++) {
+      let s = engineNewGame(seed, { rezWindow: seed % 2 ? 'always' : 'affordable' });
+      expect(s.options.deckSet).toBe('core45');
+      let x = seed;
+      for (let i = 0; i < 300 && s.phase !== 'over'; i++) {
+        const legal = legalActions(s, waitingOn(s)!);
+        x = (x * 1103515245 + 12345) >>> 0;
+        const r = apply(s, legal[x % legal.length]!);
+        s = r.state;
+        expect(runnerViewLeaks(s)).toEqual([]);
+        expect(runnerEventLeaks(viewEvents('runner', r.events), s)).toEqual([]);
+      }
+    }
+    // Planted: a face-down Archives pick named, a wrong exposed card, looked-at cards named.
+    const s = engineNewGame(3);
+    const installed = { ...s, servers: s.servers.map((sv) => (sv.id === 'hq' ? { ...sv, content: [{ uid: 'i1', cardId: 'c25', rezzed: false, advancements: 0, hostedCredits: 0 }] } : sv)) };
+    const bad: GameEvent[] = [
+      { type: 'card_returned_to_hand', player: 'corp', archivesIndex: 0, faceUp: false, cardId: 'c10' },
+      { type: 'card_exposed', uid: 'i1', cardId: 'c10', server: 'hq' },
+    ];
+    expect(runnerEventLeaks(bad, installed)).toHaveLength(2);
+    expect(runnerEventLeaks([{ type: 'card_exposed', uid: 'i1', cardId: 'c25', server: 'hq' }], installed)).toEqual([]);
+    const choice = { ...installed, phase: 'choice' as const, choice: { kind: 'look_install' as const, player: 'corp' as const, cardId: 'c23', resume: 'action' as const, looked: ['c01'], types: ['ice' as const] } };
+    const withScore = { ...choice, players: { ...choice.players, corp: { ...choice.players.corp, scoreArea: ['c23'] } } };
+    const v = viewFor('runner', withScore);
+    expect(runnerViewLeaks(withScore, v)).toEqual([]);
+    expect(runnerViewLeaks(withScore, { ...v, choice: { ...v.choice!, looked: ['c01'] } }).length).toBeGreaterThan(0);
+  });
+});

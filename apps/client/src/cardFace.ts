@@ -3,6 +3,7 @@
 // so the same card always looks the same.
 import type { CardDef, Side } from '@overclock/cards';
 import { Container, FillGradient, Graphics, Rectangle, Sprite, Text, type Renderer, type Texture } from 'pixi.js';
+import { clickCostOf } from './cardText';
 import { sideColor, sideDeep, theme } from './theme';
 
 /** FNV-1a string hash -> uint32. */
@@ -125,7 +126,49 @@ interface ZoomMeta {
   overflow: boolean;
   /** Sprint 11 (S-11-4): each bottom stat ("Strength 4") as drawn, card-local (centered at 0,0). */
   stats: StatBox[];
+  /** S-12-6: the click-symbol cost ("×3") as drawn, or null. */
+  clickCost: ClickCostBox | null;
 }
+
+/**
+ * S-12-6: a cost of two or more clicks drawn as the click symbol and "×N" (Melange: "Click,
+ * click, click:" reads as the symbol "×3"). Card-local boxes (centered at 0,0).
+ */
+export interface ClickCostBox {
+  count: number;
+  /** The drawn "×N" text. */
+  text: string;
+  /** The click symbol. */
+  icon: { x: number; y: number; width: number; height: number };
+  /** The symbol and its "×N" together. */
+  box: { x: number; y: number; width: number; height: number };
+  /** The "×N" text size as drawn (px at card size). */
+  fontPx: number;
+}
+
+/** S-12-6: our click symbol (a circular arrow, drawn), centered at (cx, cy), radius r. */
+export function drawClickIcon(g: Graphics, cx: number, cy: number, r: number, color: number): void {
+  const lw = Math.max(1.2, r * 0.32);
+  const ring = r - lw / 2;
+  const start = -Math.PI * 0.35;
+  const end = start + Math.PI * 1.55;
+  // Start a fresh path: an arc continues the Graphics' last path otherwise (a stray line).
+  g.moveTo(cx + Math.cos(start) * ring, cy + Math.sin(start) * ring);
+  g.arc(cx, cy, ring, start, end).stroke({ width: lw, color, cap: 'round' });
+  // Arrowhead at the arc's open end, pointing along the turn (clockwise).
+  const ax = cx + Math.cos(end) * ring;
+  const ay = cy + Math.sin(end) * ring;
+  const tx = -Math.sin(end);
+  const ty = Math.cos(end);
+  const nx = Math.cos(end);
+  const ny = Math.sin(end);
+  const hl = r * 0.75;
+  const hw = r * 0.55;
+  g.poly([ax + tx * hl * 0.6, ay + ty * hl * 0.6, ax - nx * hw - tx * hl * 0.4, ay - ny * hw - ty * hl * 0.4, ax + nx * hw - tx * hl * 0.4, ay + ny * hw - ty * hl * 0.4]).fill({ color });
+}
+
+/** The click-cost boxes recorded on a face's container (`drawCardFace`). */
+const CLICK_COSTS = new WeakMap<Container, ClickCostBox>();
 
 /** Sprint 11 (S-11-4): one "Label N" stat of a full face, where it is drawn (card-local). */
 export interface StatBox {
@@ -225,10 +268,12 @@ export interface ZoomFace {
   overflow: boolean;
   /** Sprint 11: the bottom stats as drawn. */
   stats: StatBox[];
+  /** S-12-6: the click-symbol cost as drawn, or null. */
+  clickCost: ClickCostBox | null;
 }
 
 function zoomMeta(c: Container, w: number, h: number): ZoomMeta {
-  return { texts: textsOf(c), overflow: textOverflows(c, w, h), stats: STATS.get(c) ?? [] };
+  return { texts: textsOf(c), overflow: textOverflows(c, w, h), stats: STATS.get(c) ?? [], clickCost: CLICK_COSTS.get(c) ?? null };
 }
 
 /** Sprint 11 (test hook): what a full face of `card` at w x h says and where its stats are (drawn and freed). */
@@ -269,8 +314,8 @@ export function createZoomFace(card: CardDef, w: number, h: number): ZoomFace {
   }
   baked.set(key, entry);
   evictZoomFaces();
-  const meta = entry.meta ?? { texts: [], overflow: false, stats: [] };
-  return { root: spriteOf(entry), texts: meta.texts, overflow: meta.overflow, stats: meta.stats };
+  const meta = entry.meta ?? { texts: [], overflow: false, stats: [], clickCost: null };
+  return { root: spriteOf(entry), texts: meta.texts, overflow: meta.overflow, stats: meta.stats, clickCost: meta.clickCost };
 }
 
 /** Keeps at most ZOOM_KEEP zoom faces; the least recently used are freed later (a sprite may still show one). */
@@ -488,6 +533,8 @@ export interface SmallFaceLayout {
   art: { x: number; y: number; width: number; height: number };
   /** The cost bubble's bounding square. */
   cost: { x: number; y: number; width: number; height: number };
+  /** S-12-6: the click-symbol cost chip ("×3") in the art window's corner, or null. */
+  clickCost: ClickCostBox | null;
 }
 
 const faceLayouts = new Map<string, SmallFaceLayout>();
@@ -549,6 +596,7 @@ function drawCardFace(
   g.roundRect(artX, artY, artW, artH, r * 0.6).fill({ color: 0x000000, alpha: 0.55 }).stroke({ width: 1, color, alpha: 0.4 });
   drawGlyph(g, card.art, artX, artY, artW, artH, color);
   glowRoundRect(g, left, top, w, h, r, color, Math.max(1, w * 0.02));
+  const clicks = clickCostOf(card.text);
 
   // Cost bubble (top-left).
   const cr = w * (detail === 'full' ? 0.075 : 0.13);
@@ -614,6 +662,32 @@ function drawCardFace(
 
   let fits = true;
   let small: SmallFaceLayout | undefined;
+  if (detail === 'small' && clicks) {
+    // S-12-6: the click cost reads on the table and in the hand (rules text is zoom only):
+    // a dark chip with the symbol and "×N" in the art window's bottom-right corner.
+    const fs = Math.max(7, w * 0.15);
+    const label = new Text({ text: `×${clicks.count}`, style: { fontFamily: theme.fontFamily, fontSize: fs, fontWeight: '800', fill: theme.text } });
+    const ir = fs * 0.42;
+    const pad = fs * 0.22;
+    const gap = fs * 0.12;
+    const chipW = pad + ir * 2 + gap + label.width + pad;
+    const chipH = Math.max(ir * 2, label.height) + pad;
+    const chipX = artX + artW - chipW - artW * 0.04;
+    const chipY = artY + artH - chipH - artH * 0.06;
+    const chip = new Graphics();
+    chip.roundRect(chipX, chipY, chipW, chipH, chipH / 2).fill({ color: 0x05040a }).stroke({ width: 1, color: theme.text, alpha: 0.5 });
+    drawClickIcon(chip, chipX + pad + ir, chipY + chipH / 2, ir, theme.text);
+    label.anchor.set(0, 0.5);
+    label.position.set(chipX + pad + ir * 2 + gap, chipY + chipH / 2);
+    c.addChild(chip, label);
+    CLICK_COSTS.set(c, {
+      count: clicks.count,
+      text: label.text,
+      icon: { x: chipX + pad, y: chipY + chipH / 2 - ir, width: ir * 2, height: ir * 2 },
+      box: { x: chipX, y: chipY, width: chipW, height: chipH },
+      fontPx: fs,
+    });
+  }
   if (detail === 'small') {
     const typeTop = type.y - type.height;
     // A small gap between the name's last line and the type label.
@@ -627,26 +701,55 @@ function drawCardFace(
       nameText: name.text,
       art: { x: artX, y: artY, width: artW, height: artH },
       cost: hasCost ? { x: ccx - cr, y: ccy - cr, width: cr * 2, height: cr * 2 } : { x: ccx, y: ccy, width: 0, height: 0 },
+      clickCost: CLICK_COSTS.get(c) ?? null,
     };
   }
   if (detail === 'full') {
     const bodyTop = type.y + typeSize * 1.8;
     const textSize = Math.max(9, Math.max(12, w * 0.052) * textK);
-    const body = new Text({
-      text: card.text,
-      style: {
-        fontFamily: theme.fontFamily,
-        fontSize: textSize,
-        fill: theme.text,
-        wordWrap: true,
-        wordWrapWidth: artW,
-        lineHeight: textSize * 1.3,
-      },
+    const bodyStyle = (wrap: number) => ({
+      fontFamily: theme.fontFamily,
+      fontSize: textSize,
+      fill: theme.text,
+      wordWrap: true,
+      wordWrapWidth: wrap,
+      lineHeight: textSize * 1.3,
     });
-    body.position.set(artX, bodyTop);
-    c.addChild(body);
+    // S-12-6: "Click, click, click: …" starts with the click symbol and "×3: …" (its lines hang
+    // beside the symbol); the card's other paragraphs follow below as usual.
+    let bodyBottom = bodyTop;
+    let rest = card.text;
+    if (clicks) {
+      const nl = clicks.rest.indexOf('\n');
+      const first = nl < 0 ? clicks.rest : clicks.rest.slice(0, nl);
+      rest = nl < 0 ? '' : clicks.rest.slice(nl + 1);
+      const ir = textSize * 0.5;
+      const indent = ir * 2 + textSize * 0.3;
+      const line = new Text({ text: `×${clicks.count}: ${first}`, style: bodyStyle(artW - indent) });
+      line.position.set(artX + indent, bodyTop);
+      const icon = new Graphics();
+      const iy = bodyTop + (textSize * 1.3) / 2;
+      drawClickIcon(icon, artX + ir, iy, ir, theme.text);
+      c.addChild(icon, line);
+      const mark = new Text({ text: `×${clicks.count}`, style: bodyStyle(artW) });
+      CLICK_COSTS.set(c, {
+        count: clicks.count,
+        text: mark.text,
+        icon: { x: artX, y: iy - ir, width: ir * 2, height: ir * 2 },
+        box: { x: artX, y: bodyTop, width: indent + mark.width, height: textSize * 1.3 },
+        fontPx: textSize,
+      });
+      mark.destroy();
+      bodyBottom = bodyTop + line.height;
+    }
+    if (rest) {
+      const body = new Text({ text: rest, style: bodyStyle(artW) });
+      body.position.set(artX, bodyBottom === bodyTop ? bodyTop : bodyBottom + textSize * 0.3);
+      c.addChild(body);
+      bodyBottom = body.y + body.height;
+    }
 
-    let y = bodyTop + body.height + textSize * 0.7;
+    let y = bodyBottom + textSize * 0.7;
     if (card.flavor) {
       const flavor = new Text({
         text: card.flavor,
@@ -670,7 +773,7 @@ function drawCardFace(
       STATS.set(c, drawn.stats);
       bottomLimit = drawn.top - textSize * 0.3;
     }
-    fits = bodyTop + body.height <= bottomLimit && y - textSize * 0.7 <= bottomLimit;
+    fits = bodyBottom <= bottomLimit && y - textSize * 0.7 <= bottomLimit;
   }
   return { root: c, fits, small };
 }

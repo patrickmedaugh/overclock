@@ -29,8 +29,8 @@ const chosen: CardAbility = {
 const card = { uid: 'i9', cardId: 'r10', rezzed: true, advancements: 0, hostedCredits: 8 };
 
 describe('Sprint 10 interface (E1)', () => {
-  it('RULES_VERSION is 4', () => {
-    expect(RULES_VERSION).toBe(4);
+  it('RULES_VERSION is 5 (Sprint 12; 4 from Sprint 10)', () => {
+    expect(RULES_VERSION).toBe(5);
   });
 
   it("abilityGain: a 'chosen' take gives the amount, capped at the card's credits; 0 without one", () => {

@@ -5,10 +5,10 @@ import { DEFAULT_OPTIONS, IDENTITY_UID, RULES_VERSION, newGame as engineNewGame,
 import { newGame } from './helpers';
 
 describe('Sprint 8 interface', () => {
-  it('RULES_VERSION is 4 (Sprint 10); the default deck set is core', () => {
-    expect(RULES_VERSION).toBe(4);
-    expect(DEFAULT_OPTIONS).toEqual({ rezWindow: 'affordable', deckSet: 'core' });
-    expect(engineNewGame(1).options).toEqual({ rezWindow: 'affordable', deckSet: 'core' });
+  it('RULES_VERSION is 5 (Sprint 12); the default deck set is core45 (Sprint 12)', () => {
+    expect(RULES_VERSION).toBe(5);
+    expect(DEFAULT_OPTIONS).toEqual({ rezWindow: 'affordable', deckSet: 'core45' });
+    expect(engineNewGame(1).options).toEqual({ rezWindow: 'affordable', deckSet: 'core45' });
     expect(engineNewGame(1, { deckSet: 'starter' }).options.deckSet).toBe('starter');
   });
 
@@ -41,7 +41,7 @@ describe('Sprint 8 interface', () => {
 
   it('S-08-5 AC1: a core deal: R&D 25 before the first draw (the Corp has drawn its 6th card), Stack 25', () => {
     for (const seed of [1, 2, 3, 42, 12345]) {
-      const s = engineNewGame(seed);
+      const s = engineNewGame(seed, { deckSet: 'core' }); // Sprint 12: the 30-card decks are the 'core' fixture
       expect(s.players.corp.hand).toHaveLength(6);
       expect(s.players.corp.deck.length + 1).toBe(25);
       expect(s.players.runner.hand).toHaveLength(5);

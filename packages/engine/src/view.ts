@@ -58,6 +58,11 @@ export interface InstalledView {
   readonly advancements: number;
   /** Sprint 7: credits on the card (Armitage Codebusting, Bank Job, Cyberfeeder). Public. */
   readonly hostedCredits: number;
+  /**
+   * Sprint 12: ICE only, only when the viewer can see the card (the Corp always; the Runner once rezzed):
+   * its current strength (`iceStrength`: printed + Ice Wall counters + Experiential Data). Absent otherwise.
+   */
+  readonly strength?: number;
 }
 
 export interface ServerView {
@@ -201,11 +206,19 @@ export interface ChoiceView {
   /** Sprint 9, `trace_corp` / `trace_runner` only: the trace (public). */
   readonly trace?: TraceView;
   /**
+   * Sprint 12, `look_install` only: the cards set aside from the top of R&D (top first; installed ones
+   * leave the list). The Corp sees card ids; the Runner sees `null` for each (only how many).
+   */
+  readonly looked?: readonly (string | null)[];
+  /**
    * The deciding viewer's options: `free_rez` = one `rez` (cost 0) per unrezzed installed ICE uid
    * (servers in `corpServers` order, then ICE index order), then `pass` (= Skip). Sprint 8:
    * `trash_target` = one `choose` per candidate (rig order); `prevent_trash` = one `choose` per
    * preventer (rig order), then `pass` (let it be trashed). Sprint 9: `trace_corp` / `trace_runner` =
-   * one `trace_bid` per amount 0..max (`cost` = amount). Empty for the other player.
+   * one `trace_bid` per amount 0..max (`cost` = amount). Sprint 12: `look_install` = one `select{card,
+   * server}` (cost 0) per installable looked-at card × (servers in `corpServers` order, then 'new'), then
+   * `pass` (= Done: trash the rest); `archives_pick` = one `select{card}` per Archives index except the
+   * copy being played. Empty for the other player.
    */
   readonly options: readonly CardOption[];
 }
@@ -279,13 +292,16 @@ function sideView(state: GameState, side: Side, viewer: Side): PlayerSideView {
   };
 }
 
-function corpCardView(c: Installed, viewer: Side): InstalledView {
+function corpCardView(state: GameState, c: Installed, viewer: Side, zone: 'ice' | 'content'): InstalledView {
+  const visible = viewer === 'corp' || c.rezzed;
   return {
     uid: c.uid,
-    cardId: viewer === 'corp' || c.rezzed ? c.cardId : null,
+    cardId: visible ? c.cardId : null,
     faceUp: c.rezzed,
     advancements: c.advancements,
     hostedCredits: c.hostedCredits,
+    // Sprint 12: the board's strength badge (Experiential Data), only on ICE the viewer can see.
+    ...(zone === 'ice' && visible ? { strength: iceStrength(state, c) } : {}),
   };
 }
 
@@ -373,7 +389,7 @@ function runView(state: GameState, viewer: Side): RunView | null {
     const subs = getCard(ice.cardId)?.subroutines ?? [];
     iceView = {
       cardId: visible ? ice.cardId : null,
-      strength: visible ? iceStrength(ice) : null,
+      strength: visible ? iceStrength(state, ice) : null,
       subroutines: visible ? subs.map((sub, i) => ({ text: sub.text, broken: run.broken.includes(i) })) : [],
     };
   }
@@ -417,6 +433,8 @@ function choiceView(state: GameState, viewer: Side): ChoiceView | null {
     cardId: c.cardId,
     ...(c.target !== undefined ? { target: c.target } : {}),
     ...(c.trace !== undefined ? { trace: traceView(state, c.trace) } : {}),
+    // Sprint 12: the looked-at cards are the Corp's secret (the Runner learns only how many).
+    ...(c.kind === 'look_install' ? { looked: (c.looked ?? []).map((id) => (viewer === 'corp' ? id : null)) } : {}),
     options: choiceOptions(state, viewer),
   };
 }
@@ -461,8 +479,8 @@ export function viewFor(player: Side, state: GameState): PlayerView {
     },
     corpServers: state.servers.map((s) => ({
       id: s.id,
-      ice: s.ice.map((c) => corpCardView(c, player)),
-      content: s.content.map((c) => corpCardView(c, player)),
+      ice: s.ice.map((c) => corpCardView(state, c, player, 'ice')),
+      content: s.content.map((c) => corpCardView(state, c, player, 'content')),
     })),
     rig: state.rig.map((c) => ({ uid: c.uid, cardId: c.cardId, faceUp: true, advancements: c.advancements, hostedCredits: c.hostedCredits })),
     memory: { used: memoryUsed(state), limit: memoryLimit(state) },
@@ -497,6 +515,11 @@ function viewEvent(player: Side, e: GameEvent): GameEvent {
     const { handIndex: _hidden, ...rest } = e;
     return rest;
   }
+  if (e.type === 'card_returned_to_hand') {
+    // Sprint 12 (Archived Memories): the opponent learns the card only if it lay face up in Archives.
+    const { cardId, ...rest } = e;
+    return e.faceUp && cardId !== undefined ? { ...rest, cardId } : rest;
+  }
   return e;
 }
 
@@ -505,6 +528,11 @@ function viewNeutralEvent(player: Side, e: GameEvent): GameEvent {
   // R&D order is hidden from the Corp too: it learns that a card was accessed, not which.
   if (e.type === 'card_accessed' && e.from === 'rd' && player === 'corp') {
     const { cardId: _hidden, ...rest } = e;
+    return rest;
+  }
+  // Sprint 12 (Accelerated Beta Test): the cards the Corp looked at / trashed face down are its secret.
+  if ((e.type === 'cards_looked_at' || e.type === 'rd_cards_trashed') && player === 'runner') {
+    const { cardIds: _hidden, ...rest } = e;
     return rest;
   }
   return e;

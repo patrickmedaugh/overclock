@@ -12,8 +12,15 @@ export const RUN_CHOICE_HINT = 'Tap one of the lit buttons first';
 /** The hint for an open choice (free rez, or one inside a run). */
 export function choiceHint(choice: PlayerView['choice'] | undefined): string {
   if (choice && (choice.kind === 'trace_corp' || choice.kind === 'trace_runner')) return TRACE_HINT;
+  if (choice?.kind === 'look_install') return LOOK_HINT;
+  if (choice?.kind === 'archives_pick') return ARCHIVES_HINT;
   return choice && choice.kind !== 'free_rez' ? RUN_CHOICE_HINT : CHOICE_HINT;
 }
+
+/** Sprint 12 (S-12-1): what to do while Accelerated Beta Test's look at R&D is open. */
+export const LOOK_HINT = `Install an ${TERMS.ice} from the cards below, or tap ${TERMS.trash}`;
+/** Sprint 12 (S-12-2): what to do while Archived Memories' pick is open. */
+export const ARCHIVES_HINT = `Pick a card from ${TERMS.archives} first`;
 
 /** Sprint 9: what to do while a trace bid window is open. */
 export const TRACE_HINT = 'Pick your trace bid first';
@@ -23,6 +30,8 @@ export const CONDITION_TEXT = {
   runner_ran_last_turn: 'Only after the Runner made a run',
   runner_successful_run_last_turn: `${SIDE_NAME.runner} made no successful run last turn`,
   hosted_credits: 'No credits left on it',
+  corp_archives_not_empty: 'Archives is empty',
+  has_install_target: 'No program or hardware in your Grip',
   runner_tagged: `${SIDE_NAME.runner} isn't ${TERMS.tagged.toLowerCase()}`,
 } as const;
 

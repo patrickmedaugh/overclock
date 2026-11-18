@@ -107,10 +107,12 @@ describe('S-08-5 AC4 / Sprint 8 card data', () => {
     'Sure Gamble', 'Magnum Opus', 'Pipeline', 'Battering Ram',
     // Sprint 9 (checked against netrunner-cards-json core.json).
     'Hunter', 'Ichi 1.0', 'SEA Source', 'Access to Globalsec',
+    // Sprint 12 (checked against netrunner-cards-json core.json, DECISIONS 2026-11-18).
+    'Accelerated Beta Test', 'Archived Memories', 'Experiential Data', 'The Toolbox', 'Modded', 'Infiltration',
   ]);
 
   it('every card is a real Core Set card (no invented card left)', () => {
-    expect(ALL_CARDS).toHaveLength(40);
+    expect(ALL_CARDS).toHaveLength(46);
     for (const c of ALL_CARDS) expect(CORE_SET_TITLES.has(c.name), c.name).toBe(true);
   });
 
@@ -126,11 +128,11 @@ describe('S-08-5 AC4 / Sprint 8 card data', () => {
     expect(missing).toEqual([]);
   });
 
-  it('every card has a faction; influence only on cards with pips; identities have none', () => {
+  it('every card has a faction; influence a whole number ≥ 0 (Sprint 12: 0 may be explicit); identities have none', () => {
     for (const c of ALL_CARDS) {
       expect(c.faction, c.id).toBeTruthy();
       if (c.type === 'identity') expect(c.influence, c.id).toBeUndefined();
-      if (c.influence !== undefined) expect(c.influence, c.id).toBeGreaterThan(0);
+      if (c.influence !== undefined) expect(Number.isInteger(c.influence) && c.influence >= 0, c.id).toBe(true);
     }
   });
 

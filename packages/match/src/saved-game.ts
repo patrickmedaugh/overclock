@@ -40,7 +40,9 @@ const isUint32 = (x: unknown): x is number => typeof x === 'number' && Number.is
 /** Shape only: an object with a string `type` and a side `player` (the engine checks the rest on replay). */
 const isAction = (x: unknown): x is Action => isObj(x) && typeof x.type === 'string' && isSide(x.player);
 const isOptions = (x: unknown): x is GameOptions =>
-  isObj(x) && (x.rezWindow === 'affordable' || x.rezWindow === 'always') && (x.deckSet === 'core' || x.deckSet === 'starter');
+  isObj(x) &&
+  (x.rezWindow === 'affordable' || x.rezWindow === 'always') &&
+  (x.deckSet === 'core45' || x.deckSet === 'core' || x.deckSet === 'starter'); // Sprint 12: + 'core45'
 
 /**
  * Checks the JSON shape of a save (`x` may be the parsed object or the raw JSON string).

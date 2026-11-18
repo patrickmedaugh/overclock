@@ -10,7 +10,7 @@
  * views, like a player would.
  */
 import { getCard } from '@overclock/cards';
-import type { Action, DeckSet, GameOptions, PlayerView, Side } from '@overclock/engine';
+import type { Action, DeckSet, GameOptions, GameState, PlayerView, Side } from '@overclock/engine';
 import { LocalMatch } from './local-match';
 
 /** Sprint 6: pure hidden-information checks (server leak test, Node-side e2e). */
@@ -248,7 +248,17 @@ export type StepGoal =
   | 'runner_must_discard'
   | 'corp_must_discard'
   // Sprint 11 (core decks; `SPRINT11_GOALS`)
-  | 'ice_wall_ram_gordian';
+  | 'ice_wall_ram_gordian'
+  // Sprint 12 (45-card decks; `SPRINT12_GOALS`)
+  | 'abt_scorable'
+  | 'abt_scorable_no_ice'
+  | 'archived_memories_ready'
+  | 'archived_memories_empty'
+  | 'experiential_data_encounter'
+  | 'toolbox_encounter'
+  | 'modded_ready'
+  | 'modded_no_target'
+  | 'infiltration_ready';
 
 export const STEP_GOALS: readonly StepGoal[] = [
   'corp_rez_prompt',
@@ -410,6 +420,42 @@ export const SPRINT10_GOALS: readonly StepGoal[] = [
  */
 export const SPRINT11_GOALS: readonly StepGoal[] = ['ice_wall_ram_gordian'];
 
+/**
+ * Sprint 12 goals, planned on the **45-card decks** (`'core45'`; seeds in the README). The other side stays out
+ * of the way (the Runner never runs for a Corp goal; the Corp installs only what the goal needs).
+ * - `abt_scorable`: Corp's action step, an installed Accelerated Beta Test ready to score (its 2 points don't
+ *   win), and ≥ 1 ICE among the top 3 of R&D. `info: {uid, server, cardId, looked, ice}` (`looked` = cards the
+ *   score will show, `ice` = how many of them are ICE).
+ * - `abt_scorable_no_ice`: the same with 3 cards to look at and no ICE among them (Done = one tap). Same `info`.
+ * - `archived_memories_ready`: Corp's action step, ≥ 1 click, Archived Memories in HQ and playable, Archives
+ *   holding ≥ 1 face-down card. `info: {handIndex, archives (count), faceDownIndex}`.
+ * - `archived_memories_empty`: Corp's action step, ≥ 1 click, Archived Memories in HQ, Archives empty (its play
+ *   option is `condition_not_met`). `info: {handIndex}`.
+ * - `experiential_data_encounter`: the Runner encounters a rezzed Enigma alone on a remote whose root holds a
+ *   face-up Experiential Data (strength 3), with Gordian Blade (strength 2) installed and ≥ 3 credits (one pump,
+ *   two breaks), `pass` offered. `info: {server, iceUid, edUid, breakerUid, iceStrength, printedStrength}`.
+ * - `toolbox_encounter`: the Runner encounters a rezzed barrier (Ice Wall or Wall of Static, alone on a remote)
+ *   with The Toolbox (2 credits on it) and a barrier breaker installed, `pass` offered; the breaker's options
+ *   carry `hostedPay` from The Toolbox. `info: {server, iceUid, iceCardId, toolboxUid, breakerUid}`.
+ * - `modded_ready`: Runner's action step, ≥ 1 click, Modded in the Grip with a legal install option.
+ *   `info: {handIndex, installIndex, cardId, cost, discount}` (the option with the biggest discount).
+ * - `modded_no_target`: Runner's action step, ≥ 1 click, Modded in the Grip and no program or hardware there
+ *   (its play option is `condition_not_met`). `info: {handIndex}`.
+ * - `infiltration_ready`: Runner's action step, ≥ 1 click, Infiltration in the Grip and ≥ 1 face-down installed
+ *   Corp card. `info: {handIndex, uid, server, cardId}` (the first Expose option; `cardId` = the card exposing it shows).
+ */
+export const SPRINT12_GOALS: readonly StepGoal[] = [
+  'abt_scorable',
+  'abt_scorable_no_ice',
+  'archived_memories_ready',
+  'archived_memories_empty',
+  'experiential_data_encounter',
+  'toolbox_encounter',
+  'modded_ready',
+  'modded_no_target',
+  'infiltration_ready',
+];
+
 export interface StepPlan {
   readonly seed: number;
   readonly goal: StepGoal;
@@ -558,10 +604,14 @@ function letFireEncounter(runner: PlayerView, iceId: string): boolean {
 /** Sprint 5 Archives goals: how many cards Archives must show at once. */
 const ARCHIVES_MIN = 2;
 
-/** True when `goal` holds (both seat views). */
-export function stepReached(goal: StepGoal, views: Views): boolean {
+/**
+ * True when `goal` holds (both seat views). Sprint 12: `state` (the full game, planner only) lets the
+ * Accelerated Beta Test goals check the top of R&D, which no view shows; without it that part is skipped.
+ */
+export function stepReached(goal: StepGoal, views: Views, state?: GameState): boolean {
   const { corp, runner } = views;
   if (corp.phase === 'over') return false;
+  if (SPRINT12_GOALS.includes(goal)) return s12Reached(goal, views, state);
   switch (goal) {
     case 'corp_rez_prompt':
       return corp.run?.step === 'approach' && corp.run.waitingOn === 'corp' && corp.run.options.some((o) => o.action.type === 'rez' && o.reject === null);
@@ -969,8 +1019,9 @@ function lastCardTarget(corp: PlayerView, runner: PlayerView) {
   return undefined;
 }
 
-function stepInfo(goal: StepGoal, views: Views): Record<string, string> {
+function stepInfo(goal: StepGoal, views: Views, state?: GameState): Record<string, string> {
   const { corp, runner } = views;
+  if (SPRINT12_GOALS.includes(goal)) return s12Info(goal, views, state);
   switch (goal) {
     case 'corp_rez_prompt':
     case 'wall_of_static_encounter': {
@@ -1391,6 +1442,7 @@ function runnerMoveFor(goal: StepGoal, v: PlayerView, views: Views): Action {
 
 /** Sprint 8: the deck set a goal is planned on when the options name none (Sprint 3–7 goals: `'starter'`). */
 export function goalDeckSet(goal: StepGoal): DeckSet {
+  if (SPRINT12_GOALS.includes(goal)) return 'core45'; // Sprint 12
   return (STEP_GOALS as readonly StepGoal[]).includes(goal) ? 'starter' : 'core';
 }
 
@@ -1409,7 +1461,9 @@ export function planToStep(seed: number, goal: StepGoal, maxActions = 1500, opti
   const match = new LocalMatch(seed, { ...options, deckSet });
   for (let n = 0; n < maxActions; n++) {
     const views: Views = { corp: match.view('corp'), runner: match.view('runner') };
-    if (stepReached(goal, views)) {
+    // Sprint 12: the ABT goals look at the top of R&D (the planner's own match; never sent to a seat).
+    const state = SPRINT12_GOALS.includes(goal) ? match.snapshot() : undefined;
+    if (stepReached(goal, views, state)) {
       return {
         seed,
         goal,
@@ -1417,13 +1471,17 @@ export function planToStep(seed: number, goal: StepGoal, maxActions = 1500, opti
         actions: [...match.actions()],
         waitingOn: decider(views.corp),
         activePlayer: views.corp.activePlayer,
-        info: stepInfo(goal, views),
+        info: stepInfo(goal, views, state),
       };
     }
     if (views.corp.phase === 'over') break;
     const side = decider(views.corp);
     const v = views[side];
-    const action = SPRINT10_GOALS.includes(goal)
+    const action = SPRINT12_GOALS.includes(goal)
+      ? side === 'corp'
+        ? s12CorpMove(goal, v)
+        : s12RunnerMove(goal, v, views)
+      : SPRINT10_GOALS.includes(goal)
       ? side === 'corp'
         ? s10CorpMove(goal, v)
         : s10RunnerMove(goal, v, views)
@@ -1914,5 +1972,327 @@ function s10RunnerMove(goal: StepGoal, v: PlayerView, views: Views): Action {
     }
     default:
       return end;
+  }
+}
+
+// ---- Sprint 12 (45-card decks): Accelerated Beta Test, Archived Memories, Experiential Data, The Toolbox, Modded, Infiltration ----
+
+const ABT = 'c23';
+const AM = 'c24';
+const ED = 'c25';
+const ENIGMA = 'c06';
+const GORDIAN = 'r05';
+const TOOLBOX = 'r19';
+const MODDED = 'r20';
+const INFILTRATION = 'r21';
+const BARRIERS = ['c05', 'c04'];
+
+/** Corp view: an installed Accelerated Beta Test ready to score whose points don't win. */
+function readyAbt(corp: PlayerView) {
+  return agendas(corp).find((a) => a.cardId === ABT && a.advancements >= a.need && corp.players.corp.points + a.points < WIN);
+}
+
+/** The cards scoring ABT would show (top min(3, R&D)) and how many are ICE (full state: deck order is in no view). */
+function abtTop(state: GameState): { looked: number; ice: number } {
+  const top = state.players.corp.deck.slice(0, 3);
+  return { looked: top.length, ice: top.filter((id) => typeOf(id) === 'ice').length };
+}
+
+/** The viewer's hand index of `cardId` and its hand options (first copy), or undefined. */
+function handCardOptions(v: PlayerView, cardId: string) {
+  const i = (v.players[v.viewer].hand ?? []).indexOf(cardId);
+  return i >= 0 ? { handIndex: i, options: v.handOptions[i] ?? [] } : undefined;
+}
+
+/** Corp view: a remote whose only ICE is Enigma, with that remote's Experiential Data (if any). */
+function enigmaRemote(corp: PlayerView) {
+  const sv = remotes(corp).find((s) => s.ice.length === 1 && s.ice[0]!.cardId === ENIGMA);
+  return sv ? { sv, ice: sv.ice[0]!, ed: sv.content.find((c) => c.cardId === ED) } : undefined;
+}
+
+/** Corp view: a remote whose only ICE is a barrier (Ice Wall / Wall of Static). */
+function barrierRemote(corp: PlayerView) {
+  const sv = remotes(corp).find((s) => s.ice.length === 1 && BARRIERS.includes(s.ice[0]!.cardId ?? ''));
+  return sv ? { sv, ice: sv.ice[0]! } : undefined;
+}
+
+const barrierBreaker = (v: PlayerView) => v.rig.find((c) => card(c.cardId)?.subtype === 'breaker_barrier');
+
+/** Runner view: the Modded install option with the biggest discount (legal now). */
+function moddedOption(runner: PlayerView) {
+  const m = handCardOptions(runner, MODDED);
+  if (!m) return undefined;
+  const legalInstalls = m.options.filter((o) => o.reject === null && o.action.type === 'play' && o.action.installIndex !== undefined);
+  const best = legalInstalls.sort((a, b) => (b.discount ?? 0) - (a.discount ?? 0))[0];
+  return best ? { handIndex: m.handIndex, option: best } : undefined;
+}
+
+/** Runner view: Infiltration's first legal Expose option. */
+function exposeOption(runner: PlayerView) {
+  const m = handCardOptions(runner, INFILTRATION);
+  const o = m?.options.find((x) => x.reject === null && x.action.type === 'play' && x.action.uid !== undefined);
+  return m && o ? { handIndex: m.handIndex, option: o } : undefined;
+}
+
+function encounterOk(runner: PlayerView): boolean {
+  const r = runner.run;
+  return r?.step === 'encounter' && r.options.some((o) => o.action.type === 'pass' && o.reject === null);
+}
+
+function s12Reached(goal: StepGoal, views: Views, state?: GameState): boolean {
+  const { corp, runner } = views;
+  const cp = corp.players.corp;
+  const rp = runner.players.runner;
+  const corpReady = corpAction(corp) && cp.clicks >= 1;
+  const runnerReady = runnerAction(runner) && rp.clicks >= 1;
+  switch (goal) {
+    case 'abt_scorable':
+    case 'abt_scorable_no_ice': {
+      if (!corpAction(corp) || !readyAbt(corp)) return false;
+      if (!state) return true;
+      const top = abtTop(state);
+      return goal === 'abt_scorable' ? top.ice >= 1 : top.looked === 3 && top.ice === 0;
+    }
+    case 'archived_memories_ready': {
+      const am = handCardOptions(corp, AM);
+      return corpReady && am?.options[0]?.reject === null && runner.players.corp.discard.some((x) => x === null);
+    }
+    case 'archived_memories_empty': {
+      const am = handCardOptions(corp, AM);
+      return corpReady && am?.options[0]?.reject === 'condition_not_met' && cp.discardCount === 0;
+    }
+    case 'experiential_data_encounter': {
+      const t = enigmaRemote(corp);
+      if (!t?.ed?.faceUp || !encounterOk(runner) || runner.run!.iceUid !== t.ice.uid) return false;
+      return runner.run!.ice?.cardId === ENIGMA && rigCard(runner, GORDIAN) !== undefined && rp.credits >= 3;
+    }
+    case 'toolbox_encounter': {
+      const t = barrierRemote(corp);
+      if (!t || !encounterOk(runner) || runner.run!.iceUid !== t.ice.uid || !runner.run!.ice?.cardId) return false;
+      return rigCard(runner, TOOLBOX)?.hostedCredits === 2 && barrierBreaker(runner) !== undefined;
+    }
+    case 'modded_ready':
+      return runnerReady && moddedOption(runner) !== undefined;
+    case 'modded_no_target': {
+      const m = handCardOptions(runner, MODDED);
+      return runnerReady && m?.options.length === 1 && m.options[0]!.reject === 'condition_not_met';
+    }
+    case 'infiltration_ready':
+      return runnerReady && exposeOption(runner) !== undefined;
+    default:
+      return false;
+  }
+}
+
+function s12Info(goal: StepGoal, views: Views, state?: GameState): Record<string, string> {
+  const { corp, runner } = views;
+  switch (goal) {
+    case 'abt_scorable':
+    case 'abt_scorable_no_ice': {
+      const a = readyAbt(corp)!;
+      const top = state ? abtTop(state) : undefined;
+      return { uid: a.uid, server: a.server, cardId: ABT, looked: top ? String(top.looked) : '', ice: top ? String(top.ice) : '' };
+    }
+    case 'archived_memories_ready': {
+      const pile = runner.players.corp.discard;
+      return { handIndex: String(handCardOptions(corp, AM)!.handIndex), archives: String(pile.length), faceDownIndex: String(pile.indexOf(null)) };
+    }
+    case 'archived_memories_empty':
+      return { handIndex: String(handCardOptions(corp, AM)!.handIndex) };
+    case 'experiential_data_encounter': {
+      const t = enigmaRemote(corp)!;
+      return {
+        server: t.sv.id,
+        iceUid: t.ice.uid,
+        edUid: t.ed!.uid,
+        breakerUid: rigCard(runner, GORDIAN)!.uid,
+        iceStrength: String(runner.run!.ice?.strength ?? ''),
+        printedStrength: String(card(ENIGMA)?.strength ?? ''),
+      };
+    }
+    case 'toolbox_encounter': {
+      const t = barrierRemote(corp)!;
+      return { server: t.sv.id, iceUid: t.ice.uid, iceCardId: t.ice.cardId ?? '', toolboxUid: rigCard(runner, TOOLBOX)!.uid, breakerUid: barrierBreaker(runner)!.uid };
+    }
+    case 'modded_ready': {
+      const m = moddedOption(runner)!;
+      const a = m.option.action as Extract<Action, { type: 'play' }>;
+      const id = (runner.players.runner.hand ?? [])[a.installIndex!] ?? '';
+      return { handIndex: String(m.handIndex), installIndex: String(a.installIndex), cardId: id, cost: String(m.option.cost), discount: String(m.option.discount ?? 0) };
+    }
+    case 'modded_no_target':
+      return { handIndex: String(handCardOptions(runner, MODDED)!.handIndex) };
+    case 'infiltration_ready': {
+      const m = exposeOption(runner)!;
+      const uid = (m.option.action as Extract<Action, { type: 'play' }>).uid!;
+      const c = corpInstalled(corp).find((x) => x.uid === uid)!;
+      return { handIndex: String(m.handIndex), uid, server: c.server, cardId: c.cardId ?? '' };
+    }
+    default:
+      return {};
+  }
+}
+
+/** The Corp's credit move: Hedge Fund when it pays off, else click for a credit. */
+function corpMoney(v: PlayerView): Action {
+  const hf = handIdx(v, (id) => id === HEDGE_FUND);
+  const play = hf >= 0 ? legal(v, (a) => a.type === 'play' && a.handIndex === hf) : undefined;
+  return play ?? { type: 'gain_credit', player: 'corp' };
+}
+
+/** Sprint 12 Corp policies (45-card decks). */
+function s12CorpMove(goal: StepGoal, v: PlayerView): Action {
+  const me = v.players.corp;
+  if (v.choice) return choiceAnswer(v);
+  if (v.run) {
+    const rezIt = v.run.options.find((o) => o.action.type === 'rez' && o.reject === null);
+    const id = v.run.ice?.cardId ?? '';
+    const want = goal === 'experiential_data_encounter' ? id === ENIGMA : goal === 'toolbox_encounter' ? BARRIERS.includes(id) : false;
+    if (rezIt && want) return rezIt.action;
+    return defaultRunMove(v);
+  }
+  const keepIds: Record<string, number> =
+    goal === 'abt_scorable' || goal === 'abt_scorable_no_ice'
+      ? { [ABT]: 3, [HEDGE_FUND]: 1 }
+      : goal === 'archived_memories_ready' || goal === 'archived_memories_empty'
+        ? { [AM]: 3 }
+        : goal === 'experiential_data_encounter'
+          ? { [ENIGMA]: 3, [ED]: 3, [HEDGE_FUND]: 1 }
+          : goal === 'toolbox_encounter'
+            ? { c05: 3, c04: 3, [HEDGE_FUND]: 1 }
+            : {};
+  if (v.phase === 'discard') return discardKeeping(v, (id) => keepIds[id] ?? 0);
+  const end: Action = { type: 'end_turn', player: 'corp' };
+  if (me.clicks === 0) return end;
+  const installNewOf = (pred: (id: string) => boolean): Action | undefined => {
+    const hand = v.players.corp.hand ?? [];
+    for (let i = 0; i < hand.length; i++) {
+      if (!pred(hand[i]!)) continue;
+      const a = installNew(v, i);
+      if (a) return a;
+    }
+    return undefined;
+  };
+  switch (goal) {
+    case 'abt_scorable':
+    case 'abt_scorable_no_ice': {
+      if (readyAbt(v)) return me.deckCount > 4 ? { type: 'draw', player: 'corp' } : end; // a new top of R&D
+      const abt = agendas(v).find((a) => a.cardId === ABT);
+      if (abt) return me.credits >= 1 ? { type: 'advance', player: 'corp', uid: abt.uid } : corpMoney(v);
+      return installNewOf((id) => id === ABT) ?? basicMove(v, 4);
+    }
+    case 'archived_memories_ready':
+      // Fill HQ past 5 so the end-of-turn discard puts cards face down in Archives (Archived Memories kept).
+      return me.deckCount > 3 ? { type: 'draw', player: 'corp' } : end;
+    case 'archived_memories_empty': {
+      // Never play or discard: install the non-operations, draw while HQ is small.
+      const inst = installNewOf((id) => typeOf(id) !== 'operation');
+      if (inst) return inst;
+      return me.handCount < 5 && me.deckCount > 3 ? { type: 'draw', player: 'corp' } : { type: 'gain_credit', player: 'corp' };
+    }
+    case 'experiential_data_encounter': {
+      const t = enigmaRemote(v);
+      if (!t) return installNewOf((id) => id === ENIGMA) ?? basicMove(v, 2);
+      if (!t.ed) {
+        const i = handIdx(v, (id) => id === ED);
+        const inst = i >= 0 ? legal(v, (a) => a.type === 'install' && a.handIndex === i && a.server === t.sv.id) : undefined;
+        return inst ?? basicMove(v, 2);
+      }
+      if (!t.ed.faceUp) {
+        const rez = v.installedOptions[t.ed.uid]?.find((o) => o.action.type === 'rez' && o.reject === null);
+        return rez?.action ?? corpMoney(v);
+      }
+      return !t.ice.faceUp && me.credits < (card(ENIGMA)?.cost ?? 3) ? corpMoney(v) : end;
+    }
+    case 'toolbox_encounter': {
+      const t = barrierRemote(v);
+      if (!t) return installNewOf((id) => BARRIERS.includes(id)) ?? basicMove(v, 2);
+      return !t.ice.faceUp && me.credits < (card(t.ice.cardId)?.cost ?? 3) ? corpMoney(v) : end;
+    }
+    case 'infiltration_ready':
+      // One face-down card for the Runner to expose.
+      if (corpInstalled(v).some((c) => !c.faceUp)) return end;
+      return installNewOf((id) => typeOf(id) !== 'operation') ?? basicMove(v, 2);
+    default:
+      return end; // Runner-side goals: the Corp stays out of the way
+  }
+}
+
+/** Sprint 12 Runner policies (45-card decks). The Runner runs only the goal's server. */
+function s12RunnerMove(goal: StepGoal, v: PlayerView, views: Views): Action {
+  const me = v.players.runner;
+  if (v.choice) return choiceAnswer(v);
+  if (v.run) return defaultRunMove(v);
+  const keepIds: Record<string, number> =
+    goal === 'experiential_data_encounter'
+      ? { [GORDIAN]: 3, r14: 2 }
+      : goal === 'toolbox_encounter'
+        ? { [TOOLBOX]: 3, r17: 3, r04: 3, [MODDED]: 2, r14: 2 }
+        : goal === 'modded_ready'
+          ? { [MODDED]: 3 }
+          : goal === 'modded_no_target'
+            ? { [MODDED]: 3 }
+            : goal === 'infiltration_ready'
+              ? { [INFILTRATION]: 3 }
+              : {};
+  if (v.phase === 'discard') {
+    const program = (id: string) => typeOf(id) === 'program' || typeOf(id) === 'hardware';
+    return discardKeeping(v, (id) => keepIds[id] ?? (goal === 'modded_ready' && program(id) ? 2 : 0));
+  }
+  const end: Action = { type: 'end_turn', player: 'runner' };
+  if (me.clicks === 0) return end;
+  const hand = me.hand ?? [];
+  const gain: Action = { type: 'gain_credit', player: 'runner' };
+  const draw: Action = me.deckCount > 0 ? { type: 'draw', player: 'runner' } : gain;
+  const money = (): Action => {
+    const i = hand.findIndex((id) => id === 'r14' || id === 'r01');
+    return (i >= 0 ? legal(v, (a) => a.type === 'play' && a.handIndex === i) : undefined) ?? gain;
+  };
+  const installOf = (id: string): Action | undefined => {
+    const i = hand.indexOf(id);
+    if (i < 0) return undefined;
+    return legal(v, (a) => a.type === 'install' && a.handIndex === i) ?? money();
+  };
+  const corp = views.corp;
+  switch (goal) {
+    case 'experiential_data_encounter': {
+      if (!rigCard(v, GORDIAN)) return installOf(GORDIAN) ?? draw;
+      if (me.credits < 3) return money();
+      const t = enigmaRemote(corp);
+      const corpCanRez = t && (t.ice.faceUp || corp.players.corp.credits >= (card(ENIGMA)?.cost ?? 3));
+      return t?.ed?.faceUp && corpCanRez ? { type: 'run', player: 'runner', server: t.sv.id } : end;
+    }
+    case 'toolbox_encounter': {
+      if (!rigCard(v, TOOLBOX)) {
+        const ti = hand.indexOf(TOOLBOX);
+        if (ti < 0) return draw;
+        const mi = hand.indexOf(MODDED);
+        const viaModded = mi >= 0 ? legal(v, (a) => a.type === 'play' && a.handIndex === mi && a.installIndex === ti) : undefined;
+        return viaModded ?? legal(v, (a) => a.type === 'install' && a.handIndex === ti) ?? money();
+      }
+      if (!barrierBreaker(v)) {
+        const bi = hand.findIndex((id) => id === 'r17' || id === 'r04');
+        return bi >= 0 ? (legal(v, (a) => a.type === 'install' && a.handIndex === bi) ?? money()) : draw;
+      }
+      if (rigCard(v, TOOLBOX)!.hostedCredits < 2) return end;
+      const t = barrierRemote(corp);
+      const corpCanRez = t && (t.ice.faceUp || corp.players.corp.credits >= (card(t.ice.cardId)?.cost ?? 99));
+      return t && corpCanRez ? { type: 'run', player: 'runner', server: t.sv.id } : end;
+    }
+    case 'modded_ready':
+      return hand.includes(MODDED) && hand.some((id) => typeOf(id) === 'program' || typeOf(id) === 'hardware') ? money() : draw;
+    case 'modded_no_target': {
+      if (!hand.includes(MODDED)) return draw;
+      // Get rid of programs/hardware: a spare Modded installs one, else install it; never the last Modded.
+      const target = hand.findIndex((id) => typeOf(id) === 'program' || typeOf(id) === 'hardware');
+      if (target < 0) return end;
+      const spare = hand.filter((id) => id === MODDED).length >= 2 ? hand.indexOf(MODDED) : -1;
+      const viaModded = spare >= 0 ? legal(v, (a) => a.type === 'play' && a.handIndex === spare && a.installIndex === target) : undefined;
+      return viaModded ?? legal(v, (a) => a.type === 'install' && a.handIndex === target) ?? gain;
+    }
+    case 'infiltration_ready':
+      return hand.includes(INFILTRATION) ? end : draw;
+    default:
+      return end; // Corp-side goals: the Runner stays out of the way
   }
 }

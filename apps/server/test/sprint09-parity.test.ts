@@ -17,12 +17,12 @@ function onlineGame(seed: number, goal: StepGoal) {
   const h = harness({ testMode: true });
   const conns: Record<Side, FakeConn> = { corp: new FakeConn('corp'), runner: new FakeConn('runner') };
   h.room.connect(conns.corp, { kind: 'creator', code: 'S9PT' });
-  // Core is the default: no deckSet needed.
-  h.room.message(conns.corp, msg({ t: 'create', side: 'corp', test: { seed, actions: plan.actions } }));
+  // Sprint 12: the 30-card decks are a test fixture now (the default is 'core45'): name them.
+  h.room.message(conns.corp, msg({ t: 'create', side: 'corp', test: { seed, actions: plan.actions, deckSet: plan.deckSet } }));
   h.room.connect(conns.runner, { kind: 'player' });
   h.room.message(conns.runner, msg({ t: 'join' }));
   expect(h.room.seq()).toBe(plan.actions.length);
-  expect(h.store.get<RoomMeta>('meta')!.options).toEqual(ONLINE_OPTIONS);
+  expect(h.store.get<RoomMeta>('meta')!.options).toEqual({ ...ONLINE_OPTIONS, deckSet: 'core' });
   let id = 0;
   const send = (a: Action) => {
     const before = h.store.get<GameState>('state')!;

@@ -178,4 +178,16 @@ export type GameEvent =
   /** The Runner's tags changed by `amount` (+n given, −1 removed); `tags` = the new total. */
   | { readonly type: 'tags_changed'; readonly amount: number; readonly tags: number }
   /** Meat damage to the Runner: `cardIds` = the random Grip cards that went face up to the Heap. */
-  | { readonly type: 'meat_damage'; readonly amount: number; readonly cardIds: readonly string[] };
+  | { readonly type: 'meat_damage'; readonly amount: number; readonly cardIds: readonly string[] }
+  // ---- Sprint 12: Accelerated Beta Test, Archived Memories, Infiltration ----
+  /** The Corp looked at the top `count` cards of R&D (set aside). `cardIds` (top first): the Corp only. */
+  | { readonly type: 'cards_looked_at'; readonly count: number; readonly cardIds?: readonly string[] }
+  /** `count` looked-at cards went from the set-aside pile to Archives **face down**. `cardIds`: the Corp only. */
+  | { readonly type: 'rd_cards_trashed'; readonly count: number; readonly cardIds?: readonly string[] }
+  /**
+   * The Archives card at `archivesIndex` (before removal) went to `player`'s hand (Archived Memories).
+   * `cardId`: the Corp always; the Runner only when the entry was face up (`faceUp`).
+   */
+  | { readonly type: 'card_returned_to_hand'; readonly player: Side; readonly archivesIndex: number; readonly faceUp: boolean; readonly cardId?: string }
+  /** Public: the face-down installed Corp card `uid` was exposed (both see `cardId`); it stays face down. */
+  | { readonly type: 'card_exposed'; readonly uid: string; readonly cardId: string; readonly server: ServerId };

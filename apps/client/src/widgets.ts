@@ -532,15 +532,24 @@ export class TargetMarker {
     this.root.scale.set(on ? 1.05 : 1);
   }
 
-  /** `at` is where the price pill goes, relative to the box: 'top' | 'bottom' | 'center'. */
-  set(b: Box, text: string, lit: boolean, at: 'top' | 'bottom' | 'center', note = ''): void {
+  /** The price pill as drawn, relative to the box's center (test hook), and its text size (px). */
+  pillBox: Box = { x: 0, y: 0, width: 0, height: 0 };
+  pillFontPx = 0;
+
+  /**
+   * `at` is where the price pill goes, relative to the box: 'top' | 'bottom' | 'center'.
+   * `fit` (QA-S12-1, Modded's Grip prices): the pill must end `maxBottom` px below the box's top
+   * (above the card's name), and may break the label at `lines` (price / discount) instead of
+   * wrapping word by word; it shrinks to fit that room.
+   */
+  set(b: Box, text: string, lit: boolean, at: 'top' | 'bottom' | 'center', note = '', fit?: { maxBottom: number; lines: string[] }): void {
     this.setHover(false);
     this.box = { ...b };
     this.main = text;
     this.note = note;
     this.root.position.set(b.x + b.width / 2, b.y + b.height / 2);
     this.root.hitArea = new Rectangle(-b.width / 2, -b.height / 2, b.width, b.height);
-    const key = `${b.width}x${b.height}:${text}:${note}:${lit}:${at}`;
+    const key = `${b.width}x${b.height}:${text}:${note}:${lit}:${at}:${fit ? `${fit.maxBottom}|${fit.lines.join('|')}` : ''}`;
     if (key === this.drawn) return;
     this.drawn = key;
     const color = lit ? theme.credit : theme.textDim;
@@ -549,19 +558,53 @@ export class TargetMarker {
     this.g.clear();
     this.g.roundRect(-w / 2, -h / 2, w, h, r).fill({ color, alpha: lit ? 0.14 : 0.08 });
     glowRoundRect(this.g, -w / 2, -h / 2, w, h, r, color, 2, lit ? 1.2 : 0.5);
-    this.label.style.wordWrapWidth = Math.max(30, w - 10);
-    this.label.text = note ? `${text}\n${note}` : text;
-    this.label.scale.set(1);
-    const lw = Math.min(this.label.width, w - 6);
-    const lh = this.label.height;
-    const k = Math.min(1, (w - 8) / Math.max(1, this.label.width), (h - 6) / Math.max(1, lh + 6));
-    this.label.scale.set(k);
-    const pw = lw * (k < 1 ? 1 : 1) + 8;
-    const ph = lh * k + 6;
-    const y = at === 'top' ? -h / 2 + ph / 2 + 4 : at === 'bottom' ? h / 2 - ph / 2 - 4 : 0;
+    let y: number;
+    let pw: number;
+    let ph: number;
+    if (fit) {
+      // QA-S12-1/2: a ladder of ever shorter labels, never word-wrapped and never under the 10 px
+      // label floor: "price (−N)" on one line, then price / (−N) on two, then just the price (the
+      // discount is dropped on narrow cards; the hook's `label` keeps the full text). The first that fits the card's width and the room
+      // above its name at >= 10 px wins; it shrinks (not below 10 px) to fit.
+      this.label.style.wordWrap = false;
+      const base = this.label.style.fontSize as number;
+      const minPx = Math.min(base, 10);
+      const extra = note ? [note] : [];
+      const rungs = [[text, ...extra], [...fit.lines, ...extra], [fit.lines[0] ?? text, ...extra]];
+      // Last resort for a dimmed card: the reason goes (a tap still says it), the price stays.
+      if (note) rungs.push([fit.lines[0] ?? text]);
+      const room = Math.max(12, fit.maxBottom - 2);
+      let k = 1;
+      for (const [i, lines] of rungs.entries()) {
+        this.label.text = lines.join('\n');
+        this.label.scale.set(1);
+        k = Math.min(1, (w - 6) / Math.max(1, this.label.width), (room - 4) / Math.max(1, this.label.height));
+        if (base * k >= minPx - 0.01 || i === rungs.length - 1) break;
+      }
+      k = Math.max(k, minPx / base);
+      this.label.scale.set(k);
+      // The pill may use the target's full width (never more) so the text always sits inside it.
+      pw = Math.min(this.label.width + 6, w);
+      ph = this.label.height + 4;
+      y = -h / 2 + 2 + ph / 2;
+    } else {
+      this.label.style.wordWrap = true;
+      this.label.style.wordWrapWidth = Math.max(30, w - 10);
+      this.label.text = note ? `${text}\n${note}` : text;
+      this.label.scale.set(1);
+      const lw = Math.min(this.label.width, w - 6);
+      const lh = this.label.height;
+      const k = Math.min(1, (w - 8) / Math.max(1, this.label.width), (h - 6) / Math.max(1, lh + 6));
+      this.label.scale.set(k);
+      pw = Math.min(lw + 8, w - 4);
+      ph = lh * k + 6;
+      y = at === 'top' ? -h / 2 + ph / 2 + 4 : at === 'bottom' ? h / 2 - ph / 2 - 4 : 0;
+    }
     this.label.position.set(0, y);
     this.pill.clear();
-    this.pill.roundRect(-Math.min(pw, w - 4) / 2, y - ph / 2, Math.min(pw, w - 4), ph, Math.min(6, ph / 2)).fill({ color, alpha: 0.95 });
+    this.pill.roundRect(-pw / 2, y - ph / 2, pw, ph, Math.min(6, ph / 2)).fill({ color, alpha: 0.95 });
+    this.pillBox = { x: -pw / 2, y: y - ph / 2, width: pw, height: ph };
+    this.pillFontPx = (this.label.style.fontSize as number) * this.label.scale.y;
   }
 }
 

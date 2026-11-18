@@ -332,7 +332,7 @@ describe('S-03-3 AC1-3: approach and rez', () => {
     expect(viewEvents('runner', r.events)).toContainEqual({ type: 'ice_rezzed', uid: 'i1', cardId: 'c05' });
     expect(r.state.players.corp.credits).toBe(4);
     const rv = viewFor('runner', r.state);
-    expect(rv.corpServers[0]!.ice[0]).toEqual({ uid: 'i1', cardId: 'c05', faceUp: true, advancements: 0, hostedCredits: 0 });
+    expect(rv.corpServers[0]!.ice[0]).toEqual({ uid: 'i1', cardId: 'c05', faceUp: true, advancements: 0, hostedCredits: 0, strength: 1 });
     expect(rv.run).toMatchObject({ step: 'encounter', waitingOn: 'runner', ice: { cardId: 'c05', strength: 1, subroutines: [{ text: 'End the run', broken: false }] } });
     // Stays rezzed after the run.
     const after = play(r.state, [pass('runner')]).state;
