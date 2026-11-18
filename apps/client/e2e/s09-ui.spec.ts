@@ -184,7 +184,7 @@ test.describe('S-09-1 Hunter trace through the pass-the-phone cover (real engine
   }
 
   test('Runner lets Hunter fire -> cover -> Corp bids 2 -> cover -> Runner bids; the report says both totals', async ({ page }) => {
-    await page.goto(`./?seed=${SEED}&play=here`);
+    await page.goto(`./?seed=${SEED}&play=here&decks=core`);
     await page.waitForFunction(() => document.body.dataset.ready === 'true' && !!window.__overclock);
     await toStep(page, SEED, 'pipeline_hunter_encounter');
     let l = await lift(page);

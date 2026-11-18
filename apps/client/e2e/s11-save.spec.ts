@@ -33,7 +33,7 @@ async function ready(page: Page): Promise<void> {
 
 /** A pass-the-phone game (cover on; the goal's decks) played to `goal`; waits until its save holds every move. */
 async function savedGameAt(page: Page, seed: number, goal: StepGoal) {
-  await page.goto(`./?seed=${seed}&play=here${goalDeckSet(goal) === 'starter' ? '&decks=starter' : ''}`);
+  await page.goto(`./?seed=${seed}&play=here&decks=${goalDeckSet(goal)}`);
   await page.waitForFunction(() => document.body.dataset.ready === 'true' && !!window.__overclock);
   const plan = await toStep(page, seed, goal);
   await expect.poll(() => savedMoves(page)).toBe(plan.actions.length);

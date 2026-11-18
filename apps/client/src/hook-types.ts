@@ -43,8 +43,11 @@ export interface InstalledSnapshot {
   hosted: { text: string; box: Box; fontPx: number; color: number; icon: 'coin' } | null;
   /** QA-S7-2: the advancement tag as drawn (a different colour and icon from `hosted`), or null. */
   counterBadge: { text: string; box: Box; fontPx: number; color: number; icon: 'chevron' } | null;
-  /** Face up: where the face's name, type label and cost bubble are drawn (screen boxes) and the drawn name. */
-  face: { name: Box; type: Box; cost: Box; nameText: string } | null;
+  /**
+   * Face up: where the face's name, type label and cost bubble are drawn (screen boxes) and the drawn name.
+   * S-12-6: `clickCost`: the click-symbol chip ("×3") as drawn (screen box), null for none.
+   */
+  face: { name: Box; type: Box; cost: Box; nameText: string; clickCost: Box | null } | null;
 }
 
 export interface ServerSnapshot {
@@ -299,6 +302,8 @@ export interface LayoutSnapshot {
     textOverflow: boolean;
     /** Sprint 11 (S-11-4): each bottom stat ("Strength 4") as drawn, card-local (centered at 0,0), and its text size. */
     stats: StatBoxSnapshot[];
+    /** S-12-6: the click-symbol cost ("×3": symbol and text) as drawn, card-local; null for none. */
+    clickCost: ClickCostSnapshot | null;
     /**
      * S-05-3: the cards shown smaller behind it (hand and list zooms), left to
      * right. `offset`: slots from the zoomed card (-2..2, final, even mid-slide);
@@ -533,6 +538,8 @@ export interface FullFaceSnapshot {
   texts: string[];
   textOverflow: boolean;
   stats: StatBoxSnapshot[];
+  /** S-12-6: see `LayoutSnapshot.zoom.clickCost`. */
+  clickCost: ClickCostSnapshot | null;
 }
 
 export interface SmallFaceSnapshot {
@@ -540,6 +547,22 @@ export interface SmallFaceSnapshot {
   type: Box;
   nameFontPx: number;
   nameText: string;
+  /** The art window and the cost bubble (card-local). */
+  art: Box;
+  cost: Box;
+  /** S-12-6: the click-symbol chip ("×3") in the art window, card-local; null for none. */
+  clickCost: ClickCostSnapshot | null;
+}
+
+/** S-12-6: a cost of 2+ clicks drawn as the click symbol and "×N" (card-local boxes). */
+export interface ClickCostSnapshot {
+  count: number;
+  /** The drawn "×N". */
+  text: string;
+  icon: Box;
+  /** Symbol and text together. */
+  box: Box;
+  fontPx: number;
 }
 
 declare global {

@@ -352,7 +352,7 @@ test.describe('S-08-7 Rototurret through the pass-the-phone cover', () => {
 
   test('Runner -> Corp (pick) -> Runner (save or not): a cover at each hand-over, nothing shown under it', async ({ page }) => {
     // Sprint 9 decks: seed 11 has Sacrificial Construct installed (was 2).
-    await page.goto('./?seed=11&play=here');
+    await page.goto('./?seed=11&play=here&decks=core');
     await page.waitForFunction(() => document.body.dataset.ready === 'true' && !!window.__overclock);
     const plan = await toStep(page, 11, 'rototurret_two_programs');
     let l = await lift(page);

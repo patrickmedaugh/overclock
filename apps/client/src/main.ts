@@ -3,7 +3,7 @@
 // (no 'unsafe-eval'; see vite.config.ts) and in locked-down WebViews.
 import 'pixi.js/unsafe-eval';
 import { getCard } from '@overclock/cards';
-import type { Action, GameEvent, Side } from '@overclock/engine';
+import type { Action, DeckSet, GameEvent, Side } from '@overclock/engine';
 import { Application, updateRenderGroupTransforms } from 'pixi.js';
 import { Board } from './board';
 import { fullFaceInfo, setCardRenderer, smallFaceLayout } from './cardFace';
@@ -50,9 +50,11 @@ async function start(): Promise<void> {
   // `server=none`: as if no online service was set up.
   const serverParam = __TEST_HOOK__ ? params.get('server') : null;
   const serverUrl = serverParam === 'none' ? '' : (serverParam ?? __SERVER_URL__);
-  // `decks=starter`: pass-the-phone with the Sprint 7 15/17-card decks and no identities
-  // (the specs written before Sprint 8 keep their deals). Production always plays the core decks.
-  const deckSet = __TEST_HOOK__ && params.get('decks') === 'starter' ? ('starter' as const) : null;
+  // `decks=starter|core|core45` (Sprint 12): which decks a pass-the-phone test game deals, so a
+  // spec names its deals and the default can change under it without moving them: `starter`
+  // (Sprint 7 15/17 cards, no identities), `core` (Sprint 11 30 cards), `core45` (Sprint 12 45
+  // cards). Any other value, or no flag, plays the engine's default, as production always does.
+  const deckSet = __TEST_HOOK__ ? deckSetFlag(params.get('decks')) : null;
   /** The start screen's address (a reload there forgets the board; test switches for the service stay). */
   const startUrl = () => `${window.location.pathname}${serverParam !== null ? `?server=${encodeURIComponent(serverParam)}` : ''}`;
   let storage: StoreLike | null = null;
@@ -295,7 +297,7 @@ async function start(): Promise<void> {
           const z = width !== undefined && height !== undefined ? { width, height } : board.zoomSize();
           if (!def || !z) return null;
           const f = fullFaceInfo(def, z.width, z.height);
-          return { width: z.width, height: z.height, texts: f.texts, textOverflow: f.overflow, stats: f.stats };
+          return { width: z.width, height: z.height, texts: f.texts, textOverflow: f.overflow, stats: f.stats, clickCost: f.clickCost };
         },
         back,
         exitRequests: () => exitRequests,
@@ -450,3 +452,13 @@ start().catch((err: unknown) => {
   const el = document.getElementById('boot');
   if (el) el.textContent = 'Could not start the game on this device.';
 });
+
+/**
+ * The `decks=` test flag's deck set (null: none or unknown). The engine resolves the name
+ * (an engine without `core45` yet plays its default).
+ */
+function deckSetFlag(value: string | null): DeckSet | null {
+  const known = ['starter', 'core', 'core45'] as const;
+  const hit = known.find((d) => d === value);
+  return hit === undefined ? null : (hit as DeckSet);
+}

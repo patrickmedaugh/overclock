@@ -24,7 +24,7 @@ async function shot(page: Page, name: string): Promise<void> {
 }
 
 async function core(page: Page): Promise<void> {
-  await page.goto(`./?seed=${SEED}&play=here&cover=off`);
+  await page.goto(`./?seed=${SEED}&play=here&cover=off&decks=core`);
   await page.waitForFunction(() => document.body.dataset.ready === 'true' && !!window.__overclock);
 }
 

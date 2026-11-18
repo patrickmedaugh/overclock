@@ -13,7 +13,7 @@ import { getCard } from '@overclock/cards';
 import { Container, Graphics, Rectangle, Text } from 'pixi.js';
 import { type BackAction, backAction } from './back';
 import { CAROUSEL_SLIDE_MS, Carousel, type CarouselFace, listIndex } from './carousel';
-import { type StatBox, createCardBack, createCardFace, createZoomFace, dropCardTextures, flushZoomFaces, glowRoundRect, hasZoomFace, retireCardTextures, smallFaceLayout, textOverflows, textsOf } from './cardFace';
+import { type ClickCostBox, type StatBox, createCardBack, createCardFace, createZoomFace, dropCardTextures, flushZoomFaces, glowRoundRect, hasZoomFace, retireCardTextures, smallFaceLayout, textOverflows, textsOf } from './cardFace';
 import { framesAreSlow } from './frameClock';
 import { Cover } from './cover';
 import { centeredBox, clearOf, freeRect } from './geometry';
@@ -339,6 +339,8 @@ export class Board {
     overflow: boolean;
     /** Sprint 11 (S-11-4): the bottom stats as drawn (card-local). */
     stats: StatBox[];
+    /** S-12-6: the click-symbol cost as drawn (card-local), or null. */
+    clickCost: ClickCostBox | null;
     /** Hand zooms: an undimmed outline over the hand card the zoom shows (S-04-3). */
     frame: Graphics | null;
     /** S-05-3: the neighbours behind the zoomed card (hand and list zooms). */
@@ -744,7 +746,7 @@ export class Board {
     return { armedAt: this.endTurnArmedAt, flipDueAt: this.flipDueAt };
   }
 
-  /** Where a face-up installed card draws its name, type label and cost (screen boxes; test hook). */
+  /** Where a face-up installed card draws its name, type label, cost and click-cost chip (screen boxes; test hook). */
   private faceBoxes(c: InstalledCard, u: number, uh: number): InstalledSnapshot['face'] {
     const def = c.faceUp && c.cardId ? getCard(c.cardId) : undefined;
     if (!def || u <= 0) return null;
@@ -755,7 +757,7 @@ export class Board {
       const y = Math.min(pts[0]!.y, pts[1]!.y);
       return { x, y, width: Math.abs(pts[1]!.x - pts[0]!.x), height: Math.abs(pts[1]!.y - pts[0]!.y) };
     };
-    return { name: toScreen(f.name), type: toScreen(f.type), cost: toScreen(f.cost), nameText: f.nameText };
+    return { name: toScreen(f.name), type: toScreen(f.type), cost: toScreen(f.cost), nameText: f.nameText, clickCost: f.clickCost ? toScreen(f.clickCost.box) : null };
   }
 
   snapshot(): LayoutSnapshot {
@@ -926,6 +928,7 @@ export class Board {
             texts: this.zoom.texts,
             textOverflow: this.zoom.overflow,
             stats: this.zoom.stats.map((x) => ({ text: x.text, box: { ...x.box }, fontPx: x.fontPx })),
+            clickCost: copyClickCost(this.zoom.clickCost),
             carousel: this.zoom.carousel?.snapshot() ?? [],
           }
         : null,
@@ -3327,12 +3330,14 @@ export class Board {
     let texts: string[];
     let overflow: boolean;
     let stats: StatBox[] = [];
+    let clickCost: ClickCostBox | null = null;
     if (def) {
       const f = createZoomFace(def, z.width, z.height);
       card = f.root;
       texts = f.texts;
       overflow = f.overflow;
       stats = f.stats;
+      clickCost = f.clickCost;
     } else {
       card = new Container();
       card.addChild(createCardBack(side, z.width, z.height));
@@ -3380,7 +3385,7 @@ export class Board {
     this.zoomLayer.addChild(root);
     const list = opts.list ? { ids: opts.list.ids, start: opts.list.index, startX: opts.list.startX, step: Math.max(28, Math.round(z.width * 0.18)) } : null;
     const pile = opts.pile ? { side: opts.pile.side, ids: opts.pile.ids } : null;
-    this.zoom = { cardId: def ? cardId : null, root, card, width: z.width, height: z.height, texts, overflow, stats, frame, carousel, index: browse?.index ?? 0, list, view, mode, pile, stamp, confirm };
+    this.zoom = { cardId: def ? cardId : null, root, card, width: z.width, height: z.height, texts, overflow, stats, clickCost, frame, carousel, index: browse?.index ?? 0, list, view, mode, pile, stamp, confirm };
     this.syncDiscardView();
     this.ui.add({ target: root, to: { alpha: 1 }, duration: timing.zoomIn, owner: root });
     this.ui.add({ target: card, to: { x: cx, y: cy }, duration: timing.zoomIn, ease: ease.outCubic, owner: card });
@@ -3430,6 +3435,7 @@ export class Board {
     zoom.texts = next.texts;
     zoom.overflow = next.overflow;
     zoom.stats = next.stats;
+    zoom.clickCost = next.clickCost;
     zoom.index = index;
     if (zoom.carousel) {
       // On a device where drawing a frame is slow, the slide would only delay the next touch: jump instead.
@@ -3966,4 +3972,9 @@ export class Board {
     if (this.predraw) cancelAnimationFrame(this.predraw.frame);
     this.predraw = null;
   }
+}
+
+/** S-12-6: a copy of a click-cost box for the snapshot (null stays null). */
+function copyClickCost(c: ClickCostBox | null): ClickCostBox | null {
+  return c ? { ...c, icon: { ...c.icon }, box: { ...c.box } } : null;
 }
