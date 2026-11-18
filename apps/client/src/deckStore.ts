@@ -61,7 +61,7 @@ export class DeckLibrary {
   /** A newer build's store: shown, never changed or written. */
   readonly readOnly: boolean;
   private decks: StoredDeck[];
-  private timer: unknown = null;
+  private scheduled = false;
   private dirty = false;
   private readonly schedule: (fn: () => void) => unknown;
   private readonly now: () => number;
@@ -139,7 +139,7 @@ export class DeckLibrary {
 
   /** Writes now if anything changed. */
   flush(): void {
-    this.timer = null;
+    this.scheduled = false;
     if (!this.dirty || this.readOnly || !this.storage) return;
     this.dirty = false;
     this.writes++;
@@ -172,7 +172,10 @@ export class DeckLibrary {
     if (this.readOnly) return;
     fn();
     this.dirty = true;
-    if (this.timer === null) this.timer = this.schedule(() => this.flush());
+    if (!this.scheduled) {
+      this.scheduled = true;
+      this.schedule(() => this.flush());
+    }
   }
 }
 
