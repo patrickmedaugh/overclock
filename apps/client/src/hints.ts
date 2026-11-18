@@ -23,6 +23,8 @@ export const CONDITION_TEXT = {
   runner_ran_last_turn: 'Only after the Runner made a run',
   runner_successful_run_last_turn: `${SIDE_NAME.runner} made no successful run last turn`,
   hosted_credits: 'No credits left on it',
+  corp_archives_not_empty: 'Archives is empty',
+  has_install_target: 'No program or hardware in your Grip',
   runner_tagged: `${SIDE_NAME.runner} isn't ${TERMS.tagged.toLowerCase()}`,
 } as const;
 
