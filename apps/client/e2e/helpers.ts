@@ -445,7 +445,7 @@ export function expectCleanLayout(l: LayoutSnapshot): void {
 /**
  * QA-S7-1/2: on every installed card, the credits pill and the advancement tag sit on
  * the card and never cover its name or type label; the two markers never
- * overlap each other and look different (colour and icon).
+ * overlap each other and look different (colour and icon). Sprint 12: the ICE strength pill too.
  */
 export function expectMarkersClear(l: LayoutSnapshot): void {
   const cards = [...l.servers.flatMap((s) => [...s.ice, ...s.content]), ...l.rig];
@@ -453,6 +453,8 @@ export function expectMarkersClear(l: LayoutSnapshot): void {
     const marks: [string, Box][] = [];
     if (c.hosted) marks.push([`credits pill "${c.hosted.text}"`, c.hosted.box]);
     if (c.counterBadge) marks.push([`advancement tag "${c.counterBadge.text}"`, c.counterBadge.box]);
+    // Sprint 12: an ICE's raised strength pill ("Str 3").
+    if (c.strength) marks.push([`strength pill "${c.strength.text}"`, c.strength.box]);
     for (const [mn, mb] of marks) {
       expect(inside(mb, c.box), `${mn} ${JSON.stringify(mb)} is on ${c.cardId ?? 'card back'} ${JSON.stringify(c.box)}`).toBe(true);
       if (!c.face) continue;
@@ -461,6 +463,7 @@ export function expectMarkersClear(l: LayoutSnapshot): void {
       }
     }
     if (c.hosted && c.counterBadge) expect(overlaps(c.hosted.box, c.counterBadge.box), `credits pill and advancement tag on ${c.uid} overlap`).toBe(false);
+    for (const other of [c.hosted, c.counterBadge]) if (c.strength && other) expect(overlaps(c.strength.box, other.box), `strength pill and another marker on ${c.uid} overlap`).toBe(false);
     if (c.hosted) expect(c.hosted).toMatchObject({ icon: 'coin' });
     if (c.counterBadge) expect(c.counterBadge).toMatchObject({ icon: 'chevron' });
     if (c.hosted && c.counterBadge) expect(c.hosted.color).not.toBe(c.counterBadge.color);

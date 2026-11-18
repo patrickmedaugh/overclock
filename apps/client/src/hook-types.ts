@@ -618,7 +618,7 @@ declare global {
       back(): 'close_dialog' | 'close_zoom' | 'close_panel' | 'exit' | 'ask_leave';
       exitRequests(): number;
       /** Starts an online game as `side`; `test` (seed + prelude) only works against a service in test mode. */
-      startOnline(side: Side, test?: { seed: number; actions: Action[]; deckSet?: 'core' | 'starter' }): void;
+      startOnline(side: Side, test?: { seed: number; actions: Action[]; deckSet?: 'core45' | 'core' | 'starter' }): void;
     };
   }
 }

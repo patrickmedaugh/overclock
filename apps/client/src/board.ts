@@ -1594,15 +1594,25 @@ export class Board {
     const w = Math.round(card.strengthText.width + 10);
     card.strengthBg.clear();
     card.strengthBg.roundRect(-w / 2, -h / 2, w, h, Math.round(h * 0.3)).fill({ color: up ? theme.tagged : theme.panel, alpha: 0.95 }).stroke({ width: 1.5, color: theme.text });
-    // In the art window, clear of the name and type (and of a credits pill, if any).
-    if (!f) {
-      card.strength.position.set(0, 0);
-      return;
-    }
+    // In the art window, clear of the name and type (and of a credits pill, if any); on a back, the middle.
     const lo = -uh / 2 + 1 + w / 2;
-    const hi = f.name.y - 1 - w / 2;
-    const cy = card.hosted.visible ? hi : Math.max(lo, Math.min(f.art.y + f.art.height / 2, hi));
-    const cx = card.hosted.visible ? f.art.x + f.art.width / 2 - (card.hostedText.height + 6) : f.art.x + f.art.width / 2;
+    const hi = f ? f.name.y - 1 - w / 2 : uh / 2 - 1 - w / 2;
+    const artX = f ? f.art.x + f.art.width / 2 : 0;
+    const artY = f ? f.art.y + f.art.height / 2 : 0;
+    let cy = card.hosted.visible && f ? hi : Math.max(lo, Math.min(artY, hi));
+    let cx = card.hosted.visible ? artX - (card.hostedText.height + 6) : artX;
+    if (card.badge.visible) {
+      // Clear of the advancement tag in the top-right corner (card-local; the tag is turned upright too).
+      const b = card.badge.getLocalBounds();
+      const tagLeft = card.badge.position.x - b.height / 2;
+      const tagBottom = card.badge.position.y + b.width / 2;
+      if (cy - w / 2 < tagBottom + 1 && cx + h / 2 > tagLeft - 1) {
+        const left = tagLeft - 1 - h / 2;
+        // Left of the tag if the card is wide enough, else below it.
+        if (left >= -u / 2 + 1 + h / 2) cx = left;
+        else cy = Math.min(hi, Math.max(cy, tagBottom + 1 + w / 2));
+      }
+    }
     card.strength.position.set(cx, cy);
   }
 
