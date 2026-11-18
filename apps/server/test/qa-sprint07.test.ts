@@ -30,7 +30,8 @@ const S7 = new Set(['rez', 'activate', 'advance', 'install', 'run', 'trash']);
 describe('QA S-07 online: every frame is exactly the seat\'s projection, with the Sprint 7 cards in play', () => {
   it('random games through the room: view and events of each update match viewFor/viewEvents of the true game; nothing face down leaks', () => {
     const tally = { games: 0, updates: 0, cardRezzed: 0, abilities: 0, hosted: 0, removed: 0, success: 0 };
-    for (let game = 1; game <= 14; game++) {
+    // Sprint 12: production games deal 45 cards (one Bank Job in 45): 20 games so a Bank Job success step still shows up.
+    for (let game = 1; game <= 20; game++) {
       const pick = prng(game * 131 + 7);
       const h = harness({ rngSeed: game * 29 });
       const conns = seatedGame(h, game % 2 ? 'runner' : 'corp');
@@ -70,7 +71,8 @@ describe('QA S-07 online: every frame is exactly the seat\'s projection, with th
               for (const sv of u.view.corpServers) for (const c of [...sv.ice, ...sv.content]) if (down.some((d) => d.uid === c.uid)) expect(c.cardId).toBeNull();
               for (const e of u.events) {
                 const uid = (e as { uid?: string }).uid;
-                if (e.type !== 'card_accessed' && uid && down.some((d) => d.uid === uid)) expect((e as { cardId?: string | null }).cardId ?? null, JSON.stringify(e)).toBeNull();
+                // Sprint 12: card_exposed (Infiltration) names a face-down card publicly, by the rules.
+                if (e.type !== 'card_accessed' && e.type !== 'card_exposed' && uid && down.some((d) => d.uid === uid)) expect((e as { cardId?: string | null }).cardId ?? null, JSON.stringify(e)).toBeNull();
               }
               expect(Object.keys(u.view.installedOptions).every((k) => state.rig.some((c) => c.uid === k))).toBe(true);
             }

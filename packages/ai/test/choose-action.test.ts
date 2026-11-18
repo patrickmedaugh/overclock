@@ -1,6 +1,9 @@
-import { apply, newGame, viewFor, waitingOn, type Action, type GameState } from '@overclock/engine';
+import { apply, newGame as engineNewGame, viewFor, waitingOn, type Action, type GameOptions, type GameState } from '@overclock/engine';
 import { describe, expect, it } from 'vitest';
 import { chooseAction } from '../src/index';
+
+/** Sprint 12: these AI tests keep the 30-card core decks (the frozen 'core' fixture; 'core45' is the new default). */
+const newGame = (seed: number, options: Partial<GameOptions> = {}): GameState => engineNewGame(seed, { deckSet: 'core', ...options });
 
 describe('chooseAction (stub)', () => {
   it('returns a legal action from the view', () => {

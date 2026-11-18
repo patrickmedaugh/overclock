@@ -40,8 +40,8 @@ function withTrace(kind: 'trace_corp' | 'trace_runner', corpBid: number | null):
 }
 
 describe('Sprint 9 interface (E1)', () => {
-  it('RULES_VERSION is 4 (Sprint 10)', () => {
-    expect(RULES_VERSION).toBe(4);
+  it('RULES_VERSION is 5 (Sprint 12)', () => {
+    expect(RULES_VERSION).toBe(5);
   });
 
   it('new state fields start empty: tags 0 for both sides, lastSuccessfulRunTurn null', () => {

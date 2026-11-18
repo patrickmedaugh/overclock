@@ -45,6 +45,8 @@
 - **Memory** — room for the Runner's programs. Each program uses some; the Runner has 4.
 - **Grip** — the Runner's hand.
 - **Stack** — the Runner's deck.
+- **Expose** — look at one face-down Corp card on the table (Infiltration). Both players see it; it stays face down and nothing else changes.
+- **Recurring credits** — credits that sit on a card and refill at the start of its owner's turn, for one use only (The Toolbox: 2, for icebreakers).
 - **Heap** — the Runner's discard pile (always face up).
 - **Upgrade** — a Corp card installed in any server (even HQ, R&D or Archives) to help that server.
 - **Asset** — a Corp card installed in a remote server that helps the Corp, often with money.

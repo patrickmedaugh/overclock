@@ -16,7 +16,7 @@ describe('fixtures', () => {
       writeFileSync(FILE, JSON.stringify({ seed: plan.seed, actions: plan.actions }) + '\n');
     }
     const f = JSON.parse(readFileSync(FILE, 'utf8')) as { seed: number; actions: Action[] };
-    const { state, events } = replay(f.seed, f.actions, ONLINE_OPTIONS);
+    const { state, events } = replay(f.seed, f.actions, { ...ONLINE_OPTIONS, deckSet: 'core' }) /* Sprint 12: made on the 30-card decks */;
     expect(events.some((e) => e.type === 'action_rejected')).toBe(false);
     expect(corpOnlyPass(state)).toBe(true);
     expect(viewFor('runner', state).run?.waitingOn).toBe('corp');

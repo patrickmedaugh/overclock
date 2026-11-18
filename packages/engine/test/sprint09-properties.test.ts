@@ -181,7 +181,7 @@ describe('Sprint 9 properties over random core-deck games', () => {
     const stats = newStats();
     for (let seed = 1; seed <= 300; seed++) {
       const { actions, final } = play(seed, stats);
-      if (seed % 10 === 0) expect(engineReplay(seed, actions).state, `seed ${seed} replay`).toEqual(final);
+      if (seed % 10 === 0) expect(engineReplay(seed, actions, { deckSet: 'core' }).state, `seed ${seed} replay`).toEqual(final);
     }
     // The new rules really happened.
     if (process.env.S9_STATS) console.log(JSON.stringify(stats));
@@ -203,7 +203,7 @@ describe('Sprint 9 properties over random core-deck games', () => {
     const stats = newStats();
     for (let seed = 3001; seed <= 3060; seed++) {
       const { actions, final } = play(seed, stats, { rezWindow: 'always' });
-      if (seed % 10 === 0) expect(engineReplay(seed, actions, { rezWindow: 'always' }).state).toEqual(final);
+      if (seed % 10 === 0) expect(engineReplay(seed, actions, { rezWindow: 'always', deckSet: 'core' }).state).toEqual(final);
     }
     expect(stats.traces).toBeGreaterThan(0);
   }, 300_000);

@@ -14,6 +14,8 @@ export const CORP_CARDS: readonly CardDef[] = [
     side: 'corp',
     type: 'operation',
     faction: 'neutral',
+    influence: 0,
+    code: '01110',
     cost: 5,
     text: 'Gain 9 credits.',
     art: 'glyph:chart-up',
@@ -26,6 +28,7 @@ export const CORP_CARDS: readonly CardDef[] = [
     type: 'operation',
     faction: 'nbn',
     influence: 1,
+    code: '01083',
     cost: 0,
     text: 'Draw 3 cards.',
     art: 'glyph:memo',
@@ -37,6 +40,8 @@ export const CORP_CARDS: readonly CardDef[] = [
     side: 'corp',
     type: 'asset',
     faction: 'neutral',
+    influence: 0,
+    code: '01109',
     cost: 2,
     trashCost: 4,
     text: 'Gain 1 credit when your turn begins.',
@@ -49,6 +54,8 @@ export const CORP_CARDS: readonly CardDef[] = [
     side: 'corp',
     type: 'ice',
     faction: 'neutral',
+    influence: 0,
+    code: '01113',
     subtype: 'barrier',
     cost: 3,
     strength: 3,
@@ -63,6 +70,7 @@ export const CORP_CARDS: readonly CardDef[] = [
     type: 'ice',
     faction: 'weyland',
     influence: 1,
+    code: '01103',
     subtype: 'barrier',
     cost: 1,
     strength: 1,
@@ -78,6 +86,8 @@ export const CORP_CARDS: readonly CardDef[] = [
     side: 'corp',
     type: 'ice',
     faction: 'neutral',
+    influence: 0,
+    code: '01111',
     subtype: 'code_gate',
     cost: 3,
     strength: 2,
@@ -95,6 +105,7 @@ export const CORP_CARDS: readonly CardDef[] = [
     type: 'ice',
     faction: 'jinteki',
     influence: 2,
+    code: '01077',
     subtype: 'sentry',
     cost: 4,
     strength: 3,
@@ -108,6 +119,8 @@ export const CORP_CARDS: readonly CardDef[] = [
     side: 'corp',
     type: 'agenda',
     faction: 'weyland',
+    influence: 0,
+    code: '01094',
     cost: 0,
     advancementRequirement: 2,
     agendaPoints: 1,
@@ -124,6 +137,8 @@ export const CORP_CARDS: readonly CardDef[] = [
     side: 'corp',
     type: 'agenda',
     faction: 'neutral',
+    influence: 0,
+    code: '01107',
     cost: 0,
     advancementRequirement: 4,
     agendaPoints: 2,
@@ -140,6 +155,8 @@ export const CORP_CARDS: readonly CardDef[] = [
     side: 'corp',
     type: 'agenda',
     faction: 'neutral',
+    influence: 0,
+    code: '01106',
     cost: 0,
     advancementRequirement: 5,
     agendaPoints: 3,
@@ -154,6 +171,8 @@ export const CORP_CARDS: readonly CardDef[] = [
     type: 'upgrade',
     faction: 'jinteki',
     influence: 2,
+    code: '01079',
+    unique: true, // Sprint 12: as printed (not enforced; for the deck builder)
     cost: 1,
     trashCost: 3,
     text: 'The rez cost of ICE protecting this server is lowered by 2.',
@@ -167,6 +186,7 @@ export const CORP_CARDS: readonly CardDef[] = [
     type: 'operation',
     faction: 'jinteki',
     influence: 2,
+    code: '01072',
     cost: 2,
     text: 'Play only if the Runner made a run during his or her last turn.\nDo 1 net damage.',
     art: 'glyph:spike',
@@ -180,6 +200,7 @@ export const CORP_CARDS: readonly CardDef[] = [
     side: 'corp',
     type: 'identity',
     faction: 'haas_bioroid',
+    code: '01054',
     cost: 0,
     minDeckSize: 45,
     influenceLimit: 15,
@@ -194,6 +215,7 @@ export const CORP_CARDS: readonly CardDef[] = [
     type: 'asset',
     faction: 'haas_bioroid',
     influence: 2,
+    code: '01056',
     cost: 4,
     trashCost: 3,
     text:
@@ -209,6 +231,8 @@ export const CORP_CARDS: readonly CardDef[] = [
     side: 'corp',
     type: 'asset',
     faction: 'neutral',
+    influence: 0,
+    code: '01108',
     cost: 1,
     trashCost: 1,
     text: 'Click, click, click: Gain 7 credits.',
@@ -222,6 +246,7 @@ export const CORP_CARDS: readonly CardDef[] = [
     type: 'operation',
     faction: 'haas_bioroid',
     influence: 4,
+    code: '01059',
     cost: 4,
     text: 'Gain 2 clicks.',
     art: 'glyph:cell-split',
@@ -235,6 +260,7 @@ export const CORP_CARDS: readonly CardDef[] = [
     subtype: 'code_gate',
     faction: 'haas_bioroid',
     influence: 2,
+    code: '01063',
     cost: 3,
     strength: 3,
     text: 'Subroutine: Do 1 brain damage.\nSubroutine: End the run.',
@@ -252,6 +278,7 @@ export const CORP_CARDS: readonly CardDef[] = [
     subtype: 'barrier',
     faction: 'haas_bioroid',
     influence: 2,
+    code: '01061',
     cost: 8,
     strength: 6,
     text: 'Subroutine: Do 1 brain damage.\nSubroutine: End the run.\nSubroutine: End the run.',
@@ -270,6 +297,7 @@ export const CORP_CARDS: readonly CardDef[] = [
     subtype: 'sentry',
     faction: 'haas_bioroid',
     influence: 1,
+    code: '01064',
     cost: 4,
     strength: 0,
     text: 'Subroutine: Trash 1 program.\nSubroutine: End the run.',
@@ -287,6 +315,8 @@ export const CORP_CARDS: readonly CardDef[] = [
     type: 'ice',
     subtype: 'sentry',
     faction: 'neutral',
+    influence: 0,
+    code: '01112',
     cost: 1,
     strength: 4,
     text: 'Subroutine: Trace 3 – If successful, give the Runner 1 tag.',
@@ -303,6 +333,7 @@ export const CORP_CARDS: readonly CardDef[] = [
     subtype: 'sentry',
     faction: 'haas_bioroid',
     influence: 2,
+    code: '01062',
     cost: 5,
     strength: 4,
     text:
@@ -331,11 +362,59 @@ export const CORP_CARDS: readonly CardDef[] = [
     type: 'operation',
     faction: 'nbn',
     influence: 2,
+    code: '01086',
     cost: 2,
     text: 'Play only if the Runner made a successful run during his or her last turn.\nTrace 3 – If successful, give the Runner 1 tag.',
     art: 'glyph:radar-sweep',
     playIf: 'runner_successful_run_last_turn',
     onPlay: [{ op: 'trace', base: 3, onSuccess: [{ op: 'give_tags', amount: 1 }] }],
+  },
+  // ---- Sprint 12: Haas-Bioroid. Numbers and 2012 wording checked against netrunner-cards-json pack/core.json (DECISIONS 2026-11-18). ----
+  {
+    id: 'c23',
+    name: 'Accelerated Beta Test',
+    side: 'corp',
+    type: 'agenda',
+    faction: 'haas_bioroid',
+    influence: 0,
+    code: '01055',
+    cost: 0,
+    advancementRequirement: 3,
+    agendaPoints: 2,
+    text:
+      'When you score Accelerated Beta Test, you may look at the top 3 cards of R&D. If any of those cards are ICE, you may install and rez them, ignoring all costs. Trash the rest of the cards you looked at.',
+    art: 'glyph:beta-flask',
+    // Sprint 12: always looks (the "may" is played as one tap; DECISIONS 2026-11-18); the rest go to Archives face down.
+    onScore: [{ op: 'look_install_top', count: 3, types: ['ice'] }],
+  },
+  {
+    id: 'c24',
+    name: 'Archived Memories',
+    side: 'corp',
+    type: 'operation',
+    faction: 'haas_bioroid',
+    influence: 2,
+    code: '01058',
+    cost: 0,
+    text: 'Add 1 card from Archives to HQ.',
+    art: 'glyph:archive-return',
+    // Sprint 12: any Archives card (face down too) except this copy; dimmed while Archives is empty.
+    playIf: 'corp_archives_not_empty',
+    onPlay: [{ op: 'archives_to_hand' }],
+  },
+  {
+    id: 'c25',
+    name: 'Experiential Data',
+    side: 'corp',
+    type: 'upgrade',
+    faction: 'haas_bioroid',
+    influence: 1,
+    code: '01066',
+    cost: 2,
+    trashCost: 2,
+    text: 'All ICE protecting this server has +1 strength.',
+    art: 'glyph:signal-boost',
+    iceStrengthBonus: 1,
   },
 ];
 
@@ -381,5 +460,38 @@ export const CORP_CORE_DECK: DeckDef = {
     'c18', // Heimdall 1.0
     ...['c10', 'c10', 'c10'], // Priority Requisition
     ...['c09', 'c09', 'c09'], // Private Security Force
+  ],
+};
+
+/**
+ * Sprint 12: the 45-card Haas-Bioroid deck (the real minimum; proposal S-12-5 table). The Sprint 11 30-card
+ * list plus 3 Accelerated Beta Test, 2 Archived Memories, 2 Experiential Data and one more Melange Mining
+ * Corp., PAD Campaign, Adonis Campaign, Enigma, Wall of Static, Hunter, Heimdall 1.0 and Ichi 1.0.
+ * 21 agenda points (20–21 for 45 cards); influence 8 of 15. `CORP_CORE_DECK` (30) stays as a test fixture.
+ */
+export const CORP_CORE45_DECK: DeckDef = {
+  identity: 'c13',
+  cards: [
+    ...['c01', 'c01', 'c01'], // Hedge Fund
+    'c22', // SEA Source
+    'c12', // Neural EMP
+    'c16', // Biotic Labor
+    ...['c24', 'c24'], // Archived Memories
+    ...['c03', 'c03', 'c03'], // PAD Campaign
+    ...['c14', 'c14', 'c14'], // Adonis Campaign
+    ...['c15', 'c15', 'c15'], // Melange Mining Corp.
+    'c11', // Akitaro Watanabe
+    ...['c25', 'c25'], // Experiential Data
+    ...['c05', 'c05'], // Ice Wall
+    ...['c04', 'c04'], // Wall of Static
+    ...['c06', 'c06'], // Enigma
+    ...['c20', 'c20', 'c20'], // Hunter
+    'c19', // Rototurret
+    ...['c21', 'c21'], // Ichi 1.0
+    ...['c17', 'c17'], // Viktor 1.0
+    ...['c18', 'c18'], // Heimdall 1.0
+    ...['c10', 'c10', 'c10'], // Priority Requisition
+    ...['c09', 'c09', 'c09'], // Private Security Force
+    ...['c23', 'c23', 'c23'], // Accelerated Beta Test
   ],
 };

@@ -44,6 +44,8 @@ export type ServerId = CentralServerId | `remote${number}`;
  * - `trash_installed`: trash 1 installed Runner card of `types`; the Corp chooses (0 candidates =
  *   nothing, 1 = that one, 2+ = a `trash_target` choice). A rig card with `trashPrevention` covering
  *   the target's type may be trashed instead (Runner's `prevent_trash` choice).
+ * Sprint 12 (DSL v5): `look_install_top` (opens `look_install`), `archives_to_hand` (opens
+ *   `archives_pick`), `install_from_hand` (target in `play.installIndex`), `expose` (target in `play.uid`).
  */
 export type Effect =
   | { readonly op: 'gain_credits'; readonly amount: number }
@@ -78,7 +80,29 @@ export type Effect =
   /** Sprint 9: the Runner takes `amount` tags. */
   | { readonly op: 'give_tags'; readonly amount: number }
   /** Sprint 9: meat damage to the Runner (random Grip cards; more than the Grip = flatline). */
-  | { readonly op: 'meat_damage'; readonly amount: number };
+  | { readonly op: 'meat_damage'; readonly amount: number }
+  /**
+   * Sprint 12 (Accelerated Beta Test, `onScore`, last effect): the Corp looks at the top `count` cards of
+   * R&D (fewer if R&D is short; none = nothing happens). They are set aside in a `look_install` choice:
+   * each card of `types` may be installed and rezzed ignoring all costs (`select`), Done (`pass`) trashes
+   * the rest to Archives face down.
+   */
+  | { readonly op: 'look_install_top'; readonly count: number; readonly types: readonly CorpCardType[] }
+  /**
+   * Sprint 12 (Archived Memories, last effect): the Corp adds 1 card from Archives (any, face up or down,
+   * except the copy being played) to HQ through an `archives_pick` choice (mandatory; none = nothing).
+   */
+  | { readonly op: 'archives_to_hand' }
+  /**
+   * Sprint 12 (Modded): install the Grip card named by `play.installIndex` (one of `types`), lowering its
+   * install cost by `discount` (never below 0; other install discounts such as Kate's still apply). No click.
+   */
+  | { readonly op: 'install_from_hand'; readonly types: readonly RunnerCardType[]; readonly discount: number }
+  /**
+   * Sprint 12 (Infiltration): expose the face-down installed Corp card named by `play.uid`: both players
+   * see it (`card_exposed`); it stays face down and nothing else changes.
+   */
+  | { readonly op: 'expose' };
 
 /** Sprint 9: the only ops allowed in a trace's `onSuccess` (none of them opens a choice). */
 export const TRACE_SUCCESS_OPS = ['give_tags', 'brain_damage', 'net_damage', 'meat_damage', 'gain_credits'] as const;
@@ -161,7 +185,22 @@ export interface TrashPrevention {
  * A play condition checked before paying (`condition_not_met` when false).
  * Sprint 9: `'runner_successful_run_last_turn'` = the Runner made a successful run during his last turn (SEA Source).
  */
-export type PlayCondition = 'runner_ran_last_turn' | 'runner_successful_run_last_turn';
+export type PlayCondition =
+  | 'runner_ran_last_turn'
+  | 'runner_successful_run_last_turn'
+  /** Sprint 12 (Archived Memories): Archives holds at least 1 card before playing. */
+  | 'corp_archives_not_empty'
+  /** Sprint 12 (Modded): the Grip holds a card its `install_from_hand` effect can install. */
+  | 'has_install_target';
+
+/**
+ * Sprint 12: one mode of an "A or B" event (Infiltration). The player names it in `play.mode`
+ * (index into `CardDef.modes`); `label` is the button text.
+ */
+export interface CardMode {
+  readonly label: string;
+  readonly effects: readonly Effect[];
+}
 
 /** A system the card's effect needs that is not built yet; the engine refuses it with `not_implemented`. */
 export type CardNeeds = 'runs';
@@ -254,6 +293,15 @@ export interface CardDef {
    * `activate.uid` = `scoredUid('corp', index)`, `activate.ability` indexes this). Private Security Force.
    */
   readonly scoredAbilities?: readonly CardAbility[];
+  // ---- Sprint 12 (DSL v5) ----
+  /** Rezzed upgrade: every ICE protecting its server has + this strength (Experiential Data). */
+  readonly iceStrengthBonus?: number;
+  /** Operations/events: "A or B" modes instead of `onPlay` (Infiltration); `play.mode` picks one. */
+  readonly modes?: readonly CardMode[];
+  /** The NetrunnerDB card code (e.g. '01055'), for the deck builder's pool checks. */
+  readonly code?: string;
+  /** Unique card (only one copy may be installed in the real game; not enforced while decks hold 1). */
+  readonly unique?: true;
 }
 
 /** A deck list is an ordered list of card ids; duplicates mean extra copies. */

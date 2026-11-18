@@ -61,12 +61,13 @@ export const ERROR_CODES: readonly ErrorCode[] = ['no_game', 'full', 'bad_token'
 
 /**
  * Test mode only (`OVERCLOCK_TEST_MODE=1` on the server): a fixed seed and a prelude of actions.
- * Sprint 8: `deckSet` (default `'core'`) — `'starter'` keeps legacy specs on the Sprint 7 decks.
+ * Sprint 8: `deckSet` — `'starter'` keeps legacy specs on the Sprint 7 decks. Sprint 12: default
+ * `'core45'` (the 45-card decks); `'core'` = the 30-card Sprint 11 decks (test fixture).
  */
 export interface TestSetup {
   readonly seed: number;
   readonly actions: readonly Action[];
-  readonly deckSet?: 'core' | 'starter';
+  readonly deckSet?: 'core45' | 'core' | 'starter';
 }
 
 // ---- client → server ----------------------------------------------------------
@@ -173,7 +174,7 @@ function isTestSetup(x: unknown): x is TestSetup {
     x.seed <= 0xffffffff &&
     Array.isArray(x.actions) &&
     x.actions.every(isAction) &&
-    (x.deckSet === undefined || x.deckSet === 'core' || x.deckSet === 'starter')
+    (x.deckSet === undefined || x.deckSet === 'core45' || x.deckSet === 'core' || x.deckSet === 'starter')
   );
 }
 

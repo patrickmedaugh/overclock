@@ -74,6 +74,17 @@ export function expectRunnerEventsClean(events: readonly GameEvent[], where: str
       expect(JSON.stringify(e.outcome), where).not.toMatch(CORP_ID);
       continue;
     }
+    if (e.type === 'card_exposed') {
+      // Sprint 12 (Infiltration): names the installed Corp card at `uid` (public, it stays face down).
+      const c = after.servers.flatMap((sv) => [...sv.ice, ...sv.content]).find((x) => x.uid === e.uid);
+      expect(c?.cardId, `${where}: card_exposed names the card at ${e.uid}`).toBe(e.cardId);
+      continue;
+    }
+    if (e.type === 'card_returned_to_hand') {
+      // Sprint 12 (Archived Memories): the id only for a card that lay face up in Archives.
+      if (e.cardId !== undefined) expect(e.faceUp, `${where}: card_returned_to_hand names a face-down card`).toBe(true);
+      continue;
+    }
     expect(JSON.stringify(e), where).not.toMatch(CORP_ID);
   }
 }
@@ -118,6 +129,8 @@ export function expectRunnerViewClean(s: GameState, where: string): void {
     const ok = s.players.corp.scoreArea.includes(v.choice.cardId) || (ice?.rezzed === true && ice.cardId === v.choice.cardId) || played;
     expect(ok, `${where}: choice names ${v.choice.cardId}`).toBe(true);
   }
+  // Sprint 12: the cards Accelerated Beta Test set aside are only counted for the Runner.
+  if (v.choice?.looked) expect(v.choice.looked.every((x) => x === null), `${where}: looked cards named`).toBe(true);
   // Nothing else names a Corp card.
   const rest = {
     ...v,

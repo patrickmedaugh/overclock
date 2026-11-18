@@ -1,8 +1,11 @@
 // Sprint 8 E8: the AI stays legal with the new choices (trash_target, prevent_trash), Corp click
 // abilities and Battering Ram's multi-break, on the core decks; it reads only the deciding seat's view.
-import { apply, legalActions, newGame, viewFor, waitingOn, type Action, type GameState } from '@overclock/engine';
+import { apply, legalActions, newGame as engineNewGame, viewFor, waitingOn, type Action, type GameOptions, type GameState } from '@overclock/engine';
 import { describe, expect, it } from 'vitest';
 import { chooseAction } from '../src/index';
+
+/** Sprint 12: these AI tests keep the 30-card core decks (the frozen 'core' fixture; 'core45' is the new default). */
+const newGame = (seed: number, options: Partial<GameOptions> = {}): GameState => engineNewGame(seed, { deckSet: 'core', ...options });
 
 function prng(seed: number): (n: number) => number {
   let x = (seed * 2654435761) >>> 0 || 11;
