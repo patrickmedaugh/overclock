@@ -83,8 +83,8 @@ export function checkDeck(deck: DeckDef, opts: { readonly minDeckSize?: number }
 
 // ---------------------------------------------------------------------------------------------
 // Sprint 13 (deck builder). Every helper below is built on `checkDeck`, never beside it, so the
-// editor and the game can't disagree. E1 (interface): first versions; E2 pins them with tests
-// (`test/sprint13-decks.test.ts`). The client turns the codes into words (`deckText.ts`).
+// editor and the game can't disagree. Pinned by `test/sprint13-decks.test.ts` (E2) and the engine's
+// `test/sprint13-custom-decks.test.ts` (deckStatus ≡ checkDeck ≡ newGame on 300 random decks). The client turns the codes into words (`deckText.ts`).
 // ---------------------------------------------------------------------------------------------
 
 /** Every card in `ALL_CARDS` order (Runner, then Corp): the canonical deal order of a counted deck. */
