@@ -52,7 +52,7 @@ export async function reopenStart(page: Page): Promise<void> {
 }
 
 /** A real tap on phones, a click on desktop. `force`: dimmed (aria-disabled) buttons too. */
-export async function press(page: Page, target: Locator, force = false): Promise<void> {
+export async function press(_page: Page, target: Locator, force = false): Promise<void> {
   if (test.info().project.use.hasTouch) await target.tap({ force });
   else await target.click({ force });
 }
@@ -114,7 +114,7 @@ export async function expectTextFloor(page: Page, min = 10): Promise<void> {
   const small = await page.locator(START).evaluate((root, floor) => {
     const out: string[] = [];
     const walk = (n: Element) => {
-      for (const c of n.childNodes) {
+      for (const c of Array.from(n.childNodes)) {
         if (c.nodeType === Node.TEXT_NODE && (c.textContent ?? '').trim() !== '') {
           const e = c.parentElement!;
           if (e.offsetParent === null && getComputedStyle(e).position !== 'fixed') continue;
