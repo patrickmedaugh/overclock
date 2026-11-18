@@ -107,6 +107,9 @@ export interface TargetSnapshot {
   box: Box;
   /** The price label, e.g. "Install · 1 credit". */
   label: string;
+  /** QA-S12-1: the price pill as drawn (screen box) and its text size after any shrink (px). */
+  pill: Box;
+  pillFontPx: number;
   /** S-07: a dimmed installed-card button's reason, drawn under the label ("Not enough credits"). */
   note?: string;
   /** Bright (the engine would accept it) vs dim (shown with its price, refused with a hint). */

@@ -873,6 +873,8 @@ export class Board {
         ...(t.index !== undefined ? { index: t.index } : {}),
         box: { ...t.marker.box },
         label: t.marker.text,
+        pill: { ...t.marker.pillBox, x: t.marker.box.x + t.marker.box.width / 2 + t.marker.pillBox.x, y: t.marker.box.y + t.marker.box.height / 2 + t.marker.pillBox.y },
+        pillFontPx: t.marker.pillFontPx,
         ...(t.marker.note ? { note: t.marker.note } : {}),
         lit: t.option.reject === null,
         reject: t.option.reject,
@@ -2720,7 +2722,13 @@ export class Board {
         const off = option.discount ? ` (−${option.discount})` : '';
         const note = option.reject ? this.rejectHint(option) : '';
         // Just the price on the card (the help column says "install"), so the card's name stays readable.
-        this.addTarget(gen, layout, 'grip', option, box, `${priceText(option.cost)}${off}`, 'top', { index: a.installIndex }, note);
+        // QA-S12-1: the pill stays above the name (over the cost and art), shrinking to fit on short phones.
+        const gripId = view.players[view.viewer].hand?.[a.installIndex];
+        const gripDef = gripId ? getCard(gripId) : undefined;
+        const nameTop = gripDef ? card.y + card.height / 2 + smallFaceLayout(gripDef, card.width, card.height).name.y : card.y + card.height / 2;
+        const parts = option.discount ? [priceText(option.cost), `(−${option.discount})`] : [priceText(option.cost)];
+        const fit = { maxBottom: nameTop - box.y - 1, lines: parts };
+        this.addTarget(gen, layout, 'grip', option, box, `${priceText(option.cost)}${off}`, 'top', { index: a.installIndex }, note, fit);
         continue;
       }
       if (a.type === 'play' && a.mode !== undefined) {
@@ -2786,6 +2794,7 @@ export class Board {
     at: 'top' | 'bottom' | 'center',
     where: { server?: string; uid?: string; index?: number },
     note = '',
+    fit?: { maxBottom: number; lines: string[] },
   ): void {
     // Markers are kept per place: advance / score always use the same two slots.
     const key = targetKey(kind, where);
@@ -2798,7 +2807,7 @@ export class Board {
       gen.targets.set(key, m);
       marker = m;
     }
-    marker.set(b, label, option.reject === null, at, note);
+    marker.set(b, label, option.reject === null, at, note, fit);
     marker.root.visible = true;
     this.activeTargets.push({ kind, ...where, option, marker });
   }

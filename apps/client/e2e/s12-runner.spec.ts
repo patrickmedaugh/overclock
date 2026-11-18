@@ -34,6 +34,30 @@ function expectThumb(l: LayoutSnapshot, b: { x: number; y: number; width: number
   expect(inside(b, safeRect(l)), `${what}: on screen`).toBe(true);
 }
 
+/**
+ * QA-S12-1: each lit Grip card's price pill sits on its own card, clear of the card's name
+ * (and of every other Grip card's name), with readable text, so you can tell which card it prices.
+ */
+async function expectPricesClearOfNames(page: Page, l: LayoutSnapshot): Promise<void> {
+  const grip = l.targets.filter((t) => t.kind === 'grip');
+  expect(grip.length).toBeGreaterThan(0);
+  const names = await Promise.all(
+    l.hand.map(async (h) => {
+      const f = await page.evaluate(([id, w, hh]) => window.__overclock!.smallFace(id, w, hh), [h.cardId, h.box.width, h.box.height] as const);
+      const cx = h.box.x + h.box.width / 2;
+      const cy = h.box.y + h.box.height / 2;
+      return { ...f!.name, x: cx + f!.name.x, y: cy + f!.name.y, text: f!.nameText };
+    }),
+  );
+  for (const t of grip) {
+    const what = `price "${t.label}" on ${names[t.index!]!.text}`;
+    expect(t.pill.width * t.pill.height, `${what}: drawn`).toBeGreaterThan(0);
+    expect(inside(t.pill, t.box), `${what}: inside its target`).toBe(true);
+    expect(t.pillFontPx, `${what}: readable`).toBeGreaterThanOrEqual(8);
+    for (const [i, n] of names.entries()) expect(overlaps(t.pill, n), `${what} clear of the name of Grip card ${i} (${n.text})`).toBe(false);
+  }
+}
+
 test.describe('S-12-3 Modded and The Toolbox', () => {
   test('Modded lights each Grip program / hardware with its price; tapping The Toolbox installs it 4 cheaper (3 + Kate 1), no extra click: memory +2, link +2, 2 credits on it', async ({ page }) => {
     const seed = 3;
@@ -60,6 +84,7 @@ test.describe('S-12-3 Modded and The Toolbox', () => {
       expect(gb.y + gb.height).toBeCloseTo(hb.y + hb.height, 0);
       if (k > 0) expect(overlaps(gb, grip[k - 1]!.box), 'Grip targets apart').toBe(false);
     }
+    await expectPricesClearOfNames(page, l);
     const toolbox = grip.find((t) => t.index === Number(plan.info['installIndex']))!;
     expect(toolbox).toMatchObject({ label: `${plan.info['cost']} credits (−${plan.info['discount']})`, lit: true });
     await page.waitForFunction(() => window.__overclock!.layout().hint === null);
@@ -86,6 +111,20 @@ test.describe('S-12-3 Modded and The Toolbox', () => {
     expect(l.runnerStatus.link!.text).toBe(`Link ${v.players.runner.link}`);
     expect(l.targets.filter((t) => t.kind === 'grip')).toEqual([]);
     await shot(page, 's12-3-toolbox-installed');
+  });
+
+  test('QA-S12-1: with two Magnum Opus and Cyberfeeder in the Grip (seed 203), every price label leaves its card name readable', async ({ page }) => {
+    const seed = 203;
+    await openBoard(page, { seed, decks: 'core45' });
+    const plan = await toStep(page, seed, 'modded_ready');
+    const l = await pickHand(page, Number(plan.info['handIndex']));
+    const grip = l.targets.filter((t) => t.kind === 'grip');
+    const named = grip.map((t) => getCard(l.hand[t.index!]!.cardId)?.name);
+    expect(named.filter((n) => n === 'Magnum Opus')).toHaveLength(2);
+    expect(named).toContain('Cyberfeeder');
+    for (const t of grip) expectThumb(l, t.box, `Grip target ${t.index}`);
+    await expectPricesClearOfNames(page, l);
+    await shot(page, 's12-3-modded-grip-prices');
   });
 
   test('no program or hardware in the Grip: Modded is dimmed and says why', async ({ page }) => {
