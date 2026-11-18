@@ -5,7 +5,7 @@
  * state and an `events` list to append to, and returns the new state; nothing
  * is mutated. The engine auto-passes steps nobody can decide (see README).
  */
-import { getCard, type Effect } from '@overclock/cards';
+import { getCard, type CardType, type Effect } from '@overclock/cards';
 import type { ActionOf } from './actions';
 import type { GameEvent, RunOutcome, SubOutcome } from './events';
 import { nextInt } from './rng';
@@ -14,6 +14,8 @@ import {
   abilityUsable,
   accessCard,
   activateTarget,
+  activeSources,
+  firstInstallOf,
   breakerPayment,
   breakerCard,
   breakerStrength,
@@ -545,11 +547,125 @@ export function resolveEffect(state: GameState, effect: Effect, owner: Side, eve
     case 'meat_damage':
       return damage(state, 'meat', effect.amount, events, ctx);
     case 'look_install_top':
+      return lookAtTop(state, owner, effect.count, effect.types, ctx, events);
     case 'archives_to_hand':
     case 'install_from_hand':
     case 'expose':
       return state; // Sprint 12 E1 stubs (no card uses them yet)
   }
+}
+
+// ---- Sprint 12: Accelerated Beta Test (look_install) ---------------------------------------
+
+/**
+ * Sprint 12: the top `count` cards of `owner`'s deck (fewer if short; none = nothing happens, never a
+ * loss) are set aside in a `look_install` choice: `cards_looked_at` (ids: owner only), `choice_opened`.
+ */
+function lookAtTop(state: GameState, owner: Side, count: number, types: readonly CardType[], ctx: EffectContext, events: Events): GameState {
+  const deck = state.players[owner].deck;
+  const n = Math.min(count, deck.length);
+  if (n === 0) return state;
+  const looked = deck.slice(0, n);
+  const cardId = ctx.cardId as string;
+  events.push({ type: 'cards_looked_at', count: n, cardIds: looked });
+  events.push({ type: 'choice_opened', kind: 'look_install', player: owner, cardId });
+  const choice: ChoiceState = { kind: 'look_install', player: owner, cardId, resume: 'action', looked, types };
+  return { ...withPlayer(state, owner, { deck: deck.slice(n) }), phase: 'choice', choice };
+}
+
+/**
+ * Sprint 8 (moved here in Sprint 12): what happens after an install (after `afterInstall`): the card's
+ * type is recorded in `installedThisTurn`, then every active source's `whenYouInstall` (Haas-Bioroid)
+ * whose "first time each turn" held before this install: `ability_triggered{install}` and its effects.
+ */
+export function installTriggers(before: GameState, after: GameState, player: Side, installedUid: string, cardType: CardType, events: Events): GameState {
+  const fired = activeSources(after, player).filter(
+    (src) =>
+      src.uid !== installedUid &&
+      src.card.whenYouInstall &&
+      firstInstallOf(before, player, src.card.whenYouInstall.types) &&
+      (src.card.whenYouInstall.types ?? [cardType]).includes(cardType),
+  );
+  let s = withPlayer(after, player, { installedThisTurn: [...after.players[player].installedThisTurn, cardType] });
+  for (const src of fired) {
+    events.push({ type: 'ability_triggered', uid: src.uid, cardId: src.cardId, trigger: 'install' });
+    for (const effect of src.card.whenYouInstall?.effects ?? []) {
+      s = resolveEffect(s, effect, player, events, { cardId: src.cardId, uid: src.uid });
+      if (s.phase === 'over') return s;
+    }
+  }
+  return s;
+}
+
+/**
+ * Puts Corp card `cardId` face down into `server` (`'new'` makes a remote: `server_created`), ICE on the
+ * outside, other cards in the root: `card_installed` (with `handIndex` when it came from HQ). No payment.
+ */
+export function placeCorpCard(
+  state: GameState,
+  cardId: string,
+  server: ServerId | 'new',
+  events: Events,
+  handIndex?: number,
+): { state: GameState; uid: string } {
+  const card: Installed = { uid: `i${state.nextUid}`, cardId, rezzed: false, advancements: 0, hostedCredits: 0 };
+  let s: GameState = { ...state, nextUid: state.nextUid + 1 };
+  let target = server;
+  if (target === 'new') {
+    target = `remote${s.nextRemote}`;
+    s = { ...s, servers: [...s.servers, { id: target, ice: [], content: [] }], nextRemote: s.nextRemote + 1 };
+    events.push({ type: 'server_created', server: target });
+  }
+  const zone = getCard(cardId)?.type === 'ice' ? 'ice' : 'content';
+  const id = target;
+  s = { ...s, servers: s.servers.map((sv) => (sv.id === id ? { ...sv, [zone]: [...sv[zone], card] } : sv)) };
+  events.push(
+    handIndex !== undefined
+      ? { type: 'card_installed', player: 'corp', uid: card.uid, zone, server: id, handIndex, cardId }
+      : { type: 'card_installed', player: 'corp', uid: card.uid, zone, server: id, cardId },
+  );
+  return { state: s, uid: card.uid };
+}
+
+/** Puts Runner card `cardId` face up at the end of the rig: `card_installed` (with `handIndex` when given). No payment. */
+export function placeRunnerCard(state: GameState, cardId: string, events: Events, handIndex?: number): { state: GameState; uid: string } {
+  const card: Installed = { uid: `i${state.nextUid}`, cardId, rezzed: false, advancements: 0, hostedCredits: 0 };
+  events.push(
+    handIndex !== undefined
+      ? { type: 'card_installed', player: 'runner', uid: card.uid, zone: 'rig', handIndex, cardId }
+      : { type: 'card_installed', player: 'runner', uid: card.uid, zone: 'rig', cardId },
+  );
+  return { state: { ...state, nextUid: state.nextUid + 1, rig: [...state.rig, card] }, uid: card.uid };
+}
+
+/**
+ * Sprint 12: answers an open `look_install` (validated): the looked-at ICE `card` is installed in front
+ * of `server` and rezzed, ignoring all costs (no click, no credits, no ICE install tax): [`server_created`],
+ * `card_installed`, `ice_rezzed`, then the Corp's "first install each turn" (Haas-Bioroid). The choice
+ * closes by itself once nothing is left. `archives_pick` (Archived Memories): the Archives card goes to HQ.
+ */
+export function doSelect(state: GameState, a: ActionOf<'select'>): { state: GameState; events: GameEvent[] } {
+  const events: Events = [];
+  const choice = state.choice as ChoiceState;
+  const looked = choice.looked ?? [];
+  const cardId = looked[a.card] as string;
+  const rest = looked.filter((_, i) => i !== a.card);
+  const placed = placeCorpCard({ ...state, choice: { ...choice, looked: rest } }, cardId, a.server as ServerId | 'new', events);
+  let s = setRezzed(placed.state, placed.uid);
+  events.push({ type: 'ice_rezzed', uid: placed.uid, cardId });
+  s = afterRez(s, placed.uid, events);
+  s = installTriggers(state, s, 'corp', placed.uid, getCard(cardId)?.type ?? 'ice', events);
+  if (rest.length === 0 && s.phase === 'choice') s = closeChoice(s, false, events);
+  return { state: s, events };
+}
+
+/** Sprint 12: Done in `look_install`: the cards still set aside go to Archives face down (`rd_cards_trashed`). */
+function trashLooked(state: GameState, events: Events): GameState {
+  const rest = (state.choice as ChoiceState).looked ?? [];
+  const s = closeChoice(state, true, events);
+  if (rest.length === 0) return s;
+  events.push({ type: 'rd_cards_trashed', count: rest.length, cardIds: rest.slice() });
+  return withPlayer(s, 'corp', { discard: [...s.players.corp.discard, ...rest.map((cardId) => ({ cardId, faceUp: false }))] });
 }
 
 // ---- Sprint 9: traces and tags --------------------------------------------------------
@@ -915,6 +1031,7 @@ export function doPass(state: GameState): { state: GameState; events: GameEvent[
   const events: Events = [];
   if (state.phase === 'choice') {
     if (state.choice?.kind === 'prevent_trash') return { state: letItBeTrashed(state, events), events };
+    if (state.choice?.kind === 'look_install') return { state: trashLooked(state, events), events }; // Sprint 12: Done
     return { state: closeChoice(state, true, events), events }; // Skip
   }
   const step = theRun(state).step;

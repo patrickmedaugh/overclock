@@ -11,7 +11,7 @@ import {
 describe('card pool', () => {
   it('Sprint 8: 12 starter cards per side, plus 6 Haas-Bioroid / 4 Kate cards and one identity each; Sprint 9: +3 Corp, +1 Runner', () => {
     expect(RUNNER_CARDS).toHaveLength(18);
-    expect(CORP_CARDS).toHaveLength(22);
+    expect(CORP_CARDS).toHaveLength(23);
     expect(ALL_CARDS.filter((c) => c.type === 'identity').map((c) => c.id)).toEqual(['r13', 'c13']);
   });
 
@@ -38,7 +38,7 @@ describe('card pool', () => {
     expect(breakers).toEqual(new Set(['breaker_barrier', 'breaker_code_gate', 'breaker_sentry']));
     const agendas = CORP_CARDS.filter((c) => c.type === 'agenda');
     expect(agendas.length).toBeGreaterThanOrEqual(2);
-    expect(agendas.length).toBeLessThanOrEqual(3);
+    expect(agendas.length).toBeLessThanOrEqual(4); // Sprint 12: + Accelerated Beta Test
     expect(CORP_CARDS.some((c) => c.type === 'asset')).toBe(true);
     expect(CORP_CARDS.some((c) => /\bdo \d+ net damage/i.test(c.text))).toBe(true);
     for (const cards of [RUNNER_CARDS, CORP_CARDS]) {

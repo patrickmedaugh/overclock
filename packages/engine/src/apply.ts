@@ -1,11 +1,12 @@
 import type { Action, ActionOf } from './actions';
 import type { GameEvent } from './events';
 import type { CardOption } from './view';
-import { getCard, type CardAbility, type CardDef, type CardType } from '@overclock/cards';
+import { getCard, type CardAbility, type CardDef } from '@overclock/cards';
 import {
   abilityGain,
+  archivesPickable,
   hasChosenAmount,
-  activeSources,
+  lookInstallable,
   ADVANCE_COST,
   BASIC_ACTION_COST,
   advanceTarget,
@@ -17,7 +18,6 @@ import {
   discardCount,
   handCard,
   installedAgenda,
-  firstInstallOf,
   installBaseCost,
   installCardCheck,
   installCost,
@@ -49,6 +49,10 @@ import {
   doTrash,
   doTrashResource,
   doUseAbility,
+  doSelect,
+  installTriggers,
+  placeCorpCard,
+  placeRunnerCard,
   pruneEmptyRemotes,
   resolveEffect,
   turnStartAbilities,
@@ -64,7 +68,6 @@ import {
   withPlayer,
   type GameState,
   type Installed,
-  type Server,
   type ServerId,
   type Side,
 } from './state';
@@ -140,26 +143,6 @@ function payFromHand(state: GameState, player: Side, handIndex: number, cost: nu
   });
 }
 
-/**
- * Sprint 8: what happens after an install (after `afterInstall`): the card's type is recorded in
- * `installedThisTurn`, then every active source's `whenYouInstall` (Haas-Bioroid) whose "first
- * time each turn" held before this install: `ability_triggered{install}` and its effects.
- */
-function installTriggers(before: GameState, after: GameState, player: Side, installedUid: string, cardType: CardType, events: GameEvent[]): GameState {
-  const fired = activeSources(after, player).filter(
-    (src) => src.uid !== installedUid && src.card.whenYouInstall && firstInstallOf(before, player, src.card.whenYouInstall.types) && (src.card.whenYouInstall.types ?? [cardType]).includes(cardType),
-  );
-  let s = withPlayer(after, player, { installedThisTurn: [...after.players[player].installedThisTurn, cardType] });
-  for (const src of fired) {
-    events.push({ type: 'ability_triggered', uid: src.uid, cardId: src.cardId, trigger: 'install' });
-    for (const effect of src.card.whenYouInstall?.effects ?? []) {
-      s = resolveEffect(s, effect, player, events, { cardId: src.cardId, uid: src.uid });
-      if (s.phase === 'over') return s;
-    }
-  }
-  return s;
-}
-
 function doInstall(state: GameState, a: ActionOf<'install'>): ApplyResult {
   const cardId = state.players[a.player].hand[a.handIndex] as string;
   const def = getCard(cardId) as CardDef;
@@ -169,33 +152,12 @@ function doInstall(state: GameState, a: ActionOf<'install'>): ApplyResult {
   if (cost < installBaseCost(state, a)) {
     for (const d of installDiscounts(state, a.player, def)) events.push({ type: 'ability_triggered', uid: d.source.uid, cardId: d.source.cardId, trigger: 'install_discount' });
   }
-  let s = payFromHand(state, a.player, a.handIndex, cost, events);
-  const card: Installed = { uid: `i${s.nextUid}`, cardId, rezzed: false, advancements: 0, hostedCredits: 0 };
-  s = { ...s, nextUid: s.nextUid + 1 };
-
-  if (a.player === 'runner') {
-    s = { ...s, rig: [...s.rig, card] };
-    events.push({ type: 'card_installed', player: a.player, uid: card.uid, zone: 'rig', handIndex: a.handIndex, cardId });
-    s = afterInstall(s, card.uid, a.player, events);
-    return { state: installTriggers(state, s, a.player, card.uid, def.type, events), events };
-  }
-
-  let serverId = a.server as ServerId | 'new';
-  if (serverId === 'new') {
-    serverId = `remote${s.nextRemote}`;
-    const created: Server = { id: serverId, ice: [], content: [] };
-    s = { ...s, servers: [...s.servers, created], nextRemote: s.nextRemote + 1 };
-    events.push({ type: 'server_created', server: serverId });
-  }
-  const zone = getCard(cardId)?.type === 'ice' ? 'ice' : 'content';
-  const target = serverId;
-  s = {
-    ...s,
-    servers: s.servers.map((sv) => (sv.id === target ? { ...sv, [zone]: [...sv[zone], card] } : sv)),
-  };
-  events.push({ type: 'card_installed', player: a.player, uid: card.uid, zone, server: target, handIndex: a.handIndex, cardId });
-  s = afterInstall(s, card.uid, a.player, events);
-  return { state: installTriggers(state, s, a.player, card.uid, def.type, events), events };
+  const s = payFromHand(state, a.player, a.handIndex, cost, events);
+  // Sprint 12: placement shared with Modded (`placeRunnerCard`) and Accelerated Beta Test (`placeCorpCard`).
+  const placed =
+    a.player === 'runner' ? placeRunnerCard(s, cardId, events, a.handIndex) : placeCorpCard(s, cardId, a.server as ServerId | 'new', events, a.handIndex);
+  const after = afterInstall(placed.state, placed.uid, a.player, events);
+  return { state: installTriggers(state, after, a.player, placed.uid, def.type, events), events };
 }
 
 function doPlay(state: GameState, a: ActionOf<'play'>): ApplyResult {
@@ -306,7 +268,7 @@ export function apply(state: GameState, action: Action): ApplyResult {
     case 'trash_resource':
       return doTrashResource(state, action);
     case 'select':
-      return { state, events: [] }; // Sprint 12 E1 stub: refused `not_implemented` before this
+      return doSelect(state, action);
   }
 }
 
@@ -447,6 +409,13 @@ export function choiceOptions(state: GameState, player: Side): CardOption[] {
     const max = traceMaxBid(state, player);
     return Array.from({ length: max + 1 }, (_, credits) => option(state, { type: 'trace_bid', player, credits }, credits));
   }
+  if (kind === 'look_install') {
+    // Sprint 12: each installable looked-at card × (servers in order, then 'new'), then Done.
+    const targets: (ServerId | 'new')[] = [...state.servers.map((sv) => sv.id), 'new'];
+    const selects = lookInstallable(state).flatMap((card) => targets.map((server) => option(state, { type: 'select', player, card, server }, 0)));
+    return [...selects, option(state, { type: 'pass', player }, 0)];
+  }
+  if (kind === 'archives_pick') return archivesPickable(state).map((card) => option(state, { type: 'select', player, card }, 0));
   const chooses = chooseTargets(state).map((uid) => option(state, { type: 'choose', player, uid }, 0));
   return kind === 'prevent_trash' ? [...chooses, option(state, { type: 'pass', player }, 0)] : chooses;
 }

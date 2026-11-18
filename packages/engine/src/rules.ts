@@ -974,7 +974,7 @@ function canAffordBasic(s: GameState, a: Action): RejectReason | null {
 
 /** Sprint 12 E1 stub: the new play fields and `select` are refused until E2–E4 implement them. */
 function notBuiltYet(_s: GameState, a: Action): RejectReason | null {
-  if (a.type === 'select') return 'not_implemented';
+  if (a.type === 'select' && _s.choice?.kind === 'archives_pick') return 'not_implemented';
   if (a.type === 'play' && (a.installIndex !== undefined || a.mode !== undefined || a.uid !== undefined)) return 'not_implemented';
   return null;
 }

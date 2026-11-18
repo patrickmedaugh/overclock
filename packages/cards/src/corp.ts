@@ -337,6 +337,24 @@ export const CORP_CARDS: readonly CardDef[] = [
     playIf: 'runner_successful_run_last_turn',
     onPlay: [{ op: 'trace', base: 3, onSuccess: [{ op: 'give_tags', amount: 1 }] }],
   },
+  // ---- Sprint 12: Haas-Bioroid. Numbers and 2012 wording checked against netrunner-cards-json pack/core.json (DECISIONS 2026-11-18). ----
+  {
+    id: 'c23',
+    name: 'Accelerated Beta Test',
+    side: 'corp',
+    type: 'agenda',
+    faction: 'haas_bioroid',
+    influence: 0,
+    code: '01055',
+    cost: 0,
+    advancementRequirement: 3,
+    agendaPoints: 2,
+    text:
+      'When you score Accelerated Beta Test, you may look at the top 3 cards of R&D. If any of those cards are ICE, you may install and rez them, ignoring all costs. Trash the rest of the cards you looked at.',
+    art: 'glyph:beta-flask',
+    // Sprint 12: always looks (the "may" is played as one tap; DECISIONS 2026-11-18); the rest go to Archives face down.
+    onScore: [{ op: 'look_install_top', count: 3, types: ['ice'] }],
+  },
 ];
 
 /**
