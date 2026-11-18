@@ -1,4 +1,55 @@
-# Sprint 12 QA report (round 1)
+# Sprint 12 QA report
+
+## Round 2 (2026-11-18, head 5d4dfef + QA commit)
+
+QA re-checked ui-dev's fix for QA-S12-1 (5d4dfef: Modded's price label moved above the card name, split into price / discount on two lines, shrinks to fit).
+
+**Result: QA-S12-1 is fixed (names readable, which price goes with which card is clear, targets at least 44 px), but the fix makes the price text too small at 891×296: about 8.3 px, under the project's 10 px floor for labels. New minor bug QA-S12-2.** S-12-3 AC3 stays PASS on what it does; the readability is still open at 891×296 only.
+
+### What QA checked
+New QA tests in `apps/client/e2e/qa-sprint12.spec.ts` (all 4 sizes, real game on the 45-card decks, planner goal `modded_ready`):
+- `QA-S12-1 r2 seed 203 / 206 / 208` (seed 203 = the bug's repro: 2 Magnum Opus, Cyberfeeder, Gordian Blade, Corroder; 206 and 208 are QA's own extra seeds with Battering Ram, Akamatsu Mem Chip, Pipeline): for every lit Grip card, the price pill is drawn, sits inside its own target, its middle is on its own card and on no other card, it does not touch **any** Grip card's name, and the target is at least 44 px and on screen. **12/12 PASS.**
+- `QA-S12-2 seed 203: Modded price text >= 10 px`: **PASS at 844×390, 640×360, 1280×800; FAILS at 891×296** (kept as an expected failure, `test.fail` on `phone-short` only, so CI stays green and the test flips red the moment the bug is fixed and someone forgets to remove the mark).
+- Local run: `--retries=0`, 16 passed (the 891×296 floor test failed as expected).
+
+Measured price text size (all lit Grip cards, seeds 201–212):
+
+| Size | Target box | Price text |
+|---|---|---|
+| 844×390 | 55×77 | 11.0 px |
+| 640×360 | 52×72 | 10.0 px |
+| 1280×800 | 81×113 | 10.0 px |
+| 891×296 | 44×56 | **8.28 px** on two-line pills ("1 credit (−4)", and "free (−n)" on Cyberfeeder, Gordian Blade, Akamatsu Mem Chip, Magnum Opus); 10.0 px only where the name sits lower (Corroder, Pipeline) |
+
+(ui-dev said about 8.6 px; QA measured 8.28 px.)
+
+### Judging 8.3 px against the floors
+- The QA-S3-4 floors (14 / 11.5 / 12 px) and the Sprint 11 floors (14 / 12 / 11.5 px) are for **run panel buttons**. Price labels on the board were never held to them: before Sprint 12 they were already 10–11 px at every size. So QA does not count those floors here.
+- But every label you tap or read in this project has a 10 px floor: the label's own code (`TargetMarker`, `Math.max(10, ...)`), the trace bid buttons (`qa-sprint09`, 10 px), toasts (architect ruling 2026-11-17, 10 px), notes (`qa-sprint10`, 10 px). The only lower floor is 8 px for numbers printed on card faces (`qa-sprint11`). A price is a button label, not printed card text.
+- 8.28 px is below the 10 px floor, so QA reports it as a bug. ui-dev's own check (`s12-runner`, `pillFontPx >= 8`) uses the card-face floor; QA's test uses 10 and is not loosened.
+- In the 891×296 screenshot (taken at the owner's phone's 2.625× pixel density) the prices are sharp and can be read, so this is minor. The floor still applies.
+
+### Bugs
+#### QA-S12-2 (minor, ui-dev): Modded's price text shrinks to 8.3 px at 891×296
+- Steps: 891×296, a pass-the-phone game on the 45-card decks, seed 203 (planner goal `modded_ready`). Pick Modded. Read the layout hook: `targets[kind=grip].pillFontPx`.
+- Expected: 10 px or more (the project's label floor), with names still clear.
+- Actual: 8.28 px on "1 credit (−4)" (Magnum Opus ×2) and "free (−2)" / "free (−4)" (Cyberfeeder, Gordian Blade). `891x296-26-r2-modded-grip-prices.png`.
+- Test: `qa-sprint12` "QA-S12-2 seed 203: Modded price text >= 10 px" (expected failure on `phone-short`; remove the `test.fail` line when fixed).
+- Ideas (up to the team): let the pill cover the cost badge and the top of the art (it already does) with less padding; a shorter discount ("−4" with no brackets); or put the discount in a second, smaller line only when there's room.
+
+#### Observation (no fix asked)
+- On every size the pill covers part of the card's printed cost badge (the "2" / "4" in the corner). The pill shows the real price, so nothing is lost.
+
+### Screenshots
+`docs/sprints/sprint-12-qa/{844x390,640x360,1280x800,891x296}-26-r2-modded-grip-prices.png` (seed 203). Every name can be read on all four; at 891×296 "Cyberfeeder" is in the card's own small name type (that is the card face, not the label).
+
+### Checks
+- `npm run lint`, `npm run typecheck`: pass.
+- Full e2e: CI on the QA round 2 commit (recorded below).
+
+---
+
+# Round 1
 
 QA did not write the Sprint 12 code. Checked on branch `sprint-12`, head 172e7cd (plus the QA commits).
 Sizes: 844×390 (phone), 640×360 (phone-small), 891×296 (the owner's phone with Chrome's address bar, `phone-short`) and 1280×800 (desktop).

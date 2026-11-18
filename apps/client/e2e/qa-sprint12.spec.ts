@@ -11,7 +11,7 @@ import { LocalMatch } from '@overclock/match';
 import { planToStep } from '@overclock/match/testing';
 import { type Page, expect, test } from '@playwright/test';
 import type { InstalledSnapshot, LayoutSnapshot } from '../src/hook-types';
-import { getView, inside, layout, measureTap, openBoard, openHand, passTurn, pickHand, safeRect, tap, targetOf, toStep, waitIdle } from './helpers';
+import { getView, inside, layout, overlaps, measureTap, openBoard, openHand, passTurn, pickHand, safeRect, tap, targetOf, toStep, waitIdle } from './helpers';
 import { act, frames, joinGame, layoutOf, openPhone, startGame, startTestGame, tapButton, view, waitPlaying, waitView } from './online';
 
 const SHOTS = join(dirname(fileURLToPath(import.meta.url)), '../../../docs/sprints/sprint-12-qa');
@@ -322,6 +322,51 @@ test.describe('QA S-12-3 The Toolbox and Modded (real taps)', () => {
     expect(v.players.runner.credits).toBe(own - (opt.cost - opt.hostedPay!.reduce((n, h) => n + h.amount, 0)));
     await shot(page, '16-toolbox-paid');
   });
+});
+
+/**
+ * QA-S12-1 / QA-S12-2 (round 2): Modded's Grip price labels. The project's smallest text floor for
+ * anything you tap or read as a label is 10 px (bid buttons, toasts, notes, and TargetMarker's own
+ * Math.max(10, ...)); the card-face 8 px floor is for printed stats, not prices.
+ */
+const PRICE_FLOOR_PX = 10;
+async function gripPrices(page: Page, seed: number) {
+  await openBoard(page, { seed, decks: 'core45' });
+  const plan = await toStep(page, seed, 'modded_ready');
+  const l = await pickHand(page, Number(plan.info['handIndex']));
+  const grip = l.targets.filter((t) => t.kind === 'grip');
+  expect(grip.length).toBeGreaterThan(1);
+  const names = await Promise.all(
+    l.hand.map(async (h) => {
+      const f = await page.evaluate(([id, w, hh]) => window.__overclock!.smallFace(id, w, hh), [h.cardId, h.box.width, h.box.height] as const);
+      const cx = h.box.x + h.box.width / 2;
+      const cy = h.box.y + h.box.height / 2;
+      return { x: cx + f!.name.x, y: cy + f!.name.y, width: f!.name.width, height: f!.name.height, text: f!.nameText };
+    }),
+  );
+  return { l, grip, names };
+}
+for (const seed of [203, 206, 208]) {
+  test(`QA-S12-1 r2 seed ${seed}: each Modded price sits on its own card, clear of every card name, targets >= 44 px`, async ({ page }) => {
+    const { l, grip, names } = await gripPrices(page, seed);
+    for (const t of grip) {
+      const own = l.hand[t.index!]!.box;
+      const what = `"${t.label}" on ${names[t.index!]!.text}`;
+      thumb(l, t.box, what);
+      expect(t.pill.width * t.pill.height, `${what} drawn`).toBeGreaterThan(0);
+      expect(inside(t.pill, t.box), `${what} inside its target`).toBe(true);
+      const c = { x: t.pill.x + t.pill.width / 2 - 0.5, y: t.pill.y + t.pill.height / 2 - 0.5, width: 1, height: 1 };
+      expect(inside(c, own), `${what} centred on its own card`).toBe(true);
+      for (const [i, h] of l.hand.entries()) if (i !== t.index) expect(inside(c, h.box), `${what} not centred on card ${i}`).toBe(false);
+      for (const n of names) expect(overlaps(t.pill, n), `${what} clear of the name ${n.text}`).toBe(false);
+    }
+    if (seed === 203) await shot(page, '26-r2-modded-grip-prices');
+  });
+}
+test('QA-S12-2 seed 203: Modded price text >= 10 px (the project floor for labels)', async ({ page }) => {
+  test.fail(test.info().project.name === 'phone-short', 'QA-S12-2: at 891x296 the two-line price pills shrink to ~8.3 px');
+  const { grip, names } = await gripPrices(page, 203);
+  for (const t of grip) expect(t.pillFontPx, `"${t.label}" on ${names[t.index!]!.text}: ${t.pillFontPx.toFixed(2)} px`).toBeGreaterThanOrEqual(PRICE_FLOOR_PX);
 });
 
 test.describe('QA S-12-4 Infiltration (real taps)', () => {
