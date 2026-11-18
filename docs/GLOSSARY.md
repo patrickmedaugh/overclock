@@ -27,8 +27,10 @@
 - **Run-only credits** — the Runner's extra credits from bad publicity ("+1 for this run"). They are spent first during the run and vanish when it ends.
 - **Identity** — the card that says who you are playing (Haas-Bioroid for the Corp, Kate for the Runner). It sits face up beside your cards all game, gives you a small bonus, and sets your deck's rules: the smallest deck size (45) and how much influence you may spend (15).
 - **Influence** — the "budget" for cards from other factions (teams). Each such card costs its dots (1–4); your own faction's cards and neutral cards cost nothing. A deck may spend up to its identity's limit (15). Shown in the deck editor as "Influence 8 / 15".
-- **Agenda points** — the points printed on an agenda card. When building a Corp deck they must add up to the right amount for its size (45 cards: 20 or 21), so a bigger deck needs more agendas. Shown in the deck editor as "Agenda points 21 (needs 20–21)".
+- **Agenda points** — the points printed on an agenda card. When building a Corp deck they must add up to the right amount for its size (40–44 cards: 18 or 19; 45–49 cards: 20 or 21; each 5 more cards add 2), so a bigger deck needs more agendas. Shown in the deck editor as "Agenda points 21 (needs 20–21)".
 - **Ready to play** — a built deck that meets every deck rule, so it can be picked for a game.
+- **Standard decks** — the two ready-made 45-card decks (Haas-Bioroid for the Corp, Kate for the Runner) that every game used before Sprint 13. In the Decks screen you can read them but not change them; **Copy to edit** makes your own copy. Online games still use them.
+- **Faction** — the "team" a card belongs to (e.g. Haas-Bioroid, Weyland, Jinteki, NBN for the Corp; Shaper, Criminal, Anarch for the Runner), shown under each card's name in the deck editor. Neutral cards belong to no faction. Other factions' cards cost influence; another faction's agendas can't go in a Corp deck at all.
 - **Points** — agenda points in a player's score area, shown as "Corp 1 point" / "Runner 2 points". 7 points wins.
 - **Net damage** — the Runner discards that many random cards from the Grip to the Heap.
 - **Brain damage** — like net damage (random cards from the Grip to the Heap), and the Runner's hand limit also goes down by 1 for each point, for the rest of the game (shown as "Hand max 4").
