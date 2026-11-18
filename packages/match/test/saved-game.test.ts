@@ -74,7 +74,7 @@ function liveMatch(seed: number, options: Partial<GameOptions>, actions: readonl
 }
 
 describe('Sprint 11: save()', () => {
-  it('is {format: 1, rulesVersion, seed, options, accepted actions}, plain JSON and detached', () => {
+  it('is {format: SAVE_FORMAT, rulesVersion, seed, options, accepted actions}, plain JSON and detached', () => {
     const g = playRandom(5, { deckSet: 'core' }, 40, true);
     const m = liveMatch(5, { deckSet: 'core' }, g.actions);
     m.submit('runner', { type: 'draw', player: 'corp' }); // seat mismatch: refused, not saved
@@ -169,7 +169,7 @@ describe('Sprint 11: LocalMatch.load()', () => {
   it('parseSavedGame returns a detached copy with only the save fields', () => {
     const save = { ...new LocalMatch(2).save(), extra: 'x', options: { rezWindow: 'always', deckSet: 'starter', more: 1 } };
     const p = parseSavedGame(save);
-    expect(p).toEqual({ format: 1, rulesVersion: RULES_VERSION, seed: 2, options: { rezWindow: 'always', deckSet: 'starter' }, actions: [] });
+    expect(p).toEqual({ format: SAVE_FORMAT, rulesVersion: RULES_VERSION, seed: 2, options: { rezWindow: 'always', deckSet: 'starter' }, actions: [] });
   });
 });
 

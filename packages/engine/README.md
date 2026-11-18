@@ -515,7 +515,7 @@ maxHandSize(state, side) = 5 − brainDamage    // exported
 
 Deck builder (plan: `docs/sprints/sprint-13-tech-plan.md`). **No rule or card change: `RULES_VERSION` stays 5.** `SAVE_FORMAT` 1 → 2 (E3). `PROTOCOL_VERSION` stays 1; online games and the room never take `decks`.
 
-Status: **E1** (this interface) is in. `deckPool`, `deckStatus`, `addBlock`, `countsOf`, `deckFromCounts` and `parseDeckStore` have first working versions (E2/E4 pin them with tests). `GameOptions.decks` is **type only** until E3: `newGame` still deals `deckSet` and `resolveOptions` drops `decks`; `SAVE_FORMAT` is still 1 until E3.
+Status: **E1–E3** are in. E2: the deck helpers are pinned by `packages/cards/test/sprint13-decks.test.ts`. E3: `GameOptions.decks` **deals** (`newGame`, `LocalMatch`, `HotSeat`), `newGame` throws `illegal_deck`, `SAVE_FORMAT = 2` (format-1 saves load), tests `packages/engine/test/sprint13-custom-decks.test.ts` (deckStatus ≡ checkDeck ≡ newGame on 300 random decks) and `packages/match/test/sprint13-saves.test.ts` (golden `fixtures/sprint13-saves.json`). `parseDeckStore` is a first working version until E4.
 
 ### Deck rules helpers (`@overclock/cards`, `src/deck.ts`; all built on `checkDeck`)
 - `IDENTITIES: Readonly<Record<Side, string>>` — `{corp: 'c13', runner: 'r13'}` (Haas-Bioroid, Kate).
@@ -529,10 +529,10 @@ Status: **E1** (this interface) is in. `deckPool`, `deckStatus`, `addBlock`, `co
 - Unchanged: `checkDeck`, `DeckProblem`, `deckInfluence`, `deckAgendaPoints`, `MAX_COPIES`.
 
 ### Game options (`@overclock/engine`)
-- `GameOptions.decks?: Partial<Record<Side, DeckDef>>` — a side given here is dealt instead of `deckSet`'s deck. `resolveOptions` keeps the key **only when present** (standard games' state and hashes unchanged). `newGame` throws `Error('illegal_deck')` if a given deck fails `checkDeck` or its identity is the other side's. The client passes `decks` only for non-standard picks: `new HotSeat(seed, {decks})`.
+- `GameOptions.decks?: Partial<Record<Side, DeckDef>>` — a side given here is dealt instead of `deckSet`'s deck. `resolveOptions` keeps the key **only when present** (standard games' state and hashes unchanged). An empty `decks` (`{}`, or only `undefined` sides) counts as absent. Additive (E3): `isPlayableDeck(deck, side): boolean` — exactly the check `newGame` makes (`checkDeck` clean and the identity is `side`'s); `parseSavedGame` uses it too. `newGame` throws `Error('illegal_deck')` if a given deck fails `checkDeck` or its identity is the other side's. The client passes `decks` only for non-standard picks: `new HotSeat(seed, {decks})`.
 
 ### Saved games (`@overclock/match`, E3)
-- `SAVE_FORMAT = 2`; `parseSavedGame` accepts formats 1 and 2, keeps `options.decks` (identity string, ≤ 200 string ids per side), returns `'broken'` if a saved deck fails `checkDeck`. Continue never reads the deck store.
+- `SAVE_FORMAT = 2`; `parseSavedGame` accepts formats 1 and 2, keeps `options.decks` (identity string, ≤ 200 string ids per side), returns `'broken'` if a saved deck fails `checkDeck`. Continue never reads the deck store. A format-1 save is returned as format 2 without `decks` (any `decks` field in a format-1 save is ignored, as Sprint 12 did); a loaded game re-saves as format 2. `MAX_SAVED_DECK_CARDS = 200` is exported. `LocalMatch.save()` deep-copies the options (deck lists detached).
 
 ### Deck store format (`@overclock/match`, `src/saved-decks.ts`)
 - `DECK_STORE_FORMAT = 1`.
