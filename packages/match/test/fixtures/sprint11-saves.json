@@ -3,7 +3,7 @@
   "name": "core pass-the-phone",
   "save": {
    "format": 1,
-   "rulesVersion": 4,
+   "rulesVersion": 5,
    "seed": 1117,
    "options": {
     "rezWindow": "affordable",
@@ -1637,7 +1637,7 @@
   "name": "core online rules",
   "save": {
    "format": 1,
-   "rulesVersion": 4,
+   "rulesVersion": 5,
    "seed": 21,
    "options": {
     "rezWindow": "always",
@@ -3486,7 +3486,7 @@
   "name": "starter",
   "save": {
    "format": 1,
-   "rulesVersion": 4,
+   "rulesVersion": 5,
    "seed": 11,
    "options": {
     "rezWindow": "affordable",
@@ -3963,7 +3963,7 @@
   "name": "Heimdall 1.0 vs Battering Ram (planned)",
   "save": {
    "format": 1,
-   "rulesVersion": 4,
+   "rulesVersion": 5,
    "seed": 7,
    "options": {
     "rezWindow": "affordable",
@@ -4209,7 +4209,7 @@
   "name": "Ice Wall vs Ram and Gordian (planned)",
   "save": {
    "format": 1,
-   "rulesVersion": 4,
+   "rulesVersion": 5,
    "seed": 42,
    "options": {
     "rezWindow": "always",

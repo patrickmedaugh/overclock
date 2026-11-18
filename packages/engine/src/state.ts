@@ -1,6 +1,8 @@
 import {
+  CORP_CORE45_DECK,
   CORP_CORE_DECK,
   CORP_STARTER_DECK,
+  RUNNER_CORE45_DECK,
   RUNNER_CORE_DECK,
   RUNNER_STARTER_DECK,
   getCard,
@@ -27,10 +29,12 @@ export const CORP_CLICKS_PER_TURN = 3;
 export const MEMORY_LIMIT = 4;
 /**
  * Sprint 7: the rules version (Sprint 8: 2 — identities, core decks, DSL v3; Sprint 9: 3 — traces, tags,
- * link, meat damage, DSL v4; Sprint 10: 4 — advance stops at an agenda's requirement, Bank Job amount). Bump it whenever an old action log would replay
+ * link, meat damage, DSL v4; Sprint 10: 4 — advance stops at an agenda's requirement, Bank Job amount;
+ * Sprint 12: 5 — 45-card decks by default, Accelerated Beta Test, Archived Memories, Experiential Data,
+ * The Toolbox, Modded, Infiltration, DSL v5). Bump it whenever an old action log would replay
  * differently (a rules change); the online room expires a game whose log no longer replays.
  */
-export const RULES_VERSION: number = 4;
+export const RULES_VERSION: number = 5;
 /** Agenda points that win the game at once (stolen or scored). */
 export const WINNING_POINTS = 7;
 
@@ -269,10 +273,12 @@ export function maxHandSize(state: GameState, side: Side): number {
 }
 
 /**
- * Sprint 8: which decks a game uses. `'core'` (default): the 30-card Haas-Bioroid and Kate decks
- * with their identities. `'starter'`: the Sprint 7 15/17-card decks, no identities (a frozen test fixture).
+ * Sprint 8: which decks a game uses. Sprint 12: `'core45'` (default; hot-seat and online): the 45-card
+ * Haas-Bioroid and Kate decks with their identities. `'core'`: the 30-card Sprint 11 decks (now a frozen
+ * test fixture, so seeded tests keep their situations). `'starter'`: the Sprint 7 15/17-card decks, no
+ * identities (a frozen test fixture).
  */
-export type DeckSet = 'core' | 'starter';
+export type DeckSet = 'core45' | 'core' | 'starter';
 
 /**
  * Sprint 6: per-game rule options, fixed at `newGame` and stored in the state.
@@ -287,15 +293,23 @@ export interface GameOptions {
   readonly deckSet: DeckSet;
 }
 
-export const DEFAULT_OPTIONS: GameOptions = { rezWindow: 'affordable', deckSet: 'core' };
+export const DEFAULT_OPTIONS: GameOptions = { rezWindow: 'affordable', deckSet: 'core45' };
 
-/** `options` with every missing field set to its default (a detached copy). */
+/** `options` with every missing field set to its default (a detached copy). Sprint 12: an unknown deck set → `'core45'`. */
 export function resolveOptions(options?: Partial<GameOptions>): GameOptions {
+  const deckSet = options?.deckSet;
   return {
     rezWindow: options?.rezWindow === 'always' ? 'always' : 'affordable',
-    deckSet: options?.deckSet === 'starter' ? 'starter' : 'core',
+    deckSet: deckSet === 'starter' || deckSet === 'core' ? deckSet : 'core45',
   };
 }
+
+/** Sprint 12: the decks of a deck set (identity null for the starter decks). */
+const DECKS: Readonly<Record<DeckSet, Readonly<Record<Side, { cards: DeckList; identity: string | null }>>>> = {
+  core45: { corp: CORP_CORE45_DECK, runner: RUNNER_CORE45_DECK },
+  core: { corp: CORP_CORE_DECK, runner: RUNNER_CORE_DECK },
+  starter: { corp: { cards: CORP_STARTER_DECK, identity: null }, runner: { cards: RUNNER_STARTER_DECK, identity: null } },
+};
 
 /** Full game state. Plain JSON: serializable and structurally clonable. */
 export interface GameState {
@@ -423,14 +437,14 @@ function setupPlayer(deckList: DeckList, identity: string | null, rng: number): 
  * Starts on turn 1, the Corp's turn, with its start-of-turn draw already
  * taken (3 clicks, 6 cards in hand); the Runner has 0 clicks.
  * `options` (Sprint 6) default to DEFAULT_OPTIONS; `rezWindow` never changes the shuffle.
- * Sprint 8: `deckSet` picks the decks (default `'core'`: 30 cards each plus identities).
+ * Sprint 8: `deckSet` picks the decks (Sprint 12 default `'core45'`: 45 cards each plus identities).
  */
 export function newGame(seed: number, options?: Partial<GameOptions>): GameState {
   const opts = resolveOptions(options);
   const rng0 = seedToRng(seed);
-  const core = opts.deckSet === 'core';
-  const corp = setupPlayer(core ? CORP_CORE_DECK.cards : CORP_STARTER_DECK, core ? CORP_CORE_DECK.identity : null, rng0);
-  const runner = setupPlayer(core ? RUNNER_CORE_DECK.cards : RUNNER_STARTER_DECK, core ? RUNNER_CORE_DECK.identity : null, corp.rng);
+  const decks = DECKS[opts.deckSet];
+  const corp = setupPlayer(decks.corp.cards, decks.corp.identity, rng0);
+  const runner = setupPlayer(decks.runner.cards, decks.runner.identity, corp.rng);
   const base: GameState = {
     seed: rng0,
     rng: runner.rng,

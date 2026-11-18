@@ -204,8 +204,8 @@ describe('Sprint 8 properties over random core-deck games', () => {
     for (let seed = 1; seed <= 300; seed++) {
       const { actions, final } = play(seed, stats);
       if (seed % 10 === 0) {
-        expect(engineReplay(seed, actions).state, `seed ${seed} replay`).toEqual(final);
-        expect(engineReplay(seed, JSON.parse(JSON.stringify(actions)) as Action[]).state).toEqual(JSON.parse(JSON.stringify(final)));
+        expect(engineReplay(seed, actions, { deckSet: 'core' }).state, `seed ${seed} replay`).toEqual(final);
+        expect(engineReplay(seed, JSON.parse(JSON.stringify(actions)) as Action[], { deckSet: 'core' }).state).toEqual(JSON.parse(JSON.stringify(final)));
       }
     }
     // The new rules really happened.
@@ -227,7 +227,7 @@ describe('Sprint 8 properties over random core-deck games', () => {
     const stats = newStats();
     for (let seed = 2001; seed <= 2060; seed++) {
       const { actions, final } = play(seed, stats, { rezWindow: 'always' });
-      if (seed % 10 === 0) expect(engineReplay(seed, actions, { rezWindow: 'always' }).state).toEqual(final);
+      if (seed % 10 === 0) expect(engineReplay(seed, actions, { rezWindow: 'always', deckSet: 'core' }).state).toEqual(final);
     }
     expect(stats.hbTrigger).toBeGreaterThan(0);
     expect(stats.brainDamage).toBeGreaterThan(0);

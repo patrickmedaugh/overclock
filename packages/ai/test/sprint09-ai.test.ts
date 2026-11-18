@@ -1,8 +1,11 @@
 // Sprint 9 E7: the AI bids in traces (from the public numbers in the view), uses tags (Private Security
 // Force, trash the costliest resource, remove a tag with ≥ 4 credits), and stays legal on the core decks.
-import { apply, legalActions, newGame, viewFor, waitingOn, type Action, type GameState, type Side } from '@overclock/engine';
+import { apply, legalActions, newGame as engineNewGame, viewFor, waitingOn, type Action, type GameOptions, type GameState, type Side } from '@overclock/engine';
 import { describe, expect, it } from 'vitest';
 import { chooseAction } from '../src/index';
+
+/** Sprint 12: these AI tests keep the 30-card core decks (the frozen 'core' fixture; 'core45' is the new default). */
+const newGame = (seed: number, options: Partial<GameOptions> = {}): GameState => engineNewGame(seed, { deckSet: 'core', ...options });
 
 function prng(seed: number): (n: number) => number {
   let x = (seed * 2654435761) >>> 0 || 11;

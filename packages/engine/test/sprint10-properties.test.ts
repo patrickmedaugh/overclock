@@ -148,7 +148,7 @@ describe('Sprint 10 properties over random core-deck games', () => {
     const stats: Stats = { atLimit: 0, refusedAtLimit: 0, iceWallPastTwo: 0, partialTakes: 0, fullTakes: 0, accessInstead: 0 };
     for (let seed = 1; seed <= 300; seed++) {
       const { actions, final } = play(seed, stats);
-      if (seed % 10 === 0) expect(engineReplay(seed, actions).state, `seed ${seed} replay`).toEqual(final);
+      if (seed % 10 === 0) expect(engineReplay(seed, actions, { deckSet: 'core' }).state, `seed ${seed} replay`).toEqual(final);
     }
     if (process.env.S10_STATS) console.log(JSON.stringify(stats));
     expect(stats.atLimit).toBeGreaterThan(100);

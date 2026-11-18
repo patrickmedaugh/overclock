@@ -44,7 +44,7 @@ const accepted = (h: Harness) => h.store.list<Action>('a:').map(([, a]) => a);
 const truth = (h: Harness): GameState => replay(seed(h), accepted(h), meta(h).options).state;
 
 /** Corp host + Runner guest, both seated, game started. */
-function started(h: Harness, test?: { seed: number; actions: Action[]; deckSet?: 'core' | 'starter' }) {
+function started(h: Harness, test?: { seed: number; actions: Action[]; deckSet?: 'core45' | 'core' | 'starter' }) {
   const host = creator(h);
   h.room.message(host, msg({ t: 'create', side: 'corp', ...(test ? { test } : {}) }));
   const guest = player(h);

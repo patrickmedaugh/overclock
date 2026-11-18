@@ -513,6 +513,8 @@ maxHandSize(state, side) = 5 − brainDamage    // exported
 
 ## Sprint 12 interface (pinned: implement exactly this; changes go through the architect)
 
+**E1–E5 status (engine-dev):** interface, Accelerated Beta Test, Archived Memories, Experiential Data, The Toolbox, Modded, Infiltration, the 45-card decks (`'core45'` default everywhere), `RULES_VERSION = 5`, golden saves (`sprint11-saves.json` re-pinned for the version only, hashes unchanged; `sprint12-saves.json`), `SPRINT12_GOALS`, hidden-info checks, 300-game property test (`test/sprint12-properties.test.ts`). E6 (AI for the two new choices) is not done: until then `chooseAction` returns null in `look_install` / `archives_pick`.
+
 Everything in the Sprint 1–11 interfaces still holds unless noted. Tech plan: `docs/sprints/sprint-12-tech-plan.md`. **`RULES_VERSION = 5`** (decks and rules change: Sprint 11 saves and online games load `outdated`). `PROTOCOL_VERSION` stays 1 (additive). No engine or client code checks a card id.
 
 ### Card DSL v5 (`@overclock/cards`, additive)
@@ -853,6 +855,17 @@ The planner answers a free-rez choice it did not aim for with Skip.
 
 **Test-only (Sprint 11):** one `planToStep` goal on the **core decks** (`SPRINT11_GOALS`; `plan.deckSet === 'core'`). **Works for seeds 1-100 and 12345, pass-the-phone and online (`{rezWindow: 'always'}`)**; tests pin 1, 7, 42, 12345 (`packages/match/test/sprint11-goals.test.ts`).
 - `ice_wall_ram_gordian` — the Runner encounters a rezzed Ice Wall alone on a remote (one subroutine) with **Battering Ram and Gordian Blade** installed and ≥ 3 credits, `pass` offered. `info: {server, iceUid, breakerUid (= ramUid), ramUid, gordianUid, iceStrength}`. Ram's `run.options`: one break `use_ability {uid: ramUid, ability: 0, subs: [0]}` (cost 2) and one pump (ability 1, cost 1); Gordian Blade offers no usable break. Sending the break → `credits_spent 2`, `subroutine_broken {sub: 0, breakerUid: ramUid}` on both phones.
+
+**Test-only (Sprint 12):** nine `planToStep` goals on the **45-card decks** (`SPRINT12_GOALS`; `plan.deckSet === 'core45'`; create the page's game with the same options). Tests pin seeds per goal (`packages/match/test/sprint12-goals.test.ts`); seeds 1-40 work for the seven planned goals, pass-the-phone and online. `stepReached(goal, views, state?)`: the ABT goals need the full state (top of R&D) and skip that check without it.
+- `abt_scorable` — Corp's action step, an installed Accelerated Beta Test ready to score (not winning), ≥ 1 ICE in the top 3 of R&D. `info: {uid, server, cardId: 'c23', looked, ice}`. All of 1-100 and 12345.
+- `abt_scorable_no_ice` — the same with 3 cards to look at, none ICE (Done is the only option). Same `info`. Fails on 80 and 12345 (R&D runs too short).
+- `archived_memories_ready` — Corp's action step, ≥ 1 click, Archived Memories playable, ≥ 1 face-down card in Archives. `info: {handIndex, archives, faceDownIndex}`. All of 1-100, 12345.
+- `archived_memories_empty` (extra, for the dimmed hint) — Archived Memories in HQ, Archives empty: its option is `condition_not_met`. `info: {handIndex}`. Fails on 30, 36, 42, 71, 97.
+- `experiential_data_encounter` — the Runner encounters a rezzed Enigma (strength 3) alone on a remote with a face-up Experiential Data, Gordian Blade installed, ≥ 3 credits. `info: {server, iceUid, edUid, breakerUid, iceStrength: '3', printedStrength: '2'}`. All seeds.
+- `toolbox_encounter` — the Runner encounters a rezzed Ice Wall / Wall of Static alone on a remote, The Toolbox (2 credits) and a barrier breaker installed; breaker options carry `hostedPay` from The Toolbox. `info: {server, iceUid, iceCardId, toolboxUid, breakerUid}`. All seeds.
+- `modded_ready` — Runner's action step, Modded in the Grip with a legal install. `info: {handIndex, installIndex, cardId, cost, discount}` (biggest discount). All seeds.
+- `modded_no_target` (extra, for the dimmed hint) — Modded in the Grip, no program/hardware there. `info: {handIndex}`. Fails on 5, 32, 52, 61, 63.
+- `infiltration_ready` — Runner's action step, Infiltration in the Grip, ≥ 1 face-down installed Corp card. `info: {handIndex, uid, server, cardId}` (the first Expose option; `cardId` = what exposing shows). All seeds.
 
 The client and AI may import only the public index of engine/cards/match. The client may not import `apply`, `newGame`, `legalActions`, `viewFor` or `replay` (it goes through the match).
 

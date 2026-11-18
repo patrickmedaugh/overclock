@@ -39,7 +39,7 @@ function checkFrames(side: Side, ups: Update[], state: GameState, where: string)
       for (const sv of u.view.corpServers) for (const c of [...sv.ice, ...sv.content]) if (down.has(c.uid)) expect(c.cardId, where).toBeNull();
       for (const e of u.events) {
         const uid = (e as { uid?: string }).uid;
-        if (e.type !== 'card_accessed' && uid && down.has(uid)) expect((e as { cardId?: string | null }).cardId ?? null, `${where}: ${JSON.stringify(e)}`).toBeNull();
+        if (e.type !== 'card_accessed' && e.type !== 'card_exposed' && uid && down.has(uid)) /* Sprint 12: exposed publicly */ expect((e as { cardId?: string | null }).cardId ?? null, `${where}: ${JSON.stringify(e)}`).toBeNull();
       }
       for (const k of Object.keys(u.view.installedOptions)) expect(state.rig.some((c) => c.uid === k), where).toBe(true);
     } else {
@@ -57,7 +57,11 @@ function checkFrames(side: Side, ups: Update[], state: GameState, where: string)
     }
     // In-run choice: options only for the deciding seat; the run stays visible to both.
     // Sprint 9 (engine-dev, spec change; QA reviews): a trace from an operation (SEA Source) happens outside a run.
-    const actionTrace = (u.view.choice?.kind === 'trace_corp' || u.view.choice?.kind === 'trace_runner') && state.run === null;
+    // Sprint 12: Accelerated Beta Test's look_install and Archived Memories' archives_pick happen outside runs too.
+    const actionTrace =
+      ((u.view.choice?.kind === 'trace_corp' || u.view.choice?.kind === 'trace_runner') && state.run === null) ||
+      u.view.choice?.kind === 'look_install' ||
+      u.view.choice?.kind === 'archives_pick';
     if (u.view.choice && u.view.choice.kind !== 'free_rez') {
       if (!actionTrace) expect(u.view.run, `${where}: run kept during ${u.view.choice.kind}`).not.toBeNull();
       if (u.view.choice.waitingOn !== side) expect(u.view.choice.options, where).toEqual([]);
@@ -140,7 +144,7 @@ describe('QA S-08-7 online: Rototurret and Sacrificial Construct frames', () => 
     it(`seed ${seed}: the Corp picks on its device, the Runner decides on his; every frame exact and clean`, () => {
       const plan = planToStep(seed, 'rototurret_two_programs', 1500, { rezWindow: ONLINE_OPTIONS.rezWindow });
       const h = harness({ testMode: true });
-      const conns = seatedGame(h, 'runner', { seed, actions: plan.actions });
+      const conns = seatedGame(h, 'runner', { seed, actions: plan.actions, deckSet: plan.deckSet });
       let state = h.store.get<GameState>('state')!;
       expect(state.run?.step).toBe('encounter');
       for (const c of Object.values(conns)) c.take();
@@ -194,14 +198,14 @@ describe('QA S-08-7 online: Rototurret and Sacrificial Construct frames', () => 
 });
 
 describe('QA S-08-5 online: production rooms always deal the core decks', () => {
-  it('a create carrying test.deckSet "starter" without test mode still gets the 30-card decks and identities', () => {
+  it('a create carrying test.deckSet "starter" without test mode still gets the core decks (Sprint 12: 45 cards) and identities', () => {
     const h = harness({ testMode: false });
     seatedGame(h, 'corp', { seed: 5, actions: [], deckSet: 'starter' });
     const s = h.store.get<GameState>('state')!;
     expect(s.options).toEqual(ONLINE_OPTIONS);
     expect(s.players.corp.identity).toBe('c13');
-    expect(s.players.corp.hand.length + s.players.corp.deck.length).toBe(30);
-    expect(s.players.runner.hand.length + s.players.runner.deck.length).toBe(30);
+    expect(s.players.corp.hand.length + s.players.corp.deck.length).toBe(45);
+    expect(s.players.runner.hand.length + s.players.runner.deck.length).toBe(45);
   });
 });
 
@@ -209,7 +213,7 @@ describe('QA S-08-3/S-08-4 online: Viktor and Battering Ram through the sockets 
   function room(seed: number, goal: 'viktor_encounter' | 'heimdall_ram_encounter') {
     const plan = planToStep(seed, goal, 1500, { rezWindow: ONLINE_OPTIONS.rezWindow });
     const h = harness({ testMode: true });
-    const conns = seatedGame(h, 'corp', { seed, actions: plan.actions });
+    const conns = seatedGame(h, 'corp', { seed, actions: plan.actions, deckSet: plan.deckSet });
     let state = h.store.get<GameState>('state')!;
     for (const c of Object.values(conns)) c.take();
     let id = 0;

@@ -38,7 +38,7 @@ function allEffects(effects: readonly Effect[]): Effect[] {
 describe('S-09-4: the new cards carry their 2012 Core Set numbers and text as data', () => {
   it('Hunter: neutral sentry, rez 1, strength 4, influence 0; Trace 3 – give 1 tag', () => {
     expect(byName('Hunter')).toMatchObject({ id: 'c20', side: 'corp', type: 'ice', subtype: 'sentry', faction: 'neutral', cost: 1, strength: 4 });
-    expect(getCard('c20')!.influence).toBeUndefined();
+    expect(getCard('c20')!.influence ?? 0).toBe(0); // Sprint 12: 0 is explicit now
     expect(getCard('c20')!.text).toBe('Subroutine: Trace 3 – If successful, give the Runner 1 tag.');
     expect(getCard('c20')!.subroutines!.map((s) => s.effect)).toEqual([{ op: 'trace', base: 3, onSuccess: [{ op: 'give_tags', amount: 1 }] }]);
   });
@@ -68,7 +68,7 @@ describe('S-09-4: the new cards carry their 2012 Core Set numbers and text as da
 
   it('Access to Globalsec: neutral resource, cost 1, influence 0, +1 link', () => {
     expect(byName('Access to Globalsec')).toMatchObject({ id: 'r18', side: 'runner', type: 'resource', faction: 'neutral', cost: 1, link: 1, text: '+1 link.' });
-    expect(getCard('r18')!.influence).toBeUndefined();
+    expect(getCard('r18')!.influence ?? 0).toBe(0); // Sprint 12: 0 is explicit now
   });
 
   it('Private Security Force: its click ability works from the score area while the Runner is tagged', () => {

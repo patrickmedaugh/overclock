@@ -6,6 +6,9 @@
 //   UPDATE_FIXTURES=1 npx vitest run test/saved-game.test.ts      (from packages/match)
 // Re-pinning without a bump is only right when the replayed *game* is unchanged and only the
 // GameState layout moved (say why in the commit message).
+// Sprint 12: RULES_VERSION 4 → 5; this file was re-pinned for the version only (`rulesVersion` 4 → 5 in
+// the JSON): every hash is unchanged, because these games use only cards whose data did not change. Real
+// Sprint 11 saves carry 4 and load `outdated` (tested below). New cards: sprint12-saves.test.ts.
 import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { RULES_VERSION, viewFor, type Action, type GameOptions, type GameState } from '@overclock/engine';
@@ -186,6 +189,15 @@ describe('Sprint 11: golden save fixture (replay drift needs a RULES_VERSION bum
       expect(g.save.rulesVersion, `${g.name}: RULES_VERSION changed; re-pin the fixture (see the header)`).toBe(RULES_VERSION);
       expect(g.save.actions.length).toBeGreaterThanOrEqual(GOLDEN_GAMES[i]!.minActions);
     });
+  });
+
+  it('Sprint 12: a Sprint 11 save (rulesVersion 4) loads outdated, for every pinned game and its JSON', () => {
+    expect(RULES_VERSION).toBe(5);
+    for (const g of golden) {
+      const old = { ...g.save, rulesVersion: 4 };
+      expect(LocalMatch.load(old), g.name).toEqual({ ok: false, reason: 'outdated' });
+      expect(LocalMatch.load(JSON.stringify(old)), g.name).toEqual({ ok: false, reason: 'outdated' });
+    }
   });
 
   for (const g of golden) {

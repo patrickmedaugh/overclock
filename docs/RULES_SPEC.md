@@ -1,4 +1,4 @@
-# Rules spec (our own words) — v0 (rules version 3, Sprint 9)
+# Rules spec (our own words) — v0 (rules version 5, Sprint 12)
 
 The engine implements this document. It is a simplified, genre-standard ruleset; extend it as sprints add mechanics. Ambiguities → simplest ruling, logged in `DECISIONS.md`.
 
@@ -6,6 +6,7 @@ The engine implements this document. It is a simplified, genre-standard ruleset;
 - Two players: Corp and Runner, each with an identity card and a 30–45 card deck (v0 uses fixed starter decks).
 - Each starts with 5 credits and draws 5 cards. Corp goes first.
 - *(Sprint 8)* The game uses the **core decks**: the Corp plays **Haas-Bioroid: Engineering the Future**, the Runner **Kate "Mac" McCaffrey: Digital Tinker**, each with a 30-card deck (house rule, owner Q2 A; the real minimum is 45). Identities sit face up on the table all game and never leave it. (The Sprint 2–7 starter decks, without identities, remain only as a test setup.)
+- *(Sprint 12, owner Q1 A)* The decks are **45 cards** each, the real minimum for both identities (the 30-card Sprint 8–11 decks remain only as a test setup). Both are legal under the real deck rules: at most 3 copies, Corp influence 8 and Runner 10 of 15, and the Corp deck holds 21 agenda points (a 45-card deck needs 20–21).
 
 ## Turns
 - **Corp turn:** draw 1 card (mandatory), then spend 3 clicks. Basic actions: gain 1 credit; draw 1 card; install a card (agenda/asset/upgrade into a remote server, ICE in front of any server; installed ICE costs 1 credit per ICE already protecting that server); play an operation; advance an installed card (1 click + 1 credit); *(Sprint 9)* trash one of the Runner's installed resources while he is tagged (1 click + 2 credits); purge (3 clicks, later sprint).
@@ -32,7 +33,7 @@ The engine implements this document. It is a simplified, genre-standard ruleset;
 - **Haas-Bioroid: Engineering the Future:** the first time the Corp installs a card each turn (any card: ICE, agenda, asset, upgrade), it gains 1 credit, right after the install. A second install that turn gives nothing.
 - **Kate "Mac" McCaffrey: Digital Tinker:** the first program or piece of hardware the Runner installs each turn costs 1 less (never below 0). That first one uses the discount up even if it was free already. Resources and events never use it. Her printed "1 link" is shown; *(Sprint 9)* it counts in traces.
 - "Each turn" means every player-turn: the counts start afresh at the start of every turn, for both sides.
-- **Deck rules** (checked automatically on both core decks): at least 30 cards (house), at most 3 copies of a card, only the identity's side, no identity in the list, agendas only of the identity's faction or neutral, other-faction cards' influence at most the identity's limit (15), and a Corp deck of 30 cards holds 14–15 agenda points.
+- **Deck rules** (checked automatically on both core decks): at least 30 cards (house), at most 3 copies of a card, only the identity's side, no identity in the list, agendas only of the identity's faction or neutral, other-faction cards' influence at most the identity's limit (15), and a Corp deck of 30 cards holds 14–15 agenda points. *(Sprint 12: the 45-card decks pass the identities' own minimum of 45; 45 cards need 20–21 agenda points.)*
 - **Face-down Corp cards never do anything:** their "when your turn begins", abilities and bonuses only work once rezzed.
 
 ## Corp cards
@@ -44,6 +45,14 @@ The engine implements this document. It is a simplified, genre-standard ruleset;
 - **"When rezzed"** (Sprint 8): an effect that happens whenever the card turns face up, however it is rezzed. **Adonis Campaign** gets 12 credits from the bank when rezzed; when the Corp's turn begins it moves 3 of them to the Corp; when it is emptied it goes face up to Archives (a remote left empty disappears).
 - **Corp click abilities** (Sprint 8): on its own turn, outside a run, the Corp may use a face-up card's ability by paying its clicks: **Melange Mining Corp.** — 3 clicks: gain 7 credits.
 - **Gaining clicks** (Sprint 8): **Biotic Labor** gives the Corp 2 more clicks this turn.
+
+## Sprint 12 cards
+- **Accelerated Beta Test** (Corp agenda, 2 points): when the Corp scores it, it looks at the top 3 cards of R&D (fewer if R&D is shorter; with R&D empty nothing happens, and that never loses the game). It may install any ICE among them, one at a time, in front of any server or a new one, and each goes **face up at once, for free**: no click, no credits, not even the 1 credit per ICE already there. (Haas-Bioroid's first-install credit still counts.) When the Corp taps **Done** (or has placed them all), the other cards go to Archives **face down**. The Runner sees only how many cards were looked at and trashed, and the ICE that was installed (it is face up). *(The card says "you may look"; the game always looks, so it is one tap: logged, the PM asks at the demo.)* If the score wins the game, none of this happens.
+- **Archived Memories** (Corp operation, 0): the Corp takes any card from Archives (face-down ones too, but not this copy) into HQ. It can't be played while Archives is empty. The Runner learns which card only if it was face up.
+- **Experiential Data** (Corp upgrade, rez 2, trash 2): while it is face up, every ICE protecting its server (central or remote) has +1 strength. Face down or trashed, it does nothing.
+- **The Toolbox** (Runner hardware, 9): +2 memory, +2 link, and 2 recurring credits that only pay for icebreaker abilities (raising strength, breaking), refilled when the Runner's turn begins. *(The card list's "Limit 1 console per player." line is left off the card: this game has one console and one copy, so it never matters.)*
+- **Modded** (Runner event, 0): install a program or piece of hardware from the Grip, 3 credits cheaper (never below 0), with no extra click. Kate's 1-credit discount still applies to her first program or hardware that turn, and this install uses it up. It can't be played without a program or hardware in the Grip.
+- **Infiltration** (Runner event, 0): gain 2 credits, **or** expose 1 face-down card the Corp has installed: both players see it, it stays face down and nothing else changes.
 
 ## Advancing and scoring (Sprint 3)
 - **Advance** (Corp, 1 click + 1 credit): put 1 advancement counter on one of your installed agendas, or (Sprint 7) on an ICE whose text says it can be advanced (Ice Wall), face up or face down. The Runner sees how many counters a card has, but not the face-down card. Ice Wall has +1 strength per counter.
