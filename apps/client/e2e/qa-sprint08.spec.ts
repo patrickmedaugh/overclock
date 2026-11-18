@@ -569,7 +569,7 @@ test.describe('QA S-08-7 Rototurret and Sacrificial Construct', () => {
 
   test('pass-and-play with the cover: Runner lets it fire -> cover -> Corp picks -> cover -> Runner saves with the Construct', async ({ page }) => {
     // ui-dev, deck change (Sprint 9); QA reviews: seed 11 has Sacrificial Construct with the Sprint 9 decks (was 7).
-    await core(page, 11, 'play=here');
+    await core(page, 11, 'play=here&decks=core'); // Sprint 12: the plan is on the 30-card core decks (default is now 45)
     const plan = await toStep(page, 11, 'rototurret_two_programs');
     const construct = plan.info['construct']!;
     expect(construct).not.toBe('');

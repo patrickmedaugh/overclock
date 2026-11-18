@@ -207,7 +207,7 @@ async function reopen(page: Page): Promise<Page> {
 
 /** A pass-the-phone game (cover on) played to `goal` through the hook; returns once its save holds every move. */
 async function savedAt(page: Page, seed: number, goal: StepGoal) {
-  await page.goto(`./?seed=${seed}&play=here${goalDeckSet(goal) === 'starter' ? '&decks=starter' : ''}`);
+  await page.goto(`./?seed=${seed}&play=here&decks=${goalDeckSet(goal)}`); // Sprint 12: always name the plan's decks
   await page.waitForFunction(() => document.body.dataset.ready === 'true' && !!window.__overclock);
   const plan = await toStep(page, seed, goal);
   await expect.poll(() => savedMoves(page)).toBe(plan.actions.length);
