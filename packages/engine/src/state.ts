@@ -8,6 +8,7 @@ import {
   getCard,
   type CardType,
   type CentralServerId,
+  type DeckDef,
   type DeckList,
   type Effect,
   type ServerId,
@@ -287,10 +288,15 @@ export type DeckSet = 'core45' | 'core' | 'starter';
  * - `'always'` (online): always, so the Runner cannot tell an unaffordable ICE from a cheap one;
  *   `rez` is then rejected `no_credits` when unaffordable and the Corp's only legal move is `pass`.
  * `deckSet` (Sprint 8): see `DeckSet`.
+ * `decks` (Sprint 13): a side given here is dealt this list instead of `deckSet`'s deck. The key exists
+ * only when given (standard games keep today's state, so every golden hash stays). `newGame` throws
+ * `Error('illegal_deck')` if a given deck fails `checkDeck` or its identity is the other side's.
+ * (E1: type only; dealing and the check land in E3.)
  */
 export interface GameOptions {
   readonly rezWindow: 'affordable' | 'always';
   readonly deckSet: DeckSet;
+  readonly decks?: Partial<Record<Side, DeckDef>>;
 }
 
 export const DEFAULT_OPTIONS: GameOptions = { rezWindow: 'affordable', deckSet: 'core45' };
