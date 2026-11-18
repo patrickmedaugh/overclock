@@ -1,6 +1,7 @@
 import { type CDPSession, type Page, expect, test } from '@playwright/test';
-import type { Action, GameEvent, PlayerView } from '@overclock/engine';
+import type { Action, DeckSet, GameEvent, PlayerView } from '@overclock/engine';
 import { getCard } from '@overclock/cards';
+import { LocalMatch } from '@overclock/match';
 import { type StepGoal, type StepPlan, planBusyBoard, planToStep } from '@overclock/match/testing';
 import type { AnimRecord, Box, EndTurnClock, InputStamp, Insets, InstalledSnapshot, LayoutSnapshot, TargetSnapshot } from '../src/hook-types';
 
@@ -23,8 +24,19 @@ export interface OpenOptions {
   seed?: number;
   /** Simulated notch / gesture bar: overrides #safe-probe's env() padding. */
   insets?: Partial<Insets>;
-  /** Sprint 8: which decks (default `'starter'`: the Sprint 1-7 deals; `'core'`: 30-card decks + identities, as players get). */
-  decks?: 'core' | 'starter';
+  /**
+   * Which decks (default `'starter'`: the Sprint 1-7 deals; `'core'`: the Sprint 8-11 30-card
+   * decks + identities; `'core45'`: the Sprint 12 45-card decks, as players get).
+   */
+  decks?: DeckFlag;
+}
+
+/** Sprint 12: a `decks=` page flag (`core45` before the engine has it plays the engine's default). */
+export type DeckFlag = 'starter' | 'core' | 'core45';
+
+/** Sprint 12: the `decks=` query part for a deck set, so a page names its decks (the default may change). */
+export function decksFlag(deckSet: DeckSet | DeckFlag): string {
+  return `decks=${deckSet}`;
 }
 
 /**
@@ -33,10 +45,17 @@ export interface OpenOptions {
  * written before Sprint 6 test the board itself; the start screen and the
  * cover have their own specs (s06-start.spec.ts, s06-cover.spec.ts).
  * Sprint 8: `decks=starter` keeps the Sprint 1-7 decks (no identities) for the
- * specs written before the core decks; `openBoard(page, {decks: 'core'})` drops it.
+ * specs written before the core decks; `openBoard(page, {decks: 'core'})` asks for the core decks.
+ * Sprint 12: every board names its decks (`decks=core`, not the page default), so the
+ * default's switch to 45 cards leaves the Sprint 8-11 deals where they were.
  */
 export const BOARD_FLAGS = 'play=here&cover=off&decks=starter';
-export const CORE_BOARD_FLAGS = 'play=here&cover=off';
+export const CORE_BOARD_FLAGS = 'play=here&cover=off&decks=core';
+
+/** Sprint 12: pass-the-phone without the cover, with `deckSet`'s decks. */
+export function boardFlags(deckSet: DeckSet | DeckFlag): string {
+  return `play=here&cover=off&${decksFlag(deckSet)}`;
+}
 
 /** Opens the board with a fixed deal and waits until the test hook is live. */
 export async function openBoard(page: Page, opts: OpenOptions | number = {}): Promise<void> {
@@ -54,7 +73,7 @@ export async function openBoard(page: Page, opts: OpenOptions | number = {}): Pr
   }
   await throttle(page);
   // Straight into pass-the-phone without the S-06-5 cover (see BOARD_FLAGS).
-  await page.goto(`./?seed=${o.seed ?? 1}&${o.decks === 'core' ? CORE_BOARD_FLAGS : BOARD_FLAGS}`);
+  await page.goto(`./?seed=${o.seed ?? 1}&${boardFlags(o.decks ?? 'starter')}`);
   await page.waitForFunction(() => document.body.dataset.ready === 'true' && !!window.__overclock);
 }
 
@@ -646,9 +665,22 @@ export async function toStep(page: Page, seed: number, goal: StepGoal): Promise<
   await waitIdle(page);
   const v = await getView(page);
   expect(v.activePlayer).toBe(plan.activePlayer);
-  // The page's game must use the plan's decks (core decks have identities).
-  expect(v.players.corp.identity !== null, `page decks match plan.deckSet ${plan.deckSet}`).toBe(plan.deckSet === 'core');
+  // The page's game must use the plan's decks (core decks have identities; Sprint 12: the
+  // same plan on the plan's decks leaves the same number of cards in each deck and hand, so a
+  // 30-card plan on a 45-card page fails here, not later in a confusing way).
+  expect(v.players.corp.identity !== null, `page decks match plan.deckSet ${plan.deckSet}`).toBe(plan.deckSet !== 'starter');
+  const want = planCounts(plan);
+  const got = (['corp', 'runner'] as const).map((s) => [v.players[s].deckCount, v.players[s].handCount] as const);
+  expect(got, `page deck/hand counts match plan.deckSet ${plan.deckSet}`).toEqual(want);
   return plan;
+}
+
+/** [deck, hand] counts of Corp and Runner after `plan`, replayed on its own decks. */
+function planCounts(plan: StepPlan): (readonly [number, number])[] {
+  const m = new LocalMatch(plan.seed, { deckSet: plan.deckSet });
+  for (const a of plan.actions) m.submit(a.player, a);
+  const v = m.view(plan.activePlayer);
+  return (['corp', 'runner'] as const).map((s) => [v.players[s].deckCount, v.players[s].handCount] as const);
 }
 
 /** The run panel button whose label matches, from the layout snapshot. */

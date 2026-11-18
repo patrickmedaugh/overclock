@@ -23,7 +23,7 @@ async function shot(page: Page, name: string): Promise<void> {
 
 /** A core-deck pass-the-phone board; `cover` keeps the "Pass to …" screen on. */
 async function core(page: Page, seed = SEED, cover = false): Promise<void> {
-  await page.goto(`./?seed=${seed}&play=here${cover ? '' : '&cover=off'}`);
+  await page.goto(`./?seed=${seed}&play=here&decks=core${cover ? '' : '&cover=off'}`);
   await page.waitForFunction(() => document.body.dataset.ready === 'true' && !!window.__overclock);
 }
 
