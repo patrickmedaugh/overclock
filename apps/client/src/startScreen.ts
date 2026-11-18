@@ -2,8 +2,12 @@
 // real text field and the phone's keyboard): Play on this device / Play online
 // -> Start a game (pick Corp or Runner) / Join with code. No game logic: it
 // only asks the handlers to start or join.
+import type { DeckDef } from '@overclock/cards';
 import type { Side } from '@overclock/engine';
 import { CODE_LENGTH, isGameCode, normalizeCode } from '@overclock/protocol';
+import { type DeckLibrary, dealOf } from './deckStore';
+import { DECK_TEXT } from './deckText';
+import { DeckEditor, type DeckPicks, type ZoomImage, type ZoomInfo, renderDeckList, renderNewDeck, renderPicker } from './decksScreen';
 import { SIDE_NAME } from './terms';
 import './start.css';
 
@@ -53,11 +57,22 @@ export const FAIL_TEXT: Record<string, string> = {
   bad_message: 'Something went wrong. Try again.',
 };
 
-export type StartScreenName = 'home' | 'online' | 'pick' | 'join' | 'not_set_up' | 'message' | 'lobby';
+/** Sprint 13: `decks` (the Decks list), `new_deck`, `deck` (the editor), `here` (the pass-the-phone deck picker). */
+export type StartScreenName = 'home' | 'online' | 'pick' | 'join' | 'not_set_up' | 'message' | 'lobby' | 'decks' | 'new_deck' | 'deck' | 'here';
+
+/** Screens laid out from the top (lists), not centred. */
+const FULL: ReadonlySet<StartScreenName> = new Set(['decks', 'deck', 'here']);
 
 export interface StartHandlers {
-  /** Start a pass-the-phone game. */
-  playHere(): void;
+  /**
+   * Start a pass-the-phone game. Sprint 13: `decks` holds the sides whose picked deck isn't the
+   * standard one (absent: today's standard game).
+   */
+  playHere(decks?: Partial<Record<Side, DeckDef>>): void;
+  /** Sprint 13: the decks kept on this device. */
+  library: DeckLibrary;
+  /** Sprint 13: the game's zoom face of a card (the editor's hold). */
+  zoomFace(cardId: string): ZoomImage | null;
   /** True when this build knows the online service's address. */
   onlineReady(): boolean;
   /** Start an online game playing `side`. */
@@ -89,11 +104,31 @@ const PARENT: Record<StartScreenName, StartScreenName | null> = {
   not_set_up: 'home',
   message: 'online',
   lobby: 'online',
+  decks: 'home',
+  new_deck: 'decks',
+  deck: 'decks',
+  here: 'home',
 };
+
+export interface ShowOptions {
+  code?: string;
+  error?: string;
+  message?: string;
+  title?: string;
+  note?: string;
+  /** `deck`: which deck; `new_deck`: which side. */
+  deckId?: string;
+  side?: Side;
+  /** `here`: decks to pick at first (each only if still Ready to play). */
+  picks?: Partial<DeckPicks>;
+}
 
 export class StartScreen {
   readonly root: HTMLElement;
   private current: StartScreenName = 'home';
+  private editor: DeckEditor | null = null;
+  private toastEl: HTMLElement | null = null;
+  private toastTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
     parent: HTMLElement,
@@ -120,6 +155,7 @@ export class StartScreen {
 
   /** Back (the phone's button or the on-screen one). False on the home screen (nothing to go back to). */
   back(): boolean {
+    if (this.editor?.back()) return true;
     const to = PARENT[this.current];
     if (to === null) return false;
     if (this.current === 'message' || this.current === 'lobby') this.handlers.cancel();
@@ -127,11 +163,16 @@ export class StartScreen {
     return true;
   }
 
-  show(name: StartScreenName, opts: { code?: string; error?: string; message?: string; title?: string; note?: string } = {}): void {
+  show(name: StartScreenName, opts: ShowOptions = {}): void {
+    // Leaving the editor: its changes are written now.
+    this.editor?.close();
+    this.editor = null;
     this.current = name;
     this.root.hidden = false;
     this.root.dataset.screen = name;
+    this.root.classList.toggle('full', FULL.has(name));
     this.root.replaceChildren();
+    this.toastEl = null;
     const screen = el('div', 'screen');
     this.root.appendChild(screen);
     if (PARENT[name] !== null) {
@@ -154,17 +195,20 @@ export class StartScreen {
         }
         const row = el('div', 'choices');
         row.append(
-          this.choice('play-here', START_TEXT.playHere, START_TEXT.playHereSub, 'runner', () => this.handlers.playHere()),
+          this.choice('play-here', START_TEXT.playHere, START_TEXT.playHereSub, 'runner', () => this.show('here')),
           this.choice('play-online', START_TEXT.playOnline, START_TEXT.playOnlineSub, 'corp', () =>
             this.show(this.handlers.onlineReady() ? 'online' : 'not_set_up'),
           ),
+          this.choice('decks', DECK_TEXT.decks, DECK_TEXT.decksSub, 'plain', () => this.show('decks')),
         );
+        row.classList.add('three');
         screen.appendChild(row);
         break;
       }
       case 'online': {
         screen.append(el('h2', '', START_TEXT.playOnline));
         if (opts.note) screen.append(el('p', 'error', opts.note));
+        else screen.append(el('p', 'online-note', DECK_TEXT.onlineStandard));
         const row = el('div', 'choices');
         row.append(
           this.choice('start-game', START_TEXT.startGame, START_TEXT.startGameSub, 'runner', () => this.show('pick')),
@@ -180,7 +224,7 @@ export class StartScreen {
           this.choice('side-corp', 'Corp', START_TEXT.corpSub, 'corp', () => this.handlers.startOnline('corp')),
           this.choice('side-runner', 'Runner', START_TEXT.runnerSub, 'runner', () => this.handlers.startOnline('runner')),
         );
-        screen.append(row, el('p', '', START_TEXT.pickNote));
+        screen.append(row, el('p', '', START_TEXT.pickNote), el('p', 'online-note', DECK_TEXT.onlineStandard));
         break;
       }
       case 'join': {
@@ -216,7 +260,7 @@ export class StartScreen {
           }
           this.handlers.joinOnline(code);
         });
-        screen.append(form, error);
+        screen.append(form, error, el('p', 'online-note', DECK_TEXT.onlineStandard));
         // Open the keyboard straight away (no-op where the browser won't).
         if (!opts.code) queueMicrotask(() => input.focus());
         break;
@@ -224,7 +268,7 @@ export class StartScreen {
       case 'not_set_up': {
         screen.append(el('h2', '', START_TEXT.notSetUp), el('p', '', START_TEXT.notSetUpNote));
         const row = el('div', 'choices');
-        row.append(this.choice('play-here', START_TEXT.playHere, START_TEXT.playHereSub, 'runner', () => this.handlers.playHere()));
+        row.append(this.choice('play-here', START_TEXT.playHere, START_TEXT.playHereSub, 'runner', () => this.show('here')));
         row.style.maxWidth = '320px';
         screen.appendChild(row);
         break;
@@ -248,7 +292,71 @@ export class StartScreen {
         screen.append(el('h2', '', START_TEXT.lobbyTitle), big, el('p', '', START_TEXT.lobbyNote), row, info);
         break;
       }
+      case 'decks': {
+        renderDeckList(screen, this.deckDeps(), {
+          open: (id) => this.show('deck', { deckId: id }),
+          newDeck: (side) => this.show('new_deck', { side }),
+        });
+        break;
+      }
+      case 'new_deck': {
+        const side = opts.side ?? 'corp';
+        renderNewDeck(screen, side, (from) => {
+          const lib = this.handlers.library;
+          const d = lib.create(side, from === 'standard' ? lib.standard(side).cards : null);
+          this.show('deck', { deckId: d.id });
+        });
+        break;
+      }
+      case 'deck': {
+        const lib = this.handlers.library;
+        const deck = opts.deckId ? lib.get(opts.deckId) : null;
+        if (!deck) {
+          this.show('decks');
+          return;
+        }
+        this.editor = new DeckEditor(screen, this.deckDeps(), deck, {
+          copy: () => {
+            const d = lib.create(deck.side, deck.cards);
+            this.show('deck', { deckId: d.id });
+          },
+          deleted: () => this.show('decks'),
+        });
+        break;
+      }
+      case 'here': {
+        renderPicker(screen, this.deckDeps(), opts.picks ?? {}, (picked) => {
+          const decks: Partial<Record<Side, DeckDef>> = {};
+          for (const side of ['corp', 'runner'] as const) if (!picked[side].standard) decks[side] = dealOf(picked[side]);
+          this.handlers.playHere(Object.keys(decks).length > 0 ? decks : undefined);
+        });
+        break;
+      }
     }
+  }
+
+  /** Sprint 13 (test hook): what the editor's zoom shows, or null. */
+  zoomInfo(): ZoomInfo | null {
+    return this.editor?.zoomInfo() ?? null;
+  }
+
+  /** A short note at the bottom that fades by itself (never blocks a tap). */
+  toast(text: string): void {
+    if (!this.toastEl) {
+      this.toastEl = el('div', 'toast');
+      this.toastEl.setAttribute('role', 'status');
+      this.toastEl.dataset.testid = 'toast';
+      this.root.appendChild(this.toastEl);
+    }
+    const t = this.toastEl;
+    t.textContent = text;
+    t.classList.add('on');
+    if (this.toastTimer !== null) clearTimeout(this.toastTimer);
+    this.toastTimer = setTimeout(() => t.classList.remove('on'), 1600);
+  }
+
+  private deckDeps() {
+    return { library: this.handlers.library, zoomFace: (id: string) => this.handlers.zoomFace(id), toast: (text: string) => this.toast(text) };
   }
 
   /** The lobby's status line (e.g. "Link copied…"), while the lobby shows. */
