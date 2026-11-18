@@ -1578,17 +1578,23 @@ export class Board {
     const show = card.zone === 'ice' && v.strength !== undefined && printed !== undefined && v.strength !== printed;
     card.strength.visible = show;
     if (!show) return;
-    const text = `${TERMS.strength.slice(0, 3)} ${v.strength}`;
     const up = v.strength! > printed!;
+    const def = card.faceUp && card.cardId ? getCard(card.cardId) : undefined;
+    const f = def ? smallFaceLayout(def, u, uh) : null;
+    // Room along the card's y between its top and its name (the pill is turned upright, so its width goes there).
+    const room = f ? f.name.y - 1 - (-uh / 2 + 1) : u;
+    let text = `${TERMS.strength.slice(0, 3)} ${v.strength}`;
     if (card.strengthText.text !== text) card.strengthText.text = text;
+    // A tiny card (short sideways phone): just the number (the red pill says it is raised).
+    if (card.strengthText.width + 10 > room) {
+      text = String(v.strength);
+      card.strengthText.text = text;
+    }
     const h = Math.round(card.strengthText.height + 2);
     const w = Math.round(card.strengthText.width + 10);
     card.strengthBg.clear();
     card.strengthBg.roundRect(-w / 2, -h / 2, w, h, Math.round(h * 0.3)).fill({ color: up ? theme.tagged : theme.panel, alpha: 0.95 }).stroke({ width: 1.5, color: theme.text });
-    // Card-local: the pill is turned back upright, so along the card's y it takes its width.
     // In the art window, clear of the name and type (and of a credits pill, if any).
-    const def = card.faceUp && card.cardId ? getCard(card.cardId) : undefined;
-    const f = def ? smallFaceLayout(def, u, uh) : null;
     if (!f) {
       card.strength.position.set(0, 0);
       return;
