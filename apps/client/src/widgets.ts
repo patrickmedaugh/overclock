@@ -562,15 +562,29 @@ export class TargetMarker {
     let pw: number;
     let ph: number;
     if (fit) {
-      // One line if it fits the card's width at full size; else one line per part. Never word-wrapped.
+      // QA-S12-1/2: a ladder of ever shorter labels, never word-wrapped and never under the 10 px
+      // label floor: "price (−N)" on one line, then price / (−N) on two, then just the price (the
+      // discount is dropped on narrow cards; the hook's `label` keeps the full text). The first that fits the card's width and the room
+      // above its name at >= 10 px wins; it shrinks (not below 10 px) to fit.
       this.label.style.wordWrap = false;
-      this.label.scale.set(1);
-      this.label.text = note ? `${text}\n${note}` : text;
-      if (this.label.width > w - 8) this.label.text = [...fit.lines, ...(note ? [note] : [])].join('\n');
+      const base = this.label.style.fontSize as number;
+      const minPx = Math.min(base, 10);
+      const extra = note ? [note] : [];
+      const rungs = [[text, ...extra], [...fit.lines, ...extra], [fit.lines[0] ?? text, ...extra]];
+      // Last resort for a dimmed card: the reason goes (a tap still says it), the price stays.
+      if (note) rungs.push([fit.lines[0] ?? text]);
       const room = Math.max(12, fit.maxBottom - 2);
-      const k = Math.min(1, (w - 8) / Math.max(1, this.label.width), (room - 4) / Math.max(1, this.label.height));
+      let k = 1;
+      for (const [i, lines] of rungs.entries()) {
+        this.label.text = lines.join('\n');
+        this.label.scale.set(1);
+        k = Math.min(1, (w - 6) / Math.max(1, this.label.width), (room - 4) / Math.max(1, this.label.height));
+        if (base * k >= minPx - 0.01 || i === rungs.length - 1) break;
+      }
+      k = Math.max(k, minPx / base);
       this.label.scale.set(k);
-      pw = Math.min(this.label.width + 6, w - 4);
+      // The pill may use the target's full width (never more) so the text always sits inside it.
+      pw = Math.min(this.label.width + 6, w);
       ph = this.label.height + 4;
       y = -h / 2 + 2 + ph / 2;
     } else {

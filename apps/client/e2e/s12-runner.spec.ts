@@ -53,7 +53,7 @@ async function expectPricesClearOfNames(page: Page, l: LayoutSnapshot): Promise<
     const what = `price "${t.label}" on ${names[t.index!]!.text}`;
     expect(t.pill.width * t.pill.height, `${what}: drawn`).toBeGreaterThan(0);
     expect(inside(t.pill, t.box), `${what}: inside its target`).toBe(true);
-    expect(t.pillFontPx, `${what}: readable`).toBeGreaterThanOrEqual(8);
+    expect(t.pillFontPx, `${what}: readable (10 px label floor)`).toBeGreaterThanOrEqual(10);
     for (const [i, n] of names.entries()) expect(overlaps(t.pill, n), `${what} clear of the name of Grip card ${i} (${n.text})`).toBe(false);
   }
 }

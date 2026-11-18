@@ -364,7 +364,6 @@ for (const seed of [203, 206, 208]) {
   });
 }
 test('QA-S12-2 seed 203: Modded price text >= 10 px (the project floor for labels)', async ({ page }) => {
-  test.fail(test.info().project.name === 'phone-short', 'QA-S12-2: at 891x296 the two-line price pills shrink to ~8.3 px');
   const { grip, names } = await gripPrices(page, 203);
   for (const t of grip) expect(t.pillFontPx, `"${t.label}" on ${names[t.index!]!.text}: ${t.pillFontPx.toFixed(2)} px`).toBeGreaterThanOrEqual(PRICE_FLOOR_PX);
 });
