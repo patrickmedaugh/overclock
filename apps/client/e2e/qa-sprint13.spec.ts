@@ -390,9 +390,8 @@ test.describe('QA S-13-4 kept on the device', () => {
   });
 
   test('a rename typed and left without Done or Back, then the browser closed: is the new name kept?', async ({ page }) => {
-    // QA-S13-1 (open): the name is only taken on change/blur, so closing the app with the name field
-    // still focused loses the new name. Remove this mark when fixed.
-    test.fail(true, 'QA-S13-1: a rename typed but not confirmed is lost when the app closes');
+    // QA-S13-1 (fixed): the name is now kept on each keystroke, so closing the app with the name
+    // field still focused keeps the new name.
     await openStart(page);
     await tapStart(page, /^Decks/);
     await tapStart(page, 'New Corp deck');

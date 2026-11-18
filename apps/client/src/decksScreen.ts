@@ -227,8 +227,19 @@ export class DeckEditor {
       name.enterKeyHint = 'done';
       name.setAttribute('aria-label', DECK_TEXT.rename);
       name.dataset.testid = 'deck-name';
+      // The name as it was when the player started typing: a field left empty falls back to it.
+      let before = deck.name;
+      name.addEventListener('focus', () => {
+        before = this.deck.name;
+      });
+      // Each keystroke is kept through the deferred write (QA-S13-1), so a name typed but never
+      // confirmed survives the app closing; the field itself is left alone while typing.
+      name.addEventListener('input', () => {
+        this.deps.library.rename(this.deck.id, name.value.trim() ? name.value : before);
+        this.deck = this.deps.library.get(this.deck.id) ?? this.deck;
+      });
       const commit = () => {
-        this.deps.library.rename(this.deck.id, name.value);
+        this.deps.library.rename(this.deck.id, name.value.trim() ? name.value : before);
         this.deck = this.deps.library.get(this.deck.id) ?? this.deck;
         name.value = this.deck.name;
       };
