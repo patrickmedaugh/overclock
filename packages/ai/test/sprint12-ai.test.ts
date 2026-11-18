@@ -242,12 +242,12 @@ describe('Sprint 12: many seeded 45-card games (default decks)', () => {
     expect(stats.abtSelects).toBeGreaterThan(0);
     expect(stats.picks).toBeGreaterThan(0);
     expect(stats.scrambled).toBeGreaterThan(100);
-  });
+  }, 60_000); // ~3–6s; a long timeout so a busy CI runner cannot turn it red (architect, 2026-11-18). Assertions unchanged.
 
   it('AI against AI on the 45-card decks: every move legal until the game ends or 400 moves pass', () => {
     for (let seed = 1; seed <= 20; seed++) {
       let s: GameState = engineNewGame(seed);
       for (let step = 0; step < 400 && s.phase !== 'over'; step++) s = aiStep(s, waitingOn(s)!).state;
     }
-  });
+  }, 60_000); // a long timeout for slow CI runners (architect, 2026-11-18)
 });
