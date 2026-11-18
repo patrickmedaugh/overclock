@@ -453,6 +453,8 @@ test.describe('QA S-06-5 pass-the-phone cover', () => {
     await page.waitForFunction(() => document.body.dataset.ready === 'true' && !!window.__overclockStart);
     await shot(page, '01-start-screen');
     await tapButton(page, /Play on this device/);
+    // Sprint 13: the deck picker (standard decks picked) -> Start.
+    await tapButton(page, /^Start$/);
     await page.waitForFunction(() => !!window.__overclock);
     await waitIdle(page);
     expect((await layout(page)).cover).toBeNull();

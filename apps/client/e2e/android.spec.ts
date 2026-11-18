@@ -8,6 +8,8 @@ import { pixelStats } from './pixels';
 /** Sprint 6: the app opens on the start screen; "Play on this device" starts today's game. */
 async function playHere(page: Page): Promise<void> {
   await page.getByRole('button', { name: /Play on this device/ }).tap();
+  // Sprint 13: the deck picker (standard decks picked) -> Start.
+  await page.getByRole('button', { name: /^Start$/ }).tap();
   await expect(page.locator('#start')).toBeHidden();
 }
 

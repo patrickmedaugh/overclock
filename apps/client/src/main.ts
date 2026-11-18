@@ -7,7 +7,7 @@ import type { Action, DeckSet, GameEvent, GameOptions, Side } from '@overclock/e
 import { Application, updateRenderGroupTransforms } from 'pixi.js';
 import { Board } from './board';
 import { createZoomFace, flushZoomFaces, fullFaceInfo, setCardRenderer, smallFaceLayout } from './cardFace';
-import { DeckLibrary, STANDARD_ID, dealOf } from './deckStore';
+import { DeckLibrary, picksOf } from './deckStore';
 import type { DeckPicks, ZoomImage } from './decksScreen';
 import { computeLayout } from './layout';
 import { forceFrameSpeed, noteDraw, noteTick } from './frameClock';
@@ -514,25 +514,6 @@ start().catch((err: unknown) => {
   const el = document.getElementById('boot');
   if (el) el.textContent = 'Could not start the game on this device.';
 });
-
-/**
- * Sprint 13: the decks a pass-the-phone game was dealt, as deck ids to pick again (the player's
- * deck with the same list, else the standard deck); null for a standard game.
- */
-function picksOf(decks: GameOptions['decks'], library: DeckLibrary): DeckPicks | null {
-  if (!decks || (!decks.corp && !decks.runner)) return null;
-  const pick = (side: Side): string => {
-    const dealt = decks[side];
-    if (!dealt) return STANDARD_ID[side];
-    const same = library.mine(side).find((d) => sameDeck(dealOf(d), dealt));
-    return same?.id ?? STANDARD_ID[side];
-  };
-  return { corp: pick('corp'), runner: pick('runner') };
-}
-
-function sameDeck(a: DeckDef, b: DeckDef): boolean {
-  return a.identity === b.identity && a.cards.length === b.cards.length && a.cards.every((id, i) => id === b.cards[i]);
-}
 
 /**
  * The `decks=` test flag's deck set (null: none or unknown). The engine resolves the name

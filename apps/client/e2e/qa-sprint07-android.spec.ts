@@ -81,6 +81,8 @@ for (const vp of [
     await page.waitForFunction(() => document.body.dataset.ready === 'true');
     expect(await page.evaluate(() => typeof window.__overclock)).toBe('undefined');
     await page.getByRole('button', { name: /Play on this device/ }).tap();
+    // Sprint 13: the deck picker (standard decks picked) -> Start.
+    await page.getByRole('button', { name: /^Start$/ }).tap();
     await expect(page.locator('#start')).toBeHidden();
     await page.waitForTimeout(500);
     const [beforeCard] = await pixelStats(page, [newCard, clicks]);

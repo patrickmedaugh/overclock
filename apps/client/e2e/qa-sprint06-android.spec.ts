@@ -35,6 +35,8 @@ for (const vp of [
     await expect(start).toContainText("Online play isn't set up yet");
     await page.screenshot({ path: join(SHOTS, `android-app-${vp.width}x${vp.height}-02-online-not-set-up.png`) });
     await start.getByRole('button', { name: /Play on this device/ }).tap();
+    // Sprint 13: the deck picker (standard decks picked) -> Start.
+    await start.getByRole('button', { name: /^Start$/ }).tap();
     await expect(start).toBeHidden();
     await page.waitForTimeout(400);
     await page.screenshot({ path: join(SHOTS, `android-app-${vp.width}x${vp.height}-03-board.png`) });

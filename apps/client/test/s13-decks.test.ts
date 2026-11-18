@@ -4,7 +4,7 @@
 import { STANDARD_DECKS, addBlock, countsOf, deckFromCounts, deckStatus } from '@overclock/cards';
 import { parseDeckStore } from '@overclock/match';
 import { describe, expect, it } from 'vitest';
-import { DECKS_BAK_KEY, DECKS_KEY, DeckLibrary, STANDARD_ID, dealOf } from '../src/deckStore';
+import { DECKS_BAK_KEY, DECKS_KEY, DeckLibrary, STANDARD_ID, dealOf, picksOf } from '../src/deckStore';
 import { DECK_TEXT, addBlockText, agendaText, barFlags, deckNote, influenceText, newDeckName, problemsText, sizeText, standardDeckName } from '../src/deckText';
 
 class MemStore {
@@ -158,5 +158,19 @@ describe('DeckLibrary (S-13-4 kept on the device)', () => {
     };
     const lib = new DeckLibrary(bad, sync);
     expect(() => lib.setCount(lib.create('corp', null).id, 'c01', 1)).not.toThrow();
+  });
+});
+
+describe('New game after a game with own decks (lead decision)', () => {
+  it('picks the same decks again; standard games start at once; a changed deck falls back to standard', () => {
+    const lib = new DeckLibrary(new MemStore(), { schedule: (fn) => (fn(), 0) });
+    const corp = lib.create('corp', { ...countsOf(STANDARD_DECKS.corp), c06: 3 });
+    const other = lib.create('corp', null);
+    expect(other.id).not.toBe(corp.id);
+    expect(picksOf(undefined, lib)).toBeNull();
+    expect(picksOf({}, lib)).toBeNull();
+    expect(picksOf({ corp: dealOf(corp) }, lib)).toEqual({ corp: corp.id, runner: STANDARD_ID.runner });
+    lib.setCount(corp.id, 'c06', 2);
+    expect(picksOf({ corp: dealOf({ identity: corp.identity, cards: { ...corp.cards } }) }, lib)).toEqual({ corp: STANDARD_ID.corp, runner: STANDARD_ID.runner });
   });
 });

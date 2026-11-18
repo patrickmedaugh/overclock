@@ -418,6 +418,8 @@ test.describe('QA S-12-5 45-card decks and Sprint 11 saves', () => {
     await page.goto('./');
     await page.waitForFunction(() => document.body.dataset.ready === 'true' && !!window.__overclockStart);
     await tapButton(page, /Play on this device/);
+    // Sprint 13: the deck picker (standard decks picked) -> Start.
+    await tapButton(page, /^Start$/);
     await page.waitForFunction(() => !!window.__overclock && window.__overclock.getView().players.corp.identity !== null);
     const v = await getView(page);
     expect(v.players.corp.identity!.cardId).toBe(CORP_CORE45_DECK.identity);
@@ -448,6 +450,8 @@ test.describe('QA S-12-5 45-card decks and Sprint 11 saves', () => {
     await expect(page.locator('#start').getByRole('button', { name: /^Continue game/ })).toHaveCount(0);
     await shot(page, '20-sprint11-save-note');
     await tapButton(page, /Play on this device/);
+    // Sprint 13: the deck picker (standard decks picked) -> Start.
+    await tapButton(page, /^Start$/);
     await page.waitForFunction(() => !!window.__overclock && window.__overclock.getView().players.corp.identity !== null);
     const v = await getView(page);
     expect(v.turn).toBe(1);

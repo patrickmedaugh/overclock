@@ -222,3 +222,23 @@ function readNewerDecks(storage: StoreLike | null): StoredDeck[] {
     return [];
   }
 }
+
+/**
+ * Sprint 13 (lead decision): New game after a pass-the-phone game with the player's own decks
+ * opens the picker with the same decks picked. `decks` = the game's dealt lists (its options);
+ * each side maps to the player's deck with that exact list, else the standard deck. Null for a
+ * standard game (New game then starts today's game at once).
+ */
+export function picksOf(decks: Partial<Record<Side, DeckDef>> | undefined, library: DeckLibrary): Record<Side, string> | null {
+  if (!decks || (!decks.corp && !decks.runner)) return null;
+  const pick = (side: Side): string => {
+    const dealt = decks[side];
+    if (!dealt) return STANDARD_ID[side];
+    return library.mine(side).find((d) => sameDeck(dealOf(d), dealt))?.id ?? STANDARD_ID[side];
+  };
+  return { corp: pick('corp'), runner: pick('runner') };
+}
+
+function sameDeck(a: DeckDef, b: DeckDef): boolean {
+  return a.identity === b.identity && a.cards.length === b.cards.length && a.cards.every((id, i) => id === b.cards[i]);
+}

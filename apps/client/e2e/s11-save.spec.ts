@@ -201,6 +201,8 @@ test.describe('S-11-3 pass-the-phone: save and continue', () => {
     await shot(next, 'outdated-note');
     // A new game is one tap away.
     await tapButton(next, /Play on this device/);
+    // Sprint 13: the deck picker (standard decks picked) -> Start.
+    await tapButton(next, /^Start$/);
     await next.waitForFunction(() => !!window.__overclock);
     const v = await getView(next);
     expect(v.activePlayer).toBe('corp');
@@ -212,6 +214,8 @@ test.describe('S-11-3 pass-the-phone: save and continue', () => {
     const next = await reopen(page);
     await expect(continueHere(next)).toBeVisible();
     await tapButton(next, /Play on this device/);
+    // Sprint 13: the deck picker (standard decks picked) -> Start.
+    await tapButton(next, /^Start$/);
     await next.waitForFunction(() => !!window.__overclock);
     // The new game is the save now (no moves yet), so the old one can't come back.
     await expect.poll(() => savedMoves(next)).toBe(0);
@@ -243,6 +247,8 @@ test.describe('S-11-3 pass-the-phone: save and continue', () => {
     await ready(page);
     await expect(continueHere(page)).toHaveCount(0);
     await tapButton(page, /Play on this device/);
+    // Sprint 13: the deck picker (standard decks picked) -> Start.
+    await tapButton(page, /^Start$/);
     await page.waitForFunction(() => !!window.__overclock);
     const c = (await getView(page)).players.corp.credits;
     await dispatch(page, { type: 'gain_credit', player: 'corp' });
