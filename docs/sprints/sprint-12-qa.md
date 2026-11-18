@@ -45,7 +45,28 @@ Measured price text size (all lit Grip cards, seeds 201–212):
 
 ### Checks
 - `npm run lint`, `npm run typecheck`: pass.
-- Full e2e: CI on the QA round 2 commit (recorded below).
+- Full e2e: CI on the QA round 2 commit fe75148: all green (see below).
+
+### Round 2 re-check by a second QA pass (2026-11-18)
+A second QA session went back over everything above rather than trusting it:
+- Ran `qa-sprint12 -g "QA-S12-1 r2|QA-S12-2"` on all 4 sizes, `--retries=0`: **16 passed** (on 891×296 the 10 px test "passes" only because it is marked as an expected failure).
+- Took the expected-failure mark off for one local run on `phone-short` (not committed): it **fails** with `"free (−2)" on Cyberfeeder: 8.28 px`. So the 8.28 px figure holds up; ui-dev's "about 8.6 px" is a little too high.
+- Checked that `thumb()` really checks targets are at least 44 px on their short side and on screen (it does), and looked at the 891×296 screenshot: every price is on its own card, with the name below it, so which price belongs to which card is clear.
+- Floors re-checked in the code and DECISIONS: 10 px is the established floor for labels you read or tap (QA-S3-4 run-panel text at 640×360, trace bid buttons, toasts in the architect's 2026-11-17 ruling, notes, captions, and `TargetMarker`'s own `Math.max(10, …)` starting size, which the new shrink-to-fit step then goes under). **8.28 px breaks it → QA-S12-2 stays open (FAIL for S-12-3 AC3 readability at 891×296).** What's needed: price text of at least 10 px at 891×296, with names still clear and targets still at least 44 px. Remove the `test.fail` line in `qa-sprint12` when it's fixed.
+- There is a precedent: in Sprint 8 the architect accepted 8.3 px run-panel text at 640×360 as an **owner phone check** instead of a fix (DECISIONS 2026-11-16 (b)). QA can't grant that waiver. If the architect or lead wants the same here, it needs a DECISIONS entry and an owner question in the demo notes ("on your phone, can you read Modded's prices on the cards?"). Then QA-S12-2 can be closed as accepted-for-owner-check, not as a pass.
+- **CI on fe75148** (ui-dev's 5d4dfef code plus QA test/report changes only): `checks` success, `e2e` success (shards 1–4 all success), `guard-mutation`, `build`, `deploy`, `publish` success. This is the round's full pass and the regression check for all of Sprint 12. (CI on 5d4dfef itself: shard 4 success, shards 1–3 cancelled when the next push replaced that run, so not used as evidence.)
+
+### Final per-story results (round 2)
+| Story | Result |
+|---|---|
+| S-12-1 Accelerated Beta Test | PASSED QA |
+| S-12-2 Archived Memories / Experiential Data | PASSED QA |
+| S-12-3 The Toolbox and Modded | AC1, AC2, AC4 PASS; AC3 rules PASS. **Not passed QA** until QA-S12-2 (price text 8.28 px < 10 px at 891×296) is fixed or formally accepted as an owner check |
+| S-12-4 Infiltration | PASSED QA |
+| S-12-5 Full 45-card decks | PASSED QA |
+| S-12-6 Melange "Click ×3" | PASSED QA |
+
+IP: no change since round 1 (real names and text allowed by owner rule 3; art is still drawn by the game at runtime).
 
 ---
 
