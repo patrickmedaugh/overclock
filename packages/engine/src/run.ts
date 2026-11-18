@@ -544,6 +544,11 @@ export function resolveEffect(state: GameState, effect: Effect, owner: Side, eve
       return giveTags(state, effect.amount, events);
     case 'meat_damage':
       return damage(state, 'meat', effect.amount, events, ctx);
+    case 'look_install_top':
+    case 'archives_to_hand':
+    case 'install_from_hand':
+    case 'expose':
+      return state; // Sprint 12 E1 stubs (no card uses them yet)
   }
 }
 

@@ -305,6 +305,8 @@ export function apply(state: GameState, action: Action): ApplyResult {
       return doRemoveTag(state);
     case 'trash_resource':
       return doTrashResource(state, action);
+    case 'select':
+      return { state, events: [] }; // Sprint 12 E1 stub: refused `not_implemented` before this
   }
 }
 

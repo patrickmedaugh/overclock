@@ -30,6 +30,7 @@ import {
   type RunState,
   type RunStep,
   type Server,
+  type ServerId,
   type Side,
 } from './state';
 
@@ -115,10 +116,70 @@ const cardFor =
 export const installCardCheck = cardFor(INSTALLABLE);
 const playCardCheck = cardFor(PLAYABLE);
 
-/** `server` only for run events with no fixed server (then required and existing); absent otherwise. */
+/** Sprint 12: shape of the optional play fields (`installIndex`, `mode` integers; `uid` a string). */
+const playExtrasShape = (_s: GameState, a: ActionOf<'play'>): RejectReason | null => {
+  const { installIndex, mode, uid } = a as { installIndex?: unknown; mode?: unknown; uid?: unknown };
+  if (installIndex !== undefined && !Number.isInteger(installIndex)) return 'invalid_action';
+  if (mode !== undefined && !Number.isInteger(mode)) return 'invalid_action';
+  return uid === undefined || typeof uid === 'string' ? null : 'invalid_action';
+};
+
+/** Sprint 12: the effects a play resolves: `onPlay`, or the chosen mode's (Infiltration); [] for a bad mode. */
+export function playEffects(card: CardDef | undefined, mode: number | undefined): readonly Effect[] {
+  if (card?.modes) return mode === undefined ? [] : (card.modes[mode]?.effects ?? []);
+  return card?.onPlay ?? [];
+}
+
+/** Sprint 12: the card's `install_from_hand` effect (Modded), if it has one. */
+export function installFromHandEffect(card: CardDef | undefined): Extract<Effect, { op: 'install_from_hand' }> | undefined {
+  const e = card?.onPlay?.find((x) => x.op === 'install_from_hand');
+  return e?.op === 'install_from_hand' ? e : undefined;
+}
+
+/** Sprint 12: hand indices (before playing `handIndex`) an `install_from_hand` effect may install. */
+export function installFromHandTargets(s: GameState, player: Side, handIndex: number, e: Extract<Effect, { op: 'install_from_hand' }>): number[] {
+  const out: number[] = [];
+  s.players[player].hand.forEach((id, i) => {
+    const t = getCard(id)?.type;
+    if (i !== handIndex && t !== undefined && (e.types as readonly CardType[]).includes(t)) out.push(i);
+  });
+  return out;
+}
+
+/** Sprint 12: an installed, face-down Corp card (an `expose` target), or undefined. */
+export function faceDownCorpCard(s: GameState, uid: unknown): Installed | undefined {
+  const c = corpInstalled(s, uid)?.installed;
+  return c && !c.rezzed ? c : undefined;
+}
+
+/** Sprint 12: every face-down installed Corp card: servers in order, ICE (innermost first) then content. */
+export function faceDownCorpCards(s: GameState): Installed[] {
+  return s.servers.flatMap((sv) => [...sv.ice, ...sv.content].filter((c) => !c.rezzed));
+}
+
+/**
+ * `server` only for run events with no fixed server (then required and existing); absent otherwise.
+ * Sprint 12: `installIndex` only for an `install_from_hand` card (then required: one of its targets; a
+ * card with no target at all falls through to its play condition); `mode` only for a card with `modes`
+ * (then required, in range); `uid` only for a play whose effects `expose` (then a face-down installed Corp card).
+ */
 const playTarget = (s: GameState, a: ActionOf<'play'>): RejectReason | null => {
-  if (!openRunEffect(handCard(s, a.player, a.handIndex))) return a.server === undefined ? null : 'bad_target';
-  return findServer(s, a.server) ? null : 'bad_target';
+  const card = handCard(s, a.player, a.handIndex);
+  if (!openRunEffect(card)) {
+    if (a.server !== undefined) return 'bad_target';
+  } else if (!findServer(s, a.server)) return 'bad_target';
+  const inst = installFromHandEffect(card);
+  if (inst) {
+    const targets = installFromHandTargets(s, a.player, a.handIndex, inst);
+    if (a.installIndex === undefined) {
+      if (targets.length > 0) return 'bad_target';
+    } else if (!targets.includes(a.installIndex)) return 'bad_target';
+  } else if (a.installIndex !== undefined) return 'bad_target';
+  if (card?.modes) {
+    if (a.mode === undefined || a.mode < 0 || a.mode >= card.modes.length) return 'bad_target';
+  } else if (a.mode !== undefined) return 'bad_target';
+  if (playEffects(card, a.mode).some((e) => e.op === 'expose')) return faceDownCorpCard(s, a.uid) ? null : 'bad_target';
+  return a.uid === undefined ? null : 'bad_target';
 };
 
 /** Corp: agenda/asset -> a remote without agenda/asset, or 'new'; upgrade/ICE -> any server or 'new'. Runner: no server. */
@@ -149,10 +210,18 @@ const builtYet = (s: GameState, a: ActionOf<'install' | 'play'>): RejectReason |
 const PLAY_CONDITIONS: Readonly<Record<PlayCondition, (s: GameState) => boolean>> = {
   runner_ran_last_turn: (s) => s.lastRunTurn !== null && s.lastRunTurn === s.turn - 1,
   runner_successful_run_last_turn: (s) => s.lastSuccessfulRunTurn !== null && s.lastSuccessfulRunTurn === s.turn - 1,
+  // Sprint 12: the card's own play does not count (it is checked before playing).
+  corp_archives_not_empty: (s) => s.players.corp.discard.length > 0,
+  has_install_target: () => true, // per hand card: see `playCondition`
 };
 
 const playCondition = (s: GameState, a: ActionOf<'play'>): RejectReason | null => {
-  const cond = handCard(s, a.player, a.handIndex)?.playIf;
+  const card = handCard(s, a.player, a.handIndex);
+  const cond = card?.playIf;
+  if (cond === 'has_install_target') {
+    const inst = installFromHandEffect(card);
+    return inst && installFromHandTargets(s, a.player, a.handIndex, inst).length > 0 ? null : 'condition_not_met';
+  }
   return cond === undefined || PLAY_CONDITIONS[cond](s) ? null : 'condition_not_met';
 };
 
@@ -322,7 +391,8 @@ export function isTraceChoice(s: GameState): boolean {
  * `trash_target` choice is refused too (the Corp must pick). Sprint 9: and in a trace choice (bid 0 instead).
  */
 const passAllowed = (s: GameState): RejectReason | null => {
-  if (s.phase === 'choice') return s.choice?.kind === 'trash_target' || isTraceChoice(s) ? 'bad_target' : null;
+  // Sprint 12: Archived Memories' pick is mandatory too (`look_install`'s pass = Done).
+  if (s.phase === 'choice') return s.choice?.kind === 'trash_target' || s.choice?.kind === 'archives_pick' || isTraceChoice(s) ? 'bad_target' : null;
   return s.run?.step === 'access' && unstolenAgendaShown(s) ? 'bad_target' : null;
 };
 
@@ -377,15 +447,22 @@ export function breakSubs(a: ActionOf<'use_ability'>): number[] {
 const abilityTargetCheck = (s: GameState, a: ActionOf<'use_ability'>): RejectReason | null =>
   abilityTarget(s, a) ? null : 'bad_target';
 
-/** The ICE's strength: printed + advancements × `strengthPerAdvancement` (Sprint 7: Ice Wall). */
-export function iceStrength(ice: Installed): number {
+/**
+ * The ICE's strength: printed + advancements × `strengthPerAdvancement` (Sprint 7: Ice Wall) + (Sprint 12)
+ * every rezzed `iceStrengthBonus` among the cards of the server it protects (Experiential Data). The only
+ * ICE strength used by `too_weak`, the run view, break-all and the board badge.
+ */
+export function iceStrength(s: GameState, ice: Installed): number {
   const card = getCard(ice.cardId);
-  return (card?.strength ?? 0) + ice.advancements * (card?.strengthPerAdvancement ?? 0);
+  const printed = (card?.strength ?? 0) + ice.advancements * (card?.strengthPerAdvancement ?? 0);
+  const where = corpInstalled(s, ice.uid);
+  if (!where || where.zone !== 'ice') return printed;
+  return printed + where.server.content.reduce((sum, c) => sum + (c.rezzed ? (getCard(c.cardId)?.iceStrengthBonus ?? 0) : 0), 0);
 }
 
 const strongEnough = (s: GameState, a: ActionOf<'use_ability'>): RejectReason | null => {
   if (abilityTarget(s, a)?.op !== 'break') return null;
-  return breakerStrength(s, a.uid) >= iceStrength(currentIce(s) as Installed) ? null : 'too_weak';
+  return breakerStrength(s, a.uid) >= iceStrength(s, currentIce(s) as Installed) ? null : 'too_weak';
 };
 
 /** What the Runner can spend now: its credits plus, during a run, the run-only credits (bad publicity). */
@@ -512,9 +589,22 @@ export function installCost(s: GameState, a: ActionOf<'install'>): number {
   return Math.max(0, base - off);
 }
 
-/** Credits a play costs: the card's cost. */
+/**
+ * Sprint 12: the install price of an `install_from_hand` play's target (Modded): its cost minus the
+ * effect's `discount` and every applying install discount (Kate), never below 0. `base` = its printed cost.
+ * Undefined when the play names no valid target.
+ */
+export function playInstallCost(s: GameState, a: ActionOf<'play'>): { cost: number; base: number } | undefined {
+  const inst = installFromHandEffect(handCard(s, a.player, a.handIndex));
+  if (!inst || a.installIndex === undefined || !installFromHandTargets(s, a.player, a.handIndex, inst).includes(a.installIndex)) return undefined;
+  const target = handCard(s, a.player, a.installIndex) as CardDef;
+  const off = inst.discount + installDiscounts(s, a.player, target).reduce((sum, d) => sum + d.amount, 0);
+  return { cost: Math.max(0, target.cost - off), base: target.cost };
+}
+
+/** Credits a play costs: the card's cost; Sprint 12: plus what its `install_from_hand` target costs to install (Modded). */
 export function playCost(s: GameState, a: ActionOf<'play'>): number {
-  return handCard(s, a.player, a.handIndex)?.cost ?? 0;
+  return (handCard(s, a.player, a.handIndex)?.cost ?? 0) + (playInstallCost(s, a)?.cost ?? 0);
 }
 
 const canAffordInstall = (s: GameState, a: ActionOf<'install'>): RejectReason | null =>
@@ -522,6 +612,14 @@ const canAffordInstall = (s: GameState, a: ActionOf<'install'>): RejectReason | 
 
 const canAffordPlay = (s: GameState, a: ActionOf<'play'>): RejectReason | null =>
   s.players[a.player].credits >= playCost(s, a) ? null : 'no_credits';
+
+/** Sprint 12: a program an `install_from_hand` play installs must fit in memory (Modded). */
+const playMemoryFits = (s: GameState, a: ActionOf<'play'>): RejectReason | null => {
+  if (!playInstallCost(s, a)) return null;
+  const target = handCard(s, a.player, a.installIndex as number) as CardDef;
+  if (target.type !== 'program') return null;
+  return memoryUsed(s) + (target.memory ?? 0) <= memoryLimit(s) ? null : 'no_memory';
+};
 
 const uidShape = (_s: GameState, a: ActionOf<'advance' | 'score'>): RejectReason | null =>
   typeof a.uid === 'string' ? null : 'invalid_action';
@@ -706,6 +804,7 @@ export const RULES: RuleTable = {
     playerShape,
     handIndexShape,
     serverShape,
+    playExtrasShape, // Sprint 12
     notOver,
     yourTurn,
     inPhase('action'),
@@ -715,6 +814,8 @@ export const RULES: RuleTable = {
     builtYet,
     playCondition,
     canAffordPlay,
+    playMemoryFits, // Sprint 12
+    notBuiltYet,
   ],
   run: [playerShape, runServerShape, notOver, yourTurn, inPhase('action'), hasClick, runTarget],
   rez: [playerShape, rezUidShape, notOver, decides, rezPhase, rezTarget, canAffordRez],
@@ -761,6 +862,8 @@ export const RULES: RuleTable = {
     trashResourceTarget,
     canAffordBasic,
   ],
+  // Sprint 12: answers `look_install` / `archives_pick`.
+  select: [playerShape, selectShape, notOver, decides, selectPhase, selectTarget, notBuiltYet],
 };
 
 /** Memory used by the Runner's installed programs (card data `memory`). */
@@ -867,6 +970,53 @@ function trashResourceTarget(s: GameState, a: ActionOf<'trash_resource'>): Rejec
 
 function canAffordBasic(s: GameState, a: Action): RejectReason | null {
   return s.players[a.player].credits >= BASIC_ACTION_COST ? null : 'no_credits';
+}
+
+/** Sprint 12 E1 stub: the new play fields and `select` are refused until E2–E4 implement them. */
+function notBuiltYet(_s: GameState, a: Action): RejectReason | null {
+  if (a.type === 'select') return 'not_implemented';
+  if (a.type === 'play' && (a.installIndex !== undefined || a.mode !== undefined || a.uid !== undefined)) return 'not_implemented';
+  return null;
+}
+
+// ---- Sprint 12: look_install (Accelerated Beta Test), archives_pick (Archived Memories) ---------
+
+function selectShape(_s: GameState, a: ActionOf<'select'>): RejectReason | null {
+  const server: unknown = a.server;
+  return Number.isInteger(a.card) && (server === undefined || typeof server === 'string') ? null : 'invalid_action';
+}
+
+function selectPhase(s: GameState): RejectReason | null {
+  return s.phase === 'choice' && (s.choice?.kind === 'look_install' || s.choice?.kind === 'archives_pick') ? null : 'wrong_phase';
+}
+
+/** Sprint 12: `look_install`: indices into `looked` whose card may be installed (its type is in `types`). */
+export function lookInstallable(s: GameState): number[] {
+  const c = s.choice;
+  if (s.phase !== 'choice' || c?.kind !== 'look_install') return [];
+  const out: number[] = [];
+  (c.looked ?? []).forEach((id, i) => {
+    const t = getCard(id)?.type;
+    if (t !== undefined && (c.types ?? []).includes(t)) out.push(i);
+  });
+  return out;
+}
+
+/** Sprint 12: `archives_pick`: the Archives indices the Corp may take (every one but the copy being played). */
+export function archivesPickable(s: GameState): number[] {
+  const c = s.choice;
+  if (s.phase !== 'choice' || c?.kind !== 'archives_pick') return [];
+  return s.players.corp.discard.map((_, i) => i).filter((i) => i !== c.ownIndex);
+}
+
+/**
+ * `look_install`: `card` an installable looked-at card, `server` an existing server id or 'new' (ICE goes
+ * in front of any server). `archives_pick`: `card` a pickable Archives index, `server` absent.
+ */
+function selectTarget(s: GameState, a: ActionOf<'select'>): RejectReason | null {
+  if (s.choice?.kind === 'archives_pick') return a.server === undefined && archivesPickable(s).includes(a.card) ? null : 'bad_target';
+  if (!lookInstallable(s).includes(a.card)) return 'bad_target';
+  return a.server === 'new' || findServer(s, a.server as ServerId) ? null : 'bad_target';
 }
 
 function isKnownType(t: unknown): t is ActionType {

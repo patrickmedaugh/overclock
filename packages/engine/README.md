@@ -511,6 +511,72 @@ maxHandSize(state, side) = 5 − brainDamage    // exported
 - Test-mode `create.test.deckSet?: 'core' | 'starter'` (production ignores `test`; always `'core'`). `PROTOCOL_VERSION` stays 1. `ONLINE_OPTIONS = {rezWindow: 'always', deckSet: 'core'}`.
 - `@overclock/match/testing`: `planToStep(seed, goal, maxActions?, options?)` plans on `options.deckSet ?? goalDeckSet(goal)` (Sprint 3–7 goals: `'starter'`; Sprint 8 goals: `'core'`) and returns `plan.deckSet`; `planBusyBoard(seed, goal?, maxActions?, deckSet = 'starter')` returns `deckSet`. Create the page's game with the plan's `deckSet`.
 
+## Sprint 12 interface (pinned: implement exactly this; changes go through the architect)
+
+Everything in the Sprint 1–11 interfaces still holds unless noted. Tech plan: `docs/sprints/sprint-12-tech-plan.md`. **`RULES_VERSION = 5`** (decks and rules change: Sprint 11 saves and online games load `outdated`). `PROTOCOL_VERSION` stays 1 (additive). No engine or client code checks a card id.
+
+### Card DSL v5 (`@overclock/cards`, additive)
+```ts
+type Effect = ...
+  | { op: 'look_install_top'; count: number; types: CorpCardType[] }        // ABT onScore (last effect; opens look_install)
+  | { op: 'archives_to_hand' }                                               // AM onPlay (last effect; opens archives_pick)
+  | { op: 'install_from_hand'; types: RunnerCardType[]; discount: number }   // Modded (target = play.installIndex)
+  | { op: 'expose' };                                                        // Infiltration mode 1 (target = play.uid)
+type PlayCondition = ... | 'corp_archives_not_empty' | 'has_install_target';
+interface CardMode { label: string; effects: Effect[] }
+// CardDef += iceStrengthBonus?: number (rezzed upgrade: ICE protecting its server) · modes?: CardMode[]
+//            (instead of onPlay) · code?: string (NetrunnerDB, e.g. '01055') · unique?: true
+```
+New ids: c23 Accelerated Beta Test, c24 Archived Memories, c25 Experiential Data, r19 The Toolbox, r20 Modded, r21 Infiltration. Every non-identity card has `code`, `faction` and an integer `influence ≥ 0`.
+
+### Decks and options
+```ts
+type DeckSet = 'core45' | 'core' | 'starter';
+// 'core45' (default: DEFAULT_OPTIONS, hot-seat, ONLINE_OPTIONS) = CORP_CORE45_DECK / RUNNER_CORE45_DECK (45 + identities)
+// 'core' = the 30-card Sprint 11 decks, frozen as a test fixture (seeded specs keep their situations)
+// resolveOptions: 'core' → 'core', 'starter' → 'starter', anything else → 'core45'
+```
+
+### Actions
+```ts
+| { type: 'select'; player; card: number; server?: ServerId | 'new' }
+//   invalid_action (card integer, server absent or a string) → game_over → not_your_turn (waitingOn)
+//   → wrong_phase (no open look_install / archives_pick) → bad_target
+//   look_install: card = index into choice.looked whose card is ICE; server = existing id or 'new' (required)
+//   archives_pick: card = Archives index ≠ the copy being played; server absent
+| { type: 'play'; player; handIndex; server?; installIndex?: number; mode?: number; uid?: string }
+//   checks: invalid_action → playExtrasShape (installIndex/mode integers, uid string) → … → bad_card → bad_target
+//   → not_implemented → condition_not_met → no_credits → no_memory
+//   bad_target: installIndex on a card without install_from_hand, or not one of its Grip targets (index
+//     BEFORE playing, never handIndex; missing while a target exists); mode on a card without modes, or
+//     missing / out of range; uid when the chosen effects don't expose, or not a face-down installed Corp card
+//   condition_not_met: Modded with no program/hardware in the Grip (the one `play` without installIndex);
+//     Archived Memories with Archives empty
+//   no_credits: Modded counts its own cost + the install price; no_memory: Modded's program doesn't fit
+```
+`pass` in `archives_pick` = `bad_target` (mandatory); in `look_install` = Done. `rez` / `choose` / `trace_bid` in the new choices = `wrong_phase`.
+
+### Choices (`phase: 'choice'`, `resume: 'action'`, `waitingOn` = Corp)
+- **`look_install`** (Accelerated Beta Test scored, not winning): the top `min(3, R&D)` cards leave R&D into `ChoiceState.looked` (R&D 0 = nothing happens, no event, never a loss). Events: `agenda_scored`, `cards_looked_at{count, cardIds}` (cardIds Corp only), `choice_opened{look_install, corp, cardId: 'c23'}`. Options: one `select{card, server}` (cost 0) per looked ICE × (servers in `corpServers` order, then `'new'`), then `pass` (Done). `select` → [`server_created`] → `card_installed{player: corp, uid, zone: 'ice', server, cardId}` (no handIndex; Runner loses cardId) → `ice_rezzed{uid, cardId}` → [HB: `ability_triggered{id:corp, install}`, `credit_gained 1`]; no click, no credits, no ICE install tax; the card leaves `looked`; the choice stays open, and closes by itself (`choice_closed{skipped: false}`) when `looked` is empty. `pass` → `choice_closed{skipped: true}` → `rd_cards_trashed{count, cardIds}` (cardIds Corp only; the cards go to Archives **face down**, in looked order).
+- **`archives_pick`** (Archived Memories played; Archives had ≥ 1 card before): `card_played` → `choice_opened{archives_pick, corp, cardId: 'c24'}`. Options: one `select{card}` per Archives index except the copy being played (`ChoiceState.ownIndex`), ascending. `select` → `choice_closed{skipped: false}` → `card_returned_to_hand{player: corp, archivesIndex, faceUp, cardId}` (the card goes to the end of HQ; the Runner's projection keeps `cardId` only when `faceUp`).
+
+### Strength (Experiential Data)
+`iceStrength(state, ice)` = printed + advancements × `strengthPerAdvancement` + every rezzed `iceStrengthBonus` in its server's cards (central or remote). Used by `too_weak`, `RunView.ice.strength`, break-all, the planner. **`InstalledView.strength?: number`** on ICE the viewer can see (Corp: all its ICE; Runner: rezzed) — the board badge.
+
+### Modded / Infiltration (no choice phase; the target travels in `play`)
+- Modded hand options: one `play{handIndex, installIndex}` per Grip program/hardware (Grip order); `cost` = the install price (card cost − 3 − Kate's 1 on the turn's first program/hardware, ≥ 0; Modded itself costs 0), `discount` (only when > 0) = printed cost − `cost`; `reject` may be `no_credits` / `no_memory`. No target → one `play{handIndex}` with `condition_not_met`. Play: `credits_spent`? (Modded 0: none) … `card_played{Modded}` → [`ability_triggered{id:runner, install_discount}`] → [`credits_spent{install price}`] → `card_installed{player: runner, zone: rig, uid, handIndex (in the hand after Modded left), cardId}` → [`hosted_credits_changed`] (Toolbox: 2). No extra click; it counts as the turn's install for Kate.
+- Infiltration hand options: `play{handIndex, mode: 0}` (Gain 2 credits) then `play{handIndex, mode: 1, uid}` per face-down installed Corp card (servers in order, ICE innermost first, then content). Mode 1 → `card_played` → **`card_exposed{uid, cardId, server}`** (public: both projections keep `cardId`). No state change; the card stays face down.
+- The Toolbox: data only (`memoryBonus 2`, `link 2`, `recurringCredits {2, icebreaker}`); pays icebreaker breaks and pumps only, refilled at the Runner's turn start.
+
+### View
+```ts
+interface InstalledView { /* … */ strength?: number }                 // ICE the viewer can see
+interface ChoiceView { /* … */ looked?: (string | null)[] }             // look_install only; Runner: nulls
+```
+
+### Events (new)
+`cards_looked_at{count, cardIds?}` · `rd_cards_trashed{count, cardIds?}` (cardIds stripped for the Runner) · `card_returned_to_hand{player, archivesIndex, faceUp, cardId?}` (Runner: cardId only when faceUp) · `card_exposed{uid, cardId, server}` (public).
+
 ## Sprint 11 interface (pinned: implement exactly this; changes go through the architect)
 
 Everything in the Sprint 1–10 interfaces still holds unless noted. Tech plan: `docs/sprints/sprint-11-tech-plan.md`. **No rule changes: `RULES_VERSION` stays 4** (live online games survive the deploy). `PROTOCOL_VERSION` stays 1 (additive optional fields only). No engine, card, view or event changes.

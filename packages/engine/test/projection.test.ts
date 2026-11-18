@@ -109,14 +109,24 @@ const SAMPLES: Samples = {
     { type: 'tags_changed', amount: -1, tags: 0 },
   ],
   meat_damage: [{ type: 'meat_damage', amount: 1, cardIds: ['r01'] }],
+  // Sprint 12 (own projection tests below; card_exposed is public)
+  cards_looked_at: [{ type: 'cards_looked_at', count: 3, cardIds: ['c04', 'c01', 'c23'] }],
+  rd_cards_trashed: [{ type: 'rd_cards_trashed', count: 2, cardIds: ['c01', 'c23'] }],
+  card_returned_to_hand: [
+    { type: 'card_returned_to_hand', player: 'corp', archivesIndex: 0, faceUp: true, cardId: 'c01' },
+    { type: 'card_returned_to_hand', player: 'corp', archivesIndex: 2, faceUp: false, cardId: 'c10' },
+  ],
+  card_exposed: [{ type: 'card_exposed', uid: 'i3', cardId: 'c10', server: 'remote1' }],
 };
 
 /** Sprint 1/2 events have their own projection tests (view.test.ts, install-play.test.ts). */
 const OLDER = new Set(['card_drawn', 'cards_discarded', 'card_installed', 'card_played']);
+/** Sprint 12 events that hide something (tested below). */
+const HIDING = new Set(['cards_looked_at', 'rd_cards_trashed', 'card_returned_to_hand']);
 
 describe('viewEvents for the Sprint 3, 4, 5, 7, 8 and 9 events', () => {
   const sides: Side[] = ['corp', 'runner'];
-  const sprint3 = (Object.entries(SAMPLES) as [string, GameEvent[]][]).filter(([t]) => !OLDER.has(t));
+  const sprint3 = (Object.entries(SAMPLES) as [string, GameEvent[]][]).filter(([t]) => !OLDER.has(t) && !HIDING.has(t));
 
   it.each(sprint3)('%s is public to both sides (unchanged)', (type, events) => {
     for (const side of sides) {
@@ -131,6 +141,19 @@ describe('viewEvents for the Sprint 3, 4, 5, 7, 8 and 9 events', () => {
     const e: GameEvent = { type: 'card_accessed', cardId: 'c08', from: 'rd' };
     expect(viewEvents('corp', [e])).toEqual([{ type: 'card_accessed', from: 'rd' }]);
     expect(viewEvents('runner', [e])).toEqual([e]);
+  });
+
+  it('Sprint 12: cards_looked_at / rd_cards_trashed lose cardIds for the Runner only', () => {
+    for (const e of [...SAMPLES.cards_looked_at, ...SAMPLES.rd_cards_trashed]) {
+      expect(viewEvents('corp', [e])).toEqual([e]);
+      expect(viewEvents('runner', [e])).toEqual([{ type: e.type, count: e.count }]);
+    }
+  });
+
+  it('Sprint 12: card_returned_to_hand keeps cardId for the Runner only when the card was face up in Archives', () => {
+    const [up, down] = SAMPLES.card_returned_to_hand as [GameEvent, GameEvent];
+    expect(viewEvents('corp', [up, down])).toEqual([up, down]);
+    expect(viewEvents('runner', [up, down])).toEqual([up, { type: 'card_returned_to_hand', player: 'corp', archivesIndex: 2, faceUp: false }]);
   });
 
   it('projection never mutates its input', () => {

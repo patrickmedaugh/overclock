@@ -151,8 +151,11 @@ export interface RunState {
  * (Sacrificial Construct) instead of `target`, or `pass` (let it be trashed).
  * Sprint 9: `trace_corp` = the Corp bids on a trace (`ChoiceState.trace`), then `trace_runner` = the
  * Runner bids. In a run `resume: 'run'` (`run.firing` = the trace subroutine); from an operation `resume: 'action'`.
+ * Sprint 12 (`resume: 'action'`): `look_install` = Accelerated Beta Test, the Corp installs and rezzes ICE
+ * from the cards set aside in `ChoiceState.looked` (`select`), Done (`pass`) trashes the rest face down;
+ * `archives_pick` = Archived Memories, the Corp adds one Archives card to HQ (`select`, mandatory).
  */
-export type ChoiceKind = 'free_rez' | 'trash_target' | 'prevent_trash' | 'trace_corp' | 'trace_runner';
+export type ChoiceKind = 'free_rez' | 'trash_target' | 'prevent_trash' | 'trace_corp' | 'trace_runner' | 'look_install' | 'archives_pick';
 
 /** Sprint 9: a trace in progress (on `ChoiceState.trace`). Plain JSON. */
 export interface TraceState {
@@ -178,6 +181,15 @@ export interface ChoiceState {
   readonly resume: 'action' | 'run';
   /** Sprint 9, `trace_corp` / `trace_runner`: the trace being bid on. */
   readonly trace?: TraceState;
+  /**
+   * Sprint 12, `look_install`: the card ids taken from the top of R&D (top first), still set aside
+   * (installed ones leave the list). Only the Corp sees them.
+   */
+  readonly looked?: readonly string[];
+  /** Sprint 12, `look_install`: the card types that may be installed from `looked` (ICE). */
+  readonly types?: readonly CardType[];
+  /** Sprint 12, `archives_pick`: the Archives index of the copy being played (never offered). */
+  readonly ownIndex?: number;
 }
 
 export interface GameResult {
