@@ -40,7 +40,7 @@ On every size each price is on its own card, above the card's name, with the nam
 
 ### Checks
 - Local: the two Sprint 12 Modded specs above, all 4 sizes, `--retries=0`: 105 passed, 3 skipped.
-- Full pass and regression: CI on QA's round 3 commit (ui-dev's cb1895c code plus this report and screenshots only). Result is recorded below.
+- Full pass and regression: **CI on QA's round 3 commit 01087b1** (ui-dev's cb1895c code plus this report and screenshots only), `ci` run 44253971353: `checks` (lint, typecheck, unit) success, `guard-mutation` success, `e2e` success (shards 1/4, 2/4, 3/4, 4/4 all success). This is the round's full pass. The only commit after it adds this line to the report.
 
 ### Final per-story results (round 3)
 | Story | Result |
