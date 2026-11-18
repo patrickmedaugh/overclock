@@ -54,6 +54,8 @@ function chooseTraceBid(view: PlayerView, offered: readonly Action[]): Action | 
  * trashes the costliest program, in a `prevent_trash` choice it saves the card; Sprint 9: trace bids
  * (`chooseTraceBid`) and tag actions (`chooseTagAction`: PSF, trash a resource, remove a tag).
  * Sprint 10: at run step `success` it takes the most credits offered (Bank Job, `chooseTakeAmount`).
+ * Sprint 12: the Corp scores whenever offered (`chooseScore`); `look_install` installs every looked-at
+ * ICE on the server with the fewest ICE, then Done; `archives_pick` takes the most points, then cost.
  */
 export function chooseAction(view: PlayerView): Action | null {
   if (view.choice && view.choice.options.length > 0) {
@@ -61,9 +63,65 @@ export function chooseAction(view: PlayerView): Action | null {
     if (view.choice.kind === 'trash_target') return chooseTrashTarget(view, offered);
     if (view.choice.kind === 'prevent_trash') return choosePrevent(offered);
     if (view.choice.kind === 'trace_corp' || view.choice.kind === 'trace_runner') return chooseTraceBid(view, offered);
+    if (view.choice.kind === 'look_install') return chooseLookInstall(view, offered);
+    if (view.choice.kind === 'archives_pick') return chooseArchivesPick(view, offered);
     return chooseFreeRez(view, offered);
   }
-  return chooseTagAction(view) ?? chooseTakeAmount(view) ?? view.legalActions[0] ?? null;
+  return chooseScore(view) ?? chooseTagAction(view) ?? chooseTakeAmount(view) ?? view.legalActions[0] ?? null;
+}
+
+/**
+ * Sprint 12: the Corp scores an agenda whenever the view offers `score` (first offered). Scoring is
+ * always worth it, and it is how Accelerated Beta Test's "look at 3 cards" choice is reached.
+ */
+function chooseScore(view: PlayerView): Action | null {
+  return view.legalActions.find((a) => a.type === 'score') ?? null;
+}
+
+/**
+ * Sprint 12, `look_install` (Accelerated Beta Test): install every looked-at ICE, one `select` at a time
+ * (lowest looked index first), each on the existing server with the fewest ICE in the view (first in
+ * server order on a tie). A new remote is used only when no existing server is offered: it would protect
+ * nothing (DECISIONS 2026-11-18). Done (`pass`) once no select is offered.
+ */
+function chooseLookInstall(view: PlayerView, offered: readonly Action[]): Action | null {
+  const selects = offered.filter((a): a is Extract<Action, { type: 'select' }> => a.type === 'select');
+  if (selects.length === 0) return offered.find((a) => a.type === 'pass') ?? null;
+  const card = Math.min(...selects.map((a) => a.card));
+  const forCard = selects.filter((a) => a.card === card);
+  const iceCount = (server: string | undefined) => view.corpServers.find((sv) => sv.id === server)?.ice.length;
+  let best: Extract<Action, { type: 'select' }> | null = null;
+  for (const a of forCard) {
+    const n = iceCount(a.server);
+    if (n === undefined) continue;
+    if (best === null || n < iceCount(best.server)!) best = a;
+  }
+  return best ?? forCard[0]!;
+}
+
+/**
+ * Sprint 12, `archives_pick` (Archived Memories): take the Archives card with the most agenda points,
+ * then the highest cost (first offered on a tie). Reads the Corp's own pile in the view (a face-down
+ * entry it cannot see counts as 0 / 0).
+ */
+function chooseArchivesPick(view: PlayerView, offered: readonly Action[]): Action | null {
+  const pile = view.players.corp.discard;
+  const worth = (a: Action): [number, number] => {
+    const card = a.type === 'select' ? getCard(pile[a.card] ?? '') : undefined;
+    return [card?.agendaPoints ?? 0, card?.cost ?? 0];
+  };
+  let best: Action | null = null;
+  for (const a of offered) {
+    if (a.type !== 'select') continue;
+    if (best === null) {
+      best = a;
+      continue;
+    }
+    const [p, c] = worth(a);
+    const [bp, bc] = worth(best);
+    if (p > bp || (p === bp && c > bc)) best = a;
+  }
+  return best;
 }
 
 /**

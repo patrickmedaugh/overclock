@@ -513,7 +513,7 @@ maxHandSize(state, side) = 5 − brainDamage    // exported
 
 ## Sprint 12 interface (pinned: implement exactly this; changes go through the architect)
 
-**E1–E5 status (engine-dev):** interface, Accelerated Beta Test, Archived Memories, Experiential Data, The Toolbox, Modded, Infiltration, the 45-card decks (`'core45'` default everywhere), `RULES_VERSION = 5`, golden saves (`sprint11-saves.json` re-pinned for the version only, hashes unchanged; `sprint12-saves.json`), `SPRINT12_GOALS`, hidden-info checks, 300-game property test (`test/sprint12-properties.test.ts`). E6 (AI for the two new choices) is not done: until then `chooseAction` returns null in `look_install` / `archives_pick`.
+**E1–E5 status (engine-dev):** interface, Accelerated Beta Test, Archived Memories, Experiential Data, The Toolbox, Modded, Infiltration, the 45-card decks (`'core45'` default everywhere), `RULES_VERSION = 5`, golden saves (`sprint11-saves.json` re-pinned for the version only, hashes unchanged; `sprint12-saves.json`), `SPRINT12_GOALS`, hidden-info checks, 300-game property test (`test/sprint12-properties.test.ts`). E6 (AI, `packages/ai`): `look_install` = every looked-at ICE onto the existing server with the fewest ICE, then Done; `archives_pick` = most agenda points, then highest cost; the Corp scores whenever offered (DECISIONS 2026-11-18).
 
 Everything in the Sprint 1–11 interfaces still holds unless noted. Tech plan: `docs/sprints/sprint-12-tech-plan.md`. **`RULES_VERSION = 5`** (decks and rules change: Sprint 11 saves and online games load `outdated`). `PROTOCOL_VERSION` stays 1 (additive). No engine or client code checks a card id.
 
