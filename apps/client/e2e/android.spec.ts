@@ -1,6 +1,7 @@
 // S-04-1 / S-04-2: the Android app's web bundle (`vite build --mode android`,
 // what goes inside the APK), served from the web root as Capacitor does.
 // Runs only in the `android` Playwright project.
+import { LocalMatch } from '@overclock/match';
 import { type Page, expect, test } from '@playwright/test';
 import { pixelStats } from './pixels';
 
@@ -148,6 +149,26 @@ test.describe('S-04-2 the app bundle', () => {
     // Still the same saved game (nothing lost, nothing added).
     expect(await saved(again)).toEqual([{ type: 'gain_credit', player: 'corp' }]);
     expect(errors).toEqual([]);
+  });
+
+  test('Sprint 12 (S-12-5): a new game in the app deals the 45-card decks', async ({ page }) => {
+    await page.goto('./');
+    await page.waitForFunction(() => document.body.dataset.ready === 'true');
+    await playHere(page);
+    await page.waitForTimeout(400);
+    // A real tap (+1 credit) makes the app save the game; its save names the decks it deals.
+    await page.touchscreen.tap(BOARD.width - 75, Math.round(BOARD.height * 0.66));
+    await expect.poll(() => page.evaluate(() => window.localStorage.getItem('overclock.hotseat.v1'))).not.toBeNull();
+    const raw = await page.evaluate(() => window.localStorage.getItem('overclock.hotseat.v1'));
+    const save = JSON.parse(raw!) as { options: { deckSet: string } };
+    expect(save.options.deckSet).toBe('core45');
+    // Replayed here: 45 cards a side (deck + hand; nothing else played yet).
+    const loaded = LocalMatch.load(raw!);
+    expect(loaded.ok).toBe(true);
+    if (!loaded.ok) return;
+    const v = loaded.match.view('corp');
+    expect(v.players.corp.deckCount + v.players.corp.handCount).toBe(45);
+    expect(v.players.runner.deckCount + v.players.runner.handCount).toBe(45);
   });
 
   test('upright, the app still shows no rotate prompt (Android keeps it sideways)', async ({ page }) => {
