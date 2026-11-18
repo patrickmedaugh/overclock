@@ -26,7 +26,7 @@ import { EXPOSED_CAPTION, EXPOSE_HELP, archivesHelpText, archivesTitle, lookDone
 import { basicOptionLabel, bidWaitText, isTraceChoice, linkText, meatDamageText, tagsChangedText, taggedText, taggedTrashText, traceNotices } from './traceText';
 import { attachPress, inputTime, noteRelease } from './input';
 import type { FederatedPointerEvent } from 'pixi.js';
-import { BUILD_LINE, type BoardLayout, type BoardShape, CARD_RATIO, type SideRow, computeLayout } from './layout';
+import { BUILD_LINE, type BoardLayout, type BoardShape, CARD_RATIO, MIN_TOUCH, type SideRow, computeLayout } from './layout';
 import { LEAVE_TEXT, LEAVE_TEXT_ONLINE, LeaveDialog } from './leaveDialog';
 import type { CoverText } from './passCover';
 import { RunDisplay } from './runDisplay';
@@ -1872,6 +1872,9 @@ export class Board {
       helpText = `You can keep ${keep} cards. Tap cards to pick them.\nHold a card to read it.`;
     } else if (this.lift) {
       helpText = 'Let go on a lit spot to play it.\nLet go anywhere else to put it back.';
+    } else if (this.selected !== null && this.activeTargets.some((t) => t.kind === 'grip')) {
+      // Sprint 12 (S-12-3): Modded.
+      helpText = `Tap a lit card in your ${TERMS.grip} to install it.\nTap the card again to cancel.`;
     } else if (this.selected !== null) {
       helpText = 'Tap a lit spot to play it.\nTap the card again to cancel.';
     } else if (view.activePlayer === viewer && view.phase === 'action' && view.players[viewer].clicks === 0) {
@@ -2698,11 +2701,16 @@ export class Board {
       let at: 'top' | 'bottom' | 'center' = 'center';
       if (a.type === 'play' && a.installIndex !== undefined) {
         // Sprint 12 (S-12-3, Modded): each program / hardware in the Grip lights with its install price.
-        const box = this.hands[view.viewer].boxes()[a.installIndex]?.box;
-        if (!box) continue;
+        const card = this.hands[view.viewer].boxes()[a.installIndex]?.box;
+        if (!card) continue;
+        // A thumb-size target even where hand cards are narrower (891x296: 40 px): widened about its middle.
+        const gw = Math.max(card.width, MIN_TOUCH);
+        const gh = Math.max(card.height, MIN_TOUCH);
+        const box = { x: card.x - (gw - card.width) / 2, y: card.y - (gh - card.height), width: gw, height: gh };
         const off = option.discount ? ` (−${option.discount})` : '';
         const note = option.reject ? this.rejectHint(option) : '';
-        this.addTarget(gen, layout, 'grip', option, box, `${TERMS.install} · ${priceText(option.cost)}${off}`, 'top', { index: a.installIndex }, note);
+        // Just the price on the card (the help column says "install"), so the card's name stays readable.
+        this.addTarget(gen, layout, 'grip', option, box, `${priceText(option.cost)}${off}`, 'top', { index: a.installIndex }, note);
         continue;
       }
       if (a.type === 'play' && a.mode !== undefined) {
