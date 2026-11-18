@@ -15,7 +15,7 @@ const SIZE: Record<string, string> = { phone: '844x390', 'phone-small': '640x360
 async function snap(page: Page, name: string): Promise<void> {
   const p = test.info().project.name;
   if (process.env.QA_SCREENS === '1') mkdirSync(SHOTS, { recursive: true });
-  const body = await page.screenshot(process.env.QA_SCREENS === '1' ? { path: join(SHOTS, `r1-${SIZE[p] ?? p}-${name}.png`) } : {});
+  const body = await page.screenshot(process.env.QA_SCREENS === '1' ? { path: join(SHOTS, name.startsWith('r2-') ? `r2-${SIZE[p] ?? p}-${name.slice(3)}.png` : `r1-${SIZE[p] ?? p}-${name}.png`) } : {});
   await test.info().attach(name, { body, contentType: 'image/png' });
 }
 
@@ -402,6 +402,64 @@ test.describe('QA S-13-4 kept on the device', () => {
     await reopenStart(page);
     await tapStart(page, /^Decks/);
     await expect(item(page, 'Typed then closed')).toHaveCount(1);
+  });
+
+  // QA round 2 (QA-S13-1 fix): edge cases around the name now being kept on each keystroke.
+  test('round 2: name cleared to empty (or spaces) and the browser closed: the deck keeps its name from before', async ({ page }) => {
+    await openStart(page);
+    await tapStart(page, /^Decks/);
+    await tapStart(page, 'New Corp deck');
+    await tapStart(page, /Start empty/);
+    const name = page.getByTestId('deck-name');
+    await press(page, name);
+    await name.fill('Named once');
+    await name.press('Enter');
+    await tapStart(page, 'Back');
+    await press(page, item(page, 'Named once'));
+    // Type something new, then clear it all, then close: falls back to the name before typing.
+    await press(page, name);
+    await name.fill('Half typed');
+    await name.fill('');
+    await reopenStart(page);
+    await tapStart(page, /^Decks/);
+    await expect(item(page, 'Named once')).toHaveCount(1);
+    await expect(item(page, 'Half typed')).toHaveCount(0);
+    expect((await storedDecks(page)).decks.map((d: { name: string }) => d.name)).toEqual(['Named once']);
+    // Only spaces, then Back: the field and the list show the old name; kept after a reload.
+    await press(page, item(page, 'Named once'));
+    await press(page, name);
+    await name.fill('   ');
+    await tapStart(page, 'Back');
+    await expect(item(page, 'Named once')).toHaveCount(1);
+    await reopenStart(page);
+    await tapStart(page, /^Decks/);
+    await expect(item(page, 'Named once')).toHaveCount(1);
+    // Cleared then Done (Enter): the field shows the old name again.
+    await press(page, item(page, 'Named once'));
+    await press(page, name);
+    await name.fill('');
+    await name.press('Enter');
+    await expect(name).toHaveValue('Named once');
+    await snap(page, 'r2-name-cleared');
+  });
+
+  test('round 2: rename then the on-screen Back, then the browser closed: the new name is listed and kept', async ({ page }) => {
+    await openStart(page);
+    await tapStart(page, /^Decks/);
+    await tapStart(page, 'New Runner deck');
+    await tapStart(page, /Start from the standard deck/);
+    const name = page.getByTestId('deck-name');
+    await press(page, name);
+    await name.fill('Back pressed');
+    await tapStart(page, 'Back');
+    await expect(item(page, 'Back pressed')).toHaveCount(1);
+    await expect(item(page, 'My Runner deck 1')).toHaveCount(0);
+    await reopenStart(page);
+    await tapStart(page, /^Decks/);
+    await expect(item(page, 'Back pressed')).toHaveCount(1);
+    await expect(item(page, 'Back pressed').locator('.note.ok')).toHaveText('✓ Ready to play');
+    expect((await storedDecks(page)).decks).toHaveLength(1);
+    await snap(page, 'r2-rename-back');
   });
 });
 

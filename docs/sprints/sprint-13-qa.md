@@ -103,3 +103,44 @@ Expected: the new name is kept, like card changes. Cause (code read): `decksScre
 
 ### Screenshots
 `docs/sprints/sprint-13-qa/r1-<size>-<name>.png`, size = 891x296 (the owner's phone, full set), 844x390, 640x360, 1280x800 (home, Decks, empty and Ready editor, picker, zoom, online note, upright, game dealt from an own deck).
+
+## Round 2 (2026-11-18, code at 3010866)
+
+**Result: all 5 stories pass QA. QA-S13-1 is fixed.** One item stays an owner check on the phone (Android app close, see round 1 "Needs the owner's phone").
+
+### What changed
+- 3010866 (ui-dev): the deck name is kept on every keystroke (`input`), through the same deferred write the page-close flush writes; an empty or spaces-only name falls back to the name it had when typing began.
+- QA checked the QA test was not weakened: `git show 3010866 -- apps/client/e2e/qa-sprint13.spec.ts` only removes the `test.fail` line and rewords the comment; every action and assertion is unchanged.
+
+### New QA tests (round 2, `qa-sprint13.spec.ts`, "QA S-13-4 kept on the device")
+- "round 2: name cleared to empty (or spaces) and the browser closed: the deck keeps its name from before": rename to "Named once" + Done; reopen, type "Half typed", clear it all, close → listed as "Named once", not "Half typed", stored names exactly `["Named once"]`; spaces only then Back → still "Named once", also after a reload; cleared then Done → the field shows "Named once" again.
+- "round 2: rename then the on-screen Back, then the browser closed: the new name is listed and kept": new Runner deck from the standard, typed "Back pressed", Back → listed (no "My Runner deck 1"), reload → still "Back pressed", "✓ Ready to play", one deck stored.
+
+### Runs (all `--retries=0`)
+- `qa-sprint13.spec.ts` + `s13-decks`, `s13-editor`, `s13-play`, `s13-rules`, 4 sizes (891×296, 844×390, 640×360, 1280×800): **170 passed, 2 skipped, 0 failed** (skips: upright check on desktop, phones only; thumb-swipe on desktop, touch only). The QA-S13-1 test now passes on all 4 sizes without the `test.fail` mark.
+- `qa-sprint13-android.spec.ts` (app bundle): 1 passed.
+- `npm run lint`: clean. `npm run typecheck`: clean. `npm test` (unit): 2635 passed, 0 failed (8 packages).
+- Full screen-test suite: **CI on 3010866b78cbebb6cbcec7d0f509c3654bf8cdb9 passed**: `checks` success, `e2e` success (shards 1/4–4/4 all success), `guard-mutation`, `build`, `deploy`, `publish` success. Not re-run locally (docs/TESTING.md §2). QA's round-2 commit only adds tests, docs and screenshots.
+
+### S-13-4 Your decks stay on your device: PASSED QA (5/5; AC5's real app close still an owner check)
+| AC | Result | Evidence |
+|---|---|---|
+| A change is kept on leaving the editor or closing the app; no Save button | **PASS** (was FAIL) | qa "a rename typed and left without Done or Back, then the browser closed…" (passes, no `test.fail`); qa round-2 "name cleared to empty…" and "rename then the on-screen Back…"; card changes as round 1; `r2-<size>-name-cleared.png`, `r2-<size>-rename-back.png` |
+| Listed later with name, count, Ready tick or short red note | PASS | as round 1 (re-run, passes 4 sizes) |
+| Tap the name to rename | PASS | as round 1 + round-2 tests |
+| Delete + confirm; standard decks have no Delete | PASS | as round 1 (re-run) |
+| Android app keeps its own decks | PASS for the app bundle (re-run); **real app close = owner check** | `qa-sprint13-android.spec.ts` |
+
+### Per-story results (final, round 2)
+| Story | Criteria | Result |
+|---|---|---|
+| S-13-1 The Decks screen | 5/5 pass | PASSED QA |
+| S-13-2 Add and remove cards | 5/5 pass | PASSED QA |
+| S-13-3 The real deck rules | 6/6 pass | PASSED QA |
+| S-13-4 Your decks stay on your device | 5/5 pass (Android app close: owner check on the phone) | PASSED QA |
+| S-13-5 Pick your decks | 5/5 pass | PASSED QA |
+
+Open bugs: none. Round-1 observations still stand (no fix asked).
+
+### Screenshots (round 2)
+`docs/sprints/sprint-13-qa/r2-<size>-name-cleared.png` (editor after clearing the name and Done: old name back) and `r2-<size>-rename-back.png` (Decks list after rename + Back + reload), size = 891x296, 844x390, 640x360, 1280x800.
