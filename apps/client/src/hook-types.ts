@@ -43,6 +43,8 @@ export interface InstalledSnapshot {
   hosted: { text: string; box: Box; fontPx: number; color: number; icon: 'coin' } | null;
   /** QA-S7-2: the advancement tag as drawn (a different colour and icon from `hosted`), or null. */
   counterBadge: { text: string; box: Box; fontPx: number; color: number; icon: 'chevron' } | null;
+  /** S-12-2: ICE strength other than printed ("Str 3": Experiential Data, Ice Wall counters) as drawn, or null. */
+  strength: { text: string; box: Box; fontPx: number } | null;
   /**
    * Face up: where the face's name, type label and cost bubble are drawn (screen boxes) and the drawn name.
    * S-12-6: `clickCost`: the click-symbol chip ("×3") as drawn (screen box), null for none.
@@ -72,12 +74,36 @@ export interface TargetSnapshot {
    * run: a server lit after tapping Run. advance / score: a picked installed agenda's choices.
    * free_rez / skip (S-04-4): the Corp's free-rez choice after scoring Priority Requisition
    * (each offered ICE, with `uid`; Skip in the Play slot).
+   * Sprint 12: look_install (a server for the picked looked-at ICE, `server`) / look_done ("Trash the
+   * rest (2)", "Trash 3 cards") for Accelerated Beta Test; grip (Modded: a Grip card it installs, `index`);
+   * expose_open (Infiltration's "Expose 1 card", in the second slot) / expose (a face-down Corp card, `uid`).
+   * Infiltration's "Gain 2 credits" is a `play` target.
    */
-  kind: 'server' | 'new_server' | 'install' | 'play' | 'run' | 'advance' | 'score' | 'free_rez' | 'skip' | 'rez' | 'activate' | 'remove_tag' | 'trash_resource';
+  kind:
+    | 'server'
+    | 'new_server'
+    | 'install'
+    | 'play'
+    | 'run'
+    | 'advance'
+    | 'score'
+    | 'free_rez'
+    | 'skip'
+    | 'rez'
+    | 'activate'
+    | 'remove_tag'
+    | 'trash_resource'
+    | 'look_install'
+    | 'look_done'
+    | 'grip'
+    | 'expose_open'
+    | 'expose';
   /** For server targets (and run / server-named play targets). */
   server?: string;
   /** For advance / score: the installed card. */
   uid?: string;
+  /** Sprint 12, grip: the Grip card's hand index (Modded's `installIndex`). */
+  index?: number;
   box: Box;
   /** The price label, e.g. "Install · 1 credit". */
   label: string;
@@ -340,6 +366,23 @@ export interface LayoutSnapshot {
     button: { box: Box; label: string } | null;
     strip: { title: string; box: Box; cards: { cardId: string; from: string; box: Box }[] } | null;
   };
+  /**
+   * Sprint 12: an open card sheet. `look` (S-12-1, Accelerated Beta Test): the looked-at cards in the
+   * hand's strip (the Corp's own device only; `lit`: an ICE it can install, `picked`: its servers are lit).
+   * `archives` (S-12-2, Archived Memories): the Corp's Archives over the table (`lit`: offered). `index`:
+   * the `choice.looked` / Archives index a tap answers. Several pages when they don't fit (`pager`).
+   */
+  sheet: {
+    kind: 'look' | 'archives';
+    title: string;
+    box: Box;
+    cards: { cardId: string | null; index: number; lit: boolean; picked: boolean; box: Box }[];
+    page: number;
+    pages: number;
+    pager: { prev: Box; next: Box; text: string } | null;
+  } | null;
+  /** Sprint 12 (S-12-4): the exposed card shown over its place (both devices) until tapped away, or null. */
+  exposed: { uid: string; cardId: string; box: Box; caption: string } | null;
   /** S-04-2: the "Leave the game?" question, if showing. */
   dialog: { title: string; text: string; box: Box; buttons: { label: string; box: Box }[] } | null;
   /** S-06-5: the opaque "Pass the phone" cover, if showing (`to`: who should take the phone). */

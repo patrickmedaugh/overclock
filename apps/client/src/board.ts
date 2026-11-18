@@ -22,6 +22,7 @@ import { DROP_WAIT_MS, LIFT_MS, RETURN_MS, SWIPE_TOLERANCE, VIEW_FADE_MS, type V
 import type { AnimRecord, Box, EndTurnClock, InstalledSnapshot, Insets, LayoutSnapshot, SideLayout, TargetSnapshot } from './hook-types';
 import type { Decision, Presentation } from './session';
 import { choiceHint, collapseRepeats, conditionText, hintFor, rejectText } from './hints';
+import { EXPOSED_CAPTION, EXPOSE_HELP, archivesHelpText, archivesTitle, lookDoneLabel, lookHelpText, lookInstallable, lookNotIceText, modeLabel, s12Notice } from './choiceText';
 import { basicOptionLabel, bidWaitText, isTraceChoice, linkText, meatDamageText, tagsChangedText, taggedText, taggedTrashText, traceNotices } from './traceText';
 import { attachPress, inputTime, noteRelease } from './input';
 import type { FederatedPointerEvent } from 'pixi.js';
@@ -29,6 +30,7 @@ import { BUILD_LINE, type BoardLayout, type BoardShape, CARD_RATIO, type SideRow
 import { LEAVE_TEXT, LEAVE_TEXT_ONLINE, LeaveDialog } from './leaveDialog';
 import type { CoverText } from './passCover';
 import { RunDisplay } from './runDisplay';
+import { CardSheet, type SheetCard } from './sheets';
 import { IceReport, LastRunStrip } from './panels';
 import { RUN_END, iceReport, installNotices, isRunChoice, installedOptionLabel, nameOf, runEndText, turnStartNotices } from './runText';
 import { SIDE_NAME, TERMS, badPublicityText, handMaxText, plural, pointsText, priceText, serverLabel, tempCreditsText, zoneName } from './terms';
@@ -39,6 +41,9 @@ import { ActionButton, Counter, DeckPile, DiscardPile, MemoryCounter, PanelButto
 type Pos = 'top' | 'bottom';
 const SIDES: readonly Side[] = ['corp', 'runner'];
 const other = (s: Side): Side => (s === 'corp' ? 'runner' : 'corp');
+
+/** Sprint 12 (S-12-4): the exposed card is drawn at least this wide (readable on the smallest phone). */
+const MIN_EXPOSED_W = 72;
 
 /** Refusals that apply to every target of a card alike: shown at once instead of lighting targets. */
 const GATE_REASONS: ReadonlySet<RejectReason> = new Set(['game_over', 'not_your_turn', 'wrong_phase', 'no_clicks']);
@@ -68,8 +73,9 @@ export function bannerText(view: PlayerView): string {
 }
 
 /** Markers are kept per kind and place: a server, or an installed card (free rez). */
-function targetKey(kind: TargetSnapshot['kind'], where: { server?: string; uid?: string }): string {
-  return `${kind}:${where.server ?? (kind === 'free_rez' ? (where.uid ?? '') : '')}`;
+function targetKey(kind: TargetSnapshot['kind'], where: { server?: string; uid?: string; index?: number }): string {
+  if (where.index !== undefined) return `${kind}:#${where.index}`;
+  return `${kind}:${where.server ?? (kind === 'free_rez' || kind === 'expose' ? (where.uid ?? '') : '')}`;
 }
 
 /**
@@ -89,6 +95,12 @@ function runnerNote(view: PlayerView): string | null {
  * Sprint 9: the bid panel (or the run panel) takes the hand's room: during a run, and
  * while a trace bid window is open outside one (SEA Source; no hand shows to the other seat).
  */
+/** Sprint 12 (S-12-1): the deciding Corp's look-at sheet takes the hand's strip. */
+function lookOpen(view: PlayerView | null): boolean {
+  const c = view?.choice;
+  return !!c && c.kind === 'look_install' && c.options.length > 0 && (c.looked?.length ?? 0) > 0;
+}
+
 function panelUp(view: PlayerView | null): boolean {
   return !!view && (!!view.run || isTraceChoice(view.choice));
 }
@@ -205,6 +217,10 @@ interface InstalledCard {
   hostedText: Text;
   /** What the pill was last drawn for (`text:height`). */
   hostedKey: string;
+  /** Sprint 12 (S-12-2): ICE strength other than printed (Experiential Data, Ice Wall counters): "Str 3". */
+  strength: Container;
+  strengthBg: Graphics;
+  strengthText: Text;
   detach: () => void;
 }
 
@@ -220,6 +236,8 @@ interface ActiveTarget {
   kind: TargetSnapshot['kind'];
   server?: string;
   uid?: string;
+  /** Sprint 12: a Grip card (Modded's install target), by hand index. */
+  index?: number;
   option: CardOption;
   marker: TargetMarker;
 }
@@ -289,6 +307,10 @@ export class Board {
   private readonly accessLayer = new Container();
   private readonly targetLayer = new Container();
   private readonly handLayer = new Container();
+  /** Sprint 12: Modded's lit Grip cards (over the hand). */
+  private readonly gripLayer = new Container();
+  /** Sprint 12: the look-at / Archives sheets and the exposed card. */
+  private readonly sheetLayer = new Container();
   private readonly fxLayer = new Container();
   private readonly hintLayer = new Container();
   private readonly zoomLayer = new Container();
@@ -326,6 +348,15 @@ export class Board {
   private runPicking = false;
   /** Installed card picked for its choices (Corp agenda: Advance / Score). */
   private pickedInstalled: string | null = null;
+  /** Sprint 12 (S-12-1): the looked-at ICE picked (its servers are lit), by `choice.looked` index. */
+  private lookPick: number | null = null;
+  /** Sprint 12: the look-at sheet (hand strip) or the Archives sheet (over the table), what it was drawn for, its page. */
+  private sheet: { kind: 'look' | 'archives'; ui: CardSheet; key: string } | null = null;
+  private sheetPage = 0;
+  /** Sprint 12 (S-12-4): Infiltration's "Expose 1 card" picked: the face-down Corp cards are lit. */
+  private exposePicking = false;
+  /** Sprint 12 (S-12-4): the exposed card, shown over its place until tapped away (or the next move). */
+  private exposed: { uid: string; cardId: string; root: Container; box: Box; detach: () => void } | null = null;
   private hint: { text: string; root: Container; box: Box; kind: 'hint' | 'notice'; slot: string; wide: boolean; area: Box } | null = null;
   /** QA-S9-1: the notices waiting for the cover include a trace result (shown in the wide slot). */
   private pendingWide = false;
@@ -451,7 +482,7 @@ export class Board {
     this.buildText.label = 'build-time';
     this.buildText.eventMode = 'none';
     this.buildText.alpha = 0.85;
-    this.table.addChild(this.catcher, this.bgLayer, this.boardLayer, this.installedLayer, this.runLayer, this.centerLayer, this.accessLayer, this.targetLayer, this.handLayer, this.buildText);
+    this.table.addChild(this.catcher, this.bgLayer, this.boardLayer, this.installedLayer, this.runLayer, this.centerLayer, this.accessLayer, this.targetLayer, this.handLayer, this.gripLayer, this.sheetLayer, this.buildText);
     this.stage.addChild(this.table, this.fxLayer, this.hintLayer, this.statusLayer, this.panelLayer, this.zoomLayer, this.coverLayer, this.dialogLayer);
     this.statusLayer.eventMode = 'none';
     // S-05-1: a tap anywhere outside the Last run strip (and its button) closes it; the tap still acts.
@@ -680,6 +711,10 @@ export class Board {
     if (!rejected) {
       this.selected = null;
       this.runPicking = false;
+      this.exposePicking = false;
+      this.lookPick = null;
+      // Sprint 12 (S-12-4): an exposed card shows until tapped away or the next move.
+      if (events.length > 0) this.clearExposed();
       // A card's own ability (Take 2 credits) stays picked too: tap again to take more.
       const advanced = events.some((e) => (e.type === 'card_advanced' || (e.type === 'ability_triggered' && e.trigger === 'click')) && e.uid === this.pickedInstalled);
       // Sprint 9: the tag marker stays picked after Remove 1 tag (remove another with one tap); PSF after its use.
@@ -784,6 +819,7 @@ export class Board {
         counter: c && c.badge.visible ? c.badgeText.text : null,
         counterBadge: c && c.badge.visible ? { text: c.badgeText.text, box: boundsOf(c.badge), fontPx: c.badgeText.style.fontSize as number, color: theme.advance, icon: 'chevron' } : null,
         hosted: c && c.hosted.visible ? { text: c.hostedText.text, box: boundsOf(c.hosted), fontPx: c.hostedText.style.fontSize as number, color: theme.credit, icon: 'coin' } : null,
+        strength: c && c.strength.visible ? { text: c.strengthText.text, box: boundsOf(c.strength), fontPx: c.strengthText.style.fontSize as number } : null,
         face: c ? this.faceBoxes(c, u.width, u.height) : null,
       };
     };
@@ -834,6 +870,7 @@ export class Board {
         kind: t.kind,
         ...(t.server !== undefined ? { server: t.server } : {}),
         ...(t.uid !== undefined ? { uid: t.uid } : {}),
+        ...(t.index !== undefined ? { index: t.index } : {}),
         box: { ...t.marker.box },
         label: t.marker.text,
         ...(t.marker.note ? { note: t.marker.note } : {}),
@@ -894,6 +931,18 @@ export class Board {
       ) as LayoutSnapshot['scored'],
       selectedInstalled: this.pickedInstalled,
       hint: this.hint && this.hint.root.alpha > 0.05 ? { text: this.hint.text, box: this.hint.box } : null,
+      sheet: this.sheet
+        ? {
+            kind: this.sheet.kind,
+            title: this.sheet.ui.title,
+            box: { ...this.sheet.ui.box },
+            cards: this.sheet.ui.cards.map((c) => ({ ...c, box: { ...c.box } })),
+            page: this.sheet.ui.page,
+            pages: this.sheet.ui.pages,
+            pager: this.sheet.ui.pager ? { prev: { ...this.sheet.ui.pager.prev }, next: { ...this.sheet.ui.pager.next }, text: this.sheet.ui.pager.text } : null,
+          }
+        : null,
+      exposed: this.exposed ? { uid: this.exposed.uid, cardId: this.exposed.cardId, box: { ...this.exposed.box }, caption: EXPOSED_CAPTION } : null,
       dialog: this.leave ? this.leave.dialog.snapshot() : null,
       cover: this.cover ? this.cover.snapshot() : null,
       report: this.report ? { text: this.report.text, box: { ...this.report.box } } : null,
@@ -1366,7 +1415,9 @@ export class Board {
     for (const c of gen.installed.values()) c.detach();
     for (const w of Object.values(gen.identities)) w.detach();
     gen.run.detach();
-    for (const layer of [this.bgLayer, this.boardLayer, this.installedLayer, this.runLayer, this.centerLayer, this.accessLayer, this.targetLayer]) {
+    this.closeSheet();
+    this.clearExposed();
+    for (const layer of [this.bgLayer, this.boardLayer, this.installedLayer, this.runLayer, this.centerLayer, this.accessLayer, this.targetLayer, this.gripLayer]) {
       for (const c of layer.removeChildren()) c.destroy({ children: true });
     }
     this.activeTargets = [];
@@ -1449,13 +1500,43 @@ export class Board {
       hosted.addChild(hostedBg, hostedText);
       hosted.visible = false;
       hosted.label = 'hosted-credits';
+      // Sprint 12 (S-12-2): the ICE's strength when it differs from the printed one (red pill, bottom-left).
+      const strength = new Container();
+      strength.label = 'ice-strength';
+      const strengthBg = new Graphics();
+      const strengthText = new Text({ text: '', style: { fontFamily: theme.fontFamily, fontSize: Math.max(11, Math.round(u * 0.2)), fontWeight: '800', fill: theme.text } });
+      strengthText.anchor.set(0.5);
+      strength.addChild(strengthBg, strengthText);
+      strength.visible = false;
       // ICE lies sideways: its markers stay upright.
       if (zone === 'ice') {
         badge.rotation = -Math.PI / 2;
         hosted.rotation = -Math.PI / 2;
+        strength.rotation = -Math.PI / 2;
       }
-      root.addChild(visual, badge, hosted);
-      const c: InstalledCard = { uid: v.uid, owner, zone, root, visual, visualKey: '', cardId: v.cardId, faceUp: v.faceUp, box: b, badge, badgeBg, badgeText, hosted, hostedBg, hostedText, hostedKey: '', detach: () => {} };
+      root.addChild(visual, badge, hosted, strength);
+      const c: InstalledCard = {
+        uid: v.uid,
+        owner,
+        zone,
+        root,
+        visual,
+        visualKey: '',
+        cardId: v.cardId,
+        faceUp: v.faceUp,
+        box: b,
+        badge,
+        badgeBg,
+        badgeText,
+        hosted,
+        hostedBg,
+        hostedText,
+        hostedKey: '',
+        strength,
+        strengthBg,
+        strengthText,
+        detach: () => {},
+      };
       c.detach = attachPress(root, {
         onTap: () => this.onInstalledTap(c.uid),
         onLongPress: () => this.openZoom(c.cardId, c.owner, c.box),
@@ -1485,6 +1566,38 @@ export class Board {
       card.visual.addChild(def ? createCardFace(def, u, uh, 'small') : createCardBack(owner, u, uh));
     }
     this.setHosted(card, v.hostedCredits ?? 0, u, uh);
+    this.setStrength(card, v, u, uh);
+  }
+
+  /**
+   * Sprint 12 (S-12-2): "Str 3" on ICE whose strength (the view's `strength`: printed + Ice Wall
+   * counters + Experiential Data) differs from the printed one; hidden otherwise and on backs.
+   */
+  private setStrength(card: InstalledCard, v: InstalledView, u: number, uh: number): void {
+    const printed = v.cardId ? getCard(v.cardId)?.strength : undefined;
+    const show = card.zone === 'ice' && v.strength !== undefined && printed !== undefined && v.strength !== printed;
+    card.strength.visible = show;
+    if (!show) return;
+    const text = `${TERMS.strength.slice(0, 3)} ${v.strength}`;
+    const up = v.strength! > printed!;
+    if (card.strengthText.text !== text) card.strengthText.text = text;
+    const h = Math.round(card.strengthText.height + 2);
+    const w = Math.round(card.strengthText.width + 10);
+    card.strengthBg.clear();
+    card.strengthBg.roundRect(-w / 2, -h / 2, w, h, Math.round(h * 0.3)).fill({ color: up ? theme.tagged : theme.panel, alpha: 0.95 }).stroke({ width: 1.5, color: theme.text });
+    // Card-local: the pill is turned back upright, so along the card's y it takes its width.
+    // In the art window, clear of the name and type (and of a credits pill, if any).
+    const def = card.faceUp && card.cardId ? getCard(card.cardId) : undefined;
+    const f = def ? smallFaceLayout(def, u, uh) : null;
+    if (!f) {
+      card.strength.position.set(0, 0);
+      return;
+    }
+    const lo = -uh / 2 + 1 + w / 2;
+    const hi = f.name.y - 1 - w / 2;
+    const cy = card.hosted.visible ? hi : Math.max(lo, Math.min(f.art.y + f.art.height / 2, hi));
+    const cx = card.hosted.visible ? f.art.x + f.art.width / 2 - (card.hostedText.height + 6) : f.art.x + f.art.width / 2;
+    card.strength.position.set(cx, cy);
   }
 
   /** U2: draws (or hides) `side`'s identity card in its slot; hold it to read it. */
@@ -1713,6 +1826,12 @@ export class Board {
     } else if (isRunChoice(view.choice)) {
       // S-08-7: the run panel says what to pick; the column shows the same words here.
       helpText = view.choice.options.length > 0 || this.decision?.choice ? 'Tap a lit button to decide.' : `${SIDE_NAME[view.choice.waitingOn]} is choosing…`;
+    } else if (view.choice?.kind === 'look_install') {
+      // Sprint 12 (S-12-1): Accelerated Beta Test's look at the top of R&D.
+      helpText = lookHelpText(view.choice, view.choice.options.length > 0, this.lookPick !== null);
+    } else if (view.choice?.kind === 'archives_pick') {
+      // Sprint 12 (S-12-2): Archived Memories' pick from Archives.
+      helpText = archivesHelpText(view.choice, view.choice.options.length > 0);
     } else if (view.choice && view.choice.options.length > 0) {
       helpText = `${choiceCard}: rez one ${TERMS.ice} for free.\nTap a lit ${TERMS.ice}, or ${TERMS.skip}.`;
     } else if (view.choice) {
@@ -1724,6 +1843,8 @@ export class Board {
       helpText = `${SIDE_NAME[view.activePlayer]}'s turn.\nTheir moves show up here.`;
     } else if (this.runPicking) {
       helpText = `Tap a lit server to run on it.\nTap ${TERMS.run} again to cancel.`;
+    } else if (this.exposePicking && this.selected !== null) {
+      helpText = EXPOSE_HELP;
     } else if (this.pickedInstalled !== null) {
       // Sprint 9: the tag marker / score pill picked: "Tap it again".
       helpText = this.pickedInstalled === TAGS_PICK || isScoredUid(this.pickedInstalled) ? 'Tap a lit button.\nTap it again to cancel.' : 'Tap a lit button.\nTap the card again to cancel.';
@@ -1802,7 +1923,7 @@ export class Board {
       },
       animate,
     );
-    this.hands[viewer].container.visible = !panelUp(view);
+    this.hands[viewer].container.visible = !panelUp(view) && !lookOpen(view);
 
     // Run button: where Play goes, while the view offers runs and nothing is picked.
     const rb = gen.runButton;
@@ -1830,6 +1951,8 @@ export class Board {
     // QA-S8-3: a toast shown before a run started (or ended) moves to the slot for now.
     // S-10-6: checked once every button is in place, so a toast never covers one.
     if (this.hint && this.hint.slot !== JSON.stringify(this.hintSlot(layout, this.hint.wide))) this.showHint(this.hint.text, this.hint.kind, this.hint.wide);
+    this.syncSheet(view, layout);
+    this.placeExposed();
     return newStep;
   }
 
@@ -2245,6 +2368,20 @@ export class Board {
         for (const b of boxes) this.flash(b, theme.credit, timing.choiceFlash);
         return;
       }
+      case 'cards_looked_at':
+      case 'rd_cards_trashed':
+      case 'card_returned_to_hand': {
+        const text = s12Notice(e, view.viewer);
+        if (text) notices.push(text);
+        return;
+      }
+      case 'card_exposed': {
+        // S-12-4: both seats see the card over its place until it's tapped away.
+        const text = s12Notice(e, view.viewer);
+        if (text) notices.push(text);
+        this.showExposed(e.uid, e.cardId);
+        return;
+      }
       case 'choice_closed': {
         // In-run choices (S-08-7) say what happened through the trash events and the ICE report.
         if (e.kind !== 'free_rez') return;
@@ -2431,6 +2568,7 @@ export class Board {
     }
     this.runPicking = false;
     this.pickedInstalled = null;
+    this.exposePicking = false;
     this.selected = index;
     hand.setSelected(index);
     this.showTargets();
@@ -2441,6 +2579,7 @@ export class Board {
   /** Drops whatever is picked: a hand card, the Run choice, an installed card. */
   private cancelSelection(): void {
     if (this.selected === null && !this.runPicking && this.pickedInstalled === null) return;
+    this.exposePicking = false;
     this.selected = null;
     this.runPicking = false;
     this.pickedInstalled = null;
@@ -2473,6 +2612,24 @@ export class Board {
     const columnSide: 'top' | 'bottom' = layout.corp.outward === 'down' ? 'bottom' : 'top';
     if (isTraceChoice(view.choice)) {
       // Sprint 9: the bid panel is the only thing to answer.
+      this.setNewServerLabel(false);
+      return;
+    }
+    if (view.choice?.kind === 'look_install') {
+      // Sprint 12 (S-12-1): the picked looked-at ICE's servers (from its `select` options), and Done.
+      for (const option of view.choice.options) {
+        const a = option.action;
+        if (a.type === 'pass') this.addTarget(gen, layout, 'look_done', option, layout.action, lookDoneLabel(view.choice), 'center', {});
+        else if (a.type === 'select' && a.card === this.lookPick && a.server !== undefined) {
+          const slots = a.server === 'new' ? layout.corp.newServer : layout.corp.servers.find((x) => x.id === a.server);
+          if (slots) this.addTarget(gen, layout, 'look_install', option, slots.column, `${TERMS.install} · free`, columnSide, { server: a.server });
+        }
+      }
+      this.setNewServerLabel(this.activeTargets.some((t) => t.kind === 'look_install' && t.server === 'new'));
+      return;
+    }
+    if (view.choice?.kind === 'archives_pick') {
+      // Sprint 12 (S-12-2): the Archives sheet is the only thing to answer.
       this.setNewServerLabel(false);
       return;
     }
@@ -2525,12 +2682,42 @@ export class Board {
       this.setNewServerLabel(false);
       return;
     }
+    const pickedId = view.players[view.viewer].hand?.[picking] ?? null;
+    let exposeShown = false;
     for (const option of view.handOptions[picking] ?? []) {
       const a = option.action;
       let kind: TargetSnapshot['kind'];
       let server: string | undefined;
       let b: Box;
       let at: 'top' | 'bottom' | 'center' = 'center';
+      if (a.type === 'play' && a.installIndex !== undefined) {
+        // Sprint 12 (S-12-3, Modded): each program / hardware in the Grip lights with its install price.
+        const box = this.hands[view.viewer].boxes()[a.installIndex]?.box;
+        if (!box) continue;
+        const off = option.discount ? ` (−${option.discount})` : '';
+        const note = option.reject ? this.rejectHint(option) : '';
+        this.addTarget(gen, layout, 'grip', option, box, `${TERMS.install} · ${priceText(option.cost)}${off}`, 'top', { index: a.installIndex }, note);
+        continue;
+      }
+      if (a.type === 'play' && a.mode !== undefined) {
+        // Sprint 12 (S-12-4, Infiltration): one button per mode (card data); Expose then lights
+        // the face-down Corp cards (one option each).
+        const label = modeLabel(pickedId, a.mode) ?? TERMS.play;
+        const price = option.cost > 0 ? ` · ${priceText(option.cost)}` : '';
+        if (a.uid === undefined) {
+          this.addTarget(gen, layout, 'play', option, layout.action, `${label}${price}`, 'center', {}, option.reject ? this.rejectHint(option) : '');
+          continue;
+        }
+        if (!exposeShown) {
+          exposeShown = true;
+          this.addTarget(gen, layout, 'expose_open', option, layout.action2, `${label}${price}`, 'center', {}, option.reject ? this.rejectHint(option) : '');
+        }
+        if (this.exposePicking) {
+          const c = gen.installed.get(a.uid);
+          if (c) this.addTarget(gen, layout, 'expose', option, c.box, label.split(' ')[0] ?? label, 'center', { uid: a.uid });
+        }
+        continue;
+      }
       if (a.type === 'play' && a.server !== undefined) {
         // A run event that names its server (Inside Job): the servers light up.
         const slots = layout.corp.servers.find((x) => x.id === a.server);
@@ -2573,7 +2760,7 @@ export class Board {
     b: Box,
     label: string,
     at: 'top' | 'bottom' | 'center',
-    where: { server?: string; uid?: string },
+    where: { server?: string; uid?: string; index?: number },
     note = '',
   ): void {
     // Markers are kept per place: advance / score always use the same two slots.
@@ -2583,13 +2770,169 @@ export class Board {
       const m = new TargetMarker(layout.scale);
       m.root.label = `target:${key}`;
       gen.detachers.push(attachPress(m.root, { onTap: () => this.onTargetTap(key) }));
-      this.targetLayer.addChild(m.root);
+      (kind === 'grip' ? this.gripLayer : this.targetLayer).addChild(m.root);
       gen.targets.set(key, m);
       marker = m;
     }
     marker.set(b, label, option.reject === null, at, note);
     marker.root.visible = true;
     this.activeTargets.push({ kind, ...where, option, marker });
+  }
+
+  // ---- Sprint 12 sheets (look at R&D, Archives pick) and the exposed card ----
+
+  /** The look-at / Archives sheet for `view` (drawn again only when what it shows changes). */
+  private syncSheet(view: PlayerView, layout: BoardLayout): void {
+    const c = view.choice;
+    let want: { kind: 'look' | 'archives'; cards: SheetCard[]; title: string; area: Box; backdrop: boolean; side: Side; maxWidth: number } | null = null;
+    if (c && lookOpen(view)) {
+      const lit = lookInstallable(c);
+      const cards = (c.looked ?? []).map((cardId, i) => ({ cardId, lit: lit.has(i), picked: this.lookPick === i, index: i }));
+      want = { kind: 'look', cards, title: '', area: layout.handArea, backdrop: false, side: 'corp', maxWidth: layout.card.width };
+    } else if (c && c.kind === 'archives_pick' && c.options.length > 0 && !view.result) {
+      const offered = new Set<number>();
+      for (const o of c.options) if (o.action.type === 'select') offered.add(o.action.card);
+      const cards = view.players.corp.discard.map((cardId, i) => ({ cardId, lit: offered.has(i), picked: false, index: i }));
+      want = { kind: 'archives', cards, title: archivesTitle(c), area: layout.access, backdrop: true, side: 'corp', maxWidth: Math.round(layout.card.width * 1.15) };
+    }
+    if (!want) {
+      this.closeSheet();
+      return;
+    }
+    if (this.sheet?.kind !== want.kind) this.sheetPage = 0;
+    const key = JSON.stringify([layout.sizeKey, want.kind, want.cards, want.title, this.sheetPage]);
+    if (this.sheet?.key === key) return;
+    this.closeSheet(false);
+    const kind = want.kind;
+    const ui = new CardSheet({
+      area: want.area,
+      title: want.title,
+      cards: want.cards,
+      side: want.side,
+      scale: layout.scale,
+      ratio: CARD_RATIO,
+      maxWidth: want.maxWidth,
+      backdrop: want.backdrop,
+      page: this.sheetPage,
+      onTap: (i) => this.onSheetTap(kind, i),
+      hold: (target, cardId, box, onTap) => {
+        const d = attachPress(target, {
+          onTap,
+          onLongPress: () => {
+            if (cardId) this.openZoom(cardId, 'corp', box);
+          },
+          onLongPressEnd: () => this.closeZoom(),
+        });
+        target.cursor = 'pointer';
+        return d;
+      },
+      onPage: (page) => {
+        this.sheetPage = page;
+        if (this.view && this.layout) this.syncSheet(this.view, this.layout);
+        this.callbacks.changed();
+      },
+    });
+    this.sheetLayer.addChildAt(ui.root, 0);
+    this.sheet = { kind, ui, key };
+  }
+
+  private closeSheet(resetPage = true): void {
+    if (this.sheet) this.sheet.ui.destroy();
+    this.sheet = null;
+    if (resetPage) this.sheetPage = 0;
+  }
+
+  /** A tap on a sheet card: the look-at sheet picks an ICE (its servers light); the Archives sheet takes the card. */
+  private onSheetTap(kind: 'look' | 'archives', index: number): void {
+    const view = this.view;
+    const c = view?.choice;
+    if (!view || !c || this.flipPending) return;
+    if (kind === 'look') {
+      if (c.kind !== 'look_install') return;
+      if (!lookInstallable(c).has(index)) {
+        this.showHint(lookNotIceText(c.looked?.[index] ?? null));
+        return;
+      }
+      this.lookPick = this.lookPick === index ? null : index;
+      this.showTargets();
+      this.applyView(view, false);
+      this.callbacks.changed();
+      return;
+    }
+    if (c.kind !== 'archives_pick') return;
+    const option = c.options.find((o) => o.action.type === 'select' && o.action.card === index);
+    if (!option) {
+      // The Archived Memories being played (the engine offers every other card).
+      this.showHint(`${getCard(view.players.corp.discard[index] ?? '')?.name ?? 'That card'} is the card being played`);
+      return;
+    }
+    this.tappedOption = option;
+    this.callbacks.onAction(option.action);
+  }
+
+  /** S-12-4: the exposed card's face over its place (bigger, captioned); a tap hides it. */
+  private showExposed(uid: string, cardId: string): void {
+    this.clearExposed();
+    const def = getCard(cardId);
+    if (!def) return;
+    const root = new Container();
+    root.label = 'exposed';
+    this.sheetLayer.addChild(root);
+    const ex = { uid, cardId, root, box: { x: 0, y: 0, width: 0, height: 0 }, detach: () => {} };
+    ex.detach = attachPress(root, { onTap: () => this.hideExposed() });
+    this.exposed = ex;
+    this.placeExposed();
+  }
+
+  /** Draws the exposed card at its installed card (sizes follow the layout). */
+  private placeExposed(): void {
+    const ex = this.exposed;
+    const layout = this.layout;
+    const c = ex ? this.gen?.installed.get(ex.uid) : undefined;
+    if (!ex || !layout) return;
+    if (!c) {
+      this.clearExposed();
+      return;
+    }
+    const def = getCard(ex.cardId)!;
+    const w = Math.max(Math.round(layout.card.width * 1.25), MIN_EXPOSED_W);
+    const h = Math.round(w * CARD_RATIO);
+    const capH = Math.max(18, Math.round(20 * Math.min(layout.scale, 1.2)));
+    const board = layout.board;
+    const cx = Math.min(Math.max(c.box.x + c.box.width / 2, board.x + w / 2 + 2), board.x + board.width - w / 2 - 2);
+    const cy = Math.min(Math.max(c.box.y + c.box.height / 2, board.y + h / 2 + 2), board.y + board.height - h / 2 - capH - 2);
+    const box = { x: Math.round(cx - w / 2), y: Math.round(cy - h / 2), width: w, height: h + capH };
+    const key = `${box.x},${box.y},${w}`;
+    if (ex.root.label !== `exposed:${key}`) {
+      for (const k of ex.root.removeChildren()) k.destroy({ children: true });
+      ex.root.label = `exposed:${key}`;
+      const g = new Graphics();
+      g.roundRect(-w / 2 - 4, -h / 2 - 4, w + 8, h + capH + 8, 8).fill({ color: 0x05040a, alpha: 0.95 });
+      glowRoundRect(g, -w / 2 - 4, -h / 2 - 4, w + 8, h + capH + 8, 8, theme.runner, 2, 1.3);
+      const face = createCardFace(def, w, h, 'small');
+      const cap = new Text({ text: EXPOSED_CAPTION, style: { fontFamily: theme.fontFamily, fontSize: Math.max(11, Math.round(12 * Math.min(layout.scale, 1.2))), fontWeight: '700', fill: theme.runner } });
+      cap.anchor.set(0.5);
+      cap.position.set(0, h / 2 + capH / 2);
+      fitText(cap, w + 4);
+      ex.root.addChild(g, face, cap);
+      ex.root.hitArea = new Rectangle(-w / 2 - 4, -h / 2 - 4, w + 8, h + capH + 8);
+      ex.root.position.set(cx, cy);
+    }
+    ex.box = box;
+  }
+
+  /** The Runner tapped the exposed card away. */
+  private hideExposed(): void {
+    this.clearExposed();
+    this.callbacks.changed();
+  }
+
+  private clearExposed(): void {
+    const ex = this.exposed;
+    if (!ex) return;
+    ex.detach();
+    if (!ex.root.destroyed) ex.root.destroy({ children: true });
+    this.exposed = null;
   }
 
   private setNewServerLabel(on: boolean): void {
@@ -2840,6 +3183,15 @@ export class Board {
   private onTargetTap(key: string): void {
     const t = this.activeTargets.find((x) => targetKey(x.kind, x) === key);
     if (!t || this.flipPending) return;
+    if (t.kind === 'expose_open' && t.option.reject === null) {
+      // Sprint 12 (S-12-4): Expose lights the face-down Corp cards (tap it again to put them out).
+      this.exposePicking = !this.exposePicking;
+      const view = this.view;
+      this.showTargets();
+      if (view) this.applyView(view, false);
+      this.callbacks.changed();
+      return;
+    }
     // QA-S8-1: a refusal's hint can name this button's click price.
     this.tappedOption = t.option;
     // The engine judges it; a refusal comes back as action_rejected and shows its hint.
@@ -3739,7 +4091,8 @@ export class Board {
     if (!hand.lift(index)) return;
     this.lift = { index, cardId, hover: -1, boxes: [] };
     this.showTargets();
-    this.lift.boxes = this.activeTargets.map((t) => t.marker.box);
+    // Sprint 12: Infiltration's Expose button only opens the pick (a drop there plays nothing).
+    this.lift.boxes = this.activeTargets.map((t) => (t.kind === 'expose_open' ? { x: -1, y: -1, width: 0, height: 0 } : t.marker.box));
     this.applyView(view, false);
     this.dragMove(p.lastX, p.lastY);
     // The view fades out (it keeps taking the finger's moves and its release).
