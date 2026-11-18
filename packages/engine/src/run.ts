@@ -16,6 +16,7 @@ import {
   activateTarget,
   activeSources,
   firstInstallOf,
+  installDiscounts,
   breakerPayment,
   breakerCard,
   breakerStrength,
@@ -452,6 +453,10 @@ export interface EffectContext {
   readonly server?: ServerId;
   /** Sprint 10: the amount named in `activate` (a `take_credits{amount:'chosen'}` effect). */
   readonly amount?: number;
+  /** Sprint 12: the hand card an `install_from_hand` effect installs (index into the hand **after** the played card left). */
+  readonly installIndex?: number;
+  /** Sprint 12: the installed card named in `play.uid` (an `expose` target). */
+  readonly target?: string;
   /**
    * Called once the effect's own events are out, right before it ends the run or the game
    * (ICE: `subroutine_resolved` goes before `run_ended` / `game_over`).
@@ -551,8 +556,14 @@ export function resolveEffect(state: GameState, effect: Effect, owner: Side, eve
     case 'archives_to_hand':
       return openArchivesPick(state, owner, ctx, events);
     case 'install_from_hand':
-    case 'expose':
-      return state; // Sprint 12 E1 stubs (no card uses them yet)
+      return installFromHand(state, owner, effect.discount, ctx, events);
+    case 'expose': {
+      // Sprint 12 (Infiltration): public, no state change (the card stays face down).
+      const where = ctx.target !== undefined ? corpInstalled(state, ctx.target) : undefined;
+      if (!where) return state;
+      events.push({ type: 'card_exposed', uid: where.installed.uid, cardId: where.installed.cardId, server: where.server.id });
+      return state;
+    }
   }
 }
 
@@ -595,6 +606,29 @@ function pickFromArchives(state: GameState, a: ActionOf<'select'>, events: Event
   const s = closeChoice(state, false, events);
   events.push({ type: 'card_returned_to_hand', player, archivesIndex: a.card, faceUp: entry.faceUp, cardId: entry.cardId });
   return withPlayer(s, player, { discard: pile.filter((_, i) => i !== a.card), hand: [...s.players[player].hand, entry.cardId] });
+}
+
+/**
+ * Sprint 12 (Modded): installs hand card `ctx.installIndex` (validated by `play`), its cost lowered by
+ * `discount` and then by every applying install discount (Kate), never below 0. No click. Events:
+ * [`ability_triggered{install_discount}` when Kate lowered what was left] → [`credits_spent`] →
+ * `card_installed` → `afterInstall` (recurring credits) → install triggers.
+ */
+function installFromHand(state: GameState, owner: Side, discount: number, ctx: EffectContext, events: Events): GameState {
+  const idx = ctx.installIndex;
+  const hand = state.players[owner].hand;
+  const cardId = idx !== undefined ? hand[idx] : undefined;
+  const def = cardId !== undefined ? getCard(cardId) : undefined;
+  if (idx === undefined || cardId === undefined || !def) return state;
+  const lowered = Math.max(0, def.cost - discount);
+  const others = installDiscounts(state, owner, def);
+  const cost = Math.max(0, lowered - others.reduce((sum, d) => sum + d.amount, 0));
+  if (cost < lowered) for (const d of others) events.push({ type: 'ability_triggered', uid: d.source.uid, cardId: d.source.cardId, trigger: 'install_discount' });
+  if (cost > 0) events.push({ type: 'credits_spent', player: owner, amount: cost });
+  const paid = withPlayer(state, owner, { hand: hand.filter((_, i) => i !== idx), credits: state.players[owner].credits - cost });
+  const placed = placeRunnerCard(paid, cardId, events, idx);
+  const s = afterInstall(placed.state, placed.uid, owner, events);
+  return installTriggers(state, s, owner, placed.uid, def.type, events);
 }
 
 /**

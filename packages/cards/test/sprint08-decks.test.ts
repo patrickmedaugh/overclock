@@ -112,7 +112,7 @@ describe('S-08-5 AC4 / Sprint 8 card data', () => {
   ]);
 
   it('every card is a real Core Set card (no invented card left)', () => {
-    expect(ALL_CARDS).toHaveLength(43);
+    expect(ALL_CARDS).toHaveLength(46);
     for (const c of ALL_CARDS) expect(CORE_SET_TITLES.has(c.name), c.name).toBe(true);
   });
 

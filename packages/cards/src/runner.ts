@@ -282,6 +282,55 @@ export const RUNNER_CARDS: readonly CardDef[] = [
     text: '+1 link.',
     art: 'glyph:relay-mast',
   },
+  // ---- Sprint 12: Shaper + neutral. Numbers and 2012 wording checked against netrunner-cards-json pack/core.json (DECISIONS 2026-11-18). ----
+  {
+    id: 'r19',
+    name: 'The Toolbox',
+    side: 'runner',
+    type: 'hardware',
+    faction: 'shaper',
+    influence: 2,
+    code: '01041',
+    unique: true,
+    cost: 9,
+    text: '+2 memory. +2 link.\n2 recurring credits.\nUse these credits to pay for using icebreakers.',
+    art: 'glyph:toolbox',
+    memoryBonus: 2,
+    link: 2,
+    recurringCredits: { amount: 2, for: 'icebreaker' },
+  },
+  {
+    id: 'r20',
+    name: 'Modded',
+    side: 'runner',
+    type: 'event',
+    faction: 'shaper',
+    influence: 2,
+    code: '01035',
+    cost: 0,
+    text: 'Install a program or piece of hardware, lowering the install cost by 3.',
+    art: 'glyph:solder-iron',
+    // Sprint 12: the Grip card travels in `play.installIndex`; dimmed with no program or hardware in the Grip.
+    playIf: 'has_install_target',
+    onPlay: [{ op: 'install_from_hand', types: ['program', 'hardware'], discount: 3 }],
+  },
+  {
+    id: 'r21',
+    name: 'Infiltration',
+    side: 'runner',
+    type: 'event',
+    faction: 'neutral',
+    influence: 0,
+    code: '01049',
+    cost: 0,
+    text: 'Gain 2 credits or expose 1 card.',
+    art: 'glyph:peek-eye',
+    // Sprint 12: `play.mode` picks one; "expose" names a face-down installed Corp card in `play.uid`.
+    modes: [
+      { label: 'Gain 2 credits', effects: [{ op: 'gain_credits', amount: 2 }] },
+      { label: 'Expose 1 card', effects: [{ op: 'expose' }] },
+    ],
+  },
 ];
 
 /** 15-card starter deck: one of each, plus an extra Easy Mark, Armitage Codebusting and Diesel. */

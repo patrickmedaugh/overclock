@@ -815,7 +815,6 @@ export const RULES: RuleTable = {
     playCondition,
     canAffordPlay,
     playMemoryFits, // Sprint 12
-    notBuiltYet,
   ],
   run: [playerShape, runServerShape, notOver, yourTurn, inPhase('action'), hasClick, runTarget],
   rez: [playerShape, rezUidShape, notOver, decides, rezPhase, rezTarget, canAffordRez],
@@ -970,12 +969,6 @@ function trashResourceTarget(s: GameState, a: ActionOf<'trash_resource'>): Rejec
 
 function canAffordBasic(s: GameState, a: Action): RejectReason | null {
   return s.players[a.player].credits >= BASIC_ACTION_COST ? null : 'no_credits';
-}
-
-/** Sprint 12 E1 stub: the new play fields and `select` are refused until E2–E4 implement them. */
-function notBuiltYet(_s: GameState, a: Action): RejectReason | null {
-  if (a.type === 'play' && (a.installIndex !== undefined || a.mode !== undefined || a.uid !== undefined)) return 'not_implemented';
-  return null;
 }
 
 // ---- Sprint 12: look_install (Accelerated Beta Test), archives_pick (Archived Memories) ---------

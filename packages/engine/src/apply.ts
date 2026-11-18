@@ -5,7 +5,12 @@ import { getCard, type CardAbility, type CardDef } from '@overclock/cards';
 import {
   abilityGain,
   archivesPickable,
+  faceDownCorpCards,
   hasChosenAmount,
+  installFromHandEffect,
+  installFromHandTargets,
+  playEffects,
+  playInstallCost,
   lookInstallable,
   ADVANCE_COST,
   BASIC_ACTION_COST,
@@ -164,14 +169,21 @@ function doPlay(state: GameState, a: ActionOf<'play'>): ApplyResult {
   const card = handCard(state, a.player, a.handIndex);
   const cardId = state.players[a.player].hand[a.handIndex] as string;
   const events: GameEvent[] = [];
-  let s = payFromHand(state, a.player, a.handIndex, playCost(state, a), events);
+  // Sprint 12: only the card's own cost here; Modded's install price is paid when it installs.
+  let s = payFromHand(state, a.player, a.handIndex, card?.cost ?? 0, events);
   // The played card goes face up on top of its owner's discard pile, then resolves.
   const me = s.players[a.player];
   s = withPlayer(s, a.player, { discard: [...me.discard, { cardId, faceUp: true }] });
   events.push({ type: 'card_played', player: a.player, cardId, handIndex: a.handIndex });
 
-  const ctx = a.server !== undefined ? { cardId, server: a.server } : { cardId };
-  for (const effect of card?.onPlay ?? []) {
+  // Sprint 12: Modded's target (index in the hand after the played card left), Infiltration's mode / target.
+  const ctx = {
+    cardId,
+    ...(a.server !== undefined ? { server: a.server } : {}),
+    ...(a.installIndex !== undefined ? { installIndex: a.installIndex > a.handIndex ? a.installIndex - 1 : a.installIndex } : {}),
+    ...(a.uid !== undefined ? { target: a.uid } : {}),
+  };
+  for (const effect of playEffects(card, a.mode)) {
     s = resolveEffect(s, effect, a.player, events, ctx);
     if (s.phase === 'over') break;
   }
@@ -526,6 +538,20 @@ function candidatesFor(state: GameState, player: Side, handIndex: number): Actio
   if (card?.type !== (player === 'corp' ? 'operation' : 'event')) return [];
   // Run events with no fixed server (Inside Job): one option per server.
   if (openRunEffect(card)) return state.servers.map((sv) => ({ type: 'play', player, handIndex, server: sv.id }));
+  // Sprint 12 (Modded): one option per Grip card it can install; none = the one dimmed play.
+  const inst = installFromHandEffect(card);
+  if (inst) {
+    const targets = installFromHandTargets(state, player, handIndex, inst);
+    if (targets.length > 0) return targets.map((installIndex) => ({ type: 'play', player, handIndex, installIndex }));
+  }
+  // Sprint 12 (Infiltration): one option per mode; an expose mode once per face-down installed Corp card.
+  if (card.modes) {
+    return card.modes.flatMap((_, mode): Action[] =>
+      playEffects(card, mode).some((e) => e.op === 'expose')
+        ? faceDownCorpCards(state).map((c) => ({ type: 'play', player, handIndex, mode, uid: c.uid }))
+        : [{ type: 'play', player, handIndex, mode }],
+    );
+  }
   return [{ type: 'play', player, handIndex }];
 }
 
@@ -539,8 +565,9 @@ export function handOptions(state: GameState, player: Side): CardOption[][] {
   return state.players[player].hand.map((_, handIndex) =>
     candidatesFor(state, player, handIndex).map((action) => {
       const cost = action.type === 'install' ? installCost(state, action) : action.type === 'play' ? playCost(state, action) : 0;
-      // Sprint 8: how much an install discount (Kate) takes off, only when it does.
-      const discount = action.type === 'install' ? installBaseCost(state, action) - cost : 0;
+      // Sprint 8: how much an install discount (Kate) takes off, only when it does. Sprint 12: Modded's install too.
+      const lowered = action.type === 'play' ? playInstallCost(state, action) : undefined;
+      const discount = action.type === 'install' ? installBaseCost(state, action) - cost : lowered ? lowered.base - lowered.cost : 0;
       return { action, cost, reject: rejectionFor(state, action), ...(discount > 0 ? { discount } : {}) };
     }),
   );
