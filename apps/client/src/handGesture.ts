@@ -80,3 +80,29 @@ export function ghostCenter(x: number, y: number, cardW: number, cardH: number, 
   out.y = Math.max(cardH / 2, Math.min(vh - cardH / 2, y - cardH * 0.35));
   return out;
 }
+
+/** Sprint 15 (S-15-1): the most a dragged card leans (radians, 14°). */
+export const LEAN_MAX = (14 * Math.PI) / 180;
+/** Lean per finger speed (radians per px/ms): about 1.5 px/ms (a brisk drag) reaches the maximum. */
+export const LEAN_PER_SPEED = LEAN_MAX / 1.5;
+/** How fast the lean follows the finger (ms to close most of the gap) and straightens once it stops. */
+export const LEAN_FOLLOW_MS = 40;
+export const LEAN_SETTLE_MS = 80;
+/** S-15-1: the big card rises and grows when pressed (scale, ms); the rise is this share of a hand card's height. */
+export const PRESS_SCALE = 1.08;
+export const PRESS_MS = 80;
+export const PRESS_RISE = 0.1;
+
+/**
+ * S-15-1: how far a dragged card leans (radians, + = clockwise: its top leans right) given the
+ * finger's sideways speed `vx` (px/ms, + = right), the lean before (`prev`) and the time since
+ * (`dt` ms). Faster moves lean more (capped at ±14°); the lean eases toward its target, so a
+ * jittery finger doesn't shake the card.
+ */
+export function leanAngle(vx: number, prev: number, dt: number): number {
+  const target = Math.max(-LEAN_MAX, Math.min(LEAN_MAX, vx * LEAN_PER_SPEED));
+  if (!Number.isFinite(dt) || dt <= 0) return prev;
+  const k = Math.min(1, dt / LEAN_FOLLOW_MS);
+  const out = prev + (target - prev) * k;
+  return Math.max(-LEAN_MAX, Math.min(LEAN_MAX, out));
+}

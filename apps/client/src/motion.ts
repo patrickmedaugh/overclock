@@ -38,6 +38,9 @@ export interface Flight {
   durationMs: number;
   /** The counter that changes when this card lands (pile counts change on landing, not before). */
   land?: { counter: 'deck' | 'discard' | 'score' | 'hand'; side: Side };
+  /** Index of the event (in the planned batch) this flight comes from, and of its card within that event. */
+  source: number;
+  item: number;
 }
 
 /** Owner Q1 A (quick and snappy, ~0.25 s per flight). Tech plan timings; see DECISIONS 2026-11-20 (ui-dev) for the showcase trim. */
@@ -58,7 +61,7 @@ export const MOTION = {
 
 /** One card movement before ripple timing is applied (`chain`: a second leg that follows the first). */
 interface Leg {
-  flight: Omit<Flight, 'delayMs'>;
+  flight: Omit<Flight, 'delayMs' | 'source' | 'item'>;
   /** Extra delay after its card's start (the showcase's second leg). */
   offset: number;
 }
@@ -162,9 +165,9 @@ function legsOf(viewer: Side, e: GameEvent): Leg[][] {
  * `MOTION.maxInAir` cards the rest land at once (duration 0), so the counts still end right.
  */
 export function planMotion(viewer: Side, events: readonly GameEvent[]): Flight[] {
-  const groups = events.flatMap((e) => legsOf(viewer, e));
+  const groups = events.flatMap((e, source) => legsOf(viewer, e).map((g, item) => g.map((l) => ({ ...l, source, item }))));
   if (groups.length === 0) return [];
-  const span = (g: Leg[]) => Math.max(...g.map((l) => l.offset + l.flight.durationMs));
+  const span = (g: readonly Leg[]) => Math.max(...g.map((l) => l.offset + l.flight.durationMs));
   const flying = groups.slice(0, MOTION.maxInAir);
   const longest = Math.max(...flying.map(span));
   const stagger = flying.length > 1 ? Math.max(0, Math.min(MOTION.stagger, Math.floor((MOTION.batchMs - longest) / (flying.length - 1)))) : 0;
@@ -173,7 +176,7 @@ export function planMotion(viewer: Side, events: readonly GameEvent[]): Flight[]
     const air = i < MOTION.maxInAir;
     const start = air ? i * stagger : 0;
     for (const l of g) {
-      out.push({ ...l.flight, delayMs: air ? start + l.offset : 0, durationMs: air ? l.flight.durationMs : 0 });
+      out.push({ ...l.flight, delayMs: air ? start + l.offset : 0, durationMs: air ? l.flight.durationMs : 0, source: l.source, item: l.item });
     }
   });
   return out;

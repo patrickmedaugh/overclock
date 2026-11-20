@@ -42,7 +42,16 @@ export interface HandCallbacks {
   /** S-04-3: the held finger slid onto hand card `index`: show it in the zoom. `at`: the move's event time. */
   onZoomSlide(cardId: string, box: Box, at: number, index: number): void;
   log(rec: Omit<AnimRecord, 'startedAt'>): void;
+  /** Sprint 15: a card sprite starts flying (draw / discard); call the returned function when it lands. */
+  flight?(kind: 'draw' | 'discard', cardId: string | null, root: Container, w: number, h: number): () => void;
+  /** Something drawn moved outside a tween (S-15-1 hover): draw the next frame. */
+  changed?(): void;
 }
+
+/** S-15-1 (mouse): a pointed-at hand card rises this share of its height and leans up to this much toward the pointer. */
+const HOVER_RISE = 0.06;
+const HOVER_LEAN = (4 * Math.PI) / 180;
+const HOVER_MS = 90;
 
 export class Hand {
   readonly container = new Container();
@@ -54,6 +63,8 @@ export class Hand {
   private browsing: HandCard | null = null;
   /** S-07-6: the card lifted out of the hand view, following the finger (or waiting on its place). */
   private lifted: HandCard | null = null;
+  /** S-15-1: the card the mouse points at (desktop), or null. */
+  private hovered: HandCard | null = null;
 
   constructor(
     private readonly side: Side,
@@ -131,6 +142,20 @@ export class Hand {
     this.lifted?.root.position.set(x, y);
   }
 
+  /** S-15-1: the lifted card leans `angle` (radians) and straightens again once the finger stops. */
+  lean(angle: number): void {
+    const card = this.lifted;
+    if (!card) return;
+    this.ui.cancel(card.root);
+    card.root.rotation = angle;
+    if (angle !== 0) this.ui.add({ target: card.root, to: { rotation: 0 }, delay: 30, duration: 80, ease: ease.outCubic, owner: card.root });
+  }
+
+  /** How far the lifted card leans now (radians; 0 when none is lifted). */
+  liftedRotation(): number {
+    return this.lifted?.root.rotation ?? 0;
+  }
+
   /** Where the lifted card is drawn now, or null. */
   liftedBox(): Box | null {
     return this.lifted ? this.cardBox(this.lifted) : null;
@@ -161,11 +186,13 @@ export class Hand {
     const to = { x: slot.x + slot.width / 2, y: slot.y + slot.height / 2 };
     if (ms <= 0) {
       card.root.position.set(to.x, to.y);
+      card.root.rotation = 0;
       card.flip.scale.set(1);
       this.restack();
       return;
     }
-    this.ui.add({ target: card.root, to, duration: ms, ease: ease.outCubic, owner: card.root, onComplete: () => this.restack() });
+    // S-15-1: it glides home and straightens on the way.
+    this.ui.add({ target: card.root, to: { ...to, rotation: 0 }, duration: ms, ease: ease.outCubic, owner: card.root, onComplete: () => this.restack() });
     this.ui.add({ target: card.flip.scale, to: { x: 1, y: 1 }, duration: ms, owner: card.flip });
   }
 
@@ -211,7 +238,7 @@ export class Hand {
    * cards fly in from `deck` (after `delay` ms); everything else slides to
    * its new slot.
    */
-  sync(ids: readonly string[], drawnCount: number, deck: Box, delay = 0): void {
+  sync(ids: readonly string[], drawnCount: number, deck: Box, delay = 0, delays?: readonly number[]): void {
     const layout = this.layout;
     if (!layout) return;
     // Keep the longest matching prefix; rebuild the rest.
@@ -230,7 +257,8 @@ export class Hand {
       const slot = slots[i];
       if (!slot) continue;
       if (i >= firstNew) {
-        const d = delay + (i - firstNew) * 50;
+        // Sprint 15: the planner's ripple (S-15-3), else the Sprint 1 stagger.
+        const d = delay + (delays?.[i - firstNew] ?? (i - firstNew) * 50);
         this.flyIn(card, slot, deck, d);
         this.callbacks.log({ kind: 'draw_flight', scheduledMs: d + timing.drawFlight, box: slot });
       } else {
@@ -245,14 +273,18 @@ export class Hand {
    * Flies the cards at `indices` (into the current hand) to the discard pile
    * and closes the gap. Returns the scheduled duration (ms).
    */
-  discardOut(indices: readonly number[], pile: Box): number {
+  discardOut(indices: readonly number[], pile: Box, delays?: readonly number[]): number {
     const layout = this.layout;
     if (!layout || indices.length === 0) return 0;
     const set = new Set(indices);
     const leaving = this.cards.filter((_, i) => set.has(i));
     this.cards = this.cards.filter((_, i) => !set.has(i));
     const scale = pile.width / layout.card.width;
+    let end = 0;
     leaving.forEach((card, k) => {
+      const delay = delays?.[k] ?? k * timing.discardStagger;
+      end = Math.max(end, delay + timing.discardFlight);
+      const landed = this.callbacks.flight?.('discard', card.cardId, card.root, layout.card.width, layout.card.height);
       card.root.eventMode = 'none';
       card.root.zIndex = 600 + k;
       if (card.mark) card.mark.visible = false;
@@ -262,7 +294,7 @@ export class Hand {
         target: root,
         to: { x: pile.x + pile.width / 2, y: pile.y + pile.height / 2, alpha: 0.85 },
         duration: timing.discardFlight,
-        delay: k * timing.discardStagger,
+        delay,
         ease: ease.inOutCubic,
         owner: root,
         onUpdate: (t) => {
@@ -270,12 +302,21 @@ export class Hand {
           root.scale.set(s);
           root.rotation = Math.sin(t * Math.PI) * 0.25;
         },
-        onComplete: () => this.destroyCard(card),
+        onComplete: () => {
+          landed?.();
+          this.destroyCard(card);
+        },
       });
     });
     this.slideTo(handSlots(layout, this.cards.length), this.cards.length);
     this.restack();
-    return timing.discardFlight + (leaving.length - 1) * timing.discardStagger;
+    return end;
+  }
+
+  /** Sprint 15: takes out the last hand card showing `cardId` (damage: the card flies to the Heap from where it is). */
+  takeOutId(cardId: string): { card: HandCard; box: Box } | null {
+    for (let i = this.cards.length - 1; i >= 0; i--) if (this.cards[i]?.cardId === cardId) return this.takeOut(i);
+    return null;
   }
 
   /**
@@ -290,7 +331,13 @@ export class Hand {
     this.cards.splice(index, 1);
     card.detach();
     this.fx.cancel(card.root);
+    this.ui.cancel(card.root);
     this.ui.cancel(card.flip.scale);
+    this.ui.cancel(card.flip.pivot);
+    this.ui.cancel(card.flip);
+    card.flip.pivot.y = 0;
+    card.flip.rotation = 0;
+    if (this.hovered === card) this.hovered = null;
     card.root.eventMode = 'none';
     if (card.mark) card.mark.visible = false;
     if (card.glow) card.glow.visible = false;
@@ -352,8 +399,45 @@ export class Hand {
   }
 
   /** Rendered bounds of each hand card (CSS px). */
-  boxes(): { cardId: string; box: Box; marked: boolean; selected: boolean; outlined: boolean }[] {
-    return this.cards.map((c) => ({ cardId: c.cardId, box: this.cardBox(c), marked: c.marked, selected: c.selected, outlined: c === this.browsing }));
+  boxes(): { cardId: string; box: Box; marked: boolean; selected: boolean; outlined: boolean; hover?: { rise: number; rotation: number } }[] {
+    return this.cards.map((c) => ({
+      cardId: c.cardId,
+      box: this.cardBox(c),
+      marked: c.marked,
+      selected: c.selected,
+      outlined: c === this.browsing,
+      ...(c === this.hovered ? { hover: { rise: c.flip.pivot.y, rotation: c.flip.rotation } } : {}),
+    }));
+  }
+
+  /**
+   * S-15-1 (mouse only): the pointed-at card rises a little and leans toward the pointer (`x`:
+   * the pointer's x); null puts the hovered card back. Drawn on the card's inner layer, so its
+   * place and touch area stay where they are.
+   */
+  private hover(card: HandCard | null, x = 0): void {
+    const prev = this.hovered;
+    if (prev && prev !== card && !prev.root.destroyed) {
+      this.ui.cancel(prev.flip.pivot);
+      this.ui.cancel(prev.flip);
+      this.ui.add({ target: prev.flip.pivot, to: { y: 0 }, duration: HOVER_MS, ease: ease.outCubic, owner: prev.flip });
+      this.ui.add({ target: prev.flip, to: { rotation: 0 }, duration: HOVER_MS, ease: ease.outCubic, owner: prev.flip });
+    }
+    this.hovered = card;
+    const layout = this.layout;
+    if (!card || card.root.destroyed || !layout) {
+      this.callbacks.changed?.();
+      return;
+    }
+    const w = layout.card.width;
+    const lean = Math.max(-1, Math.min(1, (x - card.root.x) / (w / 2))) * HOVER_LEAN;
+    if (prev !== card) {
+      this.ui.cancel(card.flip.pivot);
+      this.ui.add({ target: card.flip.pivot, to: { y: Math.round(layout.card.height * HOVER_RISE) }, duration: HOVER_MS, ease: ease.outCubic, owner: card.flip });
+    }
+    this.ui.cancel(card.flip);
+    this.ui.add({ target: card.flip, to: { rotation: lean }, duration: HOVER_MS, ease: ease.outCubic, owner: card.flip });
+    this.callbacks.changed?.();
   }
 
   private slideTo(slots: Box[], count: number): void {
@@ -444,6 +528,16 @@ export class Hand {
     this.container.addChild(root);
 
     const card: HandCard = { cardId, root, flip, back, face, mark: null, marked: false, glow: null, outline: null, selected: false, detach: () => {}, pressed: false };
+    // S-15-1: a mouse pointing at a hand card lifts it a little (touch has the press feedback instead).
+    const pointing = (e: { pointerType: string; global: { x: number } }) => {
+      if (e.pointerType !== 'mouse' || root.eventMode !== 'static' || card === this.lifted) return;
+      this.hover(card, e.global.x);
+    };
+    root.on('pointerover', pointing);
+    root.on('pointermove', pointing);
+    root.on('pointerout', (e) => {
+      if (e.pointerType === 'mouse' && this.hovered === card) this.hover(null);
+    });
     card.detach = attachPress(root, {
       onDown: () => {
         const i = this.cards.indexOf(card);
@@ -497,6 +591,7 @@ export class Hand {
     // A card in flight must not swallow taps meant for the deck under it.
     card.root.eventMode = 'none';
     const flip = card.flip;
+    const landed = this.callbacks.flight?.('draw', card.cardId, card.root, layout.card.width, layout.card.height);
     this.fx.add({
       target: card.root,
       to: { x: slot.x + slot.width / 2, y: slot.y + slot.height / 2 },
@@ -514,6 +609,7 @@ export class Hand {
         flip.scale.x = t >= 1 ? 1 : Math.max(0.02, Math.abs(1 - 2 * t));
       },
       onComplete: () => {
+        landed?.();
         card.root.eventMode = 'static';
         card.root.scale.set(1);
         flip.scale.x = 1;
@@ -531,6 +627,7 @@ export class Hand {
   private destroyCard(card: HandCard): void {
     if (card.root.destroyed) return;
     if (this.browsing === card) this.browsing = null;
+    if (this.hovered === card) this.hovered = null;
     if (this.lifted === card) this.lifted = null;
     card.detach();
     this.fx.cancel(card.root);

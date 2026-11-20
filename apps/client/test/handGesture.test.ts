@@ -89,3 +89,24 @@ describe('timings', () => {
     expect(RETURN_MS).toBeLessThanOrEqual(150);
   });
 });
+
+describe('leanAngle (S-15-1)', () => {
+  it('leans the way the finger moves, more when faster, capped at 14 degrees', async () => {
+    const { leanAngle, LEAN_MAX } = await import('../src/handGesture');
+    const slow = leanAngle(0.3, 0, 40);
+    const fast = leanAngle(1.2, 0, 40);
+    expect(slow).toBeGreaterThan(0);
+    expect(fast).toBeGreaterThan(slow);
+    expect(leanAngle(-1, 0, 40)).toBeLessThan(0);
+    expect(leanAngle(50, 0, 1000)).toBeCloseTo(LEAN_MAX);
+    expect(leanAngle(-50, 0, 1000)).toBeCloseTo(-LEAN_MAX);
+  });
+  it('eases toward the target and straightens when the finger stops', async () => {
+    const { leanAngle } = await import('../src/handGesture');
+    const half = leanAngle(1, 0, 20);
+    expect(half).toBeGreaterThan(0);
+    expect(half).toBeLessThan(leanAngle(1, 0, 40));
+    expect(leanAngle(0, 0.2, 40)).toBe(0);
+    expect(leanAngle(1, 0.1, 0)).toBe(0.1);
+  });
+});

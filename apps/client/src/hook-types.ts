@@ -267,7 +267,15 @@ export interface LayoutSnapshot {
   handArea: Box;
   /** Rendered hand cards (the viewer's), in hand order. `marked` = picked for discard, `selected` = picked to play. */
   /** `outlined`: the card a hold-and-slide shows in the zoom (S-04-3). */
-  hand: { cardId: string; box: Box; marked: boolean; selected: boolean; outlined: boolean }[];
+  hand: {
+    cardId: string;
+    box: Box;
+    marked: boolean;
+    selected: boolean;
+    outlined: boolean;
+    /** S-15-1 (mouse): the pointer is over it: how far it rises (px) and leans (radians, toward the pointer). Absent otherwise. */
+    hover?: { rise: number; rotation: number };
+  }[];
   /** Corp servers in view order (hq, rd, archives, remotes). */
   servers: ServerSnapshot[];
   /** The Runner's installed cards, install order. */
@@ -357,7 +365,14 @@ export interface LayoutSnapshot {
    * S-07-6: a hand card lifted out of the hand view, following the finger.
    * `box`: where it is drawn now; `hover`: the place under the finger, if any (lit or dimmed).
    */
-  drag: { index: number; cardId: string; box: Box; hover: { kind: TargetSnapshot['kind']; server?: string; lit: boolean } | null } | null;
+  drag: {
+    index: number;
+    cardId: string;
+    box: Box;
+    hover: { kind: TargetSnapshot['kind']; server?: string; lit: boolean } | null;
+    /** S-15-1: how far it leans now (radians, + = its top leans right), 0 when straight. */
+    rotation: number;
+  } | null;
   /**
    * S-05-2: what the ICE just did ("Enigma: you lost 1 click. Enigma ended your run."),
    * shown until the next tap anywhere (that tap only closes it). `box`: the message.

@@ -35,7 +35,7 @@ export function sideDeep(side: Side): number {
 
 /** Timing budget (ms). Nothing here may block input; see CLAUDE.md snappiness budget. */
 export const timing = {
-  drawFlight: 250,
+  drawFlight: 240,
   handShift: 180,
   pressFeedback: 60,
   zoomIn: 120,

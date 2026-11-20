@@ -25,6 +25,8 @@ export class HotSeat implements Session {
   private last: GameEvent[] = [];
   private readonly presented = new Listeners<Presentation>();
   private readonly saved = new Listeners<HotSeat>();
+  /** Sprint 15: the waiting seat's projection of the active seat's moves this turn (for `missedEvents`). */
+  private missed: GameEvent[] = [];
 
   /** Sprint 8: `options` (e.g. `{deckSet: 'starter'}` for legacy test boards) go to the match; default = core decks. */
   constructor(seed: number, options?: Partial<GameOptions>);
@@ -117,7 +119,10 @@ export class HotSeat implements Session {
     const shown = this.bottom;
     const next = update[shown].view.activePlayer;
     const endIdx = mine.events.findIndex((e) => e.type === 'turn_ended');
+    const waiting: Side = shown === 'corp' ? 'runner' : 'corp';
     if (next === shown || endIdx < 0) {
+      // Refused moves change nothing.
+      if (!mine.events.some((e) => e.type === 'action_rejected')) this.missed.push(...update[waiting].events);
       // The other seat acted (the Corp's rez decision mid-run, or the test hook):
       // the bottom seat's own projection animates, plus the actor's rejection hint
       // (rejections go to the submitting seat only).
@@ -127,7 +132,10 @@ export class HotSeat implements Session {
     this.bottom = next;
     const theirs = update[next].events;
     const theirEnd = theirs.findIndex((e) => e.type === 'turn_ended');
+    const missedEvents = [...this.missed, ...theirs.slice(0, theirEnd + 1)];
+    this.missed = [];
     return {
+      missedEvents,
       kind: 'handoff',
       actor,
       actorView: mine.view,
