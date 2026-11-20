@@ -7,10 +7,18 @@
   "compatibility_date": "2026-11-01",
   "workers_dev": true,
   "durable_objects": {
-    "bindings": [{ "name": "GAME_ROOM", "class_name": "GameRoom" }]
+    "bindings": [
+      { "name": "GAME_ROOM", "class_name": "GameRoom" },
+      // Sprint 14: deck lockers (one per deck code) and wrong-guess guards (one per hashed IP).
+      { "name": "DECK_LOCKER", "class_name": "DeckLocker" },
+      { "name": "GUESS_GUARD", "class_name": "GuessGuard" }
+    ]
   },
   // The free plan supports only SQLite-backed Durable Objects.
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["GameRoom"] }],
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["GameRoom"] },
+    { "tag": "v2", "new_sqlite_classes": ["DeckLocker", "GuessGuard"] }
+  ],
   "vars": {
     // Overridden at deploy with the git commit (`--var BUILD:<sha>`); /health reports it.
     "BUILD": "dev",

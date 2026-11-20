@@ -77,3 +77,20 @@ jobs:
           done
           echo "::error::$HEALTH never reported build $GITHUB_SHA"
           exit 1
+
+      # Sprint 14: the deck service answers a CORS preflight from the web link's origin.
+      - name: Deck service preflight (CORS)
+        if: steps.ready.outputs.ok == 'true'
+        run: |
+          set -euo pipefail
+          BASE="$(echo "$SERVER_URL" | sed -e 's#^wss://#https://#' -e 's#^ws://#http://#' -e 's#/*$##')"
+          ORIGIN="https://patrickmedaugh.github.io"
+          HEADERS=$(curl -sS -o /dev/null -D - -X OPTIONS "$BASE/v1/decks/sync" \
+            -H "Origin: $ORIGIN" -H "Access-Control-Request-Method: POST" -H "Access-Control-Request-Headers: content-type")
+          echo "$HEADERS"
+          if echo "$HEADERS" | tr -d '\r' | grep -qi "^access-control-allow-origin: $ORIGIN\$"; then
+            echo "The deck service allows $ORIGIN."
+          else
+            echo "::error::OPTIONS $BASE/v1/decks/sync did not allow $ORIGIN"
+            exit 1
+          fi

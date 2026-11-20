@@ -1,6 +1,6 @@
 # OVERCLOCK online service (`apps/server`)
 
-The small online service that lets two phones play one game. It runs on **Cloudflare's free plan**: a *Worker* (a tiny program that answers web requests) and one *Durable Object* per game (a little box that holds one game and talks to both phones). The service runs the rules and sends each phone only what that player may see.
+The small online service that lets two phones play one game, and (Sprint 14) keeps your decks safe online so every device linked with your deck code has the same decks. It runs on **Cloudflare's free plan**: a *Worker* (a tiny program that answers web requests) and one *Durable Object* per game (a little box that holds one game and talks to both phones). The service runs the rules and sends each phone only what that player may see.
 
 ---
 
@@ -33,7 +33,7 @@ Everything below runs offline, with no Cloudflare account. Needs Node ≥ 22.12 
 | Command (from the repo root) | What it does |
 |---|---|
 | `npm test -w apps/server` | Vitest: room logic (`src/room.ts`), leak test, hashing, Origin check. Plain Node, no Cloudflare. |
-| `npm run test:dev -w apps/server` | Starts the real Worker + Durable Object with `wrangler dev` (fresh storage in a temp folder, test mode on), plays a short two-phone game, checks `full`/`no_game`/`bad_token`/Origin, restarts the server and checks the game survived. ~5 s. Optional `DEV_PORT`. |
+| `npm run test:dev -w apps/server` | Starts the real Worker + Durable Objects with `wrangler dev` (fresh storage in a temp folder, test mode on), plays a short two-phone game, checks `full`/`no_game`/`bad_token`/Origin, checks the deck service (two devices share decks, preflight, garbage/oversized refused, wrong-code lockout), restarts the server and checks the game and the decks survived. ~10 s. Optional `DEV_PORT`. |
 | `npm run dev -w apps/server` | `wrangler dev` with `wrangler.jsonc` as is (production allowlist, test mode off). For local play see below. |
 
 **Local server for e2e / local play:**
@@ -46,7 +46,9 @@ npx wrangler dev --port 8787 --ip 127.0.0.1 --persist-to <fresh empty dir> \
 ```
 Ready when `GET http://127.0.0.1:8787/health` answers `{"ok":true,"build":"dev","protocol":1}` (usually 1–3 s). The client connects to `ws://127.0.0.1:8787`.
 
-**Test mode** (`OVERCLOCK_TEST_MODE=1` *and* `BUILD=dev`, so never in a deployed build — `src/config.ts`): `create` may carry `test: {seed, actions}`; the game starts from that seed and replays the actions (refused ones are skipped), so a test can start at any board. Without test mode the field is ignored and the seed is random.
+**Test mode** (`OVERCLOCK_TEST_MODE=1` *and* `BUILD=dev`, so never in a deployed build — `src/config.ts`): `create` may carry `test: {seed, actions}`; the game starts from that seed and replays the actions (refused ones are skipped), so a test can start at any board. Without test mode the field is ignored and the seed is random. Sprint 14: the request header `X-Overclock-Test-Ip: <any text>` picks the caller's "IP" (= device) for the wrong-guess guard, so two browser contexts or two scripts can be two devices; without test mode the header is ignored (Cloudflare's `CF-Connecting-IP` decides) and the preflight doesn't offer it.
+
+**Deck service on the local server** (Sprint 14; same port as the game sockets, plain HTTP): `POST http://127.0.0.1:8787/v1/decks/new` `{v:1, store}` → `{v, code, store}`; `POST …/v1/decks/sync` `{v:1, code, store}` → `{v, store}` (merged). Errors `{v, error, retryAfterMs?}`: 404 `no_decks`, 429 `wait` (+ `Retry-After`), 400 `bad_store`/`version`, 413 `too_big`. The page's Origin must be in `ALLOWED_ORIGINS` (the e2e line above allows `http://localhost:*`); requests without an allowed Origin get 403. Storage is in the `--persist-to` folder, so a fresh folder = no lockers. Contract: `packages/engine/README.md` "Sprint 14 interface".
 
 **Vars** (`wrangler.jsonc`, override with `--var NAME:value`): `BUILD` (shown by `/health`; CI deploys with `--var BUILD:<commit sha>`), `ALLOWED_ORIGINS` (comma-separated; `*` = one run of letters/digits/dashes, e.g. a port or a preview prefix), `OVERCLOCK_TEST_MODE`.
 
@@ -57,4 +59,5 @@ Ready when `GET http://127.0.0.1:8787/health` answers `{"ok":true,"build":"dev",
 - `src/do.ts` — the Durable Object `GameRoom`: WebSocket hibernation, synchronous KV storage, alarm, ping/pong auto-response.
 - `src/worker.ts` — routes `/health`, `/v1/create` (picks a free code, up to 5 tries), `/v1/games/<CODE>`; Origin check.
 - `src/hash.ts` — synchronous SHA-256 (seat tokens are stored only as hashes) and base64url.
+- Sprint 14 deck service: `src/decks.ts` (HTTP: routes, CORS, body checks, guard → locker order; no `cloudflare:` imports), `src/locker.ts` (one locker per deck code, pure; storage `meta`, `d:<id>`, `t:<id>`; merge = `mergeDeckStores`; a merge over the limits is refused and writes nothing), `src/guard.ts` (wrong-guess guard per SHA-256 of the IP, pure: every `sync` counts as wrong until the locker says the code exists, 5 free then 60 s doubling to 1 h; `new` ≤ 10/hour; forgotten after a day). Durable Objects `DeckLocker` and `GuessGuard` in `src/do.ts` (RPC methods, synchronous KV), migration tag `v2`. A `sync` costs 3 Durable Object calls (guard, locker, guard), a `new` 2.
 - Storage per game: `meta`, `state` (snapshot), `a:000001…` (accepted actions). Restored from the snapshot when the same build wrote it, else by replaying the actions. Cleanup alarm: lobby 2 h, idle game 7 days from the last move or Leave for now (Sprint 11; was 3 days), finished game 1 h. Sprint 11: `leave` in a started game = Leave for now (`meta.left[seat]`, socket closed 1000 `'left'`, the other seat gets `presence {opponent: 'away', left: true}`; `resume` clears it).
