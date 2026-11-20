@@ -5,7 +5,7 @@
 // storage never stops the screens (the decks then last until the page closes).
 import { type DeckDef, IDENTITIES, STANDARD_DECKS, countsOf, deckFromCounts } from '@overclock/cards';
 import type { Side } from '@overclock/engine';
-import { DECK_STORE_FORMAT, type DeckStore, type StoredDeck, parseDeckStore } from '@overclock/match';
+import { DECK_STORE_FORMAT, type DeckStore, type DeckTombstone, type StoredDeck, mergeDeckStores, parseDeckStore } from '@overclock/match';
 import type { StoreLike } from './online';
 import { newDeckName } from './deckText';
 
@@ -54,6 +54,13 @@ export interface DeckLibraryDeps {
 }
 
 /**
+ * Sprint 14: what changed the store. `local` = this device wrote a change (after the deferred
+ * write: the deck sync counts it as a change to send); `remote` = the online copy was merged in
+ * (the screens redraw; nothing to send back).
+ */
+export type DeckChange = 'local' | 'remote';
+
+/**
  * The player's decks plus the two standard decks. Changes are kept in memory at once and written
  * after the tap's frame (`schedule`); `flush()` writes now (leaving the editor, the page hidden).
  */
@@ -61,6 +68,9 @@ export class DeckLibrary {
   /** A newer build's store: shown, never changed or written. */
   readonly readOnly: boolean;
   private decks: StoredDeck[];
+  /** Sprint 14: deleted decks (so a stale copy elsewhere can't bring them back). */
+  private deleted: DeckTombstone[];
+  private readonly listeners = new Set<(c: DeckChange) => void>();
   private scheduled = false;
   private dirty = false;
   private readonly schedule: (fn: () => void) => unknown;
@@ -79,6 +89,37 @@ export class DeckLibrary {
     const read = readDeckStore(storage);
     this.readOnly = read === 'newer';
     this.decks = read === 'newer' ? readNewerDecks(storage) : [...read.decks];
+    this.deleted = read === 'newer' ? [] : [...read.deleted];
+  }
+
+  /** Sprint 14: called after a local change is written, and after the online copy is merged in. */
+  onChange(fn: (c: DeckChange) => void): () => void {
+    this.listeners.add(fn);
+    return () => this.listeners.delete(fn);
+  }
+
+  /** Sprint 14: the player has decks of their own, or deleted one (something worth keeping online). */
+  hasOwn(): boolean {
+    return this.decks.length > 0 || this.deleted.length > 0;
+  }
+
+  /**
+   * Sprint 14: merges the online copy in (`mergeDeckStores`: per deck the newest change wins, a
+   * delete included). Not a local change: nothing is counted to send back. True if anything changed.
+   */
+  applyRemote(remote: DeckStore): boolean {
+    if (this.readOnly) return false;
+    const merged = mergeDeckStores(this.snapshot(), remote);
+    if (JSON.stringify(merged) === JSON.stringify(mergeDeckStores(this.snapshot(), this.snapshot()))) return false;
+    // Keep this device's order for decks it already had; new ones go after them.
+    const order = new Map(this.decks.map((d, i) => [d.id, i]));
+    this.decks = [...merged.decks].sort((a, b) => (order.get(a.id) ?? Infinity) - (order.get(b.id) ?? Infinity));
+    this.deleted = [...merged.deleted];
+    // A local change still waiting for its write goes out with that write (and counts as local);
+    // otherwise the merged store is written now.
+    if (!this.dirty) this.write();
+    for (const fn of this.listeners) fn('remote');
+    return true;
   }
 
   /** The standard deck of `side` (read-only). */
@@ -131,30 +172,42 @@ export class DeckLibrary {
   }
 
   remove(id: string): void {
-    if (!this.decks.some((d) => d.id === id)) return;
+    const d = this.decks.find((x) => x.id === id);
+    if (!d) return;
     this.change(() => {
-      this.decks = this.decks.filter((d) => d.id !== id);
+      this.decks = this.decks.filter((x) => x.id !== id);
+      // Sprint 14: remember the delete (newer than the deck's last change, so it wins the merge).
+      this.deleted = [...this.deleted.filter((t) => t.id !== id), { id, deletedAt: Math.max(this.now(), d.updatedAt) }];
     });
   }
 
   /** Writes now if anything changed. */
   flush(): void {
     this.scheduled = false;
-    if (!this.dirty || this.readOnly || !this.storage) return;
+    if (!this.dirty || this.readOnly) return;
     this.dirty = false;
-    this.writes++;
-    const store: DeckStore = { format: DECK_STORE_FORMAT, decks: this.decks, deleted: [] };
-    try {
-      this.storage.setItem(DECKS_KEY, JSON.stringify(store));
-    } catch {
-      // full or blocked storage: the decks stay in memory for now
-      this.dirty = true;
-    }
+    // Blocked storage: the decks stay in memory (and still go online, Sprint 14).
+    if (this.storage && !this.write()) this.dirty = true;
+    for (const fn of this.listeners) fn('local');
   }
 
-  /** The store as kept (test hook). */
+  /** The store as kept (test hook; the deck sync sends it). Detached. */
   snapshot(): DeckStore {
-    return { format: DECK_STORE_FORMAT, decks: this.decks.map((d) => ({ ...d, cards: { ...d.cards } })), deleted: [] };
+    return { format: DECK_STORE_FORMAT, decks: this.decks.map((d) => ({ ...d, cards: { ...d.cards } })), deleted: this.deleted.map((t) => ({ ...t })) };
+  }
+
+  /** Writes the store now; false if storage refused (full or blocked). */
+  private write(): boolean {
+    if (!this.storage) return false;
+    this.writes++;
+    const store: DeckStore = { format: DECK_STORE_FORMAT, decks: this.decks, deleted: this.deleted };
+    try {
+      this.storage.setItem(DECKS_KEY, JSON.stringify(store));
+      return true;
+    } catch {
+      // full or blocked storage: the decks stay in memory for now
+      return false;
+    }
   }
 
   private update(id: string, fn: (d: StoredDeck) => StoredDeck): void {
@@ -216,7 +269,8 @@ function readNewerDecks(storage: StoreLike | null): StoredDeck[] {
     const raw = storage?.getItem(DECKS_KEY);
     const x = raw ? (JSON.parse(raw) as { decks?: unknown }) : null;
     if (!x || !Array.isArray(x.decks)) return [];
-    const parsed = parseDeckStore({ format: DECK_STORE_FORMAT, decks: x.decks.filter((d) => parseDeckStore({ format: DECK_STORE_FORMAT, decks: [d] }) !== 'broken') });
+    const one = (decks: unknown[]) => parseDeckStore({ format: DECK_STORE_FORMAT, decks, deleted: [] });
+    const parsed = one(x.decks.filter((d) => one([d]) !== 'broken'));
     return parsed === 'broken' || parsed === 'newer' ? [] : [...parsed.decks];
   } catch {
     return [];

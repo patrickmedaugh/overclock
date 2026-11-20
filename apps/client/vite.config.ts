@@ -20,6 +20,11 @@ export function serverOrigin(url: string): string {
   return `${u.protocol}//${u.host}`;
 }
 
+/** Sprint 14: the deck service's origin for a game service origin (`wss://h` → `https://h`, `ws://h` → `http://h`). */
+export function httpOrigin(origin: string): string {
+  return origin.replace(/^ws(s?):/, 'http$1:');
+}
+
 const SERVER_URL = process.env['OVERCLOCK_SERVER_URL'] ?? '';
 
 /**
@@ -37,8 +42,9 @@ export function cspFor(server: string): string {
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob:",
     "font-src 'self' data:",
-    // Sprint 6: only the online service's origin besides our own.
-    `connect-src 'self'${server ? ` ${serverOrigin(server)}` : ''}`,
+    // Sprint 6: only the online service's origin besides our own. Sprint 14: its deck service
+    // (HTTP on the same host: https:// for wss://, http:// for a local ws://) too.
+    `connect-src 'self'${server ? ` ${serverOrigin(server)} ${httpOrigin(serverOrigin(server))}` : ''}`,
     "worker-src 'self' blob:",
     "object-src 'none'",
     "base-uri 'self'",

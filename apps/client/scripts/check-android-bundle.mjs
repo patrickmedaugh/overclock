@@ -53,7 +53,8 @@ for (const s of srcs) {
 if (!/<meta http-equiv="Content-Security-Policy"/.test(index)) problems.push('index.html: the Content Security Policy is missing');
 
 // Sprint 6: the app may connect only to itself and the online service
-// (OVERCLOCK_SERVER_URL of this build, if set): nothing else in connect-src.
+// (OVERCLOCK_SERVER_URL of this build, if set; Sprint 14: plus its https:// origin for the deck
+// service): nothing else in connect-src.
 const csp = (index.match(/<meta http-equiv="Content-Security-Policy" content="([^"]*)"/)?.[1] ?? '')
   .replace(/&#39;/g, "'")
   .replace(/&quot;/g, '"')
@@ -69,7 +70,8 @@ if (server) {
     problems.push(`OVERCLOCK_SERVER_URL is not a URL: ${server}`);
   }
 }
-const expected = ['connect-src', "'self'", ...(serverOrigin ? [serverOrigin] : [])].join(' ');
+const httpOrigin = serverOrigin.replace(/^ws(s?):/, 'http$1:');
+const expected = ['connect-src', "'self'", ...(serverOrigin ? [serverOrigin, httpOrigin] : [])].join(' ');
 if (connect !== expected) problems.push(`index.html: CSP "${connect}" — expected exactly "${expected}"`);
 if (serverOrigin && !serverOrigin.startsWith('wss://')) problems.push(`the app's online service must use wss:// (got ${serverOrigin})`);
 
