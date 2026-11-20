@@ -15,7 +15,8 @@ const NOT_WEB = [/rotate\.spec\.ts/, /android\.spec\.ts/];
 // its own short sizes, so the other projects skip it.
 // Sprint 10: the new board specs run there too (not s10-online). Sprint 11: s11-break, s11-cards, s11-save, qa-sprint11.
 // Sprint 12: s12-melange, s12-abt, s12-archives, s12-runner (not s12-online).
-const SHORT_SPECS = [/short-rail\.spec\.ts/, /s03-corp-score\.spec\.ts/, /s10-scored\.spec\.ts/, /s10-stats\.spec\.ts/, /s10-bankjob\.spec\.ts/, /s10-board\.spec\.ts/, /qa-sprint10\.spec\.ts/, /s11-break\.spec\.ts/, /s11-cards\.spec\.ts/, /s11-save\.spec\.ts/, /qa-sprint11\.spec\.ts/, /s12-melange\.spec\.ts/, /s12-abt\.spec\.ts/, /s12-archives\.spec\.ts/, /s12-runner\.spec\.ts/, /qa-sprint12\.spec\.ts/];
+// Sprint 13: the deck builder specs (s13-decks, s13-editor, s13-rules, s13-play) and qa-sprint13.
+const SHORT_SPECS = [/short-rail\.spec\.ts/, /s03-corp-score\.spec\.ts/, /s10-scored\.spec\.ts/, /s10-stats\.spec\.ts/, /s10-bankjob\.spec\.ts/, /s10-board\.spec\.ts/, /qa-sprint10\.spec\.ts/, /s11-break\.spec\.ts/, /s11-cards\.spec\.ts/, /s11-save\.spec\.ts/, /qa-sprint11\.spec\.ts/, /s12-melange\.spec\.ts/, /s12-abt\.spec\.ts/, /s12-archives\.spec\.ts/, /s12-runner\.spec\.ts/, /qa-sprint12\.spec\.ts/, /s13-(decks|editor|rules|play)\.spec\.ts/, /qa-sprint13\.spec\.ts/];
 const NOT_WIDE = [...NOT_WEB, /short-rail\.spec\.ts/];
 // Sprint 6: the online service (apps/server) under `wrangler dev`, test mode on,
 // fresh storage every run. The web build points "Play online" at it.

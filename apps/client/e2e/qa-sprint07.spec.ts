@@ -539,6 +539,8 @@ test.describe('QA owner request: pass-and-play says "device", never "phone"', ()
     expect(await start.innerText()).not.toMatch(/phone/i);
     await page.evaluate(() => window.__overclockStart!.back());
     await tapButton(page, /Play on this device/);
+    // Sprint 13: the deck picker (standard decks picked) -> Start.
+    await tapButton(page, /^Start$/);
     await page.waitForFunction(() => !!window.__overclock);
     await waitIdle(page);
     // End the Corp's turn: the cover says "Pass to the Runner — tap when ready" (one line).

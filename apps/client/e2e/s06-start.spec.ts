@@ -75,6 +75,8 @@ test.describe('S-06-1 start screen', () => {
 
     const t0 = Date.now();
     await tapButton(page, /Play on this device/);
+    // Sprint 13: the deck picker (standard decks picked) -> Start.
+    await tapButton(page, /^Start$/);
     await page.waitForFunction(() => !!window.__overclock);
     const ms = Date.now() - t0;
     test.info().annotations.push({ type: 'play-here-ms', description: String(ms) });
@@ -101,6 +103,8 @@ test.describe('S-06-1 start screen', () => {
     // From the notice, Play on this device still works.
     await tapButton(page, /Play online/);
     await tapButton(page, /Play on this device/);
+    // Sprint 13: the deck picker (standard decks picked) -> Start.
+    await tapButton(page, /^Start$/);
     await page.waitForFunction(() => !!window.__overclock);
     await expect(page.locator(START)).toBeHidden();
   });

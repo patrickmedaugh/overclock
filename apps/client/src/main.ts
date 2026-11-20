@@ -2,11 +2,14 @@
 // `new Function`, so the game runs under a strict Content Security Policy
 // (no 'unsafe-eval'; see vite.config.ts) and in locked-down WebViews.
 import 'pixi.js/unsafe-eval';
-import { getCard } from '@overclock/cards';
-import type { Action, DeckSet, GameEvent, Side } from '@overclock/engine';
+import { type DeckDef, getCard } from '@overclock/cards';
+import type { Action, DeckSet, GameEvent, GameOptions, Side } from '@overclock/engine';
 import { Application, updateRenderGroupTransforms } from 'pixi.js';
 import { Board } from './board';
-import { fullFaceInfo, setCardRenderer, smallFaceLayout } from './cardFace';
+import { createZoomFace, flushZoomFaces, fullFaceInfo, setCardRenderer, smallFaceLayout } from './cardFace';
+import { DeckLibrary, picksOf } from './deckStore';
+import type { DeckPicks, ZoomImage } from './decksScreen';
+import { computeLayout } from './layout';
 import { forceFrameSpeed, noteDraw, noteTick } from './frameClock';
 import type { BackAction } from './back';
 import type { AnimRecord } from './hook-types';
@@ -77,9 +80,29 @@ async function start(): Promise<void> {
     requestAnimationFrame(() => setTimeout(run, 0));
     setTimeout(run, 250);
   });
-  window.addEventListener('pagehide', () => saver.flush());
+  // Sprint 13 (S-13-4): the decks on this device; a change is written after the tap's frame,
+  // and at once when the page is hidden or closed (and when the editor is left).
+  const library = new DeckLibrary(storage, {
+    schedule: (fn) => {
+      let done = false;
+      const run = () => {
+        if (done) return;
+        done = true;
+        fn();
+      };
+      requestAnimationFrame(() => setTimeout(run, 0));
+      setTimeout(run, 250);
+    },
+  });
+  window.addEventListener('pagehide', () => {
+    saver.flush();
+    library.flush();
+  });
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'hidden') saver.flush();
+    if (document.visibilityState === 'hidden') {
+      saver.flush();
+      library.flush();
+    }
   });
 
   // The game being played (null on the start screen). The board talks only to the Session interface.
@@ -186,7 +209,13 @@ async function start(): Promise<void> {
   };
   // Pass-the-phone: Leave closes the app (the game is saved). Online, Leave for now keeps the seat and goes to the start screen.
   let leaveGame: () => void = exit;
-  let newGame = (): void => window.location.assign(`${window.location.pathname}?play=here${coverOn ? '' : '&cover=off'}`);
+  // Pass-the-phone New game: today's standard game at once; after a game with the player's own
+  // decks, the deck picker with the same decks picked (lead decision, Sprint 13).
+  let newGame = (): void => {
+    const picks = game instanceof HotSeat ? picksOf(game.save().options.decks, library) : null;
+    const what = picks ? `play=pick&corp=${encodeURIComponent(picks.corp)}&runner=${encodeURIComponent(picks.runner)}` : 'play=here';
+    window.location.assign(`${window.location.pathname}?${what}${coverOn ? '' : '&cover=off'}`);
+  };
   const back = (): BackAction => {
     if (game) return board.back(leaveGame);
     // The start screen: Back steps back one screen; on the first screen it closes the app.
@@ -309,7 +338,23 @@ async function start(): Promise<void> {
       };
     }
   };
-  const playHere = () => play(new HotSeat(seedFromUrl(window.location.search), deckSet ? { deckSet } : undefined));
+  // Sprint 13 (S-13-5): `decks` only for sides with the player's own deck (standard games are today's).
+  const playHere = (decks?: Partial<Record<Side, DeckDef>>) => {
+    const options: Partial<GameOptions> = { ...(deckSet ? { deckSet } : {}), ...(decks ? { decks } : {}) };
+    play(new HotSeat(seedFromUrl(window.location.search), Object.keys(options).length > 0 ? options : undefined));
+  };
+  /** Sprint 13: the game's zoom face of a card, drawn to a canvas for the deck editor (same size as in a game). */
+  const zoomFace = (cardId: string): ZoomImage | null => {
+    const def = getCard(cardId);
+    if (!def) return null;
+    const z = computeLayout(window.innerWidth, window.innerHeight, readSafeArea()).zoom;
+    // No board zoom is on screen while the start screen shows: faces dropped earlier can go.
+    flushZoomFaces();
+    const f = createZoomFace(def, z.width, z.height);
+    const canvas = app.renderer.extract.canvas({ target: f.root, resolution: app.renderer.resolution }) as HTMLCanvasElement;
+    f.root.destroy({ children: true });
+    return { canvas, width: z.width, height: z.height, texts: f.texts, overflow: f.overflow };
+  };
 
   // Sprint 11: the saved pass-the-phone game, read (replayed) once, when the start screen first asks.
   let hereSave: HotSeatSave | null = null;
@@ -366,6 +411,8 @@ async function start(): Promise<void> {
   // S-06-1: the start screen.
   const start = new StartScreen(document.body, {
     playHere,
+    library,
+    zoomFace,
     savedHere: () => {
       const s = savedHere();
       return s.kind === 'ready' ? { turn: s.turn } : s.kind === 'outdated' ? { turn: null } : null;
@@ -406,6 +453,9 @@ async function start(): Promise<void> {
     // Online tests: start a game with a fixed deal and a prelude (the service must run in test mode).
     window.__overclockStart = {
       screen: () => (start.visible ? start.screen : null),
+      decks: () => library.snapshot(),
+      zoom: () => start.zoomInfo(),
+      gameOptions: () => (game instanceof HotSeat ? game.save().options : null),
       back,
       exitRequests: () => exitRequests,
       startOnline: (side, test) => {
@@ -430,6 +480,18 @@ async function start(): Promise<void> {
     const rest = params.toString();
     window.history.replaceState(null, '', `${window.location.pathname}${rest ? `?${rest}` : ''}${window.location.hash}`);
     playHere();
+  } else if (params.get('play') === 'pick') {
+    // Sprint 13: New game after a game with the player's own decks: the picker with those decks picked.
+    const picks: Partial<DeckPicks> = {};
+    for (const side of ['corp', 'runner'] as const) {
+      const id = params.get(side);
+      if (id) picks[side] = id;
+      params.delete(side);
+    }
+    params.delete('play');
+    const rest = params.toString();
+    window.history.replaceState(null, '', `${window.location.pathname}${rest ? `?${rest}` : ''}${window.location.hash}`);
+    start.show('here', { picks });
   }
 
   document.getElementById('boot')?.remove();

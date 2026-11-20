@@ -68,3 +68,7 @@
   user-select: text; -webkit-user-select: text;
 }
 #start .screen.dense { gap: clamp(6px, 2.2vh, 14px); }
+/* Sprint 13: Play on this device / Play online / Decks in one row. */
+#start[data-screen='home'] .screen { width: min(760px, 100%); }
+#start .choices.three .choice { padding: 8px 10px; }
+#start .choice.plain b { color: #e8f6ff; }

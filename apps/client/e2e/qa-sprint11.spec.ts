@@ -239,6 +239,8 @@ test.describe('QA S-11-3 pass-the-phone save', () => {
     await ready(page);
     await expect(continueHere(page)).toHaveCount(0);
     await tapButton(page, /Play on this device/);
+    // Sprint 13: the deck picker (standard decks picked) -> Start.
+    await tapButton(page, /^Start$/);
     await page.waitForFunction(() => !!window.__overclock);
     // The first cover (Corp) is lifted with a real tap; then the Corp clicks for credits twice with real taps.
     let l = await layout(page);
@@ -355,6 +357,8 @@ test.describe('QA S-11-3 pass-the-phone save', () => {
       await expectStartFits(next);
       if (how === 'newer rules version') await shot(next, '10-outdated-note');
       await tapButton(next, /Play on this device/);
+      // Sprint 13: the deck picker (standard decks picked) -> Start.
+      await tapButton(next, /^Start$/);
       await next.waitForFunction(() => !!window.__overclock);
       expect((await getView(next)).turn).toBe(1);
     });
@@ -368,6 +372,8 @@ test.describe('QA S-11-3 pass-the-phone save', () => {
     await ready(page);
     await expect(continueHere(page)).toHaveCount(0);
     await tapButton(page, /Play on this device/);
+    // Sprint 13: the deck picker (standard decks picked) -> Start.
+    await tapButton(page, /^Start$/);
     await page.waitForFunction(() => !!window.__overclock);
     expect((await getView(page)).turn).toBe(1);
   });

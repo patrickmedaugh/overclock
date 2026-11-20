@@ -42,7 +42,7 @@ export type {
   TraceView,
 } from './view';
 
-export { newGame } from './state';
+export { isPlayableDeck, newGame } from './state';
 export { apply, hasMeaningfulResponse, legalActions } from './apply';
 export { waitingOn } from './rules';
 export { viewFor, viewEvents } from './view';

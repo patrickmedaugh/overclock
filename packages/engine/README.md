@@ -511,6 +511,36 @@ maxHandSize(state, side) = 5 − brainDamage    // exported
 - Test-mode `create.test.deckSet?: 'core' | 'starter'` (production ignores `test`; always `'core'`). `PROTOCOL_VERSION` stays 1. `ONLINE_OPTIONS = {rezWindow: 'always', deckSet: 'core'}`.
 - `@overclock/match/testing`: `planToStep(seed, goal, maxActions?, options?)` plans on `options.deckSet ?? goalDeckSet(goal)` (Sprint 3–7 goals: `'starter'`; Sprint 8 goals: `'core'`) and returns `plan.deckSet`; `planBusyBoard(seed, goal?, maxActions?, deckSet = 'starter')` returns `deckSet`. Create the page's game with the plan's `deckSet`.
 
+## Sprint 13 interface (pinned: implement exactly this; changes go through the architect)
+
+Deck builder (plan: `docs/sprints/sprint-13-tech-plan.md`). **No rule or card change: `RULES_VERSION` stays 5.** `SAVE_FORMAT` 1 → 2 (E3). `PROTOCOL_VERSION` stays 1; online games and the room never take `decks`.
+
+Status: **E1–E3** are in. E2: the deck helpers are pinned by `packages/cards/test/sprint13-decks.test.ts`. E3: `GameOptions.decks` **deals** (`newGame`, `LocalMatch`, `HotSeat`), `newGame` throws `illegal_deck`, `SAVE_FORMAT = 2` (format-1 saves load), tests `packages/engine/test/sprint13-custom-decks.test.ts` (deckStatus ≡ checkDeck ≡ newGame on 300 random decks) and `packages/match/test/sprint13-saves.test.ts` (golden `fixtures/sprint13-saves.json`). E4: `parseDeckStore` pinned by `packages/match/test/sprint13-saved-decks.test.ts`; RULES_SPEC "Deck building (Sprint 13)" and the GLOSSARY words (checked by `packages/cards/test/sprint13-docs.test.ts`).
+
+### Deck rules helpers (`@overclock/cards`, `src/deck.ts`; all built on `checkDeck`)
+- `IDENTITIES: Readonly<Record<Side, string>>` — `{corp: 'c13', runner: 'r13'}` (Haas-Bioroid, Kate).
+- `STANDARD_DECKS: Readonly<Record<Side, DeckDef>>` — the `core45` decks (read-only; ids `'standard-corp'` / `'standard-runner'` on the client, never stored).
+- `deckPool(side: Side): readonly DeckPoolGroup[]`, `DeckPoolGroup = {type: CardType; cards: readonly CardDef[]}` — every non-identity card of `side` (Corp 24, Runner 20). Groups in order Corp `agenda, ice, asset, upgrade, operation` / Runner `event, hardware, resource, program`; by name inside a group; empty groups left out.
+- `deckStatus(deck: DeckDef): DeckStatus` = `{size, minSize, influence, influenceLimit, agendaPoints, agendaRange: {min, max} | null, problems: readonly DeckProblem[], legal: boolean}`. `minSize` = the identity's own (45); `agendaRange` null for the Runner; `problems` = `checkDeck(deck)`; `legal === (problems.length === 0)`.
+- `addBlock(deck: DeckDef, cardId: string): AddBlock | null` — why the editor's **+** is dimmed (null = allowed). Runs `checkDeck` on the deck plus one copy:
+  `{kind: 'max_copies', limit}` | `{kind: 'agenda_faction', identityFaction: Faction, cardFaction: Faction}` | `{kind: 'wrong_side'}` | `{kind: 'unknown_card'}` (also for an identity id). Influence and agenda points never block.
+- `countsOf(deck: DeckDef): Record<string, number>` — id → copies (identity not counted).
+- `deckFromCounts(identity: string, counts: Readonly<Record<string, number>>): DeckDef` — canonical order (`ALL_CARDS` order, copies adjacent); counts < 1 dropped, fractions floored; unknown ids kept at the end (sorted) so `checkDeck` reports them.
+- Unchanged: `checkDeck`, `DeckProblem`, `deckInfluence`, `deckAgendaPoints`, `MAX_COPIES`.
+
+### Game options (`@overclock/engine`)
+- `GameOptions.decks?: Partial<Record<Side, DeckDef>>` — a side given here is dealt instead of `deckSet`'s deck. `resolveOptions` keeps the key **only when present** (standard games' state and hashes unchanged). An empty `decks` (`{}`, or only `undefined` sides) counts as absent. Additive (E3): `isPlayableDeck(deck, side): boolean` — exactly the check `newGame` makes (`checkDeck` clean and the identity is `side`'s); `parseSavedGame` uses it too. `newGame` throws `Error('illegal_deck')` if a given deck fails `checkDeck` or its identity is the other side's. The client passes `decks` only for non-standard picks: `new HotSeat(seed, {decks})`.
+
+### Saved games (`@overclock/match`, E3)
+- `SAVE_FORMAT = 2`; `parseSavedGame` accepts formats 1 and 2, keeps `options.decks` (identity string, ≤ 200 string ids per side), returns `'broken'` if a saved deck fails `checkDeck`. Continue never reads the deck store. A format-1 save is returned as format 2 without `decks` (any `decks` field in a format-1 save is ignored, as Sprint 12 did); a loaded game re-saves as format 2. `MAX_SAVED_DECK_CARDS = 200` is exported. `LocalMatch.save()` deep-copies the options (deck lists detached).
+
+### Deck store format (`@overclock/match`, `src/saved-decks.ts`)
+- `DECK_STORE_FORMAT = 1`.
+- `StoredDeck = {id: string (client UUID), side: Side, name: string, identity: string, cards: Readonly<Record<string, number>>, createdAt: number, updatedAt: number}` (ms).
+- `DeckStore = {format: 1, decks: readonly StoredDeck[]}`.
+- `parseDeckStore(x: unknown): DeckStore | 'broken' | 'newer'` — `x` = parsed object or raw JSON string; returns a detached copy. Unknown card ids are kept. `'broken'`: the client copies it to `overclock.decks.v1.bak`; `'newer'`: list shown read-only. E4 details: counts must be whole numbers 0…`MAX_STORED_COPIES` (200, exported) or the store is `'broken'`; counts of 0 are dropped; over-limit counts (4+) and decks whose identity is the other side's are kept (not Ready); two decks with the same `id` → the newest `updatedAt` is kept, in the first one's place; unknown fields are dropped.
+- Client I/O (`apps/client/src/deckStore.ts`): `localStorage['overclock.decks.v1']`.
+
 ## Sprint 12 interface (pinned: implement exactly this; changes go through the architect)
 
 **E1–E5 status (engine-dev):** interface, Accelerated Beta Test, Archived Memories, Experiential Data, The Toolbox, Modded, Infiltration, the 45-card decks (`'core45'` default everywhere), `RULES_VERSION = 5`, golden saves (`sprint11-saves.json` re-pinned for the version only, hashes unchanged; `sprint12-saves.json`), `SPRINT12_GOALS`, hidden-info checks, 300-game property test (`test/sprint12-properties.test.ts`). E6 (AI, `packages/ai`): `look_install` = every looked-at ICE onto the existing server with the fewest ICE, then Done; `archives_pick` = most agenda points, then highest cost; the Corp scores whenever offered (DECISIONS 2026-11-18).

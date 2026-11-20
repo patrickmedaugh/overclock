@@ -5,9 +5,11 @@ import {
   RUNNER_CORE45_DECK,
   RUNNER_CORE_DECK,
   RUNNER_STARTER_DECK,
+  checkDeck,
   getCard,
   type CardType,
   type CentralServerId,
+  type DeckDef,
   type DeckList,
   type Effect,
   type ServerId,
@@ -287,21 +289,49 @@ export type DeckSet = 'core45' | 'core' | 'starter';
  * - `'always'` (online): always, so the Runner cannot tell an unaffordable ICE from a cheap one;
  *   `rez` is then rejected `no_credits` when unaffordable and the Corp's only legal move is `pass`.
  * `deckSet` (Sprint 8): see `DeckSet`.
+ * `decks` (Sprint 13): a side given here is dealt this list instead of `deckSet`'s deck. The key exists
+ * only when given (standard games keep today's state, so every golden hash stays). `newGame` throws
+ * `Error('illegal_deck')` if a given deck fails `checkDeck` or its identity is the other side's.
+ * An empty `decks` (no side given) is dropped, so `{decks: {}}` is a standard game.
  */
 export interface GameOptions {
   readonly rezWindow: 'affordable' | 'always';
   readonly deckSet: DeckSet;
+  readonly decks?: Partial<Record<Side, DeckDef>>;
 }
 
 export const DEFAULT_OPTIONS: GameOptions = { rezWindow: 'affordable', deckSet: 'core45' };
 
-/** `options` with every missing field set to its default (a detached copy). Sprint 12: an unknown deck set → `'core45'`. */
+/**
+ * `options` with every missing field set to its default (a detached copy). Sprint 12: an unknown deck set → `'core45'`.
+ * Sprint 13: `decks` is kept (copied, sides in Corp, Runner order) only when at least one side is given.
+ */
 export function resolveOptions(options?: Partial<GameOptions>): GameOptions {
   const deckSet = options?.deckSet;
-  return {
+  const out: GameOptions = {
     rezWindow: options?.rezWindow === 'always' ? 'always' : 'affordable',
     deckSet: deckSet === 'starter' || deckSet === 'core' ? deckSet : 'core45',
   };
+  const given = options?.decks;
+  if (typeof given !== 'object' || given === null) return out;
+  const decks: Partial<Record<Side, DeckDef>> = {};
+  for (const side of SIDES) {
+    const d = given[side];
+    if (d === undefined) continue;
+    // A malformed entry is kept recognisably wrong (no cards) so `newGame` refuses it.
+    const ok = typeof d === 'object' && d !== null && typeof d.identity === 'string' && Array.isArray(d.cards);
+    decks[side] = ok ? { identity: d.identity, cards: [...d.cards] } : { identity: '', cards: [] };
+  }
+  return Object.keys(decks).length > 0 ? { ...out, decks } : out;
+}
+
+/**
+ * Sprint 13: whether `newGame` deals `deck` for `side`: it passes `checkDeck` (the editor's
+ * "Ready to play") and its identity is `side`'s. Exactly what `newGame` checks before dealing.
+ */
+export function isPlayableDeck(deck: DeckDef, side: Side): boolean {
+  if (typeof deck.identity !== 'string' || !Array.isArray(deck.cards) || !deck.cards.every((id) => typeof id === 'string')) return false;
+  return getCard(deck.identity)?.side === side && checkDeck(deck).length === 0;
 }
 
 /** Sprint 12: the decks of a deck set (identity null for the starter decks). */
@@ -438,11 +468,19 @@ function setupPlayer(deckList: DeckList, identity: string | null, rng: number): 
  * taken (3 clicks, 6 cards in hand); the Runner has 0 clicks.
  * `options` (Sprint 6) default to DEFAULT_OPTIONS; `rezWindow` never changes the shuffle.
  * Sprint 8: `deckSet` picks the decks (Sprint 12 default `'core45'`: 45 cards each plus identities).
+ * Sprint 13: a side in `decks` is dealt that list (in its given order) instead; throws
+ * `Error('illegal_deck')` if it is not `isPlayableDeck` (the game refuses what the editor refuses).
  */
 export function newGame(seed: number, options?: Partial<GameOptions>): GameState {
   const opts = resolveOptions(options);
   const rng0 = seedToRng(seed);
-  const decks = DECKS[opts.deckSet];
+  const decks = { ...DECKS[opts.deckSet] };
+  for (const side of SIDES) {
+    const custom = opts.decks?.[side];
+    if (custom === undefined) continue;
+    if (!isPlayableDeck(custom, side)) throw new Error('illegal_deck');
+    decks[side] = custom;
+  }
   const corp = setupPlayer(decks.corp.cards, decks.corp.identity, rng0);
   const runner = setupPlayer(decks.runner.cards, decks.runner.identity, corp.rng);
   const base: GameState = {

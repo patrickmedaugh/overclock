@@ -1,6 +1,7 @@
 // Types for the Playwright test hook (`window.__overclock`).
 // Shared by the client (src) and the e2e specs, so keep this file type-only.
-import type { Action, ChoiceView, GameEvent, PlayerView, RunStep, RunView, Side } from '@overclock/engine';
+import type { Action, ChoiceView, GameEvent, GameOptions, PlayerView, RunStep, RunView, Side } from '@overclock/engine';
+import type { DeckStore } from '@overclock/match';
 
 /** Axis-aligned box in CSS pixels, relative to the page viewport. */
 export interface Box {
@@ -617,6 +618,12 @@ declare global {
     /** S-06-1: which start-screen page shows (null once a game is on). Set at load, before a game starts. */
     __overclockStart?: {
       screen(): string | null;
+      /** Sprint 13: the deck store as kept on this device (`overclock.decks.v1`). */
+      decks(): DeckStore;
+      /** Sprint 13: what the deck editor's hold-to-zoom shows (the game's zoom face), or null. */
+      zoom(): { cardId: string; width: number; height: number; texts: string[]; overflow: boolean } | null;
+      /** Sprint 13: the pass-the-phone game's options as saved (dealt deck lists included), or null. */
+      gameOptions(): GameOptions | null;
       /** The phone's Back button (same handler as the app's). */
       back(): 'close_dialog' | 'close_zoom' | 'close_panel' | 'exit' | 'ask_leave';
       exitRequests(): number;

@@ -31,6 +31,8 @@ for (const vp of [
     for (const s of srcs) expect(await (await page.request.get(s)).text()).not.toContain('__overclock');
     // Sprint 6: the app opens on the start screen; "Play on this device" starts the game.
     await page.getByRole('button', { name: /Play on this device/ }).tap();
+    // Sprint 13: the deck picker (standard decks picked) -> Start.
+    await page.getByRole('button', { name: /^Start$/ }).tap();
     await expect(page.locator('#start')).toBeHidden();
     await page.waitForTimeout(400);
     await page.screenshot({ path: join(SHOTS, `android-app-${vp.width}x${vp.height}-01-board.png`) });

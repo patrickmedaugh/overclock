@@ -115,7 +115,7 @@ export class LocalMatch {
       format: SAVE_FORMAT,
       rulesVersion: RULES_VERSION,
       seed: this.seed,
-      options: { ...this.options },
+      options: JSON.parse(JSON.stringify(this.options)) as GameOptions, // Sprint 13: deck lists too
       actions: this.actions(),
     };
   }
