@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { TEST_INPUT_DOCS, decide, isDocsOnly } from '../ci-changes.mjs';
-import { checkWorkflows } from '../check-workflows.mjs';
+import { checkWorkflows, linkFiles } from '../check-workflows.mjs';
 import { jobMinutes, monthRange, summarize } from '../ci-minutes.mjs';
 
 const root = join(fileURLToPath(import.meta.url), '..', '..', '..');
@@ -104,12 +104,18 @@ describe('check-workflows', () => {
   let tmp;
   afterEach(() => tmp && rmSync(tmp, { recursive: true, force: true }));
 
-  /** A copy of the files check-workflows reads, with one edit. */
+  /**
+   * A copy of the files check-workflows reads, with one edit. From docs/sprints only the
+   * demo notes are copied (all check-workflows reads there) — not the ~300 MB of screenshots,
+   * which made each copy take seconds (QA-S15-1).
+   */
+  const demoNotesOnly = (src) => statSync(src).isDirectory() || /sprint-\d+-demo\.md$/.test(src);
   function copyWith(file, edit) {
     tmp = mkdtempSync(join(tmpdir(), 'oc-wf-'));
-    for (const p of ['.github', 'apps/client/src', 'apps/client/index.html', 'netlify.toml', 'docs/sprints']) {
+    for (const p of ['.github', 'apps/client/src', 'apps/client/index.html', 'netlify.toml']) {
       cpSync(join(root, p), join(tmp, p), { recursive: true });
     }
+    cpSync(join(root, 'docs/sprints'), join(tmp, 'docs/sprints'), { recursive: true, filter: demoNotesOnly });
     if (file) {
       const f = join(tmp, file);
       mkdirSync(join(f, '..'), { recursive: true });
@@ -126,6 +132,13 @@ describe('check-workflows', () => {
 
   it('passes on this repository', () => {
     expect(checkWorkflows(root)).toEqual([]);
+  });
+
+  it('the test copy holds every file check-workflows reads', () => {
+    const r = copyWith();
+    const rel = (base) => (f) => f.slice(base.length + 1);
+    expect(linkFiles(r).map(rel(r)).sort()).toEqual(linkFiles(root).map(rel(root)).sort());
+    expect(checkWorkflows(r)).toEqual([]);
   });
 
   it('fails if a workflow still deploys to GitHub Pages', () => {
