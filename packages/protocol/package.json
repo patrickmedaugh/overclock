@@ -10,9 +10,8 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@overclock/engine": "*"
-  },
-  "devDependencies": {
+    "@overclock/cards": "*",
+    "@overclock/engine": "*",
     "@overclock/match": "*"
   }
 }

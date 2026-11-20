@@ -16,17 +16,20 @@ const corpDeck: StoredDeck = {
   updatedAt: T + 5000,
 };
 const runnerDeck: StoredDeck = { id: 'b2', side: 'runner', name: 'Empty Kate', identity: IDENTITIES.runner, cards: {}, createdAt: T, updatedAt: T };
-const store: DeckStore = { format: 1, decks: [corpDeck, runnerDeck] };
+// Sprint 14: the store is format 2 (+ tombstones); a Sprint 13 (format 1) store still reads, as format 2.
+const store: DeckStore = { format: 2, decks: [corpDeck, runnerDeck], deleted: [] };
+const v1Store = { format: 1, decks: [corpDeck, runnerDeck] };
 
-describe('S-13-4: deck store format 1', () => {
-  it('DECK_STORE_FORMAT is 1', () => {
-    expect(DECK_STORE_FORMAT).toBe(1);
+describe('S-13-4: deck store format 1 (read by Sprint 14 as format 2)', () => {
+  it('DECK_STORE_FORMAT is 2 (Sprint 14)', () => {
+    expect(DECK_STORE_FORMAT).toBe(2);
   });
 
   it('round trip through JSON (what closing and reopening the browser does)', () => {
     expect(parseDeckStore(JSON.stringify(store))).toEqual(store);
     expect(parseDeckStore(store)).toEqual(store);
-    expect(parseDeckStore({ format: 1, decks: [] })).toEqual({ format: 1, decks: [] });
+    expect(parseDeckStore(JSON.stringify(v1Store))).toEqual(store);
+    expect(parseDeckStore({ format: 1, decks: [] })).toEqual({ format: 2, decks: [], deleted: [] });
   });
 
   it('returns a detached copy', () => {
@@ -51,7 +54,7 @@ describe('S-13-4: deck store format 1', () => {
     if (p === 'broken' || p === 'newer') throw new Error(p);
     const kept: Record<string, number> = { ...corpDeck.cards, zz9: 2, c01: 4 };
     delete kept.c03;
-    expect(p).toEqual({ format: 1, decks: [{ ...corpDeck, cards: kept }] });
+    expect(p).toEqual({ format: 2, decks: [{ ...corpDeck, cards: kept }], deleted: [] });
     expect('c03' in p.decks[0]!.cards).toBe(false);
     expect('colour' in p.decks[0]!).toBe(false);
     const s = deckStatus(deckFromCounts(p.decks[0]!.identity, p.decks[0]!.cards));
@@ -74,7 +77,7 @@ describe('S-13-4: deck store format 1', () => {
   });
 
   it('newer: a later build\'s format (shown read-only, never overwritten)', () => {
-    expect(parseDeckStore({ format: 2, decks: 'anything' })).toBe('newer');
+    expect(parseDeckStore({ format: 3, decks: 'anything' })).toBe('newer');
     expect(parseDeckStore(JSON.stringify({ format: 7 }))).toBe('newer');
   });
 

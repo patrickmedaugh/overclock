@@ -167,36 +167,40 @@ export class Room {
     const parsed = parseClientMsg(raw);
     if (!parsed.ok) {
       if (parsed.error === 'version') this.fail(conn, 'version');
-      else this.send(conn, { v: 1, t: 'error', code: 'bad_message' });
+      else this.send(conn, { v: PROTOCOL_VERSION, t: 'error', code: 'bad_message' });
       return;
     }
     const msg = parsed.msg;
     if (msg.t === 'ping') {
-      this.send(conn, { v: 1, t: 'pong' });
+      this.send(conn, { v: PROTOCOL_VERSION, t: 'pong' });
       return;
     }
     const role = this.roles.get(conn)!;
     switch (msg.t) {
       case 'create':
         if (role.kind === 'creator' && !this.meta) this.create(conn, role.code, msg);
-        else this.send(conn, { v: 1, t: 'error', code: 'bad_message' });
+        else this.send(conn, { v: PROTOCOL_VERSION, t: 'error', code: 'bad_message' });
         return;
       case 'join':
         if (role.kind === 'player') this.join(conn);
-        else this.send(conn, { v: 1, t: 'error', code: 'bad_message' });
+        else this.send(conn, { v: PROTOCOL_VERSION, t: 'error', code: 'bad_message' });
         return;
       case 'resume':
         if (role.kind !== 'creator') this.resume(conn, msg.token);
-        else this.send(conn, { v: 1, t: 'error', code: 'bad_message' });
+        else this.send(conn, { v: PROTOCOL_VERSION, t: 'error', code: 'bad_message' });
         return;
       case 'act':
         if (role.kind === 'seat' && this.started()) this.act(role.seat, msg.action, msg.id);
-        else this.send(conn, { v: 1, t: 'error', code: 'bad_message' });
+        else this.send(conn, { v: PROTOCOL_VERSION, t: 'error', code: 'bad_message' });
         return;
       case 'leave':
         if (role.kind === 'seat' && this.meta && !this.started()) this.close();
         else if (role.kind === 'seat' && this.started()) this.leaveForNow(conn, role.seat);
-        else this.send(conn, { v: 1, t: 'error', code: 'bad_message' });
+        else this.send(conn, { v: PROTOCOL_VERSION, t: 'error', code: 'bad_message' });
+        return;
+      case 'pick':
+        // Sprint 14 E1: shape only; the room deals after the pick from E4 on.
+        this.send(conn, { v: PROTOCOL_VERSION, t: 'error', code: 'bad_message' });
         return;
     }
   }
@@ -261,8 +265,8 @@ export class Room {
     this.store.put('state', match.snapshot());
     this.store.put('meta', this.meta);
     this.seat(conn, msg.side);
-    this.send(conn, { v: 1, t: 'seated', code, seat: msg.side, token });
-    this.send(conn, { v: 1, t: 'lobby', code, seat: msg.side });
+    this.send(conn, { v: PROTOCOL_VERSION, t: 'seated', code, seat: msg.side, token });
+    this.send(conn, { v: PROTOCOL_VERSION, t: 'lobby', code, seat: msg.side });
   }
 
   private join(conn: Conn): void {
@@ -275,7 +279,7 @@ export class Room {
     meta.lastActive = this.deps.now();
     this.store.put('meta', meta);
     this.seat(conn, seat);
-    this.send(conn, { v: 1, t: 'seated', code: meta.code, seat, token });
+    this.send(conn, { v: PROTOCOL_VERSION, t: 'seated', code: meta.code, seat, token });
     for (const s of SIDES) this.sync(s);
     this.scheduleAutoPass();
   }
@@ -306,7 +310,7 @@ export class Room {
       this.store.put('meta', meta);
     }
     if (!this.started()) {
-      this.send(conn, { v: 1, t: 'lobby', code: meta.code, seat });
+      this.send(conn, { v: PROTOCOL_VERSION, t: 'lobby', code: meta.code, seat });
       return;
     }
     this.sync(seat);
@@ -320,7 +324,7 @@ export class Room {
     const u = match.submit(seat, action);
     if (isRejected(u, seat)) {
       const conn = this.seats[seat];
-      if (conn && ack !== null) this.send(conn, { v: 1, t: 'rejected', ack, view: u[seat].view, events: u[seat].events });
+      if (conn && ack !== null) this.send(conn, { v: PROTOCOL_VERSION, t: 'rejected', ack, view: u[seat].view, events: u[seat].events });
       return;
     }
     this.accepted.push(JSON.parse(JSON.stringify(action)) as Action);
@@ -335,8 +339,8 @@ export class Room {
       if (!conn) continue;
       const msg: ServerMsg =
         s === seat && ack !== null
-          ? { v: 1, t: 'update', seq, view: u[s].view, events: u[s].events, ack }
-          : { v: 1, t: 'update', seq, view: u[s].view, events: u[s].events };
+          ? { v: PROTOCOL_VERSION, t: 'update', seq, view: u[s].view, events: u[s].events, ack }
+          : { v: PROTOCOL_VERSION, t: 'update', seq, view: u[s].view, events: u[s].events };
       this.send(conn, msg);
     }
     this.autoPassAt = null;
@@ -418,7 +422,7 @@ export class Room {
   private sync(seat: Side): void {
     const conn = this.seats[seat];
     if (!conn) return;
-    const base = { v: 1, t: 'sync', seq: this.seq(), view: this.view(seat), opponent: this.presenceOf(other(seat)) } as const;
+    const base = { v: PROTOCOL_VERSION, t: 'sync', seq: this.seq(), view: this.view(seat), opponent: this.presenceOf(other(seat)) } as const;
     this.send(conn, this.opponentLeft(seat) ? { ...base, left: true } : base);
   }
 
@@ -427,7 +431,7 @@ export class Room {
     const conn = this.seats[seat];
     if (!conn || !this.started()) return;
     const opponent = this.presenceOf(other(seat));
-    this.send(conn, this.opponentLeft(seat) ? { v: 1, t: 'presence', opponent, left: true } : { v: 1, t: 'presence', opponent });
+    this.send(conn, this.opponentLeft(seat) ? { v: PROTOCOL_VERSION, t: 'presence', opponent, left: true } : { v: PROTOCOL_VERSION, t: 'presence', opponent });
   }
 
   private seat(conn: Conn, seat: Side): void {

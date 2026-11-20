@@ -29,7 +29,7 @@ function refuseSocket(code: 'no_game'): Response {
   const pair = new WebSocketPair();
   const [client, server] = Object.values(pair) as [WebSocket, WebSocket];
   server.accept();
-  server.send(encodeMsg({ v: 1, t: 'error', code }));
+  server.send(encodeMsg({ v: PROTOCOL_VERSION, t: 'error', code }));
   server.close(4000, code);
   return new Response(null, { status: 101, webSocket: client });
 }

@@ -143,7 +143,7 @@ export class DeckLibrary {
     if (!this.dirty || this.readOnly || !this.storage) return;
     this.dirty = false;
     this.writes++;
-    const store: DeckStore = { format: DECK_STORE_FORMAT, decks: this.decks };
+    const store: DeckStore = { format: DECK_STORE_FORMAT, decks: this.decks, deleted: [] };
     try {
       this.storage.setItem(DECKS_KEY, JSON.stringify(store));
     } catch {
@@ -154,7 +154,7 @@ export class DeckLibrary {
 
   /** The store as kept (test hook). */
   snapshot(): DeckStore {
-    return { format: DECK_STORE_FORMAT, decks: this.decks.map((d) => ({ ...d, cards: { ...d.cards } })) };
+    return { format: DECK_STORE_FORMAT, decks: this.decks.map((d) => ({ ...d, cards: { ...d.cards } })), deleted: [] };
   }
 
   private update(id: string, fn: (d: StoredDeck) => StoredDeck): void {
@@ -188,7 +188,7 @@ function entry(d: StoredDeck): DeckEntry {
  * store comes back as 'newer' (shown read-only).
  */
 export function readDeckStore(storage: StoreLike | null): DeckStore | 'newer' {
-  const empty: DeckStore = { format: DECK_STORE_FORMAT, decks: [] };
+  const empty: DeckStore = { format: DECK_STORE_FORMAT, decks: [], deleted: [] };
   let raw: string | null = null;
   try {
     raw = storage?.getItem(DECKS_KEY) ?? null;
