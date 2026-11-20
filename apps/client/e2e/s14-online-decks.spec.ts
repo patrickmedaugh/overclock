@@ -115,11 +115,11 @@ test('own deck against a friend with no decks: the friend goes straight in with 
 
 test('a starter with no Ready deck for the side goes straight to the code (standard deck)', async ({ browser }) => {
   const host = await phoneWith(browser, [CORP46]);
-  const guest = await phoneWith(browser, [RUN48]);
+  const guest = await phoneWith(browser, [CORP46]);
   const code = await hostWith(host, 'runner', null);
   expect(frames(host.sent).find((f) => f.t === 'create')).toBeDefined();
   expect(host.sent.some((s) => s.includes('"deck"'))).toBe(false);
-  // The guest plays the Corp and picks the standard deck (one tap).
+  // The guest has a Ready Corp deck, so they see the picker; the standard deck is picked already (one tap).
   await joinGame(guest, code);
   await expect.poll(() => screen(guest.page), { timeout: 10_000 }).toBe('choose');
   await expect(guest.page.locator(START)).toContainText("You'll play the Corp");
