@@ -44,7 +44,7 @@ npx wrangler dev --port 8787 --ip 127.0.0.1 --persist-to <fresh empty dir> \
   --var OVERCLOCK_TEST_MODE:1 --var "ALLOWED_ORIGINS:http://localhost:*,http://127.0.0.1:*" \
   --show-interactive-dev-session=false
 ```
-Ready when `GET http://127.0.0.1:8787/health` answers `{"ok":true,"build":"dev","protocol":1}` (usually 1–3 s). The client connects to `ws://127.0.0.1:8787`.
+Ready when `GET http://127.0.0.1:8787/health` answers `{"ok":true,"build":"dev","protocol":2}` (Sprint 14: protocol 2) (usually 1–3 s). The client connects to `ws://127.0.0.1:8787`.
 
 **Test mode** (`OVERCLOCK_TEST_MODE=1` *and* `BUILD=dev`, so never in a deployed build — `src/config.ts`): `create` may carry `test: {seed, actions}`; the game starts from that seed and replays the actions (refused ones are skipped), so a test can start at any board. Without test mode the field is ignored and the seed is random. Sprint 14: the request header `X-Overclock-Test-Ip: <any text>` picks the caller's "IP" (= device) for the wrong-guess guard, so two browser contexts or two scripts can be two devices; without test mode the header is ignored (Cloudflare's `CF-Connecting-IP` decides) and the preflight doesn't offer it.
 
@@ -55,7 +55,7 @@ Ready when `GET http://127.0.0.1:8787/health` answers `{"ok":true,"build":"dev",
 **Deploy** (CI, `server.yml`): `npx wrangler deploy --var BUILD:$GITHUB_SHA` from `apps/server` with `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` in the environment; then `/health` must report that sha.
 
 ### Layout
-- `src/room.ts` — all game-server logic, pure (clock, randomness, storage, sockets injected). Protocol: `packages/engine/README.md` "Sprint 6 interface".
+- `src/room.ts` — all game-server logic, pure (clock, randomness, storage, sockets injected). Protocol: `packages/engine/README.md` "Sprint 6 interface" (Sprint 14: v2, the room deals after the guest's `pick`; `meta.dealt: false` until then, decks only in `meta.options`).
 - `src/do.ts` — the Durable Object `GameRoom`: WebSocket hibernation, synchronous KV storage, alarm, ping/pong auto-response.
 - `src/worker.ts` — routes `/health`, `/v1/create` (picks a free code, up to 5 tries), `/v1/games/<CODE>`; Origin check.
 - `src/hash.ts` — synchronous SHA-256 (seat tokens are stored only as hashes) and base64url.

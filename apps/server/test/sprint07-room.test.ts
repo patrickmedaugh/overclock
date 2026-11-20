@@ -5,7 +5,7 @@ import { replay, RULES_VERSION, type Action } from '@overclock/engine';
 import { describe, expect, it } from 'vitest';
 import { CLOSE_ERROR, CLOSE_NORMAL, ONLINE_OPTIONS, Room, type RoomMeta } from '../src/room';
 import { sha256Hex } from '../src/hash';
-import { FakeConn, harness, msg, type Harness } from './fakes';
+import { FakeConn, dealGuest, harness, msg, type Harness } from './fakes';
 
 const CODE = 'K7QF';
 
@@ -41,12 +41,13 @@ describe('leave (S-07-1 AC6)', () => {
     // Another phone types the code.
     const late = player(h);
     h.room.message(late, msg({ t: 'join' }));
-    expect(late.take()).toEqual([{ v: 1, t: 'error', code: 'no_game' }]);
+    h.room.message(late, msg({ t: 'pick' }));
+    expect(late.take()).toEqual([{ v: 2, t: 'error', code: 'no_game' }]);
     expect(late.closed?.code).toBe(CLOSE_ERROR);
     // The host's stored seat is gone too.
     const back = player(h, h.room, 'host-again');
     h.room.message(back, msg({ t: 'resume', token: tokenOf(host), since: 0 }));
-    expect(back.take()).toEqual([{ v: 1, t: 'error', code: 'no_game' }]);
+    expect(back.take()).toEqual([{ v: 2, t: 'error', code: 'no_game' }]);
   });
 
   it('the closing socket hears nothing more (the close event after it is harmless)', () => {
@@ -68,6 +69,7 @@ describe('leave (S-07-1 AC6)', () => {
     h.room.message(host, msg({ t: 'create', side: 'corp' }));
     const guest = player(h);
     h.room.message(guest, msg({ t: 'join' }));
+    h.room.message(guest, msg({ t: 'pick' }));
     host.take();
     guest.take();
     h.room.message(guest, msg({ t: 'leave' }));
@@ -82,11 +84,11 @@ describe('leave (S-07-1 AC6)', () => {
     const h = harness();
     const host = creator(h);
     h.room.message(host, msg({ t: 'leave' }));
-    expect(host.take()).toEqual([{ v: 1, t: 'error', code: 'bad_message' }]);
+    expect(host.take()).toEqual([{ v: 2, t: 'error', code: 'bad_message' }]);
     h.room.message(host, msg({ t: 'create', side: 'corp' }));
     const visitor = player(h);
     h.room.message(visitor, msg({ t: 'leave' }));
-    expect(visitor.take()).toEqual([{ v: 1, t: 'error', code: 'bad_message' }]);
+    expect(visitor.take()).toEqual([{ v: 2, t: 'error', code: 'bad_message' }]);
     expect(h.store.get('meta')).toBeDefined();
   });
 });
@@ -133,7 +135,7 @@ describe('restore by replay that diverges (rules changed under a stored game)', 
     woke.reattach(host, { kind: 'seat', seat: 'corp' });
     woke.reattach(guest, { kind: 'seat', seat: 'runner' });
     for (const c of [host, guest]) {
-      expect(c.take()).toEqual([{ v: 1, t: 'error', code: 'expired' }]);
+      expect(c.take()).toEqual([{ v: 2, t: 'error', code: 'expired' }]);
       expect(c.closed).toEqual({ code: CLOSE_ERROR, reason: 'expired' });
     }
   });
@@ -144,17 +146,19 @@ describe('restore by replay that diverges (rules changed under a stored game)', 
     const woke = new Room(h.store, h.deps);
     const back = player(h, woke, 'back');
     woke.message(back, msg({ t: 'resume', token: TOKENS.runner, since: 12 }));
-    expect(back.take()).toEqual([{ v: 1, t: 'error', code: 'expired' }]);
+    expect(back.take()).toEqual([{ v: 2, t: 'error', code: 'expired' }]);
     const late = player(h, woke, 'late');
     woke.message(late, msg({ t: 'join' }));
-    expect(late.take()).toEqual([{ v: 1, t: 'error', code: 'expired' }]);
+    woke.message(late, msg({ t: 'pick' }));
+    expect(late.take()).toEqual([{ v: 2, t: 'error', code: 'expired' }]);
     expect(woke.canCreate()).toBe(true);
     const host = creator(h, woke);
     woke.message(host, msg({ t: 'create', side: 'corp' }));
     expect(host.take().map((m) => m.t)).toEqual(['seated', 'lobby']);
     const guest = player(h, woke);
     woke.message(guest, msg({ t: 'join' }));
-    expect(guest.take().map((m) => m.t)).toEqual(['seated', 'sync']);
+    woke.message(guest, msg({ t: 'pick' }));
+    expect(guest.take().map((m) => m.t)).toEqual(['seated', 'choose', 'sync']);
   });
 
   it('a log that still replays is restored as before (no expiry)', () => {
@@ -165,6 +169,7 @@ describe('restore by replay that diverges (rules changed under a stored game)', 
       { type: 'gain_credit', player: 'corp' },
     ];
     h.room.message(host, msg({ t: 'create', side: 'corp', test: { seed: 9, actions: prelude } }));
+    dealGuest(h.room);
     const woke = new Room(h.store, { ...h.deps, build: 'b2' });
     expect(woke.seq()).toBe(2);
     expect(h.store.get<RoomMeta>('meta')!.build).toBe('b2');
@@ -174,6 +179,7 @@ describe('restore by replay that diverges (rules changed under a stored game)', 
     const h = harness({ testMode: true });
     const host = creator(h);
     h.room.message(host, msg({ t: 'create', side: 'corp', test: { seed: 9, actions: [{ type: 'gain_credit', player: 'corp' }] } }));
+    dealGuest(h.room);
     expect(h.store.get<RoomMeta>('meta')!.rulesVersion).toBe(RULES_VERSION);
     // Same build: the snapshot is trusted, nothing is replayed.
     expect(new Room(h.store, h.deps).seq()).toBe(1);
@@ -184,13 +190,14 @@ describe('restore by replay that diverges (rules changed under a stored game)', 
     expect(woke.seq()).toBe(0);
     const back = player(h, woke, 'back');
     woke.message(back, msg({ t: 'resume', token: tokenOf(host), since: 0 }));
-    expect(back.take()).toEqual([{ v: 1, t: 'error', code: 'expired' }]);
+    expect(back.take()).toEqual([{ v: 2, t: 'error', code: 'expired' }]);
   });
 
   it('a room stored without a version (made before it was stored) counts as version 1', () => {
     const h = harness({ testMode: true });
     const host = creator(h);
     h.room.message(host, msg({ t: 'create', side: 'corp', test: { seed: 9, actions: [{ type: 'gain_credit', player: 'corp' }] } }));
+    dealGuest(h.room);
     const { rulesVersion: _drop, ...old } = h.store.get<RoomMeta>('meta')!;
     h.store.put('meta', old);
     const woke = new Room(h.store, { ...h.deps, build: 'b2' });

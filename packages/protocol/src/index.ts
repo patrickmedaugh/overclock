@@ -19,11 +19,11 @@ export { CODE_ALPHABET, CODE_LENGTH, isGameCode, makeCode, normalizeCode } from 
 export * from './decks';
 
 /**
- * Sprint 14: the protocol is v2 (own decks online). The constant stays 1 until the room speaks v2
- * (task E4; DECISIONS 2026-11-20): every message type uses `typeof PROTOCOL_VERSION`, so senders
- * must write `v: PROTOCOL_VERSION` (a literal `v: 1` stops compiling when it becomes 2).
+ * Sprint 14: the protocol is v2 (own decks online; DECISIONS 2026-11-20). Every message type uses
+ * `typeof PROTOCOL_VERSION`, so senders must write `v: PROTOCOL_VERSION`, never a literal. A frame
+ * with another `v` parses as `version` (the room answers `error version` and closes).
  */
-export const PROTOCOL_VERSION = 1;
+export const PROTOCOL_VERSION = 2;
 /** The `v` every message carries. */
 export type ProtocolVersion = typeof PROTOCOL_VERSION;
 

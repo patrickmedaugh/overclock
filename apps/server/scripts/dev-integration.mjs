@@ -17,6 +17,8 @@ import { fileURLToPath } from 'node:url';
 const here = dirname(fileURLToPath(import.meta.url));
 const serverDir = join(here, '..');
 const ORIGIN = 'http://localhost:5173';
+/** Sprint 14: the game socket protocol version (packages/protocol PROTOCOL_VERSION). */
+const PV = 2;
 const persist = mkdtempSync(join(tmpdir(), 'overclock-dev-'));
 let port = Number(process.env.DEV_PORT) || 0;
 let child = null;
@@ -91,7 +93,7 @@ function phone(path, origin = ORIGIN) {
       ws.onopen = resolve;
       ws.onerror = () => reject(new Error(`socket error on ${path}`));
     }),
-    send: (msg) => ws.send(typeof msg === 'string' ? msg : JSON.stringify({ v: 1, ...msg })),
+    send: (msg) => ws.send(typeof msg === 'string' ? msg : JSON.stringify({ v: PV, ...msg })),
     /** The next message (fails after `ms`). */
     next(ms = 5000) {
       if (queue.length) return Promise.resolve(queue.shift());
@@ -192,7 +194,7 @@ async function main() {
   if (!port) port = await freePort();
   console.log(`wrangler dev on port ${port}, storage in ${persist}`);
   const health = await startServer();
-  check(health.ok === true && health.protocol === 1 && typeof health.build === 'string', `/health → ${JSON.stringify(health)}`);
+  check(health.ok === true && health.protocol === PV && typeof health.build === 'string', `/health → ${JSON.stringify(health)}`);
 
   const decks = await deckChecks();
 
@@ -210,12 +212,29 @@ async function main() {
   check((await a.next()).t === 'lobby', 'A waits in the lobby');
   const code = seatedA.code;
 
+  // Sprint 14: an older app (protocol v1) is told to update.
+  const old = phone(`/v1/games/${code}`);
+  await old.opened;
+  old.send('{"v":1,"t":"join"}');
+  const oldErr = await old.next();
+  check(oldErr.t === 'error' && oldErr.code === 'version', 'an older app (v1) gets "version"');
+
   // Phone B joins with the code (lower case, with a dash: normalised).
   const b = phone(`/v1/games/${code.slice(0, 2).toLowerCase()}-${code.slice(2).toLowerCase()}`);
   await b.opened;
   b.send({ t: 'join' });
   const seatedB = await b.next();
   check(seatedB.t === 'seated' && seatedB.seat === 'runner', 'B joined as the Runner');
+  const chooseB = await b.next();
+  check(chooseB.t === 'choose' && chooseB.seat === 'runner', 'B is asked to pick a deck');
+  const pickingA = await a.next();
+  check(pickingA.t === 'lobby' && pickingA.picking === true, 'A hears that B is picking');
+  check(await a.quiet(), 'nothing is dealt before B picks');
+  // An illegal deck is refused (4 copies of Hedge Fund, and a Corp deck for the Runner seat).
+  b.send({ t: 'pick', deck: { identity: 'c13', cards: { c01: 4 } } });
+  const deckRefused = await b.next();
+  check(deckRefused.t === 'deck_refused' && deckRefused.problems.some((p) => p.kind === 'wrong_side') && deckRefused.problems.some((p) => p.kind === 'too_many_copies'), 'an illegal deck gets deck_refused');
+  b.send({ t: 'pick' });
   const syncB = await b.next();
   const syncA = await a.next();
   check(syncA.t === 'sync' && syncB.t === 'sync' && syncA.seq === 0 && syncB.opponent === 'here', 'both phones get the board');
@@ -237,7 +256,7 @@ async function main() {
   check(await a.quiet(), 'A hears nothing about B’s refused move');
 
   // Ping is answered (by the runtime).
-  b.send('{"v":1,"t":"ping"}');
+  b.send(`{"v":${PV},"t":"ping"}`);
   check((await b.next()).t === 'pong', 'ping → pong');
 
   // A third phone can't take a seat; unknown / malformed codes.
@@ -266,6 +285,9 @@ async function main() {
   await runner.opened;
   runner.send({ t: 'join' });
   await runner.next(); // seated
+  await runner.next(); // choose
+  await corp.next(); // lobby, picking
+  runner.send({ t: 'pick' });
   const deciding = await runner.next();
   const t0 = Date.now();
   check(deciding.t === 'sync' && deciding.view.run?.waitingOn === 'corp', 'Runner sees the Corp deciding');

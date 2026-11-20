@@ -513,9 +513,16 @@ maxHandSize(state, side) = 5 − brainDamage    // exported
 
 ## Sprint 14 interface (pinned: implement exactly this; changes go through the architect)
 
-Deck sync + online games with own decks (plan: `docs/sprints/sprint-14-tech-plan.md`). **No rule or card change: `RULES_VERSION` stays 5.** `SAVE_FORMAT` stays 2. `DECK_STORE_FORMAT` 1 → 2 (reads 1). `PROTOCOL_VERSION` → 2 **at E4** (the constant is still 1 until the room speaks v2; message types use `typeof PROTOCOL_VERSION`, so always send `v: PROTOCOL_VERSION`, never a literal).
+Deck sync + online games with own decks (plan: `docs/sprints/sprint-14-tech-plan.md`). **No rule or card change: `RULES_VERSION` stays 5.** `SAVE_FORMAT` stays 2. `DECK_STORE_FORMAT` 1 → 2 (reads 1). **`PROTOCOL_VERSION` is 2** (since E4; message types use `typeof PROTOCOL_VERSION`, so always send `v: PROTOCOL_VERSION`, never a literal; `/health` reports `protocol: 2`).
 
-Status: **E1** is in (types, first working versions; tests `packages/match/test/sprint14-interface.test.ts`, `packages/protocol/test/sprint14-interface.test.ts`). E2 adds the merge property tests, E3 the server deck service, E4 the room (`pick`/`choose`/`deck_refused`, v2), E5 the leak tests.
+Status: **E1–E4 are in.** E1 types (`packages/match/test/sprint14-interface.test.ts`, `packages/protocol/test/sprint14-interface.test.ts`); E2 merge property tests (`packages/match/test/sprint14-merge.test.ts`); E3 the deck service (`apps/server/src/{decks,locker,guard}.ts`, tests `sprint14-locker`/`sprint14-guard`, `npm run test:dev -w apps/server`); E4 the room speaks v2 and deals after both picks (`apps/server/test/sprint14-room.test.ts`). E5 adds the leak tests.
+
+Room behaviour (E4), for the client:
+- Host: `create {side, deck?}` → `seated`, `lobby` (or `deck_refused {problems}` and no game; the socket stays open, send `create` again). When a friend joins: `lobby {picking: true}`; when the friend has picked: `sync`. If the friend leaves before picking: `lobby` (no `picking`).
+- Guest: `join` → `seated`, `choose {seat}` → send `pick {deck?}` → `sync` (or `deck_refused`, pick again). `leave` before the pick frees the seat (socket closed 1000 `'left'`). If the host leaves meanwhile the guest gets `error no_game`.
+- `resume` before the deal: host → `lobby` (with `picking: true` if the guest is seated), guest → `choose` (pick again).
+- `problems` = `checkDeck`'s `DeckProblem`s; an identity of the other side adds `{kind: 'wrong_side', cardId: <identity>}` first.
+- Any frame with `v ≠ 2` → `error version` and close.
 
 ### Deck store format 2 (`@overclock/match`, `src/saved-decks.ts`)
 - `DECK_STORE_FORMAT = 2`. `DeckTombstone = {id: string, deletedAt: number}` (ms). `DeckStore = {format: 2, decks: readonly StoredDeck[], deleted: readonly DeckTombstone[]}`. `StoredDeck` unchanged.

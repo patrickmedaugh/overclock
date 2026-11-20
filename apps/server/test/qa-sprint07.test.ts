@@ -20,6 +20,7 @@ function seatedGame(h: Harness, hostSide: Side) {
   const guest = new FakeConn('guest');
   h.room.connect(guest, { kind: 'player' });
   h.room.message(guest, msg({ t: 'join' }));
+  h.room.message(guest, msg({ t: 'pick' }));
   return (hostSide === 'corp' ? { corp: host, runner: guest } : { corp: guest, runner: host }) as Record<Side, FakeConn>;
 }
 
@@ -106,11 +107,12 @@ describe('QA S-07-1 AC6: a lobby given up is gone', () => {
     const other = new FakeConn('other');
     h.room.connect(other, { kind: 'player' });
     h.room.message(other, msg({ t: 'join' }));
-    expect(other.msgs).toEqual([{ v: 1, t: 'error', code: 'no_game' }]);
+    h.room.message(other, msg({ t: 'pick' }));
+    expect(other.msgs).toEqual([{ v: 2, t: 'error', code: 'no_game' }]);
     const again = new FakeConn('again');
     h.room.connect(again, { kind: 'player' });
     h.room.message(again, msg({ t: 'resume', token, since: 0 }));
-    expect(again.msgs).toEqual([{ v: 1, t: 'error', code: 'no_game' }]);
+    expect(again.msgs).toEqual([{ v: 2, t: 'error', code: 'no_game' }]);
   });
 
   it('a socket with no seat cannot close someone else\'s lobby with leave', () => {
@@ -121,11 +123,12 @@ describe('QA S-07-1 AC6: a lobby given up is gone', () => {
     const stranger = new FakeConn('stranger');
     h.room.connect(stranger, { kind: 'player' });
     h.room.message(stranger, msg({ t: 'leave' }));
-    expect(stranger.msgs.at(-1)).toEqual({ v: 1, t: 'error', code: 'bad_message' });
+    expect(stranger.msgs.at(-1)).toEqual({ v: 2, t: 'error', code: 'bad_message' });
     // The lobby still takes a joiner.
     const guest = new FakeConn('guest');
     h.room.connect(guest, { kind: 'player' });
     h.room.message(guest, msg({ t: 'join' }));
+    h.room.message(guest, msg({ t: 'pick' }));
     expect(guest.msgs.some((m) => m.t === 'sync')).toBe(true);
     expect(host.closed).toBeNull();
   });

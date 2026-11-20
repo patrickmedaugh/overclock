@@ -49,6 +49,7 @@ function started(h: Harness, test?: { seed: number; actions: Action[]; deckSet?:
   h.room.message(host, msg({ t: 'create', side: 'corp', ...(test ? { test } : {}) }));
   const guest = player(h);
   h.room.message(guest, msg({ t: 'join' }));
+  h.room.message(guest, msg({ t: 'pick' }));
   return { host, guest, hostToken: tokenOf(host), guestToken: tokenOf(guest) };
 }
 
@@ -63,13 +64,15 @@ describe('create', () => {
     expect(seated).toMatchObject({ t: 'seated', code: CODE, seat: 'runner' });
     const token = tokenOf(host);
     expect(token).toMatch(/^[A-Za-z0-9_-]{22}$/);
-    expect(lobby).toEqual({ v: 1, t: 'lobby', code: CODE, seat: 'runner' });
+    expect(lobby).toEqual({ v: 2, t: 'lobby', code: CODE, seat: 'runner' });
     expect(host.role).toEqual({ kind: 'seat', seat: 'runner' });
     const m = meta(h);
     expect(m).toMatchObject({ code: CODE, hostSide: 'runner', options: ONLINE_OPTIONS, build: 'b1' });
     expect(m.tokenHashes).toEqual({ runner: sha256Hex(token) });
     expect(JSON.stringify([...h.store.data])).not.toContain(token);
-    expect(h.store.get<GameState>('state')!.options).toEqual(ONLINE_OPTIONS);
+    // Sprint 14: nothing is dealt until the guest picks.
+    expect(m.dealt).toBe(false);
+    expect(h.store.get<GameState>('state')).toBeUndefined();
     expect(h.room.canCreate()).toBe(false);
   });
 
@@ -95,6 +98,11 @@ describe('create', () => {
     ];
     h.room.message(c, msg({ t: 'create', side: 'corp', test: { seed: 5, actions } }));
     expect(seed(h)).toBe(5);
+    // Sprint 14: the prelude is replayed at the deal (after the guest's pick).
+    expect(accepted(h)).toEqual([]);
+    const g = player(h);
+    h.room.message(g, msg({ t: 'join' }));
+    h.room.message(g, msg({ t: 'pick' }));
     expect(accepted(h)).toEqual([actions[0], actions[2]]);
     expect(h.room.seq()).toBe(2);
     expect(h.store.get<GameState>('state')).toEqual(replay(5, accepted(h), ONLINE_OPTIONS).state);
@@ -104,13 +112,13 @@ describe('create', () => {
     const h = harness();
     const p = player(h);
     h.room.message(p, msg({ t: 'create', side: 'corp' }));
-    expect(p.take()).toEqual([{ v: 1, t: 'error', code: 'bad_message' }]);
+    expect(p.take()).toEqual([{ v: 2, t: 'error', code: 'bad_message' }]);
     expect(p.closed).toBeNull();
     const c = creator(h);
     h.room.message(c, msg({ t: 'create', side: 'corp' }));
     c.take();
     h.room.message(c, msg({ t: 'create', side: 'runner' }));
-    expect(c.take()).toEqual([{ v: 1, t: 'error', code: 'bad_message' }]);
+    expect(c.take()).toEqual([{ v: 2, t: 'error', code: 'bad_message' }]);
     expect(meta(h).hostSide).toBe('corp');
   });
 
@@ -128,7 +136,8 @@ describe('join', () => {
     const h = harness();
     const p = player(h);
     h.room.message(p, msg({ t: 'join' }));
-    expect(p.take()).toEqual([{ v: 1, t: 'error', code: 'no_game' }]);
+    h.room.message(p, msg({ t: 'pick' }));
+    expect(p.take()).toEqual([{ v: 2, t: 'error', code: 'no_game' }]);
     expect(p.closed).toEqual({ code: CLOSE_ERROR, reason: 'no_game' });
   });
 
@@ -139,11 +148,16 @@ describe('join', () => {
     host.take();
     const guest = player(h);
     h.room.message(guest, msg({ t: 'join' }));
+    h.room.message(guest, msg({ t: 'pick' }));
     const g = guest.take();
     expect(g[0]).toMatchObject({ t: 'seated', code: CODE, seat: 'runner' });
+    expect(g[1]).toEqual({ v: 2, t: 'choose', seat: 'runner' }); // Sprint 14
     const s = truth(h);
-    expect(g[1]).toEqual({ v: 1, t: 'sync', seq: 0, view: viewFor('runner', s), opponent: 'here' });
-    expect(host.take()).toEqual([{ v: 1, t: 'sync', seq: 0, view: viewFor('corp', s), opponent: 'here' }]);
+    expect(g[2]).toEqual({ v: 2, t: 'sync', seq: 0, view: viewFor('runner', s), opponent: 'here' });
+    expect(host.take()).toEqual([
+      { v: 2, t: 'lobby', code: CODE, seat: 'corp', picking: true },
+      { v: 2, t: 'sync', seq: 0, view: viewFor('corp', s), opponent: 'here' },
+    ]);
     expect(meta(h).tokenHashes).toEqual({ corp: sha256Hex(tokenOf(host)), runner: sha256Hex(tokenOf(guest)) });
     expect(tokenOf(guest)).not.toBe(tokenOf(host));
   });
@@ -155,15 +169,16 @@ describe('join', () => {
     guest.take();
     const third = player(h, 'third');
     h.room.message(third, msg({ t: 'join' }));
-    expect(third.take()).toEqual([{ v: 1, t: 'error', code: 'full' }]);
+    h.room.message(third, msg({ t: 'pick' }));
+    expect(third.take()).toEqual([{ v: 2, t: 'error', code: 'full' }]);
     expect(third.closed?.reason).toBe('full');
     // It can't act or resume without a token either.
     const fourth = player(h, 'fourth');
     h.room.message(fourth, msg({ t: 'act', id: 1, action: { type: 'gain_credit', player: 'corp' } }));
     h.room.message(fourth, msg({ t: 'resume', token: 'AAAAAAAAAAAAAAAAAAAAAA', since: 0 }));
     expect(fourth.take()).toEqual([
-      { v: 1, t: 'error', code: 'bad_message' },
-      { v: 1, t: 'error', code: 'bad_token' },
+      { v: 2, t: 'error', code: 'bad_message' },
+      { v: 2, t: 'error', code: 'bad_token' },
     ]);
     expect(host.take()).toEqual([]);
     expect(guest.take()).toEqual([]);
@@ -184,7 +199,7 @@ describe('act', () => {
     const [hu] = host.take();
     const [gu] = guest.take();
     expect(hu).toMatchObject({ t: 'update', seq: 1, ack: 41, view: viewFor('corp', s) });
-    expect(gu).toEqual({ v: 1, t: 'update', seq: 1, view: viewFor('runner', s), events: [{ type: 'card_drawn', player: 'corp' }] });
+    expect(gu).toEqual({ v: 2, t: 'update', seq: 1, view: viewFor('runner', s), events: [{ type: 'card_drawn', player: 'corp' }] });
     expect(hu?.t === 'update' && hu.events[0]?.type === 'card_drawn' && 'cardId' in hu.events[0]).toBe(true);
     expect(accepted(h)).toEqual([{ type: 'draw', player: 'corp' }]);
     expect(h.store.list('a:').map(([k]) => k)).toEqual(['a:000001']);
@@ -199,7 +214,7 @@ describe('act', () => {
     // S-06-2 AC3: not your turn.
     h.room.message(guest, msg({ t: 'act', id: 3, action: { type: 'draw', player: 'runner' } }));
     expect(guest.take()).toEqual([
-      { v: 1, t: 'rejected', ack: 3, view: viewFor('runner', truth(h)), events: [{ type: 'action_rejected', reason: 'not_your_turn' }] },
+      { v: 2, t: 'rejected', ack: 3, view: viewFor('runner', truth(h)), events: [{ type: 'action_rejected', reason: 'not_your_turn' }] },
     ]);
     // Acting as the other seat: invalid_action.
     h.room.message(guest, msg({ t: 'act', id: 4, action: { type: 'draw', player: 'corp' } }));
@@ -215,7 +230,7 @@ describe('act', () => {
     h.room.message(host, msg({ t: 'create', side: 'corp' }));
     host.take();
     h.room.message(host, msg({ t: 'act', id: 1, action: { type: 'draw', player: 'corp' } }));
-    expect(host.take()).toEqual([{ v: 1, t: 'error', code: 'bad_message' }]);
+    expect(host.take()).toEqual([{ v: 2, t: 'error', code: 'bad_message' }]);
   });
 
   it('seq counts accepted actions only, across both seats', () => {
@@ -245,18 +260,18 @@ describe('resume, replaced, presence, gap', () => {
     const { host, guest, guestToken } = started(h);
     host.take();
     h.room.disconnect(guest);
-    expect(host.take()).toEqual([{ v: 1, t: 'presence', opponent: 'away' }]);
+    expect(host.take()).toEqual([{ v: 2, t: 'presence', opponent: 'away' }]);
     // While away the game goes on.
     h.room.message(host, msg({ t: 'act', id: 1, action: { type: 'gain_credit', player: 'corp' } }));
     expect(host.take()).toMatchObject([{ t: 'update', seq: 1, ack: 1 }]);
     const back = player(h, 'guest2');
     h.room.message(back, msg({ t: 'resume', token: guestToken, since: 0 }));
-    expect(back.take()).toEqual([{ v: 1, t: 'sync', seq: 1, view: viewFor('runner', truth(h)), opponent: 'here' }]);
+    expect(back.take()).toEqual([{ v: 2, t: 'sync', seq: 1, view: viewFor('runner', truth(h)), opponent: 'here' }]);
     expect(back.role).toEqual({ kind: 'seat', seat: 'runner' });
-    expect(host.take()).toEqual([{ v: 1, t: 'presence', opponent: 'here' }]);
+    expect(host.take()).toEqual([{ v: 2, t: 'presence', opponent: 'here' }]);
     // Host's own sync would show the guest here.
     h.room.message(host, msg({ t: 'resume', token: tokenOf(host), since: 1 }));
-    expect(host.take()).toEqual([{ v: 1, t: 'sync', seq: 1, view: viewFor('corp', truth(h)), opponent: 'here' }]);
+    expect(host.take()).toEqual([{ v: 2, t: 'sync', seq: 1, view: viewFor('corp', truth(h)), opponent: 'here' }]);
   });
 
   it('a second socket for a seat replaces the first (error replaced, closed); the new one plays', () => {
@@ -266,14 +281,14 @@ describe('resume, replaced, presence, gap', () => {
     guest.take();
     const again = player(h, 'host2');
     h.room.message(again, msg({ t: 'resume', token: hostToken, since: 0 }));
-    expect(host.take()).toEqual([{ v: 1, t: 'error', code: 'replaced' }]);
+    expect(host.take()).toEqual([{ v: 2, t: 'error', code: 'replaced' }]);
     expect(host.closed?.reason).toBe('replaced');
     expect(again.take()).toMatchObject([{ t: 'sync', seq: 0 }]);
     // The old socket's late close and messages change nothing.
     h.room.disconnect(host);
     h.room.message(host, msg({ t: 'act', id: 1, action: { type: 'gain_credit', player: 'corp' } }));
     expect(h.room.seq()).toBe(0);
-    expect(guest.take()).toEqual([{ v: 1, t: 'presence', opponent: 'here' }]);
+    expect(guest.take()).toEqual([{ v: 2, t: 'presence', opponent: 'here' }]);
     h.room.message(again, msg({ t: 'act', id: 2, action: { type: 'gain_credit', player: 'corp' } }));
     expect(again.take()).toMatchObject([{ t: 'update', seq: 1, ack: 2 }]);
   });
@@ -284,7 +299,7 @@ describe('resume, replaced, presence, gap', () => {
     host.take();
     const p = player(h);
     h.room.message(p, msg({ t: 'resume', token: tokenOf(host) + 'x', since: 0 }));
-    expect(p.take()).toEqual([{ v: 1, t: 'error', code: 'bad_token' }]);
+    expect(p.take()).toEqual([{ v: 2, t: 'error', code: 'bad_token' }]);
     expect(p.closed?.reason).toBe('bad_token');
     expect(host.take()).toEqual([]);
   });
@@ -296,11 +311,12 @@ describe('resume, replaced, presence, gap', () => {
     h.room.disconnect(host);
     const back = player(h);
     h.room.message(back, msg({ t: 'resume', token: tokenOf(host), since: 0 }));
-    expect(back.take()).toEqual([{ v: 1, t: 'lobby', code: CODE, seat: 'runner' }]);
+    expect(back.take()).toEqual([{ v: 2, t: 'lobby', code: CODE, seat: 'runner' }]);
     const guest = player(h, 'guest');
     h.room.message(guest, msg({ t: 'join' }));
+    h.room.message(guest, msg({ t: 'pick' }));
     expect(guest.take()[0]).toMatchObject({ t: 'seated', seat: 'corp' });
-    expect(back.take()).toMatchObject([{ t: 'sync', seq: 0, opponent: 'here' }]);
+    expect(back.take()).toMatchObject([{ t: 'lobby', picking: true }, { t: 'sync', seq: 0, opponent: 'here' }]);
   });
 
   it('gap: a client that missed updates sends resume{since} on the same socket and gets a sync', () => {
@@ -311,7 +327,7 @@ describe('resume, replaced, presence, gap', () => {
     host.take();
     guest.take();
     h.room.message(guest, msg({ t: 'resume', token: guestToken, since: 1 }));
-    expect(guest.take()).toEqual([{ v: 1, t: 'sync', seq: 2, view: viewFor('runner', truth(h)), opponent: 'here' }]);
+    expect(guest.take()).toEqual([{ v: 2, t: 'sync', seq: 2, view: viewFor('runner', truth(h)), opponent: 'here' }]);
     expect(host.take()).toEqual([]); // same socket: no presence change
   });
 
@@ -322,12 +338,12 @@ describe('resume, replaced, presence, gap', () => {
     h.room.message(host, PING);
     h.room.message(host, '{nope');
     expect(host.take()).toEqual([
-      { v: 1, t: 'pong' },
-      { v: 1, t: 'error', code: 'bad_message' },
+      { v: 2, t: 'pong' },
+      { v: 2, t: 'error', code: 'bad_message' },
     ]);
     expect(host.closed).toBeNull();
-    h.room.message(host, '{"v":2,"t":"join"}');
-    expect(host.take()).toEqual([{ v: 1, t: 'error', code: 'version' }]);
+    h.room.message(host, '{"v":1,"t":"join"}'); // Sprint 14: a v1 (pre-update) frame
+    expect(host.take()).toEqual([{ v: 2, t: 'error', code: 'version' }]);
     expect(host.closed?.reason).toBe('version');
   });
 });
@@ -426,13 +442,18 @@ describe('Corp auto-pass (S-06-2 AC4/AC5)', () => {
     const host = creator(h);
     h.room.message(host, msg({ t: 'create', side: 'corp', test: { seed: affordable.seed, actions: affordable.actions } }));
     expect(h.room.nextWakeAt()).toBe(meta(h).createdAt + LOBBY_TTL_MS);
-    h.room.message(player(h), msg({ t: 'join' }));
+    const g1 = player(h);
+    h.room.message(g1, msg({ t: 'join' }));
+    expect(h.room.nextWakeAt()).toBe(meta(h).createdAt + LOBBY_TTL_MS); // Sprint 14: still picking
+    h.room.message(g1, msg({ t: 'pick' }));
     expect(h.room.nextWakeAt()).toBe(meta(h).lastActive + IDLE_TTL_MS);
     // At a pass-only window but nobody has joined yet: the lobby just waits.
     const b = harness({ testMode: true });
     b.room.message(creator(b), msg({ t: 'create', side: 'corp', test: { seed: plan.seed, actions: plan.actions } }));
     expect(b.room.nextWakeAt()).toBe(meta(b).createdAt + LOBBY_TTL_MS);
-    b.room.message(player(b), msg({ t: 'join' }));
+    const g2 = player(b);
+    b.room.message(g2, msg({ t: 'join' }));
+    b.room.message(g2, msg({ t: 'pick' }));
     expect(b.room.nextWakeAt()! - b.clock.t).toBeLessThanOrEqual(AUTO_PASS_MAX_MS);
   });
 });
@@ -447,14 +468,15 @@ describe('cleanup (TTL wake-ups)', () => {
     expect(at).toBe(h.clock.t + LOBBY_TTL_MS);
     h.clock.t = at;
     h.room.alarm();
-    expect(host.take()).toEqual([{ v: 1, t: 'error', code: 'expired' }]);
+    expect(host.take()).toEqual([{ v: 2, t: 'error', code: 'expired' }]);
     expect(host.closed?.reason).toBe('expired');
     expect(h.store.data.size).toBe(0);
     expect(h.room.canCreate()).toBe(true);
     expect(h.room.nextWakeAt()).toBeNull();
     const late = player(h);
     h.room.message(late, msg({ t: 'join' }));
-    expect(late.take()).toEqual([{ v: 1, t: 'error', code: 'no_game' }]);
+    h.room.message(late, msg({ t: 'pick' }));
+    expect(late.take()).toEqual([{ v: 2, t: 'error', code: 'no_game' }]);
   });
 
   it('an idle game lasts IDLE_TTL_MS (Sprint 11: 7 days) from its last move; each move pushes it back', () => {
@@ -468,7 +490,7 @@ describe('cleanup (TTL wake-ups)', () => {
     expect(guest.closed).toBeNull();
     h.clock.t += 1;
     h.room.alarm();
-    expect(guest.last()).toEqual({ v: 1, t: 'error', code: 'expired' });
+    expect(guest.last()).toEqual({ v: 2, t: 'error', code: 'expired' });
     expect(h.store.data.size).toBe(0);
   });
 

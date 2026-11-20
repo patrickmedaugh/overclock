@@ -1,5 +1,5 @@
 // Test doubles for the room: an in-memory store, sockets that record what they get, a clock.
-import { parseServerMsg, type ServerMsg } from '@overclock/protocol';
+import { PROTOCOL_VERSION, parseServerMsg, type ServerMsg } from '@overclock/protocol';
 import { Room, type Conn, type ConnRole, type RoomDeps, type RoomStore } from '../src/room';
 
 export class MemStore implements RoomStore {
@@ -99,4 +99,13 @@ export function harness(opts: Partial<RoomDeps> & { store?: MemStore; clock?: Cl
   return { room: new Room(store, deps), store, clock, deps };
 }
 
-export const msg = (o: object): string => JSON.stringify({ v: 1, ...o });
+export const msg = (o: object): string => JSON.stringify({ v: PROTOCOL_VERSION, ...o });
+
+/** Sprint 14: a guest joins and picks the standard deck, so the room deals (returns the guest's socket). */
+export function dealGuest(room: Room, name = 'guest', deck?: object): FakeConn {
+  const g = new FakeConn(name);
+  room.connect(g, { kind: 'player' });
+  room.message(g, msg({ t: 'join' }));
+  room.message(g, msg(deck ? { t: 'pick', deck } : { t: 'pick' }));
+  return g;
+}

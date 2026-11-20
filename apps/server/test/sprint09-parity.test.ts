@@ -21,6 +21,7 @@ function onlineGame(seed: number, goal: StepGoal) {
   h.room.message(conns.corp, msg({ t: 'create', side: 'corp', test: { seed, actions: plan.actions, deckSet: plan.deckSet } }));
   h.room.connect(conns.runner, { kind: 'player' });
   h.room.message(conns.runner, msg({ t: 'join' }));
+  h.room.message(conns.runner, msg({ t: 'pick' }));
   expect(h.room.seq()).toBe(plan.actions.length);
   expect(h.store.get<RoomMeta>('meta')!.options).toEqual({ ...ONLINE_OPTIONS, deckSet: 'core' });
   let id = 0;

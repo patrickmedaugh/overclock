@@ -9,10 +9,18 @@
  *
  * All handlers are synchronous: the Durable Object runs one event at a time, so a
  * handler can't interleave with another socket's message.
+ *
+ * Sprint 14 (protocol v2, own decks): the room **deals after both picks**. `create {side, deck?}`
+ * checks the host's deck and stores the seed and the pick (`meta.dealt: false`, no match yet);
+ * `join` seats the guest and sends `choose`; `pick {deck?}` checks the guest's deck, then deals.
+ * An illegal deck gets `deck_refused` (to the sender only; the socket stays open). Decks live only
+ * in `meta.options` (never in a frame to anyone), so restarts, reconnects and Leave for now keep
+ * the dealt lists.
  */
-import { RULES_VERSION, type Action, type GameOptions, type GameState, type PlayerView, type Side } from '@overclock/engine';
+import { RULES_VERSION, isPlayableDeck, type Action, type GameOptions, type GameState, type PlayerView, type Side } from '@overclock/engine';
+import { checkDeck, deckFromCounts, getCard, type DeckDef, type DeckProblem } from '@overclock/cards';
 import { LocalMatch, type MatchUpdate } from '@overclock/match';
-import { encodeMsg, parseClientMsg, PROTOCOL_VERSION, type ClientMsg, type ErrorCode, type Presence, type ServerMsg } from '@overclock/protocol';
+import { encodeMsg, parseClientMsg, PROTOCOL_VERSION, type ClientMsg, type DeckChoice, type ErrorCode, type Presence, type ServerMsg } from '@overclock/protocol';
 import { base64url, sha256Hex } from './hash';
 
 /**
@@ -94,6 +102,27 @@ export interface RoomMeta {
    * in rooms created before it was stored: those were all created under version 1.
    */
   rulesVersion?: number;
+  /**
+   * Sprint 14: `false` = waiting for the guest's deck (no match, no `state`, no actions yet);
+   * `true` = dealt. Absent = a room made before Sprint 14 (dealt at `create`).
+   * Before the deal, `options.decks` holds the host's own deck (if any) and the deal adds the guest's.
+   */
+  dealt?: boolean;
+  /** Sprint 14, test mode only, until the deal: the prelude of actions replayed right after the deal. */
+  testActions?: Action[];
+}
+
+/**
+ * Sprint 14: why `choice` can't be dealt for `side` (empty = it can). `checkDeck`'s problems, plus a
+ * `wrong_side` for an identity of the other side. Non-empty ⇔ `isPlayableDeck` is false.
+ */
+export function deckChoiceProblems(choice: DeckChoice, side: Side): { deck: DeckDef; problems: DeckProblem[] } {
+  const deck = deckFromCounts(choice.identity, choice.cards);
+  const problems = checkDeck(deck);
+  const idSide = getCard(choice.identity)?.side;
+  if (idSide !== undefined && idSide !== side) problems.unshift({ kind: 'wrong_side', cardId: choice.identity });
+  if (problems.length === 0 && !isPlayableDeck(deck, side)) problems.push({ kind: 'not_identity', cardId: choice.identity });
+  return { deck, problems };
 }
 
 const actionKey = (seq: number) => `a:${String(seq).padStart(6, '0')}`;
@@ -194,13 +223,16 @@ export class Room {
         else this.send(conn, { v: PROTOCOL_VERSION, t: 'error', code: 'bad_message' });
         return;
       case 'leave':
-        if (role.kind === 'seat' && this.meta && !this.started()) this.close();
-        else if (role.kind === 'seat' && this.started()) this.leaveForNow(conn, role.seat);
+        if (role.kind === 'seat' && this.meta && !this.started()) {
+          // Sprint 14: the guest leaving before the deal frees the guest seat; the host leaving closes the room.
+          if (role.seat !== this.meta.hostSide) this.unseatGuest(conn, role.seat);
+          else this.close(conn);
+        } else if (role.kind === 'seat' && this.started()) this.leaveForNow(conn, role.seat);
         else this.send(conn, { v: PROTOCOL_VERSION, t: 'error', code: 'bad_message' });
         return;
       case 'pick':
-        // Sprint 14 E1: shape only; the room deals after the pick from E4 on.
-        this.send(conn, { v: PROTOCOL_VERSION, t: 'error', code: 'bad_message' });
+        if (role.kind === 'seat' && this.meta?.dealt === false && role.seat !== this.meta.hostSide) this.pick(conn, role.seat, msg.deck);
+        else this.send(conn, { v: PROTOCOL_VERSION, t: 'error', code: 'bad_message' });
         return;
     }
   }
@@ -236,37 +268,90 @@ export class Room {
   // ---- handlers -------------------------------------------------------------------
 
   private create(conn: Conn, code: string, msg: Extract<ClientMsg, { t: 'create' }>): void {
+    // Sprint 14: an illegal deck → `deck_refused`, no game; the creator socket stays open to try again.
+    let decks: Partial<Record<Side, DeckDef>> | undefined;
+    if (msg.deck) {
+      const { deck, problems } = deckChoiceProblems(msg.deck, msg.side);
+      if (problems.length > 0) return this.send(conn, { v: PROTOCOL_VERSION, t: 'deck_refused', problems });
+      decks = { [msg.side]: deck };
+    }
     this.divergedOnRestore = false;
     const now = this.deps.now();
     const test = this.deps.testMode ? msg.test : undefined;
     const seed = test ? test.seed : Math.floor(this.deps.random() * 0x100000000) >>> 0;
     // Sprint 8: test mode may pick the deck set (legacy specs keep their decks); production is always 'core45' (Sprint 12).
-    const match = new LocalMatch(seed, { ...ONLINE_OPTIONS, deckSet: test?.deckSet ?? ONLINE_OPTIONS.deckSet });
-    const accepted: Action[] = [];
-    for (const a of test?.actions ?? []) {
-      const u = match.submit(a.player, a);
-      if (!isRejected(u, a.player)) accepted.push(JSON.parse(JSON.stringify(a)) as Action);
-    }
+    // Sprint 14: the `decks` key only for own decks, so a standard game's options (and state) stay byte-identical.
+    const options: GameOptions = { ...ONLINE_OPTIONS, deckSet: test?.deckSet ?? ONLINE_OPTIONS.deckSet, ...(decks ? { decks } : {}) };
     const token = this.newToken();
     this.meta = {
       code,
       seed,
       hostSide: msg.side,
       tokenHashes: { [msg.side]: sha256Hex(token) },
-      options: match.options,
+      options,
       createdAt: now,
       lastActive: now,
       build: this.deps.build,
       rulesVersion: RULES_VERSION,
+      dealt: false,
+      ...(test && test.actions.length > 0 ? { testActions: JSON.parse(JSON.stringify(test.actions)) as Action[] } : {}),
     };
-    this.match = match;
-    this.accepted = accepted;
-    accepted.forEach((a, i) => this.store.put(actionKey(i + 1), a));
-    this.store.put('state', match.snapshot());
+    this.match = null;
+    this.accepted = [];
     this.store.put('meta', this.meta);
     this.seat(conn, msg.side);
     this.send(conn, { v: PROTOCOL_VERSION, t: 'seated', code, seat: msg.side, token });
     this.send(conn, { v: PROTOCOL_VERSION, t: 'lobby', code, seat: msg.side });
+  }
+
+  /** Sprint 14: the guest's deck. Legal → deal and `sync` both; illegal → `deck_refused` to the guest only. */
+  private pick(conn: Conn, seat: Side, choice: DeckChoice | undefined): void {
+    const meta = this.meta!;
+    let decks = meta.options.decks;
+    if (choice) {
+      const { deck, problems } = deckChoiceProblems(choice, seat);
+      if (problems.length > 0) return this.send(conn, { v: PROTOCOL_VERSION, t: 'deck_refused', problems });
+      decks = { ...decks, [seat]: deck };
+    }
+    let match: LocalMatch;
+    try {
+      match = new LocalMatch(meta.seed, { ...meta.options, ...(decks ? { decks } : {}) });
+    } catch {
+      // Unreachable (both decks passed isPlayableDeck), but never deal a game the engine refuses.
+      return this.send(conn, { v: PROTOCOL_VERSION, t: 'deck_refused', problems: [] });
+    }
+    const accepted: Action[] = [];
+    for (const a of meta.testActions ?? []) {
+      const u = match.submit(a.player, a);
+      if (!isRejected(u, a.player)) accepted.push(JSON.parse(JSON.stringify(a)) as Action);
+    }
+    meta.options = match.options;
+    meta.dealt = true;
+    delete meta.testActions;
+    meta.lastActive = this.deps.now();
+    this.match = match;
+    this.accepted = accepted;
+    accepted.forEach((a, i) => this.store.put(actionKey(i + 1), a));
+    this.store.put('state', match.snapshot());
+    this.store.put('meta', meta);
+    for (const s of SIDES) this.sync(s);
+    this.scheduleAutoPass();
+  }
+
+  /** Sprint 14: the guest leaves before the deal: the seat is free again and the host is back in the plain lobby. */
+  private unseatGuest(conn: Conn, seat: Side): void {
+    const meta = this.meta!;
+    delete meta.tokenHashes[seat];
+    this.store.put('meta', meta);
+    delete this.seats[seat];
+    this.roles.delete(conn);
+    try {
+      conn.close(CLOSE_NORMAL, 'left');
+    } catch {
+      // already closed
+    }
+    const host = this.seats[meta.hostSide];
+    if (host) this.send(host, { v: PROTOCOL_VERSION, t: 'lobby', code: meta.code, seat: meta.hostSide });
   }
 
   private join(conn: Conn): void {
@@ -280,6 +365,13 @@ export class Room {
     this.store.put('meta', meta);
     this.seat(conn, seat);
     this.send(conn, { v: PROTOCOL_VERSION, t: 'seated', code: meta.code, seat, token });
+    if (meta.dealt === false) {
+      // Sprint 14: the guest picks a deck first; the host hears that the friend is picking.
+      this.send(conn, { v: PROTOCOL_VERSION, t: 'choose', seat });
+      const host = this.seats[meta.hostSide];
+      if (host) this.send(host, { v: PROTOCOL_VERSION, t: 'lobby', code: meta.code, seat: meta.hostSide, picking: true });
+      return;
+    }
     for (const s of SIDES) this.sync(s);
     this.scheduleAutoPass();
   }
@@ -310,7 +402,10 @@ export class Room {
       this.store.put('meta', meta);
     }
     if (!this.started()) {
-      this.send(conn, { v: PROTOCOL_VERSION, t: 'lobby', code: meta.code, seat });
+      // Sprint 14: before the deal the guest picks (again); the host waits (knowing whether the friend is picking).
+      if (seat !== meta.hostSide) this.send(conn, { v: PROTOCOL_VERSION, t: 'choose', seat });
+      else if (meta.tokenHashes[other(seat)]) this.send(conn, { v: PROTOCOL_VERSION, t: 'lobby', code: meta.code, seat, picking: true });
+      else this.send(conn, { v: PROTOCOL_VERSION, t: 'lobby', code: meta.code, seat });
       return;
     }
     this.sync(seat);
@@ -373,6 +468,16 @@ export class Room {
   private restore(): void {
     const meta = this.store.get<RoomMeta>('meta');
     if (!meta) return;
+    if (meta.dealt === false) {
+      // Sprint 14: nothing dealt yet (still picking): only the meta.
+      if ((meta.rulesVersion ?? 1) !== RULES_VERSION) {
+        this.store.deleteAll();
+        this.divergedOnRestore = true;
+        return;
+      }
+      this.meta = meta;
+      return;
+    }
     const actions = this.store.list<Action>('a:').map(([, a]) => a);
     const snapshot = this.store.get<GameState>('state');
     if (snapshot && meta.build === this.deps.build) {
@@ -399,9 +504,9 @@ export class Room {
     this.accepted = actions;
   }
 
-  /** Both seats claimed. */
+  /** Both seats claimed and (Sprint 14) the cards dealt. A meta without `dealt` is a pre-Sprint-14 room (dealt). */
   private started(): boolean {
-    return !!this.meta && SIDES.every((s) => this.meta!.tokenHashes[s]);
+    return !!this.meta && this.meta.dealt !== false && SIDES.every((s) => this.meta!.tokenHashes[s]);
   }
 
   private view(seat: Side): PlayerView {
@@ -486,12 +591,17 @@ export class Room {
   /**
    * Sprint 7 (`leave` in a lobby nobody joined): the room closes. Seat sockets are closed
    * normally, storage is wiped, and the code then answers `no_game` (and is free again).
+   * Sprint 14: the host may also leave while the guest is picking: the guest gets `error no_game`.
    */
-  private close(): void {
+  private close(leaver: Conn): void {
     for (const s of SIDES) {
       const conn = this.seats[s];
       if (!conn) continue;
       delete this.seats[s];
+      if (conn !== leaver) {
+        this.fail(conn, 'no_game');
+        continue;
+      }
       this.roles.delete(conn);
       try {
         conn.close(CLOSE_NORMAL, 'left');
