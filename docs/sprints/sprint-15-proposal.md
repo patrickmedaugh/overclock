@@ -121,7 +121,7 @@ After playing the Sprint 15 demo (PR #34, 21:54 UTC) you said: *"it doesn't quit
 
 *Acceptance criteria:*
 - Given the hand view is open, when you flick left or right, then you browse your hand as today (cards slide, nothing gets picked up).
-- Given the hand view is open, when you press and hold the big card for about 0.25 seconds without moving, then it lifts out and stays under your finger, and the hand view shrinks away (the big view and the cards behind it fade, and your hand at the bottom of the screen drops down out of the way), so you can see the whole table.
+- Given the hand view is open, when you press and hold the big card for about 0.25 seconds without moving (or drag it upward; also straight up out of the small hand at the bottom, without opening the hand view first), then it lifts out and stays under your finger, and the hand view shrinks away (the big view and the cards behind it fade, and your hand at the bottom of the screen drops down out of the way), so you can see the whole table.
 - Given you're holding a card, when it lifts, then every place it can legally go lights up at once: for the Corp, each server it can be installed in and a **new server** spot (ICE, assets, agendas, upgrades); for the Runner, the **rig** (programs, hardware, resources); for an event or operation, the **middle of the table**. Places it can't go right now stay unlit or dimmed with the reason (as today).
 - Given you're holding a card, when you move it over a lit place, then that place is highlighted more strongly so you know where it will land; when you move off, it goes back to plain lit.
 - Given you're holding a card over a place, when the team has tried an **arrow** from the card to the highlighted place at your phone's size (891×296), then the arrow is shown only if it doesn't crowd the screen or hide other places; if it does, there's no arrow and the strong highlight is the only marker. The demo notes say which way we went, with a screenshot.
@@ -137,7 +137,7 @@ After playing the Sprint 15 demo (PR #34, 21:54 UTC) you said: *"it doesn't quit
 
 *Questions for you in the new demo:*
 - Arrow or no arrow: after playing it, do you want to keep what we chose (arrow, or lit places only)?
-- Should you also be able to grab a card **straight from the small hand at the bottom**, without opening the big hand view first (closer still to Hearthstone, but a hold on the small hand today is how you browse it)? Recommended: try the new version first and tell us.
+- You can also grab a card **straight from the small hand at the bottom** by dragging it upward (holding still there still shows it big to read, as today). Keep it? Recommended: keep it. *(Added by the tech lead after looking at the hand code, 2026-11-20.)*
 
 *What this changes in the stories above:* S-15-2's criterion 4 ("install or play from a button instead of dragging, e.g. on a computer") is now done with the mouse by holding and dragging, since tapping to play is gone. Its flight from the hand stays the same.
 
