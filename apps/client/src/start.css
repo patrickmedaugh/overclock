@@ -72,3 +72,15 @@
 #start[data-screen='home'] .screen { width: min(760px, 100%); }
 #start .choices.three .choice { padding: 8px 10px; }
 #start .choice.plain b { color: #e8f6ff; }
+
+/* Sprint 15 (S-15-5): "Get the Android app" (play site only), top-right corner of the home screen. */
+#start a.get-app {
+  position: absolute;
+  top: max(8px, env(safe-area-inset-top, 0px));
+  right: max(10px, env(safe-area-inset-right, 0px));
+  display: inline-flex; align-items: center; min-height: 44px; padding: 0 14px; box-sizing: border-box;
+  border: 1px solid #3a4a62; border-radius: 22px; background: #0d0f1a;
+  color: #19e6ff; font-size: 14px; font-weight: 700; text-decoration: none;
+  -webkit-tap-highlight-color: transparent;
+}
+#start a.get-app:active { transform: scale(0.96); background: #16192a; }
