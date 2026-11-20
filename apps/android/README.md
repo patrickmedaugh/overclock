@@ -79,3 +79,11 @@ never need the Android SDK.
 - Checks: `npm run check:android --workspace @overclock/client` (bundle has no
   test hook, no rotate prompt, no internet URLs); Playwright project `android`
   serves the android build and checks it boots.
+
+## Decks online (Sprint 14)
+
+The app keeps a copy of the player's decks with the online service (`POST https://<service>/v1/decks/…`,
+the same host as the online games, derived from `OVERCLOCK_SERVER_URL`). The app's CSP `connect-src`
+names exactly that host as `wss://` and `https://` (`npm run check:android` checks it). The WebView's
+page origin is `https://localhost`, which must stay in the service's `ALLOWED_ORIGINS`
+(`apps/server/wrangler.jsonc`) or deck requests are refused (the decks still work on the phone).
