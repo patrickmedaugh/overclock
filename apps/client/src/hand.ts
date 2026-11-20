@@ -10,6 +10,7 @@ import { attachPress } from './input';
 import { type BoardLayout, handSlots, nearestSlot } from './layout';
 import { theme, timing } from './theme';
 import { ease, type Tweens } from './tween';
+import { STRIP_PULL, isUpward } from './handGesture';
 
 export interface HandCard {
   cardId: string;
@@ -41,6 +42,14 @@ export interface HandCallbacks {
   onLongPressEnd(): void;
   /** S-04-3: the held finger slid onto hand card `index`: show it in the zoom. `at`: the move's event time. */
   onZoomSlide(cardId: string, box: Box, at: number, index: number): void;
+  /**
+   * S-15-6: the finger pulls hand card `index` up out of the strip (an upward drag, or out of the
+   * strip during a hold-to-read: then `index` is the card being read). Return true to lift it:
+   * the finger's moves and release then go to `onDrag` / `onDrop`.
+   */
+  onPull?(index: number, x: number, y: number, at: number): boolean;
+  onDrag?(x: number, y: number, at: number): void;
+  onDrop?(x: number, y: number, cancelled: boolean): void;
   log(rec: Omit<AnimRecord, 'startedAt'>): void;
   /** Sprint 15: a card sprite starts flying (draw / discard); call the returned function when it lands. */
   flight?(kind: 'draw' | 'discard', cardId: string | null, root: Container, w: number, h: number): () => void;
@@ -55,7 +64,17 @@ const HOVER_MS = 90;
 
 export class Hand {
   readonly container = new Container();
+  /**
+   * S-15-6: the cards in the hand strip (inside `container`). It drops below the screen while a
+   * card is held (`minimize`); the held card is moved out of it into `container`, so it stays
+   * under the finger.
+   */
+  private readonly strip = new Container();
   private cards: HandCard[] = [];
+  /** S-15-6: the strip is dropped (or dropping) below the screen. */
+  private minimized = false;
+  /** S-15-6: the held card is dimmed (it can't be played now). */
+  private liftDimmed = false;
   private layout: BoardLayout | null = null;
   /** The layout generation the sprites were made for (sizes). */
   sizeKey = '';
@@ -74,6 +93,47 @@ export class Hand {
   ) {
     this.container.sortableChildren = true;
     this.container.label = `hand:${side}`;
+    this.strip.sortableChildren = true;
+    this.strip.label = `hand-strip:${side}`;
+    this.container.addChild(this.strip);
+  }
+
+  /** S-15-6: true while the strip is dropped below the screen (a card is held). */
+  get isMinimized(): boolean {
+    return this.minimized;
+  }
+
+  /**
+   * S-15-6: the strip drops below the screen (`on`) or comes back up, over `ms` on the input
+   * queue (never skipped, never blocks). The held card is not in the strip, so it does not move.
+   */
+  minimize(on: boolean, ms: number): void {
+    const layout = this.layout;
+    if (on === this.minimized && (on || this.strip.y === 0)) return;
+    this.minimized = on;
+    this.ui.cancel(this.strip);
+    const to = on && layout ? Math.max(0, layout.viewport.height - layout.handArea.y) + 4 : 0;
+    if (ms <= 0) {
+      this.strip.y = to;
+      this.strip.alpha = 1;
+    } else {
+      this.ui.add({ target: this.strip, to: { y: to }, duration: ms, ease: on ? ease.inCubic : ease.outCubic, owner: this.strip });
+    }
+    this.callbacks.log({ kind: on ? 'hand_minimize' : 'hand_restore', scheduledMs: Math.max(0, ms) });
+  }
+
+  /** Puts a card drawn outside the strip (held, or let go and refused) back in it, where it is now on screen. */
+  private home(card: HandCard): void {
+    if (card.root.parent === this.strip || card.root.destroyed) return;
+    card.root.y -= this.strip.y;
+    this.strip.addChild(card.root);
+  }
+
+  /** Takes a strip card out into `container` where it is now on screen (it is held, or leaving the hand). */
+  private unhome(card: HandCard): void {
+    if (card.root.parent !== this.strip || card.root.destroyed) return;
+    card.root.y += this.strip.y;
+    this.container.addChild(card.root);
   }
 
   get count(): number {
@@ -121,21 +181,45 @@ export class Hand {
    * S-07-6: lifts hand card `index` out of the strip: it is drawn over the
    * board, takes no taps, and follows `dragTo` (the finger) with no tween.
    */
-  lift(index: number): boolean {
+  lift(index: number, dimmed = false): boolean {
     const card = this.cards[index];
     if (!card) return false;
     this.fx.cancel(card.root);
     this.ui.cancel(card.root);
     this.ui.cancel(card.flip.scale);
-    card.root.eventMode = 'none';
+    this.ui.cancel(card.flip.pivot);
+    this.ui.cancel(card.flip);
+    card.flip.pivot.y = 0;
+    card.flip.rotation = 0;
+    if (this.hovered === card) this.hovered = null;
+    // S-15-6: a card picked up from the strip keeps the finger's moves (its own press goes on).
+    card.root.eventMode = card.pressed ? 'static' : 'none';
     card.flip.scale.set(1.08);
     card.root.scale.set(1);
     card.back.visible = false;
     card.face.visible = true;
+    // S-15-6: a card that can't be played now lifts dimmed (nothing lights).
+    this.liftDimmed = dimmed;
+    card.face.alpha = dimmed ? 0.5 : 1;
+    card.flip.tint = dimmed ? 0x8a8a8a : 0xffffff;
+    this.unhome(card);
+    card.root.zIndex = 2000;
     this.lifted = card;
     this.lastLean = 0;
     this.restack();
     return true;
+  }
+
+  /** S-15-6: the held card is dimmed (it can't be played now). */
+  get liftedDimmed(): boolean {
+    return this.lifted !== null && this.liftDimmed;
+  }
+
+  /** Undoes the held card's dimming. */
+  private undim(card: HandCard): void {
+    if (card.root.destroyed) return;
+    card.face.alpha = card.marked ? 0.55 : 1;
+    card.flip.tint = 0xffffff;
   }
 
   /** The lifted card's centre goes to x/y (set in the move handler: no tween, no allocation). */
@@ -181,6 +265,8 @@ export class Hand {
     this.lifted = null;
     const layout = this.layout;
     if (!card || card.root.destroyed || !layout) return;
+    this.undim(card);
+    this.home(card);
     const i = this.cards.indexOf(card);
     const slot = handSlots(layout, this.cards.length)[i];
     card.root.eventMode = 'static';
@@ -207,6 +293,7 @@ export class Hand {
    * sync puts it back if the play did not happen.
    */
   leaveLifted(): void {
+    if (this.lifted) this.undim(this.lifted);
     this.lifted = null;
   }
 
@@ -215,6 +302,7 @@ export class Hand {
     for (const c of this.cards) this.destroyCard(c);
     this.cards = [];
     this.sizeKey = '';
+    this.minimize(false, 0);
   }
 
   /** Uses a new layout with the same sizes (positions only; no sprite is rebuilt). */
@@ -287,6 +375,7 @@ export class Hand {
     const scale = pile.width / layout.card.width;
     let end = 0;
     leaving.forEach((card, k) => {
+      this.unhome(card);
       const delay = delays?.[k] ?? k * timing.discardStagger;
       end = Math.max(end, delay + timing.discardFlight);
       const landed = this.callbacks.flight?.('discard', card.cardId, card.root, layout.card.width, layout.card.height);
@@ -334,6 +423,10 @@ export class Hand {
     if (!card || !layout) return null;
     const box = this.cardBox(card);
     this.cards.splice(index, 1);
+    // Leaving the hand: drawn where it is on screen (the strip may be dropped below it).
+    this.unhome(card);
+    if (this.lifted === card) this.lifted = null;
+    this.undim(card);
     card.detach();
     this.fx.cancel(card.root);
     this.ui.cancel(card.root);
@@ -372,44 +465,14 @@ export class Hand {
     });
   }
 
-  /** Lifts and outlines the card picked to play (null: none). */
-  setSelected(index: number | null): void {
-    const layout = this.layout;
-    if (!layout) return;
-    const slots = handSlots(layout, this.cards.length);
-    // Sideways the hand strip touches the server names: the glow alone marks the pick there.
-    const lift = layout.mode === 'landscape' ? 0 : Math.round(layout.card.height * 0.12);
-    this.cards.forEach((c, i) => {
-      const on = i === index;
-      if (on === c.selected) return;
-      c.selected = on;
-      if (on && !c.glow) {
-        c.glow = this.createGlow();
-        c.flip.addChild(c.glow);
-      }
-      if (c.glow) c.glow.visible = on;
-      const slot = slots[i];
-      if (!slot) return;
-      this.fx.cancel(c.root);
-      this.ui.cancel(c.root);
-      this.ui.add({
-        target: c.root,
-        to: { x: slot.x + slot.width / 2, y: slot.y + slot.height / 2 - (on ? lift : 0) },
-        duration: timing.pressFeedback * 2,
-        ease: ease.outCubic,
-        owner: c.root,
-      });
-    });
-    this.restack();
-  }
-
   /** Rendered bounds of each hand card (CSS px). */
   boxes(): { cardId: string; box: Box; marked: boolean; selected: boolean; outlined: boolean; hover?: { rise: number; rotation: number } }[] {
     return this.cards.map((c) => ({
       cardId: c.cardId,
       box: this.cardBox(c),
       marked: c.marked,
-      selected: c.selected,
+      // S-15-6: the held card (playable) is the one picked to play.
+      selected: c === this.lifted && !this.liftDimmed,
       outlined: c === this.browsing,
       ...(c === this.hovered ? { hover: { rise: c.flip.pivot.y, rotation: c.flip.rotation } } : {}),
     }));
@@ -456,6 +519,7 @@ export class Hand {
       if (card.glow) card.glow.visible = false;
       // A card lifted (S-07-6) or cut off mid-flight takes taps again in its slot.
       if (card !== this.lifted) {
+        this.home(card);
         card.root.eventMode = 'static';
         this.ui.cancel(card.flip.scale);
         card.flip.scale.set(1);
@@ -476,15 +540,10 @@ export class Hand {
   private cardBox(c: HandCard): Box {
     const w = this.layout?.card.width ?? 0;
     const h = this.layout?.card.height ?? 0;
-    return centeredBox(c.root, w, h, c.flip.scale.x, c.flip.scale.y);
-  }
-
-  private createGlow(): Graphics {
-    const w = this.layout?.card.width ?? 60;
-    const h = this.layout?.card.height ?? 84;
-    const g = new Graphics();
-    glowRoundRect(g, -w / 2, -h / 2, w, h, Math.max(4, w * 0.08), theme.credit, Math.max(2, w * 0.04), 1.6);
-    return g;
+    const b = centeredBox(c.root, w, h, c.flip.scale.x, c.flip.scale.y);
+    // In the strip: where it is drawn on screen (S-15-6: the strip may be dropped below the screen).
+    if (c.root.parent === this.strip) b.y += this.strip.y;
+    return b;
   }
 
   private createOutline(): Graphics {
@@ -530,7 +589,7 @@ export class Hand {
     root.addChild(flip);
     root.label = `hand:${cardId}`;
     root.hitArea = new Rectangle(-w / 2, -h / 2, w, h);
-    this.container.addChild(root);
+    this.strip.addChild(root);
 
     const card: HandCard = { cardId, root, flip, back, face, mark: null, marked: false, glow: null, outline: null, selected: false, detach: () => {}, pressed: false };
     // S-15-1: a mouse pointing at a hand card lifts it a little (touch has the press feedback instead).
@@ -568,6 +627,25 @@ export class Hand {
         this.callbacks.onLongPress(cardId, this.cardBox(card), this.cards.indexOf(card));
       },
       onHoldMove: (x, y, at) => this.slide(x, y, at),
+      // S-15-6: pulled up out of the strip: before a hold, an upward drag picks this card up; during
+      // the hold-to-read, leaving the strip upward picks up the card being read.
+      onPull: (x, y, dx, dy, at, held) => {
+        const layout = this.layout;
+        const pull = this.callbacks.onPull;
+        if (!layout || !pull) return false;
+        let target = card;
+        if (held) {
+          if (y > layout.handArea.y - STRIP_PULL * layout.card.height) return false;
+          target = this.browsing ?? card;
+        } else if (!isUpward(dx, dy)) return false;
+        const i = this.cards.indexOf(target);
+        if (i < 0) return false;
+        if (!pull(i, x, y, at)) return false;
+        this.setBrowsing(null);
+        return true;
+      },
+      onDrag: (x, y, at) => this.callbacks.onDrag?.(x, y, at),
+      onDrop: (x, y, cancelled) => this.callbacks.onDrop?.(x, y, cancelled),
       onLongPressEnd: () => {
         this.setBrowsing(null);
         this.callbacks.onLongPressEnd();
@@ -625,6 +703,10 @@ export class Hand {
 
   private restack(): void {
     this.cards.forEach((c, i) => {
+      if (c === this.lifted) {
+        c.root.zIndex = 2000;
+        return;
+      }
       if (!c.pressed) c.root.zIndex = c === this.lifted ? 2000 : c === this.browsing ? 950 : c.selected ? 900 : i;
     });
   }

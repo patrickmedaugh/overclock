@@ -202,15 +202,17 @@ test.describe('S-02-2 Corp: ICE in front of a server', () => {
     const rd = targetOf(l, 'server', 'rd');
     expect(rd).toMatchObject({ label: 'Install · 3 credits', lit: false, reject: 'no_credits' });
     const before = await getView(page);
+    // S-15-6: letting the held card go on the dimmed place sends nothing; it says why and goes back.
     const m = await measureTap(page, rd.box);
-    expect(m.events).toEqual([{ type: 'action_rejected', reason: 'no_credits' }]);
     expect(m.view).toEqual(before);
     const hint = m.anims.find((a) => a.kind === 'hint');
     expect(hint?.text).toBe('Not enough credits');
     expect(hint!.startedAt - m.handledAt).toBeLessThan(100);
-    expect(m.anims.filter((a) => a.kind !== 'hint')).toEqual([]);
-    // Still picked, so another server can be chosen.
-    expect((await layout(page)).selected).not.toBeNull();
+    expect(m.anims.filter((a) => !['hint', 'card_return', 'hand_return', 'hand_restore'].includes(a.kind))).toEqual([]);
+    expect(await getView(page)).toEqual(before);
+    // Picked up again, another server can be chosen.
+    l = await pickCard(page, 'Ice Wall');
+    expect(targetOf(l, 'server', 'hq')).toMatchObject({ lit: true });
   });
 
   test("on the Runner's turn you see how many ICE guard each server, only as backs", async ({ page }) => {

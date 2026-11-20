@@ -160,6 +160,11 @@ export interface BoardLayout {
   scores: Record<Side, Box>;
   gameOver: Box;
   handArea: Box;
+  /**
+   * S-15-6: where a held one-shot card (an event or operation with one way to play) is dropped:
+   * the table above the hand, left of the rail (sideways) / above the hand (column).
+   */
+  playZone: Box;
   /** Hand card size. */
   card: { width: number; height: number };
   zoom: Box;
@@ -486,10 +491,22 @@ export function computeLayout(width: number, height: number, insetsIn?: Partial<
   const viewer = opts.viewer ?? 'corp';
   const shape = opts.shape ?? EMPTY_SHAPE;
   const landscape = vh <= 500 && vw > vh;
-  return landscape ? landscapeLayout(vw, vh, insets, safe, viewer, shape) : portraitLayout(vw, vh, insets, safe, viewer, shape);
+  const l = landscape ? landscapeLayout(vw, vh, insets, safe, viewer, shape) : portraitLayout(vw, vh, insets, safe, viewer, shape);
+  return { ...l, playZone: playZoneOf(l) };
 }
 
-function landscapeLayout(vw: number, vh: number, insets: Insets, safe: Box, viewer: Side, shape: BoardShape): BoardLayout {
+/**
+ * S-15-6: the play zone for a held one-shot card: the play area (`board`: left of the rail
+ * sideways, the column upright) from its top down to the hand strip. Nested places (a server
+ * column) are smaller, so `targetAt` still picks them where they overlap.
+ */
+export function playZoneOf(l: Pick<BoardLayout, 'board' | 'handArea'>): Box {
+  const { board, handArea } = l;
+  const bottom = Math.max(board.y + 1, Math.min(board.y + board.height, handArea.y));
+  return box(board.x, board.y, board.width, bottom - board.y);
+}
+
+function landscapeLayout(vw: number, vh: number, insets: Insets, safe: Box, viewer: Side, shape: BoardShape): Omit<BoardLayout, 'playZone'> {
   const sh = safe.height;
   const s = clamp(sh / 390, 0.8, 1.25);
   const pad = Math.max(3, Math.round(4 * s));
@@ -637,7 +654,7 @@ function landscapeLayout(vw: number, vh: number, insets: Insets, safe: Box, view
   };
 }
 
-function portraitLayout(vw: number, vh: number, insets: Insets, safe: Box, viewer: Side, shape: BoardShape): BoardLayout {
+function portraitLayout(vw: number, vh: number, insets: Insets, safe: Box, viewer: Side, shape: BoardShape): Omit<BoardLayout, 'playZone'> {
   // Portrait column: full width on narrow screens, a phone-shaped column on desktop.
   const boardW = Math.min(safe.width, Math.max(REF_W, Math.round(safe.height * 0.8)));
   const boardX = safe.x + Math.floor((safe.width - boardW) / 2);

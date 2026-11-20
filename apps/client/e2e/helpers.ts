@@ -127,11 +127,77 @@ function isTouch(): boolean {
   return test.info().project.use.hasTouch === true;
 }
 
-/** A real tap: touchscreen on the phone projects, mouse click on desktop. */
+/**
+ * A real tap: touchscreen on the phone projects, mouse click on desktop.
+ * S-15-6: while a card is held up (`pickHand` / `pickCard` keep the finger down), the tap is that
+ * finger moving to `b` and letting go there: the drop (a lit place plays the card, anywhere else
+ * puts it back). The real hold-and-drag gesture, so the old "pick, then tap a lit place" specs
+ * still play the same moves (DECISIONS 2026-11-20, S-15-6 test migration).
+ */
 export async function tap(page: Page, b: Box): Promise<void> {
+  if (await dropHeld(page, b)) return;
   const { x, y } = center(b);
   if (isTouch()) await page.touchscreen.tap(x, y);
   else await page.mouse.click(x, y);
+}
+
+/** S-15-6: the finger holding a card up on each page (picked by `pickHand`), until it lets go. */
+interface HeldCard {
+  hold: Hold;
+  /** Where the finger is now / where it went down (on the hand strip). */
+  at: { x: number; y: number };
+  start: { x: number; y: number };
+}
+const held = new WeakMap<Page, HeldCard>();
+
+/** S-15-6: true while `pickHand` keeps a card held up on `page` (the next tap drops it). */
+export function isHolding(page: Page): boolean {
+  return held.has(page);
+}
+
+/**
+ * S-15-6: if a card is held on `page`, its finger moves to `b` (a few steps, as a finger drags)
+ * and lets go there; true if it did. If the board already put the card back (a new view came in
+ * meanwhile), the finger just lets go where it went down and false is returned (tap as usual).
+ */
+async function dropHeld(page: Page, b: Box): Promise<boolean> {
+  const h = held.get(page);
+  if (!h) return false;
+  held.delete(page);
+  const stillHeld = await page.evaluate(() => window.__overclock!.layout().drag !== null);
+  if (!stillHeld) {
+    await h.hold.release();
+    return false;
+  }
+  // The browser hands the page these moves and the release in order: the card is let go at `b`.
+  await dragTo(h.hold, h.at, center(b), 3);
+  await h.hold.release();
+  return true;
+}
+
+/**
+ * S-15-6: lets go of a held card where its finger went down (the hand strip: no lit place), so it
+ * goes back; waits until the hand is back up. Does nothing if no card is held.
+ */
+export async function putBack(page: Page): Promise<void> {
+  const h = held.get(page);
+  if (!h) return;
+  held.delete(page);
+  // Touch: the touch is cancelled (nothing is played). Mouse: let go back on the hand strip.
+  if (isTouch() && h.hold.cancel) await h.hold.cancel();
+  else {
+    await dragTo(h.hold, h.at, h.start, 3);
+    await h.hold.release();
+  }
+  await waitHandBack(page);
+}
+
+/** S-15-6: no card held and the hand strip fully back on screen (it comes back up in 0.12 s). */
+export async function waitHandBack(page: Page): Promise<void> {
+  await page.waitForFunction(() => {
+    const l = window.__overclock!.layout();
+    return l.drag === null && !l.handMinimized && l.hand.every((h) => h.box.y + h.box.height <= l.viewport.height + 0.5);
+  });
 }
 
 const cdpSessions = new WeakMap<Page, Promise<CDPSession>>();
@@ -148,7 +214,9 @@ const cdpSessions = new WeakMap<Page, Promise<CDPSession>>();
  * DOM `event.timeStamp` (verified for touch and mouse, also while the page is busy;
  * see DECISIONS 2026-11-12 S-03-6). Only pass a moment that has already passed.
  */
-export function sendTap(page: Page, b: Box, opts: { touch?: boolean; madeAt?: number } = {}): Promise<void> {
+export async function sendTap(page: Page, b: Box, opts: { touch?: boolean; madeAt?: number } = {}): Promise<void> {
+  // S-15-6: a held card is dropped on `b` (see tap()).
+  if (await dropHeld(page, b)) return;
   const { x, y } = center(b);
   let cdp = cdpSessions.get(page);
   if (!cdp) {
@@ -281,6 +349,8 @@ export interface Hold {
   /** Moves the held finger / mouse to x, y (CSS px). */
   move(x: number, y: number): Promise<void>;
   release(): Promise<void>;
+  /** Touch: the system cancels the touch (pointercancel). Mouse (no such thing): lets go where it is. */
+  cancel?(): Promise<void>;
 }
 
 /** Presses `b` (touch on the phone projects, mouse on desktop), keeps it down, and can slide it. */
@@ -297,6 +367,10 @@ export async function holdAt(page: Page, b: Box): Promise<Hold> {
         await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
         await cdp.detach();
       },
+      cancel: async () => {
+        await cdp.send('Input.dispatchTouchEvent', { type: 'touchCancel', touchPoints: [] });
+        await cdp.detach();
+      },
     };
   }
   await page.mouse.move(x, y);
@@ -304,6 +378,7 @@ export async function holdAt(page: Page, b: Box): Promise<Hold> {
   return {
     move: (mx, my) => page.mouse.move(mx, my),
     release: () => page.mouse.up(),
+    cancel: () => page.mouse.up(),
   };
 }
 
@@ -547,16 +622,43 @@ export async function openHand(page: Page, i: number): Promise<LayoutSnapshot> {
 }
 
 /**
- * S-07-6: picks hand card `i` the no-drag way: open the hand view on it (tap
- * the hand), then tap the big card in the middle. The view closes and, if the
- * card can be played, it is picked with its places lit (else its hint shows).
- * Returns the layout after the tap.
+ * S-15-6: picks hand card `i` up the way a player does, straight from the hand strip: the finger
+ * goes down on it and drags upward (3 steps: that lifts it at once, no hold wait). If it can be
+ * played its places light up and the finger stays down (`selected` is `i`): the next `tap()` /
+ * `sendTap()` moves that finger and lets go there (the drop). A card that can't be played lifts
+ * dimmed with its reason; then the finger lets go at once (it goes back, the reason shows).
+ * A card held before is put back first. Returns the layout while held (or after letting go).
  */
 export async function pickHand(page: Page, i: number): Promise<LayoutSnapshot> {
-  const open = await openHand(page, i);
-  await tap(page, open.handView!.centre);
-  await page.waitForFunction(() => window.__overclock!.layout().handView === null);
-  return layout(page);
+  await putBack(page);
+  const l = await layout(page);
+  const card = l.hand[i];
+  if (!card) throw new Error(`no hand card ${i} (hand of ${l.hand.length})`);
+  const start = center(card.box);
+  const hold = await holdAt(page, card.box);
+  // Up and out of the strip: lifts at once on the first step (it leaves the 12 px circle upward), and
+  // also if the page was slow and the hold-to-read opened first (leaving the strip then lifts the card read).
+  const up = { x: start.x, y: card.box.y - card.box.height * 0.3 };
+  await dragTo(hold, start, up, 3);
+  const lifted = await page
+    .waitForFunction(() => window.__overclock!.layout().drag !== null, undefined, { timeout: 3000 })
+    .then(() => true)
+    .catch(() => false);
+  if (!lifted) {
+    // Nothing to pick up here (the discard step, a run): the finger lets go where it went down.
+    await dragTo(hold, up, start, 2);
+    await hold.release();
+    return layout(page);
+  }
+  const now = await layout(page);
+  if (now.drag!.dimmed) {
+    await dragTo(hold, up, start, 2);
+    await hold.release();
+    await waitHandBack(page);
+    return layout(page);
+  }
+  held.set(page, { hold, at: up, start });
+  return now;
 }
 
 /** S-07-6: a spot outside the open hand view's cards (its top-left corner): a tap there closes the view. */

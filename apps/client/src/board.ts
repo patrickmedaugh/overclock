@@ -18,7 +18,7 @@ import { framesAreSlow } from './frameClock';
 import { Cover } from './cover';
 import { centeredBox, clearOf, freeRect } from './geometry';
 import { Hand, type HandCard } from './hand';
-import { DROP_WAIT_MS, LIFT_MS, PRESS_MS, PRESS_RISE, PRESS_SCALE, RETURN_MS, SWIPE_TOLERANCE, VIEW_FADE_MS, type ViewHit, ghostCenter, leanAngle, swipeIndex, targetAt, viewHit } from './handGesture';
+import { DROP_WAIT_MS, HOLD_MS, MINIMIZE_MS, PRESS_MS, PRESS_RISE, PRESS_SCALE, RETURN_MS, SWIPE_TOLERANCE, type Segment, TIP_MS, VIEW_FADE_MS, type ViewHit, arrowFor, classifyPress, ghostCenter, leanAngle, swipeIndex, targetAt, viewHit } from './handGesture';
 import type { AnimRecord, Box, EndTurnClock, InstalledSnapshot, Insets, LayoutSnapshot, SideLayout, TargetSnapshot } from './hook-types';
 import { type Anchor, type Flight, type FlightKind, MOTION, planMotion } from './motion';
 /** S-15-3: the score counter ticks up, then a short glow (ms). */
@@ -26,7 +26,7 @@ const MOTION_TICK = 200;
 const MOTION_GLOW = 300;
 import type { Decision, Presentation } from './session';
 import { choiceHint, collapseRepeats, conditionText, hintFor, rejectText } from './hints';
-import { EXPOSED_CAPTION, EXPOSE_HELP, archivesHelpText, archivesTitle, lookDoneLabel, lookHelpText, lookInstallable, lookNotIceText, modeLabel, s12Notice } from './choiceText';
+import { EXPOSED_CAPTION, archivesHelpText, archivesTitle, lookDoneLabel, lookHelpText, lookInstallable, lookNotIceText, modeLabel, s12Notice } from './choiceText';
 import { basicOptionLabel, bidWaitText, isTraceChoice, linkText, meatDamageText, tagsChangedText, taggedText, taggedTrashText, traceNotices } from './traceText';
 import { attachPress, inputTime, noteRelease } from './input';
 import type { FederatedPointerEvent } from 'pixi.js';
@@ -154,6 +154,16 @@ function isUnder(c: Container | null, root: Container | null): boolean {
 
 /** S-07-6: a lift timer running later than this past its due time means the page stalled. */
 const LATE_LIFT_MS = 50;
+
+/**
+ * S-15-6 (U9): draw an arrow from the held card to the hovered place's price pill. Tried at the
+ * owner's 891x296 and switched off (DECISIONS 2026-11-20, ui-dev): the strong highlight alone marks
+ * the place. `arrowFor` and the drawing stay so it can be switched back on.
+ */
+export const ARROW = false;
+
+/** S-15-6: the tip a quick tap on the hand view's big card shows. */
+const HOLD_TIP = 'Hold to play';
 
 /** QA-S4-1 pre-draw: no bake from this long before the hold opens the zoom until it has opened (ms). */
 const PREDRAW_QUIET_MS = 60;
@@ -357,8 +367,6 @@ export class Board {
   /** Sprint 12: the look-at sheet (hand strip) or the Archives sheet (over the table), what it was drawn for, its page. */
   private sheet: { kind: 'look' | 'archives'; ui: CardSheet; key: string } | null = null;
   private sheetPage = 0;
-  /** Sprint 12 (S-12-4): Infiltration's "Expose 1 card" picked: the face-down Corp cards are lit. */
-  private exposePicking = false;
   /** Sprint 12 (S-12-4): the exposed card, shown over its place until tapped away (or the next move). */
   private exposed: { uid: string; cardId: string; root: Container; box: Box; detach: () => void } | null = null;
   private hint: { text: string; root: Container; box: Box; kind: 'hint' | 'notice'; slot: string; wide: boolean; area: Box } | null = null;
@@ -413,8 +421,27 @@ export class Board {
     swiped: boolean;
     timer: ReturnType<typeof setTimeout> | null;
   } | null = null;
-  /** S-07-6: the card lifted out of the hand view, following the finger; `hover`: the place under it. */
-  private lift: { index: number; cardId: string; hover: number; boxes: Box[]; lastX: number; lastAt: number } | null = null;
+  /**
+   * S-07-6 / S-15-6: the card held up (out of the hand view or straight from the strip), following
+   * the finger; `hover`: the place under it. `dimmed`: it can't be played now (`reason` says why;
+   * nothing is lit). Local UI state only: nothing is sent until the drop's one action.
+   */
+  private lift: {
+    index: number;
+    cardId: string;
+    hover: number;
+    boxes: Box[];
+    lastX: number;
+    lastAt: number;
+    from: 'view' | 'strip';
+    dimmed: boolean;
+    reason: string;
+    arrow: Segment | null;
+  } | null = null;
+  /** S-15-6: the arrow from the held card to the hovered place (drawn only while `ARROW`). */
+  private readonly arrowG = new Graphics();
+  /** S-15-6: the "Hold to play" tip on the hand view's big card, while it shows. */
+  private tip: { root: Container; box: Box; text: string } | null = null;
   /** Reused for the dragged card's position (no allocation per move). */
   private readonly ghostAt = { x: 0, y: 0 };
   /** S-07-6: a dropped card is waiting on its place for the game's answer (online). */
@@ -432,8 +459,6 @@ export class Board {
   private predraw: { ids: string[]; total: number; frame: number; at: number } | null = null;
   /** Hand indices picked in the discard picker (UI state only). */
   private readonly marked = new Set<number>();
-  /** Hand index picked to play (UI state only). */
-  private selected: number | null = null;
   private activeTargets: ActiveTarget[] = [];
   /** The banner's text on one line (the rail may wrap it). */
   private bannerFull = '';
@@ -478,6 +503,10 @@ export class Board {
       },
       changed: () => this.callbacks.redraw?.() ?? this.callbacks.changed(),
       onZoomSlide: (id: string, box: Box, at: number, i: number) => this.swapZoom(id, box, at, i),
+      // S-15-6: a card pulled up out of the strip is held; its finger's moves and release drive it.
+      onPull: (i: number, x: number, y: number, at: number) => this.onStripPull(side, i, x, y, at),
+      onDrag: (x: number, y: number, at: number) => this.dragMove(x, y, at),
+      onDrop: (x: number, y: number, cancelled: boolean) => this.dropLift(x, y, cancelled),
       log: (r: Omit<AnimRecord, 'startedAt'>) => callbacks.log(r),
       flight: (kind: 'draw' | 'discard', cardId: string | null, root: Container, w: number, h: number) => this.track(kind, cardId, root, w, h),
     });
@@ -491,6 +520,8 @@ export class Board {
     attachPress(this.catcher, { onTap: () => this.cancelSelection() });
     this.catcher.cursor = 'default';
     this.runLayer.eventMode = 'none';
+    this.arrowG.label = 'drag-arrow';
+    this.arrowG.eventMode = 'none';
     this.buildText = new Text({
       text: '',
       style: { fontFamily: theme.fontFamily, fontSize: 9, fill: theme.textDim, align: 'center', lineHeight: BUILD_LINE },
@@ -498,7 +529,7 @@ export class Board {
     this.buildText.label = 'build-time';
     this.buildText.eventMode = 'none';
     this.buildText.alpha = 0.85;
-    this.table.addChild(this.catcher, this.bgLayer, this.boardLayer, this.installedLayer, this.runLayer, this.centerLayer, this.accessLayer, this.targetLayer, this.handLayer, this.gripLayer, this.sheetLayer, this.buildText);
+    this.table.addChild(this.catcher, this.bgLayer, this.boardLayer, this.installedLayer, this.runLayer, this.centerLayer, this.accessLayer, this.targetLayer, this.arrowG, this.handLayer, this.gripLayer, this.sheetLayer, this.buildText);
     this.stage.addChild(this.table, this.fxLayer, this.hintLayer, this.statusLayer, this.panelLayer, this.zoomLayer, this.coverLayer, this.dialogLayer);
     this.statusLayer.eventMode = 'none';
     // S-05-1: a tap anywhere outside the Last run strip (and its button) closes it; the tap still acts.
@@ -609,6 +640,12 @@ export class Board {
    * "Leave the game?" (Leave calls `exit`). Returns what it did.
    */
   back(exit: () => void): BackAction {
+    // S-15-6: a card held straight from the strip (no view open) goes home; nothing is played.
+    if (this.lift && !this.zoom && !this.leave) {
+      this.cancelLift(RETURN_MS);
+      this.callbacks.changed();
+      return 'close_zoom';
+    }
     // Under the "Pass the phone" cover nothing of the board is on screen: Back asks to leave.
     const covered = this.cover !== null;
     const panelOpen = !covered && (this.report !== null || this.lastRunStrip !== null);
@@ -690,8 +727,10 @@ export class Board {
     this.endDropWait();
     // Any new view while a card is lifted cancels the lift (hand indices may have moved). An open
     // hand view closes when the hand changed, or a run or the discard picker starts.
-    if (this.lift) this.closeZoom(true);
-    else if (this.zoom?.view) {
+    if (this.lift) {
+      this.cancelLift(0);
+      this.closeZoom(true);
+    } else if (this.zoom?.view) {
       const z = this.zoom;
       const ids = z.pile ? view.players[z.pile.side].scored : (view.players[view.viewer].hand ?? []);
       const was = z.pile ? z.pile.ids : this.hands[view.viewer].ids;
@@ -723,9 +762,7 @@ export class Board {
     // A refused tap on a lit target keeps the card picked; anything else that changed the game drops it.
     // An agenda stays picked after an Advance (advance again with one tap).
     if (!rejected) {
-      this.selected = null;
       this.runPicking = false;
-      this.exposePicking = false;
       this.lookPick = null;
       // Sprint 12 (S-12-4): an exposed card shows until tapped away or the next move.
       if (events.length > 0) this.clearExposed();
@@ -741,14 +778,12 @@ export class Board {
     const before = this.boxesBefore(events);
     const prevRun = prevDecision?.run ?? prev.run;
     const ids = view.players[viewer].hand ?? [];
-    if (this.selected !== null && this.selected >= ids.length) this.selected = null;
     const layout = this.sync(view, true);
     if (!layout) return;
     const drawn = events.filter((e) => e.type === 'card_drawn' && e.player === viewer).length;
     this.syncHand(hand, layout, ids, drawn, flights.filter((f) => f.kind === 'draw' && f.side === viewer).map((f) => f.delayMs));
     if (view.pendingDiscard === 0 || ids.length !== (prev.players[viewer].hand ?? []).length) this.marked.clear();
     hand.setMarked(this.marked);
-    hand.setSelected(this.selected);
     this.showTargets();
     // S-05-2: what the ICE did stays on screen until the next tap; a game over shows after it.
     const reportText = rejected ? null : iceReport(events);
@@ -891,8 +926,10 @@ export class Board {
         ...(t.marker.note ? { note: t.marker.note } : {}),
         lit: t.option.reject === null,
         reject: t.option.reject,
+        hover: t.marker.hovered,
       })),
-      selected: this.selected,
+      // S-15-6: the held card is the one picked to play (no tap-to-pick any more).
+      selected: this.lift && !this.lift.dimmed ? this.lift.index : null,
       labels: [...visibleTexts(this.boardLayer), ...visibleTexts(this.centerLayer), ...visibleTexts(this.accessLayer), ...visibleTexts(this.targetLayer)],
       text: {
         banner: gen?.banner.visible ? this.bannerFull : '',
@@ -969,7 +1006,17 @@ export class Board {
         layout && this.buildText.visible && this.buildText.text
           ? { text: this.buildText.text, box: this.buildTextBox() }
           : null,
-      handView: this.zoom?.view && this.zoom.mode !== 'pile' && this.zoom.cardId && layout ? { index: this.zoom.index, cardId: this.zoom.cardId, lifted: this.lift !== null, centre: { ...layout.zoom } } : null,
+      handView:
+        this.zoom?.view && this.zoom.mode !== 'pile' && this.zoom.cardId && layout
+          ? {
+              index: this.zoom.index,
+              cardId: this.zoom.cardId,
+              lifted: this.lift !== null,
+              centre: { ...layout.zoom },
+              tip: this.tip && !this.tip.root.destroyed && this.tip.root.alpha > 0.05 ? { text: this.tip.text, box: { ...this.tip.box } } : null,
+            }
+          : null,
+      handMinimized: view ? this.hands[view.viewer].isMinimized : false,
       pileView:
         this.zoom?.view && this.zoom.pile && this.zoom.cardId && layout
           ? { side: this.zoom.pile.side, index: this.zoom.index, cardId: this.zoom.cardId, count: this.zoom.pile.ids.length, centre: { ...layout.zoom } }
@@ -1062,9 +1109,9 @@ export class Board {
 
   /** Turns the board over to `view`'s seat: same widgets, new places, then the fade-in. */
   private switchSeat(view: PlayerView, events: readonly GameEvent[]): void {
+    this.cancelLift(0);
     this.closeZoom(true);
     this.view = view;
-    this.selected = null;
     const layout = this.sync(view, false);
     if (!layout) return;
     const viewer = view.viewer;
@@ -1077,7 +1124,6 @@ export class Board {
     hand.sync(ids, drawn, layout.bottom.deck, drawn > 0 ? timing.drawAfterFlip : 0);
     if (view.pendingDiscard === 0) this.marked.clear();
     hand.setMarked(this.marked);
-    hand.setSelected(null);
     this.showTargets();
     this.applyView(view, true);
     for (const e of events) {
@@ -1129,8 +1175,8 @@ export class Board {
   private fullRender(): void {
     const view = this.view;
     if (!view) return;
+    this.cancelLift(0);
     this.closeZoom(true);
-    this.selected = null;
     const layout = this.sync(view, false);
     if (!layout) return;
     const viewer = view.viewer;
@@ -1139,7 +1185,6 @@ export class Board {
     this.syncHand(hand, layout, view.players[viewer].hand ?? [], 0);
     if (view.pendingDiscard === 0) this.marked.clear();
     hand.setMarked(this.marked);
-    hand.setSelected(null);
     this.showTargets();
     this.applyView(view, false);
     this.table.alpha = 1;
@@ -1776,9 +1821,9 @@ export class Board {
     return !!view?.lastRun && !view.run && !view.choice && !view.result && view.pendingDiscard === 0 && this.picking === null && this.pickedInstalled === null;
   }
 
-  /** The hand card whose places are lit: picked with a tap, or lifted out of the hand view (S-07-6). */
+  /** S-15-6: the hand card whose places are lit: the one held up (a dimmed one lights nothing). */
   private get picking(): number | null {
-    return this.selected ?? this.lift?.index ?? null;
+    return this.lift && !this.lift.dimmed ? this.lift.index : null;
   }
 
   /** Where the help text goes: below the Play button (sideways) or left of it (column). */
@@ -1889,8 +1934,6 @@ export class Board {
       helpText = `${SIDE_NAME[view.activePlayer]}'s turn.\nTheir moves show up here.`;
     } else if (this.runPicking) {
       helpText = `Tap a lit server to run on it.\nTap ${TERMS.run} again to cancel.`;
-    } else if (this.exposePicking && this.selected !== null) {
-      helpText = EXPOSE_HELP;
     } else if (this.pickedInstalled !== null) {
       // Sprint 9: the tag marker / score pill picked: "Tap it again".
       helpText = this.pickedInstalled === TAGS_PICK || isScoredUid(this.pickedInstalled) ? 'Tap a lit button.\nTap it again to cancel.' : 'Tap a lit button.\nTap the card again to cancel.';
@@ -1910,13 +1953,14 @@ export class Board {
       // The hand limit comes from the view (hand - pending), not a client constant.
       const keep = view.players[viewer].handCount - pending;
       helpText = `You can keep ${keep} cards. Tap cards to pick them.\nHold a card to read it.`;
+    } else if (this.lift?.dimmed) {
+      // S-15-6: a card that can't be played now: why, and how to put it back.
+      helpText = `${this.lift.reason || "Can't play it now"}.\nLet go to put it back.`;
+    } else if (this.lift && this.activeTargets.some((t) => t.kind === 'grip')) {
+      // Sprint 12 (S-12-3): Modded.
+      helpText = `Let go on a lit card in your ${TERMS.grip} to install it.\nLet go anywhere else to put it back.`;
     } else if (this.lift) {
       helpText = 'Let go on a lit spot to play it.\nLet go anywhere else to put it back.';
-    } else if (this.selected !== null && this.activeTargets.some((t) => t.kind === 'grip')) {
-      // Sprint 12 (S-12-3): Modded.
-      helpText = `Tap a lit card in your ${TERMS.grip} to install it.\nTap the card again to cancel.`;
-    } else if (this.selected !== null) {
-      helpText = 'Tap a lit spot to play it.\nTap the card again to cancel.';
     } else if (view.activePlayer === viewer && view.phase === 'action' && view.players[viewer].clicks === 0) {
       helpText = "No clicks left. Tap End turn when you're ready.";
     } else if (viewer === 'runner' && view.runOptions.length > 0 && view.activePlayer === viewer) {
@@ -2771,9 +2815,8 @@ export class Board {
   // ---- picking a card and its targets --------------------------------------
 
   /**
-   * A tap on the hand strip. The discard picker marks the card (Sprint 1); a
-   * tap on the picked card drops the pick; otherwise the hand view opens on
-   * the card (S-07-6).
+   * A tap on the hand strip. The discard step opens its view (S-10-5); otherwise the hand view
+   * opens on the card (S-07-6; S-15-6: to read it; playing is hold and drag).
    */
   private onStripTap(index: number): void {
     const view = this.view;
@@ -2787,10 +2830,7 @@ export class Board {
       this.openHandView(index, undefined, true);
       return;
     }
-    if (this.selected === index) {
-      this.cancelSelection();
-      return;
-    }
+    this.cancelSelection();
     this.openHandView(index);
   }
 
@@ -2864,8 +2904,9 @@ export class Board {
   }
 
   /**
-   * Why hand card `index` can't be picked or lifted now (a hint, shown), or
-   * null if it can: its places light up (some may be dimmed with their reason).
+   * Why hand card `index` can't be played now (a hint), or null if it can: its places light up
+   * (some may be dimmed with their reason). S-15-6: a card refused here still lifts, dimmed, with
+   * this reason and nothing lit. Every word comes from the view (`handOptions`' reasons, the choice).
    */
   private refusePick(index: number): string | null {
     const view = this.view;
@@ -2881,44 +2922,19 @@ export class Board {
       if (first === 'no_clicks') this.seatAt('bottom')?.clicks.shake();
       return hintFor(first, view);
     }
+    // S-15-6 (AC 9): no way to play it at all (e.g. too few credits everywhere): dimmed, with the first reason.
+    const head = options[0];
+    if (head && options.every((o) => o.reject !== null)) return this.rejectHint(head) || hintFor(head.reject!, view);
     return null;
   }
 
-  /** Picks hand card `index` to play: outlined in the strip, its places lit (tap one to play it). */
-  private pickCard(index: number): void {
-    const view = this.view;
-    if (!view) return;
-    const hand = this.hands[view.viewer];
-    if (this.selected === index) {
-      this.cancelSelection();
-      return;
-    }
-    const refused = this.refusePick(index);
-    if (refused !== null) {
-      this.cancelSelection();
-      if (refused) this.showHint(refused);
-      return;
-    }
-    this.runPicking = false;
-    this.pickedInstalled = null;
-    this.exposePicking = false;
-    this.selected = index;
-    hand.setSelected(index);
-    this.showTargets();
-    this.applyView(view, false);
-    this.callbacks.changed();
-  }
-
-  /** Drops whatever is picked: a hand card, the Run choice, an installed card. */
+  /** Drops whatever is picked: the Run choice, an installed card. */
   private cancelSelection(): void {
-    if (this.selected === null && !this.runPicking && this.pickedInstalled === null) return;
-    this.exposePicking = false;
-    this.selected = null;
+    if (!this.runPicking && this.pickedInstalled === null) return;
     this.runPicking = false;
     this.pickedInstalled = null;
     const view = this.view;
     if (!view) return;
-    this.hands[view.viewer].setSelected(null);
     this.showTargets();
     this.applyView(view, false);
     this.callbacks.changed();
@@ -2934,7 +2950,6 @@ export class Board {
     if (!gen || !layout || !view || view.result) {
       // QA-S9-2: once the game is over no buttons stay up behind the game-over box.
       if (view?.result) {
-        this.selected = null;
         this.pickedInstalled = null;
         this.runPicking = false;
       }
@@ -3016,8 +3031,11 @@ export class Board {
       return;
     }
     const pickedId = view.players[view.viewer].hand?.[picking] ?? null;
-    let exposeShown = false;
-    for (const option of view.handOptions[picking] ?? []) {
+    const pickedOptions = view.handOptions[picking] ?? [];
+    // S-15-6: a one-shot card with one way to play is dropped anywhere on the table (the play zone).
+    const plain = (o: CardOption) => o.action.type === 'play' && o.action.mode === undefined && o.action.server === undefined && o.action.installIndex === undefined && o.action.uid === undefined;
+    const zone = pickedOptions.filter(plain).length === 1 && pickedOptions.length === 1;
+    for (const option of pickedOptions) {
       const a = option.action;
       let kind: TargetSnapshot['kind'];
       let server: string | undefined;
@@ -3052,14 +3070,9 @@ export class Board {
           this.addTarget(gen, layout, 'play', option, layout.action, `${label}${price}`, 'center', {}, option.reject ? this.rejectHint(option) : '');
           continue;
         }
-        if (!exposeShown) {
-          exposeShown = true;
-          this.addTarget(gen, layout, 'expose_open', option, layout.action2, `${label}${price}`, 'center', {}, option.reject ? this.rejectHint(option) : '');
-        }
-        if (this.exposePicking) {
-          const c = gen.installed.get(a.uid);
-          if (c) this.addTarget(gen, layout, 'expose', option, c.box, label.split(' ')[0] ?? label, 'center', { uid: a.uid });
-        }
+        // S-15-6: while Infiltration is held, every card it can expose lights at once (drop on one = expose it).
+        const c = gen.installed.get(a.uid);
+        if (c) this.addTarget(gen, layout, 'expose', option, c.box, label.split(' ')[0] ?? label, 'center', { uid: a.uid }, option.reject ? this.rejectHint(option) : '');
         continue;
       }
       if (a.type === 'play' && a.server !== undefined) {
@@ -3083,7 +3096,8 @@ export class Board {
         b = layout.rig.install;
       } else if (a.type === 'play') {
         kind = 'play';
-        b = layout.action;
+        // S-15-6: the table above the hand (AC 3's "middle of the table"); the price sits in its middle.
+        b = zone ? layout.playZone : layout.action;
       } else continue;
       const verb = a.type === 'play' ? TERMS.play : TERMS.install;
       // S-08-1: Kate's discount is already in the engine's price; say it was lowered ("1 credit (−1)").
@@ -3528,15 +3542,8 @@ export class Board {
   private onTargetTap(key: string): void {
     const t = this.activeTargets.find((x) => targetKey(x.kind, x) === key);
     if (!t || this.flipPending) return;
-    if (t.kind === 'expose_open' && t.option.reject === null) {
-      // Sprint 12 (S-12-4): Expose lights the face-down Corp cards (tap it again to put them out).
-      this.exposePicking = !this.exposePicking;
-      const view = this.view;
-      this.showTargets();
-      if (view) this.applyView(view, false);
-      this.callbacks.changed();
-      return;
-    }
+    // S-15-6: a hand card's places are played by letting the held card go on them, never by a tap.
+    if (this.lift) return;
     // QA-S8-1: a refusal's hint can name this button's click price.
     this.tappedOption = t.option;
     // The engine judges it; a refusal comes back as action_rejected and shows its hint.
@@ -4246,17 +4253,18 @@ export class Board {
     const stamp = native instanceof Event ? native.timeStamp : now;
     const at = stamp > 0 && stamp <= now && now - stamp < 10_000 ? stamp : now;
     const press = { id: e.pointerId, x, y, lastX: x, lastY: y, at, hit, start: zoom.index, swiped: false, timer: null as ReturnType<typeof setTimeout> | null };
-    // Long-press the big card to lift it (judged by when the finger went down). A timer that runs
-    // late (the page stalled) waits one frame, so a release queued meanwhile is handled first (QA-S3-7).
+    // S-15-6: hold the big card still for HOLD_MS to lift it (judged by when the finger went down).
+    // A timer that runs late (the page stalled) waits one frame, so a release queued meanwhile is
+    // handled first (QA-S3-7).
     if (hit.kind === 'centre' && zoom.mode === 'hand') {
       press.timer = setTimeout(() => {
         press.timer = null;
         if (this.viewPress !== press) return;
-        if (performance.now() - press.at < LIFT_MS + LATE_LIFT_MS) this.liftCentre();
+        if (performance.now() - press.at < HOLD_MS + LATE_LIFT_MS) this.liftCentre();
         else requestAnimationFrame(() => {
           if (this.viewPress === press) this.liftCentre();
         });
-      }, Math.max(0, LIFT_MS - (performance.now() - at)));
+      }, Math.max(0, HOLD_MS - (performance.now() - at)));
     }
     this.viewPress = press;
     // S-15-1: the big card rises and grows under the finger at once (input feedback: never skipped).
@@ -4297,9 +4305,16 @@ export class Board {
     const view = this.view;
     if (!zoom?.view || !view) return;
     if (!p.swiped && Math.hypot(x - p.x, y - p.y) > SWIPE_TOLERANCE) {
-      p.swiped = true;
       if (p.timer !== null) clearTimeout(p.timer);
       p.timer = null;
+      // S-15-6: sideways = browse; leaving the circle (nearly) straight up picks the big card up at once.
+      const native: unknown = e.nativeEvent;
+      const at = native instanceof Event && native.timeStamp > 0 ? native.timeStamp : performance.now();
+      if (p.hit.kind === 'centre' && zoom.mode === 'hand' && classifyPress(x - p.x, y - p.y, at - p.at, false) === 'lift') {
+        this.liftCentre();
+        return;
+      }
+      p.swiped = true;
       this.pressLift(false);
     }
     if (!p.swiped) return;
@@ -4326,12 +4341,17 @@ export class Board {
     const upAt = native instanceof Event ? native.timeStamp : performance.now();
     if (this.lift) {
       // The page stalled and lifted the card, but the finger was down for less than the hold time
-      // and never moved away: it was a tap on the big card (QA-S3-7: a tap is judged by its own times).
-      if (!cancelled && !p.swiped && upAt - p.at < LIFT_MS && Math.hypot(e.global.x - p.x, e.global.y - p.y) <= SWIPE_TOLERANCE) {
-        const index = this.lift.index;
+      // and never moved away: it was a tap on the big card (QA-S3-7: a tap is judged by its own
+      // times). The lift is undone at once and the view stays, with the tip.
+      if (!cancelled && !p.swiped && classifyPress(e.global.x - p.x, e.global.y - p.y, upAt - p.at, true) === 'tap') {
         this.cancelLift(0);
-        this.closeZoom(true);
-        this.pickCard(index);
+        const zoom = this.zoom;
+        if (zoom?.view) {
+          this.ui.cancel(zoom.root);
+          zoom.root.alpha = 1;
+        }
+        this.pressLift(false);
+        this.showTip(upAt);
         this.callbacks.changed();
         return;
       }
@@ -4340,7 +4360,7 @@ export class Board {
     }
     if (cancelled || p.swiped) return;
     // Held long enough to lift but the page was too busy to show it: a hold is never a tap.
-    if (p.hit.kind === 'centre' && upAt - p.at >= LIFT_MS) return;
+    if (p.hit.kind === 'centre' && upAt - p.at >= HOLD_MS) return;
     const zoom = this.zoom;
     const view = this.view;
     if (!zoom?.view || !view) return;
@@ -4359,10 +4379,8 @@ export class Board {
         this.onPileCentreTap();
         return;
       }
-      // Today's pick: the view closes, the card is outlined and its places light up.
-      const index = zoom.index;
-      this.closeZoom();
-      this.pickCard(index);
+      // S-15-6: a tap never plays: the card stays big to read, and a short tip says how to play it.
+      this.showTip(upAt);
       this.callbacks.changed();
       return;
     }
@@ -4443,44 +4461,107 @@ export class Board {
     this.viewPress = null;
   }
 
-  /** The big card was held: it lifts out, follows the finger, and its places light up. */
+  /** The big card was held (or pulled up): it lifts out, follows the finger, and its places light up. */
   private liftCentre(): void {
     const p = this.viewPress;
     const zoom = this.zoom;
-    const view = this.view;
-    if (!p || !zoom?.view || !view || this.lift || p.swiped) return;
+    if (!p || !zoom?.view || this.lift || p.swiped) return;
     p.timer = null;
-    const index = zoom.index;
-    const hand = this.hands[view.viewer];
-    const cardId = hand.ids[index];
-    const layout = this.layout;
-    if (cardId === undefined || !layout) return;
-    const refused = this.refusePick(index);
-    if (refused !== null) {
-      // Nothing to light: say why, with the board in view.
-      this.closeZoom();
-      if (refused) this.showHint(refused);
-      this.callbacks.changed();
-      return;
-    }
-    this.cancelSelection();
-    if (!hand.lift(index)) return;
-    this.lift = { index, cardId, hover: -1, boxes: [], lastX: p.lastX, lastAt: NaN };
-    this.showTargets();
-    // Sprint 12: Infiltration's Expose button only opens the pick (a drop there plays nothing).
-    this.lift.boxes = this.activeTargets.map((t) => (t.kind === 'expose_open' ? { x: -1, y: -1, width: 0, height: 0 } : t.marker.box));
-    this.applyView(view, false);
-    this.dragMove(p.lastX, p.lastY);
-    // The view fades out (it keeps taking the finger's moves and its release).
-    this.ui.cancel(zoom.root);
-    this.ui.add({ target: zoom.root, to: { alpha: 0 }, duration: VIEW_FADE_MS, ease: ease.linear, owner: zoom.root });
-    this.callbacks.log({ kind: 'card_lift', text: cardId, scheduledMs: VIEW_FADE_MS });
-    this.callbacks.changed();
+    this.beginLift(zoom.index, p.lastX, p.lastY, 'view');
   }
 
   /**
-   * The lifted card follows the finger; the place under it is outlined. S-15-1: it leans the way
-   * the finger moves (more when faster) and straightens when it stops (`at`: the move's time).
+   * S-15-6: a finger pulled hand card `index` up out of the strip (an upward drag, or out of the
+   * strip during the hold-to-read). Not in the discard step, a run, a sheet or during a turn's flip.
+   */
+  private onStripPull(side: Side, index: number, x: number, y: number, at: number): boolean {
+    const view = this.view;
+    if (!view || side !== view.viewer || this.lift || this.flipPending || view.result) return false;
+    if (view.pendingDiscard > 0 || panelUp(view) || this.sheet || this.cover || this.leave) return false;
+    if (this.viewPress) return false;
+    this.beginLift(index, x, y, 'strip', at);
+    return this.lift !== null;
+  }
+
+  /**
+   * S-15-6: hand card `index` is picked up and follows the finger (x/y). Every place it can go lights
+   * at once (from `view.handOptions`); the hand view fades and the strip drops below the screen (not
+   * for Modded, whose places are Grip cards). A card that can't be played now lifts dimmed: nothing
+   * lights and a short line says why. Nothing is sent until it is let go on a lit place.
+   */
+  private beginLift(index: number, x: number, y: number, from: 'view' | 'strip', at?: number): void {
+    const view = this.view;
+    const layout = this.layout;
+    if (!view || !layout || this.lift) return;
+    const hand = this.hands[view.viewer];
+    const cardId = hand.ids[index];
+    if (cardId === undefined) return;
+    const refused = this.refusePick(index);
+    const dimmed = refused !== null;
+    this.cancelSelection();
+    this.hideTip();
+    if (!hand.lift(index, dimmed)) return;
+    this.lift = { index, cardId, hover: -1, boxes: [], lastX: x, lastAt: NaN, from, dimmed, reason: refused ?? '', arrow: null };
+    this.showTargets();
+    this.lift.boxes = this.activeTargets.map((t) => t.marker.box);
+    // The strip drops away so the whole table shows; Modded's places are cards in the strip: it stays.
+    if (!this.activeTargets.some((t) => t.kind === 'grip')) hand.minimize(true, MINIMIZE_MS);
+    this.applyView(view, false);
+    this.dragMove(x, y);
+    const zoom = this.zoom;
+    if (zoom?.view) {
+      // The view fades out (a view lift: it keeps taking the finger's moves and its release).
+      this.ui.cancel(zoom.root);
+      this.ui.add({ target: zoom.root, to: { alpha: 0 }, duration: VIEW_FADE_MS, ease: ease.linear, owner: zoom.root });
+    }
+    if (dimmed && refused) this.showHint(refused);
+    this.callbacks.log({ kind: 'card_lift', text: cardId, scheduledMs: VIEW_FADE_MS, ...(at !== undefined ? { inputAt: at } : {}) });
+    this.callbacks.changed();
+  }
+
+  /** S-15-6: the "Hold to play" tip on the big card (a quick tap there never plays); it fades by itself. */
+  private showTip(inputAt?: number): void {
+    const zoom = this.zoom;
+    const layout = this.layout;
+    if (!zoom?.view || zoom.mode !== 'hand' || !layout) return;
+    this.hideTip();
+    const s = Math.min(Math.max(layout.scale, 0.8), 1.2);
+    const root = new Container();
+    root.label = 'hold-tip';
+    root.eventMode = 'none';
+    const t = new Text({ text: HOLD_TIP, style: { fontFamily: theme.fontFamily, fontSize: Math.max(13, Math.round(15 * s)), fontWeight: '800', fill: 0x140a00 } });
+    t.anchor.set(0.5);
+    const w = Math.round(t.width + 24 * s);
+    const h = Math.max(28, Math.round(t.height + 10 * s));
+    const g = new Graphics();
+    g.roundRect(-w / 2, -h / 2, w, h, h / 2).fill({ color: theme.credit, alpha: 0.96 });
+    glowRoundRect(g, -w / 2, -h / 2, w, h, h / 2, theme.credit, 2, 1);
+    root.addChild(g, t);
+    // Over the lower part of the big card (its art), clear of its name and text box edges.
+    const z = layout.zoom;
+    const cx = Math.round(z.x + z.width / 2);
+    const cy = Math.round(z.y + z.height * 0.42);
+    root.position.set(cx, cy);
+    zoom.root.addChild(root);
+    root.alpha = 0;
+    this.tip = { root, text: HOLD_TIP, box: { x: cx - w / 2, y: cy - h / 2, width: w, height: h } };
+    this.ui.add({ target: root, to: { alpha: 1 }, duration: 80, owner: root });
+    this.ui.add({ target: root, to: { alpha: 0 }, delay: TIP_MS, duration: 200, owner: root, onComplete: () => this.hideTip(root) });
+    this.callbacks.log({ kind: 'hold_tip', text: HOLD_TIP, scheduledMs: 80, ...(inputAt !== undefined ? { inputAt } : {}) });
+  }
+
+  /** Takes the tip away (`only`: just that one, if it is still the tip showing). */
+  private hideTip(only?: Container): void {
+    const tip = this.tip;
+    if (!tip || (only && tip.root !== only)) return;
+    this.tip = null;
+    this.ui.cancel(tip.root);
+    if (!tip.root.destroyed) tip.root.destroy({ children: true });
+  }
+
+  /**
+   * The lifted card follows the finger; the place under it is highlighted strongly. S-15-1: it leans
+   * the way the finger moves (more when faster) and straightens when it stops (`at`: the move's time).
    */
   private dragMove(x: number, y: number, at?: number): void {
     const lift = this.lift;
@@ -4504,29 +4585,71 @@ export class Board {
       this.activeTargets[hover]?.marker.setHover(true);
       lift.hover = hover;
     }
+    this.updateArrow();
     if (this.callbacks.redraw) this.callbacks.redraw();
     else this.callbacks.changed();
   }
 
+  /** S-15-6 (U9): the arrow from the held card to the hovered lit place's price pill, when it helps (`ARROW`). */
+  private updateArrow(): void {
+    const lift = this.lift;
+    const layout = this.layout;
+    const view = this.view;
+    const g = this.arrowG;
+    const t = lift ? this.activeTargets[lift.hover] : undefined;
+    const card = view && lift ? this.hands[view.viewer].liftedBox() : null;
+    let seg: Segment | null = null;
+    if (lift && layout && card && t && t.option.reject === null && !framesAreSlow()) {
+      const m = t.marker;
+      const pill = { x: m.box.x + m.box.width / 2 + m.pillBox.x + m.pillBox.width / 2, y: m.box.y + m.box.height / 2 + m.pillBox.y + m.pillBox.height / 2 };
+      const others = this.activeTargets.filter((o, i) => i !== lift.hover && o.option.reject === null).map((o) => o.marker.box);
+      seg = arrowFor(card, pill, layout.card.height, others, layout.viewport);
+    }
+    if (lift) lift.arrow = seg;
+    const draw = ARROW && seg !== null;
+    if (!draw) {
+      if (g.visible) {
+        g.clear();
+        g.visible = false;
+      }
+      return;
+    }
+    const { x1, y1, x2, y2 } = seg!;
+    const ang = Math.atan2(y2 - y1, x2 - x1);
+    const head = Math.max(8, Math.round((layout?.card.width ?? 40) * 0.25));
+    const bx = x2 - Math.cos(ang) * head;
+    const by = y2 - Math.sin(ang) * head;
+    g.clear();
+    g.moveTo(x1, y1).lineTo(bx, by).stroke({ width: 6, color: 0x000000, alpha: 0.35 });
+    g.moveTo(x1, y1).lineTo(bx, by).stroke({ width: 3, color: theme.credit, alpha: 0.95 });
+    g.poly([x2, y2, bx + Math.cos(ang + Math.PI / 2) * head * 0.55, by + Math.sin(ang + Math.PI / 2) * head * 0.55, bx - Math.cos(ang + Math.PI / 2) * head * 0.55, by - Math.sin(ang + Math.PI / 2) * head * 0.55]).fill({ color: theme.credit, alpha: 0.95 });
+    g.visible = true;
+  }
+
   /**
-   * The finger let go of a lifted card at x/y. On a lit place: that option's
-   * action (the card waits there for the answer). On a dimmed one: its hint.
-   * Anywhere else (or the touch was cancelled): it flies home and the hand view returns.
+   * The finger let go of a lifted card at x/y. On a lit place: that option's action (the card waits
+   * there for the answer) and the hand comes back up. On a dimmed place, or a dimmed card: its
+   * reason. Anywhere else (or the touch was cancelled): it glides home, the hand comes back up and,
+   * if it was lifted from the hand view, the view returns.
    */
   private dropLift(x: number, y: number, cancelled: boolean): void {
     const lift = this.lift;
     const view = this.view;
     if (!lift || !view) return;
-    const i = cancelled ? -1 : targetAt(x, y, lift.boxes);
+    const i = cancelled || lift.dimmed ? -1 : targetAt(x, y, lift.boxes);
     const target = this.activeTargets[i];
     const hand = this.hands[view.viewer];
     if (target && target.option.reject === null) {
+      this.activeTargets[lift.hover]?.marker.setHover(false);
       this.lift = null;
+      this.updateArrow();
+      hand.minimize(false, MINIMIZE_MS);
       this.closeZoom(true);
       this.showTargets();
       this.applyView(view, false);
       // The engine judges it; the play's flight starts where the card was let go.
       this.dropping = true;
+      this.tappedOption = target.option;
       try {
         this.callbacks.onAction(target.option.action);
       } finally {
@@ -4546,12 +4669,13 @@ export class Board {
       return;
     }
     const zoom = this.zoom;
+    const reason = lift.dimmed ? lift.reason : target && target.option.reject !== null ? rejectText(target.option.reject, view, target.option) : '';
     this.cancelLift(RETURN_MS);
-    if (target && target.option.reject !== null) {
-      // A dimmed place: say why, with the board in view.
+    if (reason || lift.from === 'strip' || !zoom?.view) {
+      // A dimmed card or place: say why, with the board in view. From the strip: back to the board.
       this.closeZoom(true);
-      this.showHint(rejectText(target.option.reject, view, target.option));
-    } else if (zoom?.view) {
+      if (reason) this.showHint(reason);
+    } else {
       // Let go elsewhere: the hand view comes back.
       this.ui.cancel(zoom.root);
       this.ui.add({ target: zoom.root, to: { alpha: 1 }, duration: timing.zoomIn, ease: ease.outCubic, owner: zoom.root });
@@ -4559,14 +4683,18 @@ export class Board {
     this.callbacks.changed();
   }
 
-  /** The lifted card goes home over `ms`; its places go dark. */
+  /** The lifted card goes home over `ms`; its places go dark and the hand comes back up. */
   private cancelLift(ms: number): void {
     const lift = this.lift;
     const view = this.view;
     if (!lift) return;
     this.activeTargets[lift.hover]?.marker.setHover(false);
     this.lift = null;
-    if (view) this.hands[view.viewer].settle(ms);
+    this.updateArrow();
+    if (view) {
+      this.hands[view.viewer].settle(ms);
+      this.hands[view.viewer].minimize(false, ms > 0 ? MINIMIZE_MS : 0);
+    }
     if (ms > 0) {
       this.callbacks.log({ kind: 'card_return', scheduledMs: ms });
       // S-15-1: it glides home (and straightens) instead of jumping.
@@ -4598,6 +4726,10 @@ export class Board {
       rotation: this.hands[view.viewer].liftedRotation(),
       lean: this.hands[view.viewer].lastLean,
       hover: t ? { kind: t.kind, ...(t.server !== undefined ? { server: t.server } : {}), lit: t.option.reject === null } : null,
+      from: lift.from,
+      dimmed: lift.dimmed,
+      reason: lift.reason,
+      arrow: ARROW && lift.arrow ? { ...lift.arrow } : null,
     };
   }
 

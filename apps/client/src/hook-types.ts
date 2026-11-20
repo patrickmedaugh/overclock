@@ -118,6 +118,8 @@ export interface TargetSnapshot {
   lit: boolean;
   /** The engine's reason it would be refused (from view.handOptions). */
   reject: string | null;
+  /** S-15-6: a held card is over this place now (it is highlighted strongly). */
+  hover: boolean;
 }
 
 /** A big button in the run panel (or the Run button), drawn from engine options. */
@@ -283,7 +285,7 @@ export interface LayoutSnapshot {
   memory: { used: number; limit: number; text: string; box: Box };
   /** Lit targets for the picked hand card (empty when none is picked). */
   targets: TargetSnapshot[];
-  /** Hand index picked to play, or null. */
+  /** Hand index picked to play, or null. S-15-6: the held card's index while a playable card is held. */
   selected: number | null;
   /** Every board text on screen (labels, counters, buttons; not card faces). */
   labels: string[];
@@ -356,7 +358,16 @@ export interface LayoutSnapshot {
    * `lifted`: that card was long-pressed out of the view and follows the finger (`drag`).
    * `centre`: where the big card sits (tap it to pick the card, hold it to lift it).
    */
-  handView: { index: number; cardId: string; lifted: boolean; centre: Box } | null;
+  handView: {
+    index: number;
+    cardId: string;
+    lifted: boolean;
+    centre: Box;
+    /** S-15-6: the short tip a quick tap on the big card shows ("Hold to play"), while it shows. */
+    tip: { text: string; box: Box } | null;
+  } | null;
+  /** S-15-6: the hand strip is dropped below the screen while a card is held. */
+  handMinimized: boolean;
   /** Sprint 10 (S-10-1): a scored pile opened big with a tap (slide to read, tap outside to close). */
   pileView: { side: Side; index: number; cardId: string; count: number; centre: Box } | null;
   /** Sprint 10 (S-10-5): the discard step's view: the big card's stamp, the marked hand indices, its Confirm. */
@@ -374,6 +385,13 @@ export interface LayoutSnapshot {
     rotation: number;
     /** S-15-1: the lean the last finger move gave it (radians), before it eases back toward straight. */
     lean: number;
+    /** S-15-6: picked up from the hand view or straight from the hand strip. */
+    from: 'view' | 'strip';
+    /** S-15-6: the card can't be played now: it is dimmed, nothing is lit and `reason` says why. */
+    dimmed: boolean;
+    reason: string;
+    /** S-15-6: the arrow from the card to the hovered place's price pill, if one is drawn. */
+    arrow: { x1: number; y1: number; x2: number; y2: number } | null;
   } | null;
   /**
    * S-05-2: what the ICE just did ("Enigma: you lost 1 click. Enigma ended your run."),
@@ -513,7 +531,12 @@ export type AnimKind =
   /** S-15-2: the other player's card flies in from their side (`text`: card id, or '' when face down). */
   | 'opponent_flight'
   /** S-15-4: a tap finished the movement on screen at once (`scheduledMs` 0; `inputAt`: the tap's event time). */
-  | 'motion_skipped';
+  | 'motion_skipped'
+  /** S-15-6: a card was picked up: the hand strip drops below the screen / comes back up. */
+  | 'hand_minimize'
+  | 'hand_restore'
+  /** S-15-6: a quick tap on the hand view's big card: the "Hold to play" tip shows (`inputAt`: the tap's event time). */
+  | 'hold_tip';
 
 /** Logged when an animation or hint starts. */
 export interface AnimRecord {
