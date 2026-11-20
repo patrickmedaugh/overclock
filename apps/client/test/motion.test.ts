@@ -40,6 +40,14 @@ describe('planMotion', () => {
     expect(f.map((x) => x.kind)).toEqual(['discard', 'discard', 'mill']);
   });
 
+  it('the turn-change ripple (tighter gap) still goes one after another and starts its 4th card by 45 ms', () => {
+    const e: GameEvent[] = [{ type: 'cards_discarded', player: 'runner', count: 4, handIndices: [0, 1, 2, 3], cardIds: ['a', 'b', 'c', 'd'] }];
+    const delays = planMotion('runner', e, { stagger: MOTION.turnStagger }).map((x) => x.delayMs);
+    expect(delays).toEqual([0, 1, 2, 3].map((i) => i * MOTION.turnStagger));
+    expect(MOTION.turnStagger).toBeGreaterThan(0);
+    expect(delays[3]!).toBeLessThanOrEqual(45);
+  });
+
   it('several cards ripple one after another and the batch ends within 500 ms; past 4 the rest land at once', () => {
     const many: GameEvent[] = [{ type: 'cards_discarded', player: 'runner', count: 6, handIndices: [0, 1, 2, 3, 4, 5], cardIds: ['a', 'b', 'c', 'd', 'e', 'f'] }];
     const f = planMotion('runner', many);

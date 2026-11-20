@@ -54,6 +54,14 @@ export const MOTION = {
   showcaseOut: 170,
   /** Ripple: the gap between cards moving in one batch (at most), and the batch's end (at most). */
   stagger: 60,
+  /**
+   * The gap in the end-of-turn discard ripple (pass-the-phone): the board turns over only once
+   * those cards have landed, so this ripple stands between Confirm and the next player's turn
+   * (CLAUDE.md: nothing blocks input > 600 ms). About one frame per card; with the 130 ms
+   * `timing.discardFlight`, 4 cards land by 175 ms (was 360 at the 60 ms gap and 180 ms flight;
+   * Sprint 14: 210). DECISIONS 2026-11-20 (ui-dev, turn-change ripple).
+   */
+  turnStagger: 15,
   batchMs: 500,
   /** At most this many sprites in the air in one batch; the rest land at once (counts stay right). */
   maxInAir: 4,
@@ -163,14 +171,15 @@ function legsOf(viewer: Side, e: GameEvent): Leg[][] {
  * The flights one batch of events makes, for `viewer`'s screen. Cards moving in one batch go
  * one just after another (a ripple) and the whole batch ends within `MOTION.batchMs`; past
  * `MOTION.maxInAir` cards the rest land at once (duration 0), so the counts still end right.
+ * `opts.stagger`: a different (at most) gap between cards (the turn change uses `MOTION.turnStagger`).
  */
-export function planMotion(viewer: Side, events: readonly GameEvent[]): Flight[] {
+export function planMotion(viewer: Side, events: readonly GameEvent[], opts: { stagger?: number } = {}): Flight[] {
   const groups = events.flatMap((e, source) => legsOf(viewer, e).map((g, item) => g.map((l) => ({ ...l, source, item }))));
   if (groups.length === 0) return [];
   const span = (g: readonly Leg[]) => Math.max(...g.map((l) => l.offset + l.flight.durationMs));
   const flying = groups.slice(0, MOTION.maxInAir);
   const longest = Math.max(...flying.map(span));
-  const stagger = flying.length > 1 ? Math.max(0, Math.min(MOTION.stagger, Math.floor((MOTION.batchMs - longest) / (flying.length - 1)))) : 0;
+  const stagger = flying.length > 1 ? Math.max(0, Math.min(opts.stagger ?? MOTION.stagger, Math.floor((MOTION.batchMs - longest) / (flying.length - 1)))) : 0;
   const out: Flight[] = [];
   groups.forEach((g, i) => {
     const air = i < MOTION.maxInAir;

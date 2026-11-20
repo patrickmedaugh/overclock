@@ -1032,8 +1032,9 @@ export class Board {
     if (layout) {
       for (const e of p.actorEvents) {
         if (e.type === 'cards_discarded' && e.player === p.actor && e.handIndices) {
-          // Sprint 15: the planner's ripple (S-15-3: the batch ends within 0.5 s).
-          const delays = planMotion(p.actor, [e]).map((f) => f.delayMs);
+          // Sprint 15: the planner's ripple (S-15-3: the batch ends within 0.5 s), with the tighter
+          // turn-change gap: the flip waits for these cards, so this ripple delays the next turn.
+          const delays = planMotion(p.actor, [e], { stagger: MOTION.turnStagger }).map((f) => f.delayMs);
           discardMs = actorHand.discardOut(e.handIndices, layout.bottom.discard, delays);
           discarded = true;
           this.callbacks.log({ kind: 'discard_flight', scheduledMs: discardMs, box: layout.bottom.discard });
