@@ -12,14 +12,48 @@ locked sideways), assets served from the app itself (works offline).
 
 ## How the owner gets the app
 
-GitHub builds it on every push to `main` or a `sprint-*` branch
-(`.github/workflows/android.yml`) and puts it on the repo's **Releases** page:
-one release per branch, named `OVERCLOCK app — <branch> — built <time>`, with
-the file `overclock-<branch>-<YYYYMMDD-HHMM>-b<run>.<attempt>.apk`. `main` is the "Latest"
-release; sprint branches are marked "Pre-release". On the phone: open the
-Releases page, tap the `.apk`, allow installs from the browser once, then
-**Install**. The build time on the release matches the small "Built …" note in
-the corner of the board.
+GitHub builds it on every push to `main` or a `sprint-NN` branch
+(`.github/workflows/android.yml`, docs-only pushes skipped).
+
+**Sprint 15 (S-15-5): from the play site, no GitHub sign-in.** The `site` job
+publishes the newest build (last push wins, `main` or the sprint branch under
+review) to https://overcloc.netlify.app:
+
+- the web game, built with the same "Built …" time as the app;
+- `app/overclock.apk` — always the newest app (the link for demo notes):
+  https://overcloc.netlify.app/app/overclock.apk
+- `app/overclock-<branch>-<YYYYMMDD-HHMM>-b<run>.<attempt>.apk` — the same file
+  under its build name (what the start screen's **Get the Android app** button
+  downloads);
+- `app/latest.json` — `{buildTime, versionCode, branch, commit, apk}`.
+
+How it gets there: the `build` job also builds the web game (`BASE_PATH=/`,
+same `OVERCLOCK_BUILD_TIME`); the `site` job assembles the site
+(`scripts/play-site.mjs`), checks it (`scripts/check-site.mjs`: right base
+path, same build time as the APK, Play online's service in the CSP, no
+github.io, both APK copies identical and served as downloads, Netlify builds
+nothing), then force-pushes it as a single commit to the orphan branch `play`
+with the workflow's own `GITHUB_TOKEN` (no secret). Netlify publishes `play` as
+the production site. A last, warning-only step waits up to 90 s for the live
+`app/latest.json` to show the commit.
+
+**Owner setting (once):** in Netlify, site *overcloc* → Site configuration →
+Build & deploy → Continuous deployment → Branches and deploy contexts →
+Configure → **Production branch: `play`** → Save. Until then the play link
+shows the last `main` build Netlify made itself, without the app download.
+Pull requests keep their own Deploy Preview links (built from the root
+`netlify.toml`; no app file there).
+
+On the phone: tap **Get the Android app** (or the demo-note link), allow
+installs from the browser once, then **Install**. Same signing key and a
+rising `versionCode` (the run number), so it installs over the old app and
+keeps local decks and saved games.
+
+**Releases page** (still published; needs a GitHub sign-in once the repo is
+private): one release per branch, named `OVERCLOCK app — <branch> — built
+<time>`, with the same `.apk`. `main` is the "Latest" release; sprint branches
+are marked "Pre-release". The build time on the release matches the small
+"Built …" note in the corner of the board.
 
 Publishing (S-05-4) is its own job, `publish`, after `build`. A newer push may
 cancel a `build`, never a `publish`. `scripts/publish-release.mjs` creates

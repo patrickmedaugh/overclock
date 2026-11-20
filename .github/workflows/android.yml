@@ -11,6 +11,14 @@ name: android
 # nothing public); `publish` is never cancelled half-way, and
 # scripts/publish-release.mjs uploads the new APK before removing the old one,
 # so the release always has an APK. Any GitHub error fails the run.
+#
+# Sprint 15 (S-15-5, repo private): the `site` job publishes the play site,
+# https://overcloc.netlify.app — the web game built with this APK's build time,
+# plus app/overclock.apk, app/<apk> and app/latest.json — as one commit
+# force-pushed to the orphan `play` branch (Netlify's production branch), with
+# the workflow's own GITHUB_TOKEN (no secret). Last push wins, as GitHub Pages
+# did. A push made with GITHUB_TOKEN starts no workflow, and no workflow runs
+# on `play`, so publishing never loops.
 
 on:
   push:
@@ -46,6 +54,7 @@ jobs:
       branch: ${{ steps.names.outputs.branch }}
       tag: ${{ steps.names.outputs.tag }}
       apk_name: ${{ steps.names.outputs.apk_name }}
+      publish_site: ${{ steps.names.outputs.publish_site }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -88,6 +97,8 @@ jobs:
             echo "branch=$BRANCH"
             echo "tag=app-$BRANCH"
             echo "apk_name=$APK_NAME"
+            # Only main and sprint-NN publish the play site (not a manual run on a helper branch).
+            if [[ "$GITHUB_REF" =~ ^refs/heads/(main|sprint-[0-9][0-9])$ ]]; then echo "publish_site=true"; else echo "publish_site=false"; fi
           } >> "$GITHUB_OUTPUT"
 
       # Android web build + bundle check + cap sync (apps/android/package.json).
@@ -96,7 +107,16 @@ jobs:
       - run: npm run sync --workspace @overclock/android
         env:
           OVERCLOCK_SERVER_URL: ${{ vars.OVERCLOCK_SERVER_URL || 'wss://overclock.patrickmedaugh.workers.dev' }}
-          OVERCLOCK_WEB_URL: ${{ vars.OVERCLOCK_WEB_URL || 'https://patrickmedaugh.github.io/overclock/' }}
+          OVERCLOCK_WEB_URL: ${{ vars.OVERCLOCK_WEB_URL || 'https://overcloc.netlify.app/' }}
+
+      # Sprint 15: the web game for the play site, same build time as the APK.
+      # Netlify serves it from the site root, so BASE_PATH=/ (not /overclock/).
+      - name: Web build for the play site
+        run: npm run build --workspace @overclock/client
+        env:
+          BASE_PATH: /
+          OVERCLOCK_SERVER_URL: ${{ vars.OVERCLOCK_SERVER_URL || 'wss://overclock.patrickmedaugh.workers.dev' }}
+          OVERCLOCK_WEB_URL: ${{ vars.OVERCLOCK_WEB_URL || 'https://overcloc.netlify.app/' }}
 
       - name: Build the APK
         working-directory: apps/android/android
@@ -139,6 +159,13 @@ jobs:
         with:
           name: apk
           path: ${{ env.APK_NAME }}
+          if-no-files-found: error
+          retention-days: 7
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web
+          path: apps/client/dist
           if-no-files-found: error
           retention-days: 7
 
@@ -191,3 +218,78 @@ jobs:
           EOF
           APK="$APK_NAME" NOTES_FILE=notes.md TITLE="OVERCLOCK app — $BRANCH — built $BUILD_TIME" \
             node apps/android/scripts/publish-release.mjs
+
+  # Sprint 15 (S-15-5): the play site, https://overcloc.netlify.app (Netlify's
+  # production branch is `play`; owner setting, apps/android/README.md).
+  site:
+    name: site
+    needs: build
+    if: needs.build.outputs.publish_site == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # One publish at a time, never cancelled half-way; last push wins (a newer
+    # run still waiting replaces an older waiting one).
+    concurrency:
+      group: play-publish
+      cancel-in-progress: false
+    env:
+      BUILD_TIME: ${{ needs.build.outputs.build_time }}
+      VERSION_CODE: ${{ needs.build.outputs.version_code }}
+      BRANCH: ${{ needs.build.outputs.branch }}
+      APK_NAME: ${{ needs.build.outputs.apk_name }}
+      OVERCLOCK_SERVER_URL: ${{ vars.OVERCLOCK_SERVER_URL || 'wss://overclock.patrickmedaugh.workers.dev' }}
+      PLAY_URL: ${{ vars.OVERCLOCK_WEB_URL || 'https://overcloc.netlify.app/' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@v4
+        with:
+          name: web
+          path: play-site
+      - uses: actions/download-artifact@v4
+        with:
+          name: apk
+          path: apk
+
+      - name: Assemble and check the play site
+        run: |
+          set -euo pipefail
+          node scripts/play-site.mjs play-site "apk/$APK_NAME"
+          node scripts/check-site.mjs play-site
+
+      - name: Publish to the play branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cd play-site
+          git init -q -b play
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -q -m "Play site: $BRANCH ${GITHUB_SHA::7}, built $BUILD_TIME (run $GITHUB_RUN_ID)"
+          AUTH=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          echo "::add-mask::$AUTH"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" \
+            push --force "https://github.com/$GITHUB_REPOSITORY.git" HEAD:refs/heads/play
+          echo "Published $BRANCH ${GITHUB_SHA::7} (built $BUILD_TIME) to the play branch."
+
+      # Soft check: Netlify picks the push up within a minute or so. Only a
+      # warning: a newer publish may already have replaced this one, and until
+      # the owner sets Netlify's production branch to `play` it never shows.
+      - name: Play link shows this build (warning only)
+        continue-on-error: true
+        run: |
+          URL="${PLAY_URL%/}/app/latest.json"
+          for i in $(seq 1 18); do
+            if curl -fsS --max-time 10 "$URL?run=$GITHUB_RUN_ID-$i" | grep -q "\"commit\": \"$GITHUB_SHA\""; then
+              echo "$URL shows commit $GITHUB_SHA."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "::warning title=Play link not updated yet::$URL did not show commit ${GITHUB_SHA::7} within 90 s (Netlify still deploying, a newer build already published, or Netlify's production branch is not 'play' yet)."

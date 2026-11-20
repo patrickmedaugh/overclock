@@ -12,7 +12,8 @@
   "scripts": {
     "lint": "eslint .",
     "typecheck": "tsc -b",
-    "test": "npm run test --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present && npm run test:scripts",
+    "test:scripts": "vitest run --dir scripts",
     "test:e2e": "npm run test:e2e --workspaces --if-present",
     "build": "npm run build --workspaces --if-present",
     "test:guard-mutation": "npm run test:guard-mutation --workspace apps/client"
