@@ -115,8 +115,10 @@ test.describe('S-08-2 Adonis Campaign, Melange Mining Corp., Biotic Labor', () =
     expect(m.events.map((e) => e.type)).toContain('clicks_gained');
     expect(m.view.players.corp.clicks).toBe(4);
     expect(m.anims.some((a) => a.kind === 'clicks_gained' && a.scheduledMs <= 600)).toBe(true);
+    // The note is logged when it shows; it fades after ~1.3 s, which a busy CI runner could pass
+    // before the board is idle (Sprint 15's showcase keeps it busy ~0.5 s): check it was shown.
+    await page.waitForFunction(() => window.__overclock!.anims().some((a) => a.kind === 'notice' && (a.text ?? '').includes('Corp gains 2 clicks')));
     l = await waitIdle(page);
-    expect(l.hint?.text).toContain('Corp gains 2 clicks');
     await shot(page, 's08-2-biotic-labor-4-clicks');
   });
 });
