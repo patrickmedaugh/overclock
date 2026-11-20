@@ -2,6 +2,7 @@
 // Shared by the client (src) and the e2e specs, so keep this file type-only.
 import type { Action, ChoiceView, GameEvent, GameOptions, PlayerView, RunStep, RunView, Side } from '@overclock/engine';
 import type { DeckStore } from '@overclock/match';
+import type { FlightKind } from './motion';
 
 /** Axis-aligned box in CSS pixels, relative to the page viewport. */
 export interface Box {
@@ -395,7 +396,16 @@ export interface LayoutSnapshot {
   buildLabel: { text: string; box: Box } | null;
   /** True while any event animation runs (never blocks input). */
   animating: boolean;
+  /**
+   * Sprint 15: cards moving now. `active`: how many flights are in the air (waiting out a ripple
+   * delay included); each flight's `cardId` is null when it flies face down (a card back), `box`
+   * where it is drawn now.
+   */
+  motion: { active: number; flights: { kind: FlightKind; cardId: string | null; box: Box }[] };
 }
+
+/** Sprint 15: the movement test switch (`?motion=`, `__overclock.motion()`): real movement, everything at its end at once, or frozen (stepped by `advanceMotion`). */
+export type MotionMode = 'normal' | 'instant' | 'hold';
 
 export type AnimKind =
   /** S-06-5: the "Pass the phone" cover was tapped away (the board shows on the next frame). */
@@ -471,7 +481,22 @@ export type AnimKind =
   /** S-07-6: a card lifts out of the hand view (the view fades out; `text`: its card id). */
   | 'card_lift'
   /** S-07-6: a lifted card let go away from a lit place flies back to the hand. */
-  | 'card_return';
+  | 'card_return'
+  // ---- Sprint 15: movement ----
+  /** S-15-1: a finger landed on the hand view's big card: it rises and grows (`inputAt`: the press's handling time). */
+  | 'hand_press'
+  /** S-15-1: a lifted card let go away from a lit place glides back to the hand. */
+  | 'hand_return'
+  /** S-15-2: a card landed on its place (a quick shrink-and-bounce; `text`: its uid). */
+  | 'land_settle'
+  /** S-15-2: a one-shot card shows in the middle, then flies to its discard pile (`text`: card id). */
+  | 'showcase'
+  /** S-15-3: a score counter ticks up with a glow as an agenda lands (`text`: the new score text). */
+  | 'score_tick'
+  /** S-15-2: the other player's card flies in from their side (`text`: card id, or '' when face down). */
+  | 'opponent_flight'
+  /** S-15-4: a tap finished the movement on screen at once (`scheduledMs` 0; `inputAt`: the tap's event time). */
+  | 'motion_skipped';
 
 /** Logged when an animation or hint starts. */
 export interface AnimRecord {
@@ -569,6 +594,14 @@ export interface OverclockTestHook {
   } | null;
   /** S-05-3: pins whether drawn frames count as slow (slow: the carousel jumps instead of sliding). */
   frameSpeed(mode: 'fast' | 'slow' | 'measured'): void;
+  /**
+   * Sprint 15: the movement switch (same as `?motion=`; `normal` by default). `hold` freezes the
+   * event movement (the `fx` queue; input feedback still runs) so a spec can look mid-flight;
+   * switching back to `normal`/`instant` lets it run on / finishes it.
+   */
+  motion(mode: MotionMode): void;
+  /** Sprint 15: in `hold`, steps the frozen movement by `ms` (drawn on the next frame). */
+  advanceMotion(ms: number): void;
 }
 
 /** Sprint 11 (S-11-4): one bottom stat of a full face, card-local (the card centered at 0,0). */

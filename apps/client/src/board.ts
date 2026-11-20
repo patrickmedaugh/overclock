@@ -20,6 +20,7 @@ import { centeredBox, clearOf, freeRect } from './geometry';
 import { Hand, type HandCard } from './hand';
 import { DROP_WAIT_MS, LIFT_MS, RETURN_MS, SWIPE_TOLERANCE, VIEW_FADE_MS, type ViewHit, ghostCenter, swipeIndex, targetAt, viewHit } from './handGesture';
 import type { AnimRecord, Box, EndTurnClock, InstalledSnapshot, Insets, LayoutSnapshot, SideLayout, TargetSnapshot } from './hook-types';
+import type { FlightKind } from './motion';
 import type { Decision, Presentation } from './session';
 import { choiceHint, collapseRepeats, conditionText, hintFor, rejectText } from './hints';
 import { EXPOSED_CAPTION, EXPOSE_HELP, archivesHelpText, archivesTitle, lookDoneLabel, lookHelpText, lookInstallable, lookNotIceText, modeLabel, s12Notice } from './choiceText';
@@ -443,7 +444,13 @@ export class Board {
    * the bottom row then only skips ahead to the flip: it must not spend a
    * click of the player whose board is not on screen yet.
    */
-  private flipPending = false;
+  private _flipPending = false;
+  /** True while the actor's discards fly out before the turn's flip (a tap then only skips ahead). */
+  get flipPending(): boolean {
+    return this._flipPending;
+  }
+  /** Sprint 15: cards in the air now (for the test hook's `layout().motion`). */
+  private readonly flying = new Set<{ kind: FlightKind; cardId: string | null; root: Container; w: number; h: number }>();
 
   constructor(
     private readonly fx: Tweens,
@@ -984,6 +991,10 @@ export class Board {
           }
         : null,
       animating: this.fx.active,
+      motion: {
+        active: [...this.flying].filter((f) => !f.root.destroyed).length,
+        flights: [...this.flying].filter((f) => !f.root.destroyed).map((f) => ({ kind: f.kind, cardId: f.cardId, box: centeredBox(f.root, f.w, f.h) })),
+      },
     };
   }
 
@@ -1027,13 +1038,13 @@ export class Board {
     // Set now, not at the flip: the guard counts from this tap.
     this.endTurnArmedAt = tappedAt + timing.endTurnGuard;
     const flip = () => {
-      this.flipPending = false;
+      this._flipPending = false;
       this.switchSeat(p.nextView, p.nextEvents);
       // The actor's pile is now in the top row: pop it so the new count is noticed.
       if (discarded) this.gen?.discards[p.actor].pop(this.ui);
     };
     if (discardMs > 0) {
-      this.flipPending = true;
+      this._flipPending = true;
       this.fx.after(discardMs, flip);
     } else flip();
   }

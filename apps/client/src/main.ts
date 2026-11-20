@@ -14,7 +14,7 @@ import { type DeckPicks, type ZoomImage, hasReadyDeck } from './decksScreen';
 import { computeLayout } from './layout';
 import { forceFrameSpeed, noteDraw, noteTick } from './frameClock';
 import type { BackAction } from './back';
-import type { AnimRecord } from './hook-types';
+import type { AnimRecord, MotionMode } from './hook-types';
 import { HotSeat, seedFromUrl } from './hotseat';
 import { joinCodeFromUrl, shareLink, shareText } from './links';
 import { lastInput } from './input';
@@ -68,6 +68,8 @@ async function start(): Promise<void> {
     const keep = new URLSearchParams();
     if (serverParam !== null) keep.set('server', serverParam);
     if (deckIp !== null) keep.set('deckip', deckIp);
+    const motion = params.get('motion');
+    if (motion !== null) keep.set('motion', motion);
     const q = keep.toString();
     return `${window.location.pathname}${q ? `?${q}` : ''}`;
   };
@@ -138,6 +140,10 @@ async function start(): Promise<void> {
   // fx: event animations (skippable). ui: feedback, hints, zoom (never skipped).
   const fx = new Tweens();
   const ui = new Tweens();
+  // Sprint 15 test switch (test builds only): `?motion=instant|hold` (default `normal`, so the
+  // older specs keep exercising real movement). `hold` freezes `fx` (event movement) for
+  // `advanceMotion(ms)` to step; `instant` finishes it as soon as it starts.
+  let motionMode: MotionMode = __TEST_HOOK__ ? motionFlag(params.get('motion')) : 'normal';
 
   // Animation log for the test hook: one record per animation/hint start.
   const records: AnimRecord[] = [];
@@ -188,6 +194,22 @@ async function start(): Promise<void> {
     buildTime: __BUILD_TIME__,
   });
   app.stage.addChild(board.stage);
+  // S-15-4: a tap during movement finishes it first (capture phase, before Pixi's own handler on
+  // the canvas), so the tap is answered at once and acts on the board as it ends up.
+  // Turn change (the actor's discards still flying): the tap only skips ahead to the next
+  // player's board, as before (it must not act for a board not on screen yet).
+  host.addEventListener(
+    'pointerdown',
+    (e) => {
+      if (!fx.active) return;
+      const swallow = board.flipPending;
+      fx.finishAll();
+      log({ kind: 'motion_skipped', scheduledMs: 0, inputAt: e.timeStamp });
+      invalidate();
+      if (swallow) e.stopPropagation();
+    },
+    { capture: true },
+  );
 
   app.ticker.remove(app.render, app);
   // Large frame gaps (slow device, background tab) advance tweens by real
@@ -197,7 +219,8 @@ async function start(): Promise<void> {
     noteTick(t.elapsedMS);
     // Only frames where a tween actually moved something are drawn: a hint
     // sitting on screen (waiting for its fade-out) costs no GPU time.
-    const fxMoved = fx.tick(t.deltaMS);
+    if (motionMode === 'instant') fx.finishAll();
+    const fxMoved = motionMode === 'hold' ? false : fx.tick(t.deltaMS);
     const uiMoved = ui.tick(t.deltaMS);
     if (dirty || fxMoved || uiMoved) {
       dirty = false;
@@ -359,6 +382,15 @@ async function start(): Promise<void> {
         back,
         exitRequests: () => exitRequests,
         frameSpeed: (mode) => forceFrameSpeed(mode),
+        motion: (mode) => {
+          motionMode = mode;
+          if (mode === 'instant') fx.finishAll();
+          invalidate();
+        },
+        advanceMotion: (ms) => {
+          fx.tick(ms);
+          invalidate();
+        },
         online: () =>
           online && game === online
             ? { code: online.gameCode, seat: online.seat, phase: online.phase.kind, ...online.status(), busy: online.busy, shownAt }
@@ -587,6 +619,11 @@ start().catch((err: unknown) => {
   const el = document.getElementById('boot');
   if (el) el.textContent = 'Could not start the game on this device.';
 });
+
+/** The `motion=` test flag (Sprint 15): `instant` or `hold`; anything else is real movement. */
+function motionFlag(value: string | null): MotionMode {
+  return value === 'instant' || value === 'hold' ? value : 'normal';
+}
 
 /**
  * The `decks=` test flag's deck set (null: none or unknown). The engine resolves the name
