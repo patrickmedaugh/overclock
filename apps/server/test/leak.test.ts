@@ -12,7 +12,9 @@ import { prng } from './plans';
 
 const FIELDS: Record<ServerMsg['t'], string[]> = {
   seated: ['v', 't', 'code', 'seat', 'token'],
-  lobby: ['v', 't', 'code', 'seat'],
+  lobby: ['v', 't', 'code', 'seat', 'picking'],
+  choose: ['v', 't', 'seat'],
+  deck_refused: ['v', 't', 'problems'],
   sync: ['v', 't', 'seq', 'view', 'opponent'],
   update: ['v', 't', 'seq', 'view', 'events', 'ack'],
   rejected: ['v', 't', 'ack', 'view', 'events'],
@@ -37,6 +39,7 @@ describe('leak test: random online games through the room', () => {
       const guestSide: Side = hostSide === 'corp' ? 'runner' : 'corp';
       h.room.connect(conns[guestSide], { kind: 'player' });
       h.room.message(conns[guestSide], msg({ t: 'join' }));
+      h.room.message(conns[guestSide], msg({ t: 'pick' }));
 
       let state = h.store.get<GameState>('state')!;
       const tokens = {} as Record<Side, string>;

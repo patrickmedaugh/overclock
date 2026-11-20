@@ -149,3 +149,48 @@ export function runnerViewLeaks(s: GameState, v: PlayerView = viewFor('runner', 
   if (CORP_ID.test(JSON.stringify(rest))) out.push(`view names a Corp card elsewhere: ${JSON.stringify(rest).match(CORP_ID)?.[0]}`);
   return out;
 }
+
+// ---- Sprint 14: the Corp side (what the Corp may learn about Runner cards) ------------------
+
+const RUNNER_ID_G = /"(r\d\d)"/g;
+
+/** Runner card ids anywhere in `x` (as JSON strings). */
+function runnerIdsIn(x: unknown): Set<string> {
+  return new Set([...JSON.stringify(x).matchAll(RUNNER_ID_G)].map((m) => m[1]!));
+}
+
+/**
+ * Sprint 14 (S-14-4 AC2): the Runner card ids the Corp must never see in `s`: ids held only in the
+ * Stack or the Grip (not also face up in the rig, the Heap or as the identity). An own deck's
+ * unusual cards are exactly these until they are played, installed or discarded.
+ */
+export function hiddenRunnerIds(s: GameState): Set<string> {
+  const r = s.players.runner;
+  const open = new Set<string>([...s.rig.map((c) => c.cardId), ...r.discard.map((d) => d.cardId)]);
+  if (r.identity) open.add(r.identity);
+  return new Set([...r.deck, ...r.hand].filter((id) => !open.has(id)));
+}
+
+/** Problems with `v` as the Corp's view of `s` (defaults to `viewFor('corp', s)`): no Grip, no Stack order, no hidden Runner card id. */
+export function corpViewLeaks(s: GameState, v: PlayerView = viewFor('corp', s)): string[] {
+  const out: string[] = [];
+  if (v.viewer !== 'corp') out.push('view is not the Corp view');
+  if (v.players.runner.hand !== null) out.push('Runner Grip visible');
+  if (v.players.runner.handCount !== s.players.runner.hand.length) out.push('Runner Grip count differs');
+  if (v.players.runner.deckCount !== s.players.runner.deck.length) out.push('Runner Stack count differs');
+  if (!same(v.players.runner.discard, s.players.runner.discard.map((d) => d.cardId))) out.push('Heap differs (it is face up)');
+  for (const id of runnerIdsIn(v)) if (hiddenRunnerIds(s).has(id)) out.push(`view names ${id}, held only in the Stack/Grip`);
+  return out;
+}
+
+/**
+ * Problems with `events` as sent to the Corp (already `viewEvents('corp', …)`-projected). `after` =
+ * the full state the events led to: no event may name a card that is then only in the Stack/Grip
+ * (a draw, a shuffle, a deck list).
+ */
+export function corpEventLeaks(events: readonly GameEvent[], after: GameState): string[] {
+  const hidden = hiddenRunnerIds(after);
+  const out: string[] = [];
+  for (const e of events) for (const id of runnerIdsIn(e)) if (hidden.has(id)) out.push(`${e.type} names ${id}, held only in the Stack/Grip`);
+  return out;
+}

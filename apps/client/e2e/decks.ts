@@ -28,7 +28,7 @@ export function standardPlus(side: Side, delta: Record<string, number>): Record<
 
 /** Writes `decks` into the deck store before the first page load of this context (not on later reloads). */
 export async function seedDecks(page: Page, decks: StoredDeck[]): Promise<void> {
-  const store: DeckStore = { format: 1, decks };
+  const store: DeckStore = { format: 2, decks, deleted: [] };
   await page.addInitScript(
     ({ key, raw }) => {
       if (localStorage.getItem('e2e.decksSeeded') === null) {

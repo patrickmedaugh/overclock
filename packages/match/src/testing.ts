@@ -14,7 +14,7 @@ import type { Action, DeckSet, GameOptions, GameState, PlayerView, Side } from '
 import { LocalMatch } from './local-match';
 
 /** Sprint 6: pure hidden-information checks (server leak test, Node-side e2e). */
-export { runnerEventLeaks, runnerViewLeaks } from './hidden-checks';
+export { corpEventLeaks, corpViewLeaks, hiddenRunnerIds, runnerEventLeaks, runnerViewLeaks } from './hidden-checks';
 
 export interface BusyBoardGoal {
   /** Remote servers wanted. */

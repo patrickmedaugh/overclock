@@ -67,7 +67,7 @@ describe('S-13-5: SAVE_FORMAT 2 holds the dealt lists', () => {
 describe('S-13-5: Continue after the deck is edited or deleted', () => {
   const now = 1_763_000_000_000;
   const stored: StoredDeck = { id: '6f1c-test', side: 'corp', name: 'My Corp deck 1', identity: IDENTITIES.corp, cards: countsOf(CORP46), createdAt: now, updatedAt: now };
-  const store: DeckStore = { format: 1, decks: [stored] };
+  const store: DeckStore = { format: 2, decks: [stored], deleted: [] };
 
   it('play from the stored deck, save; edit the deck, then delete it: the save still loads the same game', () => {
     // The client deals the stored deck: deckFromCounts(identity, cards).
@@ -81,8 +81,8 @@ describe('S-13-5: Continue after the deck is edited or deleted', () => {
     expect(sorted([...newGame(21, { decks: { corp: deck } }).players.corp.deck, ...newGame(21, { decks: { corp: deck } }).players.corp.hand])).toEqual(sorted(CORP46.cards));
 
     // Edit: 46 → 45 cards (Wall of Static back to 2), renamed. Then delete it altogether.
-    const edited: DeckStore = { format: 1, decks: [{ ...stored, name: 'Edited', cards: countsOf(STANDARD_DECKS.corp), updatedAt: now + 1 }] };
-    const deleted: DeckStore = { format: 1, decks: [] };
+    const edited: DeckStore = { format: 2, decks: [{ ...stored, name: 'Edited', cards: countsOf(STANDARD_DECKS.corp), updatedAt: now + 1 }], deleted: [] };
+    const deleted: DeckStore = { format: 2, decks: [], deleted: [] };
     for (const after of [edited, deleted]) {
       expect(parseDeckStore(JSON.stringify(after))).toEqual(after);
       const r = LocalMatch.load(saveJson);

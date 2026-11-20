@@ -21,6 +21,7 @@ function onlineGame(seed: number, goal: StepGoal) {
   h.room.message(conns.corp, msg({ t: 'create', side: 'corp', test: { seed, actions: plan.actions, deckSet: plan.deckSet } }));
   h.room.connect(conns.runner, { kind: 'player' });
   h.room.message(conns.runner, msg({ t: 'join' }));
+  h.room.message(conns.runner, msg({ t: 'pick' }));
   expect(h.room.seq()).toBe(plan.actions.length); // every prelude action accepted under online rules
   let id = 0;
   /** Sends `a` from its seat; returns both phones' update after checking them against the engine. */

@@ -511,6 +511,40 @@ maxHandSize(state, side) = 5 − brainDamage    // exported
 - Test-mode `create.test.deckSet?: 'core' | 'starter'` (production ignores `test`; always `'core'`). `PROTOCOL_VERSION` stays 1. `ONLINE_OPTIONS = {rezWindow: 'always', deckSet: 'core'}`.
 - `@overclock/match/testing`: `planToStep(seed, goal, maxActions?, options?)` plans on `options.deckSet ?? goalDeckSet(goal)` (Sprint 3–7 goals: `'starter'`; Sprint 8 goals: `'core'`) and returns `plan.deckSet`; `planBusyBoard(seed, goal?, maxActions?, deckSet = 'starter')` returns `deckSet`. Create the page's game with the plan's `deckSet`.
 
+## Sprint 14 interface (pinned: implement exactly this; changes go through the architect)
+
+Deck sync + online games with own decks (plan: `docs/sprints/sprint-14-tech-plan.md`). **No rule or card change: `RULES_VERSION` stays 5.** `SAVE_FORMAT` stays 2. `DECK_STORE_FORMAT` 1 → 2 (reads 1). **`PROTOCOL_VERSION` is 2** (since E4; message types use `typeof PROTOCOL_VERSION`, so always send `v: PROTOCOL_VERSION`, never a literal; `/health` reports `protocol: 2`).
+
+Status: **E1–E5 are in.** E1 types (`packages/match/test/sprint14-interface.test.ts`, `packages/protocol/test/sprint14-interface.test.ts`); E2 merge property tests (`packages/match/test/sprint14-merge.test.ts`); E3 the deck service (`apps/server/src/{decks,locker,guard}.ts`, tests `sprint14-locker`/`sprint14-guard`, `npm run test:dev -w apps/server`); E4 the room speaks v2 and deals after both picks (`apps/server/test/sprint14-room.test.ts`); E5 the leak tests: `corpViewLeaks`/`corpEventLeaks`/`hiddenRunnerIds` in `@overclock/match/testing` (the Corp never sees a Runner card id held only in the Stack/Grip), and `apps/server/test/sprint14-leak.test.ts` (30 whole games with random own decks, every mix, both directions, through game over; a frozen Sprint 13 parser reads every v2 frame as `version`).
+
+Room behaviour (E4), for the client:
+- Host: `create {side, deck?}` → `seated`, `lobby` (or `deck_refused {problems}` and no game; the socket stays open, send `create` again). When a friend joins: `lobby {picking: true}`; when the friend has picked: `sync`. If the friend leaves before picking: `lobby` (no `picking`).
+- Guest: `join` → `seated`, `choose {seat}` → send `pick {deck?}` → `sync` (or `deck_refused`, pick again). `leave` before the pick frees the seat (socket closed 1000 `'left'`). If the host leaves meanwhile the guest gets `error no_game`.
+- `resume` before the deal: host → `lobby` (with `picking: true` if the guest is seated), guest → `choose` (pick again).
+- `problems` = `checkDeck`'s `DeckProblem`s; an identity of the other side adds `{kind: 'wrong_side', cardId: <identity>}` first.
+- Any frame with `v ≠ 2` → `error version` and close.
+
+### Deck store format 2 (`@overclock/match`, `src/saved-decks.ts`)
+- `DECK_STORE_FORMAT = 2`. `DeckTombstone = {id: string, deletedAt: number}` (ms). `DeckStore = {format: 2, decks: readonly StoredDeck[], deleted: readonly DeckTombstone[]}`. `StoredDeck` unchanged.
+- `parseDeckStore(x: unknown): DeckStore | 'broken' | 'newer'` — reads formats 1 (any `deleted` ignored → `[]`) and 2 (`deleted` required: non-empty string ids, times ≥ 0); always returns format 2. Format ≥ 3 → `'newer'`. Duplicate tombstones → newest `deletedAt`. A deck and a tombstone with one id → newer wins, tie → the tombstone (so each id is in at most one list). Sprint 13 rules otherwise unchanged.
+- `mergeDeckStores(a: DeckStore, b: DeckStore): DeckStore` — per id the newest of `updatedAt`/`deletedAt` wins; tie → tombstone, then the smaller canonical JSON. Commutative, associative, idempotent. Output order canonical: decks by `createdAt` then `id`; tombstones by `id`. Detached.
+- `checkDeckUpload(x: unknown): DeckStore | UploadProblem`, `UploadProblem = 'broken' | 'newer' | 'too_big'` — `x` = object or JSON text. JSON text > `MAX_DECK_UPLOAD_BYTES` or > `MAX_STORE_DECKS` decks → `'too_big'`; `parseDeckStore` broken/newer → same; id > `MAX_DECK_ID_LENGTH` (deck or tombstone), name > `MAX_DECK_NAME_LENGTH`, > `MAX_DECK_CARD_ENTRIES` entries in a deck → `'broken'`; > `MAX_STORE_TOMBSTONES` tombstones → the oldest are dropped (not refused). Unknown ids / 4+ copies kept.
+- Limits (exported): `MAX_DECK_UPLOAD_BYTES = 262144`, `MAX_STORE_DECKS = 200`, `MAX_STORE_TOMBSTONES = 500`, `MAX_DECK_ID_LENGTH = 64`, `MAX_DECK_NAME_LENGTH = 80`, `MAX_DECK_CARD_ENTRIES = 100`.
+
+### Deck service (`@overclock/protocol`, `src/decks.ts`, re-exported from the package root)
+- `DECKS_API_VERSION = 1`; `DECKS_NEW_PATH = '/v1/decks/new'`; `DECKS_SYNC_PATH = '/v1/decks/sync'`; `TEST_IP_HEADER = 'X-Overclock-Test-Ip'` (test mode only). The limits above are re-exported.
+- `POST DECKS_NEW_PATH` body `DeckNewRequest = {v, store}` → `200 DeckNewReply = {v, code, store}`. `POST DECKS_SYNC_PATH` body `DeckSyncRequest = {v, code, store}` → `200 DeckSyncReply = {v, store}` (merged). Errors: `DeckErrorReply = {v, error: DeckApiError, retryAfterMs?}`, `DeckApiError = 'no_decks' | 'wait' | 'bad_store' | 'too_big' | 'version'`, `DECK_API_ERRORS`, `DECK_API_STATUS = {no_decks: 404, wait: 429, bad_store: 400, too_big: 413, version: 400}`. `retryAfterMs` only with `wait`.
+- Codes: `DECK_CODE_LENGTH = 12`, `DECK_CODE_GROUP = 4`, `makeDeckCode(randomInt: (n: number) => number): string` (server), `isDeckCode(code: string): boolean` (normalised input), `formatDeckCode(code: string): string` (`KX4P-9MTR-QZ7D`), typed input via `normalizeCode` (now in `src/codes.ts`, still exported from the root with `CODE_ALPHABET`, `CODE_LENGTH`, `isGameCode`, `makeCode`).
+- Client: `parseDeckReply(status: number, body: unknown): DeckReply`, `DeckReply = {ok: true, store: DeckStore, code?: string} | {ok: false, error: DeckApiError | 'bad_reply', retryAfterMs?: number}` (a `wait` without a usable `retryAfterMs` → 60000). Never throws.
+- Server: `parseDeckRequest(kind: 'new' | 'sync', raw: string): DeckRequest`, `DeckRequest = {ok: true, code?: string, store: DeckStore} | {ok: false, error: DeckApiError}` — size → `too_big`, JSON/shape → `bad_store`, `v` → `version`, a malformed `sync` code (after `normalizeCode`) → `no_decks`, store via `checkDeckUpload`.
+- Device memory: `DECK_SYNC_STORAGE_KEY = 'overclock.deckSync.v1'`, `StoredDeckSync = {server: string, code?: string, rev: number, syncedRev: number, lockUntil?: number}` (`code` absent until the first `new` or a link).
+
+### Protocol v2 messages (`@overclock/protocol`)
+- `ProtocolVersion = typeof PROTOCOL_VERSION`; `PING`/`PONG` are built from the constant.
+- `DeckChoice = {identity: string, cards: Readonly<Record<string, number>>}`; `isDeckChoice(x: unknown)`: identity 1–64 chars, ≤ `MAX_DECK_CARD_ENTRIES` entries, ids 1–64 chars, counts whole 1…`MAX_STORED_COPIES`.
+- Client → server: `create {side, deck?: DeckChoice, test?}`; new `pick {deck?: DeckChoice}` (joiner, after `choose`; absent = standard). Until E4 the room answers `pick` with `error bad_message`.
+- Server → client: `lobby` gains `picking?: true`; new `choose {seat: Side}`; new `deck_refused {problems: readonly DeckProblem[]}` (parser: an array of ≤ 500 objects with a string `kind`).
+
 ## Sprint 13 interface (pinned: implement exactly this; changes go through the architect)
 
 Deck builder (plan: `docs/sprints/sprint-13-tech-plan.md`). **No rule or card change: `RULES_VERSION` stays 5.** `SAVE_FORMAT` 1 → 2 (E3). `PROTOCOL_VERSION` stays 1; online games and the room never take `decks`.

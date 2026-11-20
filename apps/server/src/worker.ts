@@ -3,13 +3,29 @@
  * - `GET /health` → `{ok, build, protocol}`
  * - WebSocket `GET /v1/create` → picks a free game code and hands the socket to that game's room
  * - WebSocket `GET /v1/games/<CODE>` → that game's room
- * Only browser pages from ALLOWED_ORIGINS may open sockets. No HTTP API (so no CORS).
+ * - Sprint 14: `POST /v1/decks/new`, `POST /v1/decks/sync` (+ CORS preflight) → decks.ts
+ * Only browser pages from ALLOWED_ORIGINS may open sockets or call the deck service.
  */
 import { CREATE_PATH, GAME_PATH_PREFIX, HEALTH_PATH, PROTOCOL_VERSION, encodeMsg, isGameCode, makeCode, normalizeCode, type Health } from '@overclock/protocol';
-import { GameRoom, type Env } from './do';
+import { testModeOn } from './config';
+import { handleDecks, isDeckPath, type DeckServices } from './decks';
+import { DeckLocker, GameRoom, GuessGuard, type Env } from './do';
 import { originAllowed } from './origin';
 
-export { GameRoom };
+export { DeckLocker, GameRoom, GuessGuard };
+
+function deckServices(env: Env): DeckServices {
+  return {
+    guard: (key) => {
+      const stub = env.GUESS_GUARD.get(env.GUESS_GUARD.idFromName(key));
+      return { attempt: () => stub.attempt(), right: () => stub.right(), newLocker: () => stub.newLocker() };
+    },
+    locker: (code) => {
+      const stub = env.DECK_LOCKER.get(env.DECK_LOCKER.idFromName(code));
+      return { create: (store) => stub.create(store), sync: (store) => stub.sync(store) };
+    },
+  };
+}
 
 /** How many codes `/v1/create` tries before giving up (a code in use is skipped). */
 const CREATE_TRIES = 5;
@@ -29,7 +45,7 @@ function refuseSocket(code: 'no_game'): Response {
   const pair = new WebSocketPair();
   const [client, server] = Object.values(pair) as [WebSocket, WebSocket];
   server.accept();
-  server.send(encodeMsg({ v: 1, t: 'error', code }));
+  server.send(encodeMsg({ v: PROTOCOL_VERSION, t: 'error', code }));
   server.close(4000, code);
   return new Response(null, { status: 101, webSocket: client });
 }
@@ -48,6 +64,9 @@ export default {
     if (url.pathname === HEALTH_PATH) {
       const body: Health = { ok: true, build: env.BUILD, protocol: PROTOCOL_VERSION };
       return Response.json(body, { headers: { 'Cache-Control': 'no-store' } });
+    }
+    if (isDeckPath(url.pathname)) {
+      return handleDecks(req, { allowedOrigins: env.ALLOWED_ORIGINS, testMode: testModeOn(env), randomInt }, deckServices(env));
     }
     const isCreate = url.pathname === CREATE_PATH;
     const isGame = url.pathname.startsWith(GAME_PATH_PREFIX);

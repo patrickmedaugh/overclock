@@ -4,7 +4,7 @@ import { apply, legalActions, newGame as engineNewGame, viewEvents, viewFor, wai
 import { describe, expect, it } from 'vitest';
 import { newGame, LocalMatch } from './legacy';
 import { LocalMatch as BaseMatch } from '../src/index';
-import { planBusyBoard, planToStep, runnerEventLeaks, runnerViewLeaks } from '../src/testing';
+import { corpEventLeaks, corpViewLeaks, hiddenRunnerIds, planBusyBoard, planToStep, runnerEventLeaks, runnerViewLeaks } from '../src/testing';
 
 
 describe('runnerViewLeaks / runnerEventLeaks', () => {
@@ -148,5 +148,45 @@ describe('Sprint 12: runnerViewLeaks / runnerEventLeaks know the new cards', () 
     const v = viewFor('runner', withScore);
     expect(runnerViewLeaks(withScore, v)).toEqual([]);
     expect(runnerViewLeaks(withScore, { ...v, choice: { ...v.choice!, looked: ['c01'] } }).length).toBeGreaterThan(0);
+  });
+});
+
+describe('Sprint 14: corpViewLeaks / corpEventLeaks (no hidden Runner card id reaches the Corp)', () => {
+  it('report nothing over random games, and the hidden set is really exercised', { timeout: 30_000 }, () => {
+    let named = 0;
+    for (let seed = 1; seed <= 20; seed++) {
+      let s = engineNewGame(seed, { rezWindow: seed % 2 ? 'always' : 'affordable' });
+      let x = seed;
+      for (let i = 0; i < 300 && s.phase !== 'over'; i++) {
+        const who = waitingOn(s)!;
+        const legal = legalActions(s, who);
+        x = (x * 1103515245 + 12345) >>> 0;
+        const r = apply(s, legal[x % legal.length]!);
+        s = r.state;
+        expect(corpViewLeaks(s)).toEqual([]);
+        expect(corpEventLeaks(viewEvents('corp', r.events), s)).toEqual([]);
+        // The Runner's own view does name its Grip: the check would catch it if sent to the Corp.
+        if (hiddenRunnerIds(s).size > 0 && s.players.runner.hand.some((id) => hiddenRunnerIds(s).has(id))) named++;
+      }
+    }
+    expect(named).toBeGreaterThan(100);
+  });
+
+  it('catch a planted Grip, a Runner view sent to the Corp and an unprojected draw', () => {
+    const plan = planBusyBoard(3);
+    const m = LocalMatch.restore(plan.seed, plan.actions);
+    const s = m.snapshot();
+    const v = m.view('corp');
+    expect(corpViewLeaks(s, v)).toEqual([]);
+    const grip = { ...v, players: { ...v.players, runner: { ...v.players.runner, hand: [...s.players.runner.hand] } } } as PlayerView;
+    expect(corpViewLeaks(s, grip).length).toBeGreaterThan(0);
+    expect(corpViewLeaks(s, viewFor('runner', s)).length).toBeGreaterThan(0);
+    const hidden = [...hiddenRunnerIds(s)][0]!;
+    expect(hidden).toBeDefined();
+    const deckList = { ...v, extra: { cards: { [hidden]: 3 } } } as unknown as PlayerView;
+    expect(corpViewLeaks(s, deckList)).toContain(`view names ${hidden}, held only in the Stack/Grip`);
+    const drawn: GameEvent = { type: 'card_drawn', player: 'runner', cardId: hidden };
+    expect(corpEventLeaks([drawn], s)).toHaveLength(1);
+    expect(corpEventLeaks(viewEvents('corp', [drawn]), s)).toEqual([]);
   });
 });

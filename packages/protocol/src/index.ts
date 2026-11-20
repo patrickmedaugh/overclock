@@ -1,15 +1,31 @@
 /**
  * Sprint 6: the online protocol between a phone (client) and the game server
- * (apps/server). Pure TypeScript, shared by both ends. Depends on engine *types*
- * only. See packages/engine/README.md "Sprint 6 interface".
+ * (apps/server). Pure TypeScript, shared by both ends. Depends on engine/cards *types*
+ * and `@overclock/match` (deck store format). See packages/engine/README.md "Sprint 6 interface"
+ * and "Sprint 14 interface".
  *
- * Every message is one JSON text frame `{ v: 1, t: <type>, ... }`. The parsers
+ * Every message is one JSON text frame `{ v: PROTOCOL_VERSION, t: <type>, ... }`. The parsers
  * check shapes only (never the rules: the server's engine does that), never
  * throw, and refuse oversized frames.
  */
+import type { DeckProblem } from '@overclock/cards';
 import type { Action, GameEvent, PlayerView, Side } from '@overclock/engine';
+import { MAX_DECK_CARD_ENTRIES, MAX_STORED_COPIES } from '@overclock/match';
+import { utf8Length } from './utf8';
 
-export const PROTOCOL_VERSION = 1;
+export { utf8Length } from './utf8';
+export { CODE_ALPHABET, CODE_LENGTH, isGameCode, makeCode, normalizeCode } from './codes';
+// Sprint 14: the online deck service (HTTP).
+export * from './decks';
+
+/**
+ * Sprint 14: the protocol is v2 (own decks online; DECISIONS 2026-11-20). Every message type uses
+ * `typeof PROTOCOL_VERSION`, so senders must write `v: PROTOCOL_VERSION`, never a literal. A frame
+ * with another `v` parses as `version` (the room answers `error version` and closes).
+ */
+export const PROTOCOL_VERSION = 2;
+/** The `v` every message carries. */
+export type ProtocolVersion = typeof PROTOCOL_VERSION;
 
 /** Largest client → server frame accepted (UTF-8 bytes). */
 export const MAX_CLIENT_MESSAGE_BYTES = 8 * 1024;
@@ -25,8 +41,8 @@ export function gamePath(code: string): string {
 }
 
 /** Ping / pong are exact strings so the server runtime can answer them without waking the game. */
-export const PING = '{"v":1,"t":"ping"}';
-export const PONG = '{"v":1,"t":"pong"}';
+export const PING = `{"v":${PROTOCOL_VERSION},"t":"ping"}`;
+export const PONG = `{"v":${PROTOCOL_VERSION},"t":"pong"}`;
 
 /** Where the client keeps its seat (`StoredSeat`, JSON). */
 export const STORAGE_KEY = 'overclock.online.v1';
@@ -70,17 +86,30 @@ export interface TestSetup {
   readonly deckSet?: 'core45' | 'core' | 'starter';
 }
 
+/**
+ * Sprint 14: a player's own deck for an online game, as copy counts (the stored-deck shape). The
+ * server deals it with `deckFromCounts` and checks it with `isPlayableDeck`. Absent = the standard deck.
+ * Parser: `identity` a non-empty string ≤ 64; ≤ MAX_DECK_CARD_ENTRIES entries; counts whole 1…MAX_STORED_COPIES.
+ */
+export interface DeckChoice {
+  readonly identity: string;
+  readonly cards: Readonly<Record<string, number>>;
+}
+
 // ---- client → server ----------------------------------------------------------
 
 export type ClientMsg =
-  /** On `/v1/create`: start a game; the starter takes `side`. */
-  | { readonly v: 1; readonly t: 'create'; readonly side: Side; readonly test?: TestSetup }
+  /**
+   * On `/v1/create`: start a game; the starter takes `side`. Sprint 14: `deck` = the host's own deck
+   * (absent = standard). An illegal deck → `deck_refused` and no game is made (socket stays open).
+   */
+  | { readonly v: ProtocolVersion; readonly t: 'create'; readonly side: Side; readonly deck?: DeckChoice; readonly test?: TestSetup }
   /** On `/v1/games/<CODE>`: claim the empty seat. */
-  | { readonly v: 1; readonly t: 'join' }
+  | { readonly v: ProtocolVersion; readonly t: 'join' }
   /** On `/v1/games/<CODE>`: take back a seat. `since` = last `seq` seen (0 if none). */
-  | { readonly v: 1; readonly t: 'resume'; readonly token: string; readonly since: number }
+  | { readonly v: ProtocolVersion; readonly t: 'resume'; readonly token: string; readonly since: number }
   /** Submit a move. `id` is the client's own counter, echoed back as `ack`. */
-  | { readonly v: 1; readonly t: 'act'; readonly id: number; readonly action: Action }
+  | { readonly v: ProtocolVersion; readonly t: 'act'; readonly id: number; readonly action: Action }
   /**
    * Sprint 7: the seat gives up a lobby nobody joined: the room closes (sockets closed, storage
    * deleted; the code then answers `no_game`).
@@ -88,29 +117,38 @@ export type ClientMsg =
    * continues it), this socket is closed normally (code 1000, reason `'left'`), and the other seat
    * gets `presence {opponent: 'away', left: true}`.
    */
-  | { readonly v: 1; readonly t: 'leave' }
-  | { readonly v: 1; readonly t: 'ping' };
+  | { readonly v: ProtocolVersion; readonly t: 'leave' }
+  /**
+   * Sprint 14: the joiner's deck, sent after `choose` (absent = standard). Legal → the game is dealt
+   * and both seats get `sync`; illegal → `deck_refused` (pick again).
+   */
+  | { readonly v: ProtocolVersion; readonly t: 'pick'; readonly deck?: DeckChoice }
+  | { readonly v: ProtocolVersion; readonly t: 'ping' };
 
 // ---- server → client ----------------------------------------------------------
 
 export type ServerMsg =
   /** After create/join: the client stores `{server, code, seat, token}`. */
-  | { readonly v: 1; readonly t: 'seated'; readonly code: string; readonly seat: Side; readonly token: string }
-  /** Waiting for the other player to join. */
-  | { readonly v: 1; readonly t: 'lobby'; readonly code: string; readonly seat: Side }
+  | { readonly v: ProtocolVersion; readonly t: 'seated'; readonly code: string; readonly seat: Side; readonly token: string }
+  /** Waiting for the other player to join. Sprint 14: `picking: true` = the friend has joined and is picking a deck. */
+  | { readonly v: ProtocolVersion; readonly t: 'lobby'; readonly code: string; readonly seat: Side; readonly picking?: true }
+  /** Sprint 14: to the joiner after `seated` (and on resume before the deal): pick a deck for `seat`, then send `pick`. */
+  | { readonly v: ProtocolVersion; readonly t: 'choose'; readonly seat: Side }
+  /** Sprint 14: only to the sender of an illegal `create`/`pick` deck; `problems` = `checkDeck`'s (or the wrong side's identity). */
+  | { readonly v: ProtocolVersion; readonly t: 'deck_refused'; readonly problems: readonly DeckProblem[] }
   /**
    * Full state, no animation (game start, resume, after a gap). Sprint 11: `left: true` when the
    * opponent is away because they chose Leave for now (optional: older builds ignore it).
    */
-  | { readonly v: 1; readonly t: 'sync'; readonly seq: number; readonly view: PlayerView; readonly opponent: Presence; readonly left?: true }
+  | { readonly v: ProtocolVersion; readonly t: 'sync'; readonly seq: number; readonly view: PlayerView; readonly opponent: Presence; readonly left?: true }
   /** One accepted action. `ack` only to the seat that submitted it. */
-  | { readonly v: 1; readonly t: 'update'; readonly seq: number; readonly view: PlayerView; readonly events: GameEvent[]; readonly ack?: number }
+  | { readonly v: ProtocolVersion; readonly t: 'update'; readonly seq: number; readonly view: PlayerView; readonly events: GameEvent[]; readonly ack?: number }
   /** The submitter's action was refused; `seq` unchanged. */
-  | { readonly v: 1; readonly t: 'rejected'; readonly ack: number; readonly view: PlayerView; readonly events: GameEvent[] }
+  | { readonly v: ProtocolVersion; readonly t: 'rejected'; readonly ack: number; readonly view: PlayerView; readonly events: GameEvent[] }
   /** Sprint 11: `left: true` (only with `opponent: 'away'`) = the opponent chose Leave for now; the game is saved. */
-  | { readonly v: 1; readonly t: 'presence'; readonly opponent: Presence; readonly left?: true }
-  | { readonly v: 1; readonly t: 'error'; readonly code: ErrorCode }
-  | { readonly v: 1; readonly t: 'pong' };
+  | { readonly v: ProtocolVersion; readonly t: 'presence'; readonly opponent: Presence; readonly left?: true }
+  | { readonly v: ProtocolVersion; readonly t: 'error'; readonly code: ErrorCode }
+  | { readonly v: ProtocolVersion; readonly t: 'pong' };
 
 export type ClientMsgType = ClientMsg['t'];
 export type ServerMsgType = ServerMsg['t'];
@@ -133,21 +171,6 @@ const isAction = (x: unknown): x is Action => isObj(x) && typeof x.type === 'str
 /** A view or event is checked by the server's engine; the client only needs an object. */
 const isView = (x: unknown): x is PlayerView => isObj(x) && isSide(x.viewer);
 const isEvents = (x: unknown): x is GameEvent[] => Array.isArray(x) && x.every((e) => isObj(e) && typeof e.type === 'string');
-
-/** UTF-8 length of `s` without TextEncoder (not in every runtime's type set). */
-export function utf8Length(s: string): number {
-  let n = 0;
-  for (let i = 0; i < s.length; i++) {
-    const c = s.charCodeAt(i);
-    if (c < 0x80) n += 1;
-    else if (c < 0x800) n += 2;
-    else if (c >= 0xd800 && c <= 0xdbff && i + 1 < s.length) {
-      n += 4;
-      i++;
-    } else n += 3;
-  }
-  return n;
-}
 
 function decode(raw: unknown, maxBytes: number): Obj | 'bad_message' | 'version' {
   if (typeof raw !== 'string' || raw.length > maxBytes || utf8Length(raw) > maxBytes) return 'bad_message';
@@ -178,8 +201,22 @@ function isTestSetup(x: unknown): x is TestSetup {
   );
 }
 
+/** Sprint 14: a `DeckChoice` (shape only; the server's `isPlayableDeck` checks the rules). */
+export function isDeckChoice(x: unknown): x is DeckChoice {
+  if (!isObj(x) || typeof x.identity !== 'string' || x.identity.length === 0 || x.identity.length > 64 || !isObj(x.cards)) return false;
+  const entries = Object.entries(x.cards);
+  return (
+    entries.length <= MAX_DECK_CARD_ENTRIES &&
+    entries.every(([id, n]) => id.length > 0 && id.length <= 64 && typeof n === 'number' && Number.isInteger(n) && n >= 1 && n <= MAX_STORED_COPIES)
+  );
+}
+const deckOk = (d: Obj): boolean => d.deck === undefined || isDeckChoice(d.deck);
+/** `deck_refused.problems`: objects with a string `kind` (the client words them with `deckText`). */
+const isProblems = (x: unknown): boolean => Array.isArray(x) && x.length <= 500 && x.every((p) => isObj(p) && typeof p.kind === 'string');
+
 const CLIENT_CHECKS: Record<ClientMsgType, (d: Obj) => boolean> = {
-  create: (d) => isSide(d.side) && (d.test === undefined || isTestSetup(d.test)),
+  create: (d) => isSide(d.side) && deckOk(d) && (d.test === undefined || isTestSetup(d.test)),
+  pick: deckOk,
   join: () => true,
   resume: (d) => typeof d.token === 'string' && d.token.length > 0 && d.token.length <= 64 && isUint(d.since),
   act: (d) => isUint(d.id) && isAction(d.action),
@@ -189,7 +226,9 @@ const CLIENT_CHECKS: Record<ClientMsgType, (d: Obj) => boolean> = {
 
 const SERVER_CHECKS: Record<ServerMsgType, (d: Obj) => boolean> = {
   seated: (d) => typeof d.code === 'string' && isSide(d.seat) && typeof d.token === 'string',
-  lobby: (d) => typeof d.code === 'string' && isSide(d.seat),
+  lobby: (d) => typeof d.code === 'string' && isSide(d.seat) && (d.picking === undefined || d.picking === true),
+  choose: (d) => isSide(d.seat),
+  deck_refused: (d) => isProblems(d.problems),
   sync: (d) => isUint(d.seq) && isView(d.view) && isPresence(d.opponent) && leftOk(d),
   update: (d) => isUint(d.seq) && isView(d.view) && isEvents(d.events) && (d.ack === undefined || isUint(d.ack)),
   rejected: (d) => isUint(d.ack) && isView(d.view) && isEvents(d.events),
@@ -215,30 +254,3 @@ export function encodeMsg(msg: ClientMsg | ServerMsg): string {
   return JSON.stringify(msg);
 }
 
-// ---- game codes -----------------------------------------------------------------
-
-/** No 0/O, 1/I/L: easy to read out loud and type. */
-export const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
-export const CODE_LENGTH = 4;
-
-/** Upper-cases and drops spaces and dashes: `' k7-qf '` → `'K7QF'`. Does not validate. */
-export function normalizeCode(input: string): string {
-  return input.toUpperCase().replace(/[\s-]+/g, '');
-}
-
-/** Exactly CODE_LENGTH characters from CODE_ALPHABET (already normalised). */
-export function isGameCode(code: string): boolean {
-  if (code.length !== CODE_LENGTH) return false;
-  for (const ch of code) if (!CODE_ALPHABET.includes(ch)) return false;
-  return true;
-}
-
-/**
- * A random code. `randomInt(n)` must return a uniform integer in [0, n) from a
- * real random source (the server passes `crypto`); the protocol stays pure.
- */
-export function makeCode(randomInt: (n: number) => number): string {
-  let code = '';
-  for (let i = 0; i < CODE_LENGTH; i++) code += CODE_ALPHABET[randomInt(CODE_ALPHABET.length)];
-  return code;
-}

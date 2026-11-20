@@ -24,6 +24,7 @@ function seatedGame(h: Harness, hostSide: Side, test?: object) {
   const guest = new FakeConn('guest');
   h.room.connect(guest, { kind: 'player' });
   h.room.message(guest, msg({ t: 'join' }));
+  h.room.message(guest, msg({ t: 'pick' }));
   return (hostSide === 'corp' ? { corp: host, runner: guest } : { corp: guest, runner: host }) as Record<Side, FakeConn>;
 }
 

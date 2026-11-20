@@ -554,7 +554,7 @@ export interface OverclockTestHook {
   online(): {
     code: string | null;
     seat: Side;
-    phase: 'connecting' | 'lobby' | 'playing' | 'failed';
+    phase: 'connecting' | 'lobby' | 'playing' | 'failed' | 'choose' | 'refused';
     connection: 'local' | 'connecting' | 'open' | 'reconnecting' | 'closed';
     opponent: 'none' | 'here' | 'away';
     /** Sprint 11: the other player chose Leave for now (only while they are away). */
@@ -628,7 +628,16 @@ declare global {
       back(): 'close_dialog' | 'close_zoom' | 'close_panel' | 'exit' | 'ask_leave';
       exitRequests(): number;
       /** Starts an online game as `side`; `test` (seed + prelude) only works against a service in test mode. */
-      startOnline(side: Side, test?: { seed: number; actions: Action[]; deckSet?: 'core45' | 'core' | 'starter' }): void;
+      startOnline(
+        side: Side,
+        test?: { seed: number; actions: Action[]; deckSet?: 'core45' | 'core' | 'starter' },
+        /** Sprint 14: the starter's own deck (copy counts), sent with `create`. */
+        deck?: { identity: string; cards: Record<string, number> },
+      ): void;
+      /** Sprint 14: the deck sync's state on this device. */
+      deckSync(): { status: 'none' | 'saving' | 'pending' | 'saved'; code: string | null; rev: number; syncedRev: number };
+      /** Sprint 14: sync the decks now (resolves when the answer is merged in, or the try failed). */
+      syncNow(): Promise<void>;
     };
   }
 }

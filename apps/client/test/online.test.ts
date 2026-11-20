@@ -1,7 +1,7 @@
 // U3: OnlineMatch against a fake WebSocket and a fake clock (no server).
 import { type Action, type PlayerView, RULES_VERSION } from '@overclock/engine';
 import { LocalMatch } from '@overclock/match';
-import { PING, PONG, STORAGE_KEY, type ServerMsg, encodeMsg } from '@overclock/protocol';
+import { PING, PONG, PROTOCOL_VERSION, STORAGE_KEY, type ServerMsg, encodeMsg } from '@overclock/protocol';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { ONLINE_TIMING, type OnlineDeps, OnlineMatch, type OnlinePhase, type SocketLike, readStoredSeat, seatOutdated } from '../src/online';
 import type { Presentation } from '../src/session';
@@ -126,8 +126,8 @@ function joined(): { m: OnlineMatch; presented: Presentation[]; phases: OnlinePh
   m.onPresent((p) => presented.push(p));
   m.onPhase((p) => phases.push(p));
   last().serverOpen();
-  last().serverSend({ v: 1, t: 'seated', code: 'K7QF', seat: 'runner', token: 'tok' });
-  last().serverSend({ v: 1, t: 'sync', seq: 0, view: runnerView, opponent: 'here' });
+  last().serverSend({ v: PROTOCOL_VERSION, t: 'seated', code: 'K7QF', seat: 'runner', token: 'tok' });
+  last().serverSend({ v: PROTOCOL_VERSION, t: 'sync', seq: 0, view: runnerView, opponent: 'here' });
   return { m, presented, phases };
 }
 
@@ -138,14 +138,14 @@ describe('OnlineMatch: start a game', () => {
     m.onPhase((p) => phases.push(p));
     expect(last().url).toBe(`${SERVER}/v1/create`);
     last().serverOpen();
-    expect(last().msgs()).toEqual([{ v: 1, t: 'create', side: 'corp' }]);
-    last().serverSend({ v: 1, t: 'seated', code: 'K7QF', seat: 'corp', token: 'tok' });
-    last().serverSend({ v: 1, t: 'lobby', code: 'K7QF', seat: 'corp' });
+    expect(last().msgs()).toEqual([{ v: PROTOCOL_VERSION, t: 'create', side: 'corp' }]);
+    last().serverSend({ v: PROTOCOL_VERSION, t: 'seated', code: 'K7QF', seat: 'corp', token: 'tok' });
+    last().serverSend({ v: PROTOCOL_VERSION, t: 'lobby', code: 'K7QF', seat: 'corp' });
     expect(phases).toEqual([{ kind: 'lobby', code: 'K7QF', seat: 'corp' }]);
     expect(m.gameCode).toBe('K7QF');
     // Sprint 11: with the rules version and when it was stored.
     expect(JSON.parse(store.getItem(STORAGE_KEY)!)).toEqual({ server: SERVER, code: 'K7QF', seat: 'corp', token: 'tok', rulesVersion: RULES_VERSION, savedAt: 1_000 });
-    last().serverSend({ v: 1, t: 'sync', seq: 0, view: corpView, opponent: 'here' });
+    last().serverSend({ v: PROTOCOL_VERSION, t: 'sync', seq: 0, view: corpView, opponent: 'here' });
     expect(phases.at(-1)).toEqual({ kind: 'playing' });
     expect(m.seat).toBe('corp');
     expect(m.view()).toEqual(corpView);
@@ -155,10 +155,10 @@ describe('OnlineMatch: start a game', () => {
   it('QA-S6-1: giving up a lobby nobody joined sends leave before closing, and forgets the seat', () => {
     const m = OnlineMatch.create(deps(), 'corp');
     last().serverOpen();
-    last().serverSend({ v: 1, t: 'seated', code: 'K7QF', seat: 'corp', token: 'tok' });
-    last().serverSend({ v: 1, t: 'lobby', code: 'K7QF', seat: 'corp' });
+    last().serverSend({ v: PROTOCOL_VERSION, t: 'seated', code: 'K7QF', seat: 'corp', token: 'tok' });
+    last().serverSend({ v: PROTOCOL_VERSION, t: 'lobby', code: 'K7QF', seat: 'corp' });
     m.forget();
-    expect(last().msgs().at(-1)).toEqual({ v: 1, t: 'leave' });
+    expect(last().msgs().at(-1)).toEqual({ v: PROTOCOL_VERSION, t: 'leave' });
     expect(last().closed).not.toBeNull();
     expect(store.getItem(STORAGE_KEY)).toBeNull();
   });
@@ -172,13 +172,13 @@ describe('OnlineMatch: start a game', () => {
   it('create passes a test setup through', () => {
     OnlineMatch.create(deps(), 'runner', { seed: 5, actions: [] });
     last().serverOpen();
-    expect(last().msgs()).toEqual([{ v: 1, t: 'create', side: 'runner', test: { seed: 5, actions: [] } }]);
+    expect(last().msgs()).toEqual([{ v: PROTOCOL_VERSION, t: 'create', side: 'runner', test: { seed: 5, actions: [] } }]);
   });
 
   it('join: opens the game path and sends join; seated then sync starts the game', () => {
     const { m, phases } = joined();
     expect(sockets[0]!.url).toBe(`${SERVER}/v1/games/K7QF`);
-    expect(sockets[0]!.msgs()).toEqual([{ v: 1, t: 'join' }]);
+    expect(sockets[0]!.msgs()).toEqual([{ v: PROTOCOL_VERSION, t: 'join' }]);
     expect(phases).toEqual([{ kind: 'playing' }]);
     expect(m.seat).toBe('runner');
   });
@@ -188,7 +188,7 @@ describe('OnlineMatch: start a game', () => {
     const phases: OnlinePhase[] = [];
     m.onPhase((p) => phases.push(p));
     last().serverOpen();
-    last().serverSend({ v: 1, t: 'error', code: 'no_game' });
+    last().serverSend({ v: PROTOCOL_VERSION, t: 'error', code: 'no_game' });
     expect(phases).toEqual([{ kind: 'failed', reason: 'no_game' }]);
     expect(store.getItem(STORAGE_KEY)).toBeNull();
     expect(last().closed).not.toBeNull();
@@ -200,7 +200,7 @@ describe('OnlineMatch: start a game', () => {
   it('a full game fails with full', () => {
     const m = OnlineMatch.join(deps(), 'K7QF');
     last().serverOpen();
-    last().serverSend({ v: 1, t: 'error', code: 'full' });
+    last().serverSend({ v: PROTOCOL_VERSION, t: 'error', code: 'full' });
     expect(m.phase).toEqual({ kind: 'failed', reason: 'full' });
   });
 
@@ -215,7 +215,7 @@ describe('OnlineMatch: start a game', () => {
   it('a message from another protocol version fails with version', () => {
     const m = OnlineMatch.join(deps(), 'K7QF');
     last().serverOpen();
-    last().serverSend('{"v":2,"t":"sync"}');
+    last().serverSend('{"v":1,"t":"sync"}');
     expect(m.phase).toEqual({ kind: 'failed', reason: 'version' });
   });
 
@@ -236,10 +236,10 @@ describe('OnlineMatch: playing', () => {
     const { m, presented } = joined();
     m.submit(draw);
     m.submit(draw);
-    expect(last().msgs().filter((x) => (x as { t?: string }).t === 'act')).toEqual([{ v: 1, t: 'act', id: 1, action: draw }]);
+    expect(last().msgs().filter((x) => (x as { t?: string }).t === 'act')).toEqual([{ v: PROTOCOL_VERSION, t: 'act', id: 1, action: draw }]);
     expect(m.busy).toBe(true);
     const events = [{ type: 'card_drawn', player: 'runner' }] as never;
-    last().serverSend({ v: 1, t: 'update', seq: 1, view: runnerView, events, ack: 1 });
+    last().serverSend({ v: PROTOCOL_VERSION, t: 'update', seq: 1, view: runnerView, events, ack: 1 });
     expect(m.busy).toBe(false);
     expect(m.lastEvents()).toEqual(events);
     expect(presented.at(-1)).toEqual({ kind: 'same', view: runnerView, events, decision: null });
@@ -249,7 +249,7 @@ describe('OnlineMatch: playing', () => {
 
   it("the other player's move arrives as an update without ack and animates", () => {
     const { m, presented } = joined();
-    last().serverSend({ v: 1, t: 'update', seq: 1, view: runnerView, events: [{ type: 'credit_gained', player: 'corp', amount: 1 }] as never });
+    last().serverSend({ v: PROTOCOL_VERSION, t: 'update', seq: 1, view: runnerView, events: [{ type: 'credit_gained', player: 'corp', amount: 1 }] as never });
     expect(presented).toHaveLength(1);
     expect(m.lastEvents()).toEqual([]);
   });
@@ -258,18 +258,18 @@ describe('OnlineMatch: playing', () => {
     const { m, presented } = joined();
     m.submit(draw);
     const ev = [{ type: 'action_rejected', reason: 'not_your_turn' }] as never;
-    last().serverSend({ v: 1, t: 'rejected', ack: 1, view: runnerView, events: ev });
+    last().serverSend({ v: PROTOCOL_VERSION, t: 'rejected', ack: 1, view: runnerView, events: ev });
     expect(m.busy).toBe(false);
     expect(presented.at(-1)).toEqual({ kind: 'same', view: runnerView, events: ev, decision: null });
   });
 
   it('a gap in seq asks for a resync (resume since the last seq) and drops updates until the sync', () => {
     const { presented } = joined();
-    last().serverSend({ v: 1, t: 'update', seq: 2, view: runnerView, events: [] });
-    expect(last().msgs().at(-1)).toEqual({ v: 1, t: 'resume', token: 'tok', since: 0 });
-    last().serverSend({ v: 1, t: 'update', seq: 3, view: runnerView, events: [] });
+    last().serverSend({ v: PROTOCOL_VERSION, t: 'update', seq: 2, view: runnerView, events: [] });
+    expect(last().msgs().at(-1)).toEqual({ v: PROTOCOL_VERSION, t: 'resume', token: 'tok', since: 0 });
+    last().serverSend({ v: PROTOCOL_VERSION, t: 'update', seq: 3, view: runnerView, events: [] });
     expect(presented).toHaveLength(0);
-    last().serverSend({ v: 1, t: 'sync', seq: 3, view: runnerView, opponent: 'here' });
+    last().serverSend({ v: PROTOCOL_VERSION, t: 'sync', seq: 3, view: runnerView, opponent: 'here' });
     expect(presented).toEqual([{ kind: 'same', view: runnerView, events: [], decision: null }]);
   });
 
@@ -277,7 +277,7 @@ describe('OnlineMatch: playing', () => {
     const { m } = joined();
     const seen: string[] = [];
     m.onStatus((s) => seen.push(s.opponent));
-    last().serverSend({ v: 1, t: 'presence', opponent: 'away' });
+    last().serverSend({ v: PROTOCOL_VERSION, t: 'presence', opponent: 'away' });
     expect(m.status().opponent).toBe('away');
     expect(seen).toEqual(['away']);
   });
@@ -289,13 +289,13 @@ describe('OnlineMatch: playing', () => {
     expect(sockets).toHaveLength(2);
     expect(m.busy).toBe(false);
     last().serverOpen();
-    expect(last().msgs()).toEqual([{ v: 1, t: 'resume', token: 'tok', since: 0 }]);
+    expect(last().msgs()).toEqual([{ v: PROTOCOL_VERSION, t: 'resume', token: 'tok', since: 0 }]);
   });
 
   it('a finished game is forgotten (no Rejoin)', () => {
     joined();
     expect(store.getItem(STORAGE_KEY)).not.toBeNull();
-    last().serverSend({ v: 1, t: 'update', seq: 1, view: { ...runnerView, result: { winner: 'runner', reason: 'agenda_points' } } as PlayerView, events: [] });
+    last().serverSend({ v: PROTOCOL_VERSION, t: 'update', seq: 1, view: { ...runnerView, result: { winner: 'runner', reason: 'agenda_points' } } as PlayerView, events: [] });
     expect(store.getItem(STORAGE_KEY)).toBeNull();
   });
 });
@@ -303,7 +303,7 @@ describe('OnlineMatch: playing', () => {
 describe('OnlineMatch: coming back', () => {
   it('a dropped socket reconnects with backoff 0.5, 1, 2, 4, 8, 10 s and resumes since the last seq', () => {
     const { m } = joined();
-    last().serverSend({ v: 1, t: 'update', seq: 1, view: runnerView, events: [] });
+    last().serverSend({ v: PROTOCOL_VERSION, t: 'update', seq: 1, view: runnerView, events: [] });
     const delays: number[] = [];
     for (let i = 0; i < 7; i++) {
       const n = sockets.length;
@@ -316,8 +316,8 @@ describe('OnlineMatch: coming back', () => {
     // random() = 0.5 -> no jitter.
     expect(delays).toEqual([500, 1000, 2000, 4000, 8000, 8000, 8000].map((d) => Math.ceil(Math.min(d, 10_000) / 50) * 50));
     last().serverOpen();
-    expect(last().msgs()).toEqual([{ v: 1, t: 'resume', token: 'tok', since: 1 }]);
-    last().serverSend({ v: 1, t: 'sync', seq: 1, view: runnerView, opponent: 'here' });
+    expect(last().msgs()).toEqual([{ v: PROTOCOL_VERSION, t: 'resume', token: 'tok', since: 1 }]);
+    last().serverSend({ v: PROTOCOL_VERSION, t: 'sync', seq: 1, view: runnerView, opponent: 'here' });
     expect(m.status().connection).toBe('open');
   });
 
@@ -355,8 +355,8 @@ describe('OnlineMatch: coming back', () => {
     const m = OnlineMatch.resume(deps(), { server: SERVER, code: 'K7QF', seat: 'corp', token: 'tok' });
     expect(last().url).toBe(`${SERVER}/v1/games/K7QF`);
     last().serverOpen();
-    expect(last().msgs()).toEqual([{ v: 1, t: 'resume', token: 'tok', since: 0 }]);
-    last().serverSend({ v: 1, t: 'sync', seq: 4, view: corpView, opponent: 'away' });
+    expect(last().msgs()).toEqual([{ v: PROTOCOL_VERSION, t: 'resume', token: 'tok', since: 0 }]);
+    last().serverSend({ v: PROTOCOL_VERSION, t: 'sync', seq: 4, view: corpView, opponent: 'away' });
     expect(m.phase).toEqual({ kind: 'playing' });
     expect(m.status()).toEqual({ connection: 'open', opponent: 'away' });
   });
@@ -365,7 +365,7 @@ describe('OnlineMatch: coming back', () => {
     store.setItem(STORAGE_KEY, JSON.stringify({ server: SERVER, code: 'K7QF', seat: 'corp', token: 'tok' }));
     const m = OnlineMatch.resume(deps(), { server: SERVER, code: 'K7QF', seat: 'corp', token: 'tok' });
     last().serverOpen();
-    last().serverSend({ v: 1, t: 'error', code: 'expired' });
+    last().serverSend({ v: PROTOCOL_VERSION, t: 'error', code: 'expired' });
     expect(m.phase).toEqual({ kind: 'failed', reason: 'expired' });
     expect(store.getItem(STORAGE_KEY)).toBeNull();
   });
@@ -391,7 +391,7 @@ describe('Sprint 11: Leave for now', () => {
       done = true;
     });
     const s = sockets[0]!;
-    expect(s.msgs().at(-1)).toEqual({ v: 1, t: 'leave' });
+    expect(s.msgs().at(-1)).toEqual({ v: PROTOCOL_VERSION, t: 'leave' });
     // Not closed by us yet: the service closes it after reading leave.
     expect(s.closed).toBeNull();
     s.serverClose(1000);
@@ -428,7 +428,7 @@ describe('Sprint 11: Leave for now', () => {
 
   it('leave() of a finished game does not store it again (no Continue for it)', () => {
     const { m } = joined();
-    last().serverSend({ v: 1, t: 'update', seq: 1, view: { ...runnerView, result: { winner: 'runner', reason: 'agenda_points' } } as PlayerView, events: [] });
+    last().serverSend({ v: PROTOCOL_VERSION, t: 'update', seq: 1, view: { ...runnerView, result: { winner: 'runner', reason: 'agenda_points' } } as PlayerView, events: [] });
     expect(store.getItem(STORAGE_KEY)).toBeNull();
     void m.leave();
     expect(store.getItem(STORAGE_KEY)).toBeNull();
@@ -438,12 +438,12 @@ describe('Sprint 11: Leave for now', () => {
     const { m } = joined();
     const seen: unknown[] = [];
     m.onStatus((s) => seen.push(s));
-    last().serverSend({ v: 1, t: 'presence', opponent: 'away', left: true });
+    last().serverSend({ v: PROTOCOL_VERSION, t: 'presence', opponent: 'away', left: true });
     expect(m.status()).toEqual({ connection: 'open', opponent: 'away', left: true });
-    last().serverSend({ v: 1, t: 'presence', opponent: 'here' });
+    last().serverSend({ v: PROTOCOL_VERSION, t: 'presence', opponent: 'here' });
     expect(m.status()).toEqual({ connection: 'open', opponent: 'here' });
     // Away without leaving (signal lost) is not "left".
-    last().serverSend({ v: 1, t: 'presence', opponent: 'away' });
+    last().serverSend({ v: PROTOCOL_VERSION, t: 'presence', opponent: 'away' });
     expect(m.status()).toEqual({ connection: 'open', opponent: 'away' });
     expect(seen).toHaveLength(3);
   });
@@ -451,15 +451,15 @@ describe('Sprint 11: Leave for now', () => {
   it('a sync while the other player is left carries it', () => {
     const m = OnlineMatch.resume(deps(), { server: SERVER, code: 'K7QF', seat: 'corp', token: 'tok' });
     last().serverOpen();
-    last().serverSend({ v: 1, t: 'sync', seq: 4, view: corpView, opponent: 'away', left: true });
+    last().serverSend({ v: PROTOCOL_VERSION, t: 'sync', seq: 4, view: corpView, opponent: 'away', left: true });
     expect(m.status()).toEqual({ connection: 'open', opponent: 'away', left: true });
   });
 
   it('a lobby given up still sends leave and forgets (unchanged); before playing, leave() sends nothing', () => {
     const m = OnlineMatch.create(deps(), 'corp');
     last().serverOpen();
-    last().serverSend({ v: 1, t: 'seated', code: 'K7QF', seat: 'corp', token: 'tok' });
-    last().serverSend({ v: 1, t: 'lobby', code: 'K7QF', seat: 'corp' });
+    last().serverSend({ v: PROTOCOL_VERSION, t: 'seated', code: 'K7QF', seat: 'corp', token: 'tok' });
+    last().serverSend({ v: PROTOCOL_VERSION, t: 'lobby', code: 'K7QF', seat: 'corp' });
     void m.leave();
     expect(last().msgs().some((x) => (x as { t?: string }).t === 'leave')).toBe(false);
   });

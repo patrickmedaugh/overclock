@@ -38,6 +38,7 @@ function started(h: Harness, test?: { seed: number; actions: Action[] }) {
   h.room.message(host, msg({ t: 'create', side: 'corp', ...(test ? { test } : {}) }));
   const guest = player(h.room);
   h.room.message(guest, msg({ t: 'join' }));
+  h.room.message(guest, msg({ t: 'pick' }));
   const out = { host, guest, hostToken: tokenOf(host), guestToken: tokenOf(guest) };
   host.take();
   guest.take();
@@ -62,7 +63,7 @@ describe('Sprint 11: Leave for now', () => {
     const { h, host, guest } = runnerLeft();
     expect(guest.closed).toEqual({ code: CLOSE_NORMAL, reason: 'left' });
     expect(guest.take()).toEqual([]);
-    expect(host.take()).toEqual([{ v: 1, t: 'presence', opponent: 'away', left: true }]);
+    expect(host.take()).toEqual([{ v: 2, t: 'presence', opponent: 'away', left: true }]);
     expect(host.closed).toBeNull();
     expect(meta(h).left).toEqual({ runner: true });
     expect(meta(h).lastActive).toBe(h.clock.t);
@@ -92,7 +93,7 @@ describe('Sprint 11: Leave for now', () => {
     expect(sync).toMatchObject({ t: 'sync', seq: 1, opponent: 'here' });
     expect(sync).not.toHaveProperty('left');
     expect(sync?.t === 'sync' && sync.view.viewer).toBe('runner');
-    expect(host.take()).toEqual([{ v: 1, t: 'presence', opponent: 'here' }]);
+    expect(host.take()).toEqual([{ v: 2, t: 'presence', opponent: 'here' }]);
     expect(meta(h).left).toEqual({});
   });
 
@@ -107,7 +108,7 @@ describe('Sprint 11: Leave for now', () => {
     const h2 = harness();
     const p = started(h2);
     h2.room.disconnect(p.host);
-    expect(p.guest.take()).toEqual([{ v: 1, t: 'presence', opponent: 'away' }]);
+    expect(p.guest.take()).toEqual([{ v: 2, t: 'presence', opponent: 'away' }]);
     const g2 = player(h2.room, 'guest2');
     h2.room.message(g2, msg({ t: 'resume', token: p.guestToken, since: 0 }));
     const [sync] = g2.take();
@@ -146,7 +147,7 @@ describe('Sprint 11: Leave for now', () => {
     h.room.message(host, msg({ t: 'create', side: 'runner' }));
     const stranger = player(h.room, 'stranger');
     h.room.message(stranger, msg({ t: 'leave' }));
-    expect(stranger.last()).toEqual({ v: 1, t: 'error', code: 'bad_message' });
+    expect(stranger.last()).toEqual({ v: 2, t: 'error', code: 'bad_message' });
     h.room.message(host, msg({ t: 'leave' }));
     expect(host.closed).toEqual({ code: CLOSE_NORMAL, reason: 'left' });
     expect(h.store.data.size).toBe(0);
@@ -170,11 +171,11 @@ describe('Sprint 11: the 7-day limit (owner Q2 A)', () => {
     expect(host.closed).toBeNull();
     h.clock.t = leftAt + 7 * DAY;
     h.room.alarm();
-    expect(host.last()).toEqual({ v: 1, t: 'error', code: 'expired' });
+    expect(host.last()).toEqual({ v: 2, t: 'error', code: 'expired' });
     expect(h.store.data.size).toBe(0);
     const late = player(h.room, 'late');
     h.room.message(late, msg({ t: 'resume', token: guestToken, since: 1 }));
-    expect(late.take()).toEqual([{ v: 1, t: 'error', code: 'no_game' }]);
+    expect(late.take()).toEqual([{ v: 2, t: 'error', code: 'no_game' }]);
   });
 
   it('the leave itself restarts the clock (7 days from the leave, not from the last move)', () => {
@@ -216,7 +217,7 @@ describe('Sprint 11: meta.left survives a wake', () => {
       const back = player(woke, 'back');
       woke.message(back, msg({ t: 'resume', token: guestToken, since: 1 }));
       expect(back.take()[0]).toMatchObject({ t: 'sync', seq: 1, opponent: 'here' });
-      expect(host.take()).toEqual([{ v: 1, t: 'presence', opponent: 'here' }]);
+      expect(host.take()).toEqual([{ v: 2, t: 'presence', opponent: 'here' }]);
       expect(h.store.get<RoomMeta>('meta')!.left).toEqual({});
     });
   }

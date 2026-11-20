@@ -7,7 +7,7 @@ import { planToStep, runnerEventLeaks, runnerViewLeaks, type StepGoal } from '@o
 import type { ServerMsg } from '@overclock/protocol';
 import { describe, expect, it } from 'vitest';
 import { ONLINE_OPTIONS, type RoomMeta } from '../src/room';
-import { FakeConn, harness, msg } from './fakes';
+import { FakeConn, dealGuest, harness, msg } from './fakes';
 
 const SEEDS = [1, 7, 42];
 
@@ -21,6 +21,7 @@ function onlineGame(seed: number, goal: StepGoal) {
   h.room.message(conns.corp, msg({ t: 'create', side: 'corp', test: { seed, actions: plan.actions, deckSet: plan.deckSet } }));
   h.room.connect(conns.runner, { kind: 'player' });
   h.room.message(conns.runner, msg({ t: 'join' }));
+  h.room.message(conns.runner, msg({ t: 'pick' }));
   expect(h.room.seq()).toBe(plan.actions.length);
   expect(h.store.get<RoomMeta>('meta')!.options).toEqual({ ...ONLINE_OPTIONS, deckSet: 'core' });
   let id = 0;
@@ -143,6 +144,7 @@ describe('Sprint 8 test-mode deckSet (create.test.deckSet)', () => {
       const c = new FakeConn('c');
       h.room.connect(c, { kind: 'creator', code: 'DKST' });
       h.room.message(c, msg({ t: 'create', side: 'corp', test: { seed: 3, actions: [], ...(deckSet ? { deckSet } : {}) } }));
+      dealGuest(h.room);
       const state = h.store.get<GameState>('state')!;
       expect(state.options.deckSet).toBe(deckSet ?? 'core45');
       expect(state.players.corp.identity).toBe(identity);
@@ -156,6 +158,7 @@ describe('Sprint 8 test-mode deckSet (create.test.deckSet)', () => {
     const c = new FakeConn('c');
     h.room.connect(c, { kind: 'creator', code: 'DKPR' });
     h.room.message(c, msg({ t: 'create', side: 'corp', test: { seed: 3, actions: [], deckSet: 'starter' } }));
+    dealGuest(h.room);
     expect(h.store.get<GameState>('state')!.options).toEqual(ONLINE_OPTIONS);
     expect(h.store.get<GameState>('state')!.players.runner.identity).toBe('r13');
   });

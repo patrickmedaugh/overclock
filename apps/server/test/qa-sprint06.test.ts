@@ -17,6 +17,7 @@ function seatedGame(h: Harness, hostSide: Side = 'corp') {
   const guest = new FakeConn('guest');
   h.room.connect(guest, { kind: 'player' });
   h.room.message(guest, msg({ t: 'join' }));
+  h.room.message(guest, msg({ t: 'pick' }));
   const token = (c: FakeConn) => (c.msgs.find((m) => m.t === 'seated') as Extract<ServerMsg, { t: 'seated' }>).token;
   const conns = (hostSide === 'corp' ? { corp: host, runner: guest } : { corp: guest, runner: host }) as Record<Side, FakeConn>;
   const tokens = { [hostSide]: token(host), [hostSide === 'corp' ? 'runner' : 'corp']: token(guest) } as Record<Side, string>;
@@ -83,7 +84,8 @@ describe('QA S-06-3 AC4: a third phone never takes a seat', () => {
     const third = new FakeConn('third');
     h.room.connect(third, { kind: 'player' });
     h.room.message(third, msg({ t: 'join' }));
-    expect(third.last()).toEqual({ v: 1, t: 'error', code: 'full' });
+    h.room.message(third, msg({ t: 'pick' }));
+    expect(third.last()).toEqual({ v: 2, t: 'error', code: 'full' });
     const back = new FakeConn('runner again');
     h.room.connect(back, { kind: 'player' });
     h.room.message(back, msg({ t: 'resume', token: tokens.runner, since: 0 }));

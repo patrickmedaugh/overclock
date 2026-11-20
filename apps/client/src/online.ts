@@ -7,12 +7,15 @@
 // -> playing; or failed (no game, full, the network, ...). While playing, the
 // socket may drop: the match reconnects with backoff and catches up with a
 // full `sync` (no replayed animations).
+import type { DeckProblem } from '@overclock/cards';
 import { type Action, type GameEvent, type PlayerView, RULES_VERSION, type Side } from '@overclock/engine';
 import {
   CREATE_PATH,
   type ClientMsg,
+  type DeckChoice,
   type ErrorCode,
   PING,
+  PROTOCOL_VERSION,
   type Presence,
   STORAGE_KEY,
   type ServerMsg,
@@ -61,8 +64,12 @@ export type FailReason = ErrorCode | 'network';
 
 export type OnlinePhase =
   | { kind: 'connecting' }
-  /** Waiting for the other player to join with `code`. */
-  | { kind: 'lobby'; code: string; seat: Side }
+  /** Waiting for the other player to join with `code`. Sprint 14: `picking` = they joined and are picking a deck. */
+  | { kind: 'lobby'; code: string; seat: Side; picking?: boolean }
+  /** Sprint 14: the joiner has a seat: pick a deck for it (`pick`). */
+  | { kind: 'choose'; seat: Side }
+  /** Sprint 14: the service refused the deck sent (pick again: the joiner with `pick`, the starter with a new game). */
+  | { kind: 'refused'; problems: readonly DeckProblem[] }
   | { kind: 'playing' }
   | { kind: 'failed'; reason: FailReason };
 
@@ -115,7 +122,7 @@ export function forgetStoredSeat(storage: StoreLike | null): void {
   }
 }
 
-type Start = { kind: 'create'; side: Side; test?: TestSetup } | { kind: 'join'; code: string } | { kind: 'resume'; seat: StoredSeat };
+type Start = { kind: 'create'; side: Side; deck?: DeckChoice; test?: TestSetup } | { kind: 'join'; code: string } | { kind: 'resume'; seat: StoredSeat };
 
 export class OnlineMatch implements Session {
   readonly kind = 'online' as const;
@@ -157,9 +164,9 @@ export class OnlineMatch implements Session {
     if (start.kind === 'join') this.code = start.code;
   }
 
-  /** Starts a new game playing `side` (the code arrives with the lobby). */
-  static create(deps: OnlineDeps, side: Side, test?: TestSetup): OnlineMatch {
-    return new OnlineMatch(deps, test ? { kind: 'create', side, test } : { kind: 'create', side }).open();
+  /** Starts a new game playing `side` (the code arrives with the lobby). Sprint 14: `deck` = the player's own deck (absent: standard). */
+  static create(deps: OnlineDeps, side: Side, test?: TestSetup, deck?: DeckChoice): OnlineMatch {
+    return new OnlineMatch(deps, { kind: 'create', side, ...(deck ? { deck } : {}), ...(test ? { test } : {}) }).open();
   }
 
   /** Joins the game with this (normalised) code: takes the empty seat. */
@@ -212,7 +219,18 @@ export class OnlineMatch implements Session {
       if (this.pending?.id === id) this.reconnectNow();
     }, ONLINE_TIMING.ackWait);
     this.pending = { id, timer };
-    this.send({ v: 1, t: 'act', id, action });
+    this.send({ v: PROTOCOL_VERSION, t: 'act', id, action });
+  }
+
+  /** Sprint 14: the joiner's deck (after `choose`; absent = the standard deck). */
+  pick(deck?: DeckChoice): void {
+    if (this.phaseNow.kind !== 'choose' && this.phaseNow.kind !== 'refused') return;
+    this.send(deck ? { v: PROTOCOL_VERSION, t: 'pick', deck } : { v: PROTOCOL_VERSION, t: 'pick' });
+  }
+
+  /** Sprint 14: true for the phone that started the game (its deck went with `create`). */
+  get starter(): boolean {
+    return this.start.kind === 'create';
   }
 
   // ---- online-only ------------------------------------------------------------
@@ -265,7 +283,7 @@ export class OnlineMatch implements Session {
       this.stop();
       return Promise.resolve();
     }
-    this.send({ v: 1, t: 'leave' });
+    this.send({ v: PROTOCOL_VERSION, t: 'leave' });
     // A finished game stays forgotten (no Continue for it).
     if (!this.current?.result) this.store();
     // The service answers `leave` by closing this socket. Wait for that (short), so the message
@@ -297,7 +315,9 @@ export class OnlineMatch implements Session {
    * "No game with that code"); offline, it lingers until it times out.
    */
   forget(): void {
-    if (this.phaseNow.kind === 'lobby') this.send({ v: 1, t: 'leave' });
+    // Sprint 14: a joiner still picking a deck gives the seat back too.
+    const k = this.phaseNow.kind;
+    if (k === 'lobby' || k === 'choose' || (k === 'refused' && this.start.kind !== 'create')) this.send({ v: PROTOCOL_VERSION, t: 'leave' });
     this.stop();
     forgetStoredSeat(this.deps.storage);
   }
@@ -328,9 +348,11 @@ export class OnlineMatch implements Session {
     socket.onopen = () => {
       if (socket !== this.socket) return;
       this.attempt = 0;
-      if (this.token) this.send({ v: 1, t: 'resume', token: this.token, since: Math.max(0, this.seq) });
-      else if (this.start.kind === 'create') this.send(this.start.test ? { v: 1, t: 'create', side: this.start.side, test: this.start.test } : { v: 1, t: 'create', side: this.start.side });
-      else this.send({ v: 1, t: 'join' });
+      if (this.token) this.send({ v: PROTOCOL_VERSION, t: 'resume', token: this.token, since: Math.max(0, this.seq) });
+      else if (this.start.kind === 'create') {
+        const { side, deck, test } = this.start;
+        this.send({ v: PROTOCOL_VERSION, t: 'create', side, ...(deck ? { deck } : {}), ...(test ? { test } : {}) });
+      } else this.send({ v: PROTOCOL_VERSION, t: 'join' });
       this.schedulePing();
     };
     socket.onmessage = (ev) => {
@@ -466,7 +488,16 @@ export class OnlineMatch implements Session {
         this.code = msg.code;
         this.mySeat = msg.seat;
         this.setConnection('open');
-        this.setPhase({ kind: 'lobby', code: msg.code, seat: msg.seat });
+        this.setPhase(msg.picking ? { kind: 'lobby', code: msg.code, seat: msg.seat, picking: true } : { kind: 'lobby', code: msg.code, seat: msg.seat });
+        return;
+      case 'choose':
+        this.mySeat = msg.seat;
+        this.setConnection('open');
+        this.setPhase({ kind: 'choose', seat: msg.seat });
+        return;
+      case 'deck_refused':
+        this.setConnection('open');
+        this.setPhase({ kind: 'refused', problems: msg.problems });
         return;
       case 'sync':
         this.resyncing = false;
@@ -488,7 +519,7 @@ export class OnlineMatch implements Session {
           // Missed something: ask for the whole state again.
           this.resyncing = true;
           this.unlock();
-          if (this.token) this.send({ v: 1, t: 'resume', token: this.token, since: Math.max(0, this.seq) });
+          if (this.token) this.send({ v: PROTOCOL_VERSION, t: 'resume', token: this.token, since: Math.max(0, this.seq) });
           return;
         }
         this.seq = msg.seq;
