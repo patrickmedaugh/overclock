@@ -52,6 +52,9 @@ test.describe('S-15-2 played cards fly to the board and land', () => {
     const target = lifted.targets.find((t) => t.kind === 'new_server' && t.lit)!;
     await dragTo(finger, center(lifted.handView!.centre), center(target.box), 6);
     await page.waitForFunction(() => window.__overclock!.layout().drag?.hover?.kind === 'new_server');
+    // Touch moves are delivered with the next frame (Chrome aligns them), so the hover can show
+    // before the last move lands: wait two frames so `dropped` is where the finger let go.
+    await page.evaluate(() => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))));
     const dropped = (await layout(page)).drag!.box;
     await hold(page);
     await page.evaluate(() => window.__overclock!.clearAnims());
