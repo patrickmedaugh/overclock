@@ -107,3 +107,31 @@ QA did not write the Sprint 15 code. Every criterion was checked with QA's own t
 - **096d799 (`096d799600dc7906f2653709903355b1f4008100`, QA's final test commit; product code = ace31ae): manual run 44808642199 — success.** `checks` success (the QA-S15-1 test took 2,602 ms this time), `guard-mutation` success, **`e2e shard 1/4`, `2/4`, `3/4`, `4/4` all success** (534 + 530 + 523 + 522 passed, 31 skipped; 2 flaky that passed on retry: `qa-sprint01` "longest turn change … Corp turn starts with its free draw" on phone, `s07-hand` "swiping browses the hand…" on desktop), `e2e` success. This is the round's full pass. The push run 44808593949 on the same commit shows `checks`/`e2e` failure only because QA's dispatch cancelled it (its `changes` job was cancelled, so `checks` reports "cancelled ≠ success" by design).
 - 041e9a1 (QA's first commit): manual run 44802486152 — failure: `checks` failed on QA-S15-1 (5,899 ms); `e2e shard 1/4` failed on QA's own quick-tap test at 844×390 (fixed in 096d799, see Runs); shards 2–4 success (2 + 1 flaky: `qa-sprint07` drag latency phone-small, `s07-hand` swiping desktop, QA's real-time showcase tap phone-short — fixed).
 - android workflow on ace31ae (run 44795848954): build, site, publish success; `play` = 70cecba. (QA's pushes publish `play` again with the same product code.)
+
+## Round 2 (2026-11-20, branch head 975075d; product code unchanged since round 1 (= ace31ae))
+
+Scope: verify the fix for QA-S15-1 and record the owner's report on the live site. Product code has not changed since QA's full manual CI pass on 096d799 (all 4 e2e shards green), so no new full screen-test run was made this round (TESTING.md; the demo PR runs the full suite again).
+
+### QA-S15-1 fix (975075d, engine-dev): VERIFIED FIXED
+- **No assertion removed:** `git show 975075d` changes only `scripts/test/ci.test.mjs` (+16/−3). `copyWith()` no longer copies all of `docs/sprints`; it copies only `sprint-NN-demo.md` files (the folder structure plus a `cpSync` filter). All existing `expect`s are kept (53 before, 55 after). The 2 new ones are in the new guard test "the test copy holds every file check-workflows reads": it checks that `linkFiles()` on the copy equals `linkFiles()` on the real repo, and that `checkWorkflows(copy)` is clean.
+- **Fast:** `npm run test:scripts` locally gave 35/35 passed, `ci.test.mjs` (21 tests) in 358 ms, whole run 1.4 s. In CI (`checks` on 975075d) `ci.test.mjs` took 322 ms (it was 2.5–5.9 s before).
+- **Guard test checked by mutation (QA, not committed):** `linkFiles()` reads demo notes only from sprint 15 on, and `sprint-15-demo.md` does not exist yet. So today the guard only compares the workflow and client files. QA first changed the filter to `/sprint-1\d-demo\.md$/` and the guard still passed, which is correct because sprint 15+ still matches. QA then added a temporary `docs/sprints/sprint-15-demo.md`. With the real filter it gave 35/35 passed. With the filter changed so it matches nothing, it gave **1 failed** ("the test copy holds every file check-workflows reads"). So the guard catches a filter that drops a demo note. QA reverted both changes, and the tree is clean.
+
+### Owner information (from the owner in chat, 2026-11-20; owner-reported, not QA-verified)
+- The owner set Netlify's production branch to `play`, opened the live site and said "looks good". **S-15-5 live play link: the owner confirmed the live site after switching the branch.** QA cannot reach https://overcloc.netlify.app from this sandbox and has not checked it.
+- Note: the android `site` job on 975075d published `play` = 0014dcc (`latest.json`: commit 975075d, built 2026-11-20 20:38 UTC, versionCode 128). Its soft check still warned that "`https://overcloc.netlify.app/app/latest.json` did not show commit 975075d within 90 s". This is a warning only. Netlify may just have been slow to deploy. If a reload of the live link does not show "Built 2026-11-20 20:38" (or later), the owner should tell us.
+
+### CI result (round 2)
+- **975075d (`975075d6bea7fd02f8bf51985d82d971f7cca583`), push run 44812922568 (ci): success.** `changes` success, **`checks` success** (lint, typecheck, `npm test` incl. `scripts` 35/35), `e2e` success. `e2e shard N/4` and `guard-mutation` were skipped by the `changes` job because only a script test changed (no client/engine code). The full e2e pass for this product code is run 44808642199 on 096d799 (round 1, all 4 shards green).
+- Same commit: android run 44812922716 success (build, site, publish); server run 44812922573 success (`deploy`).
+
+### Final per-story result (Sprint 15)
+| Story | Result |
+|---|---|
+| S-15-1 Cards lift and lean in your hand | **PASSED QA** (5/5) |
+| S-15-2 Played cards fly to the board and land | **PASSED QA** (5/5) |
+| S-15-3 Cards fly to and from the piles | **PASSED QA** (4/4) |
+| S-15-4 Never slower than today | **PASSED QA** for all automated criteria (AC1, AC2, AC4, AC5). **AC3 (smooth on the owner's phone, browser and app) is still a manual owner check** |
+| S-15-5 Play link and app download with a private repo | **PASSED QA** for everything checkable here (no failing check, play branch contents and download, app share link). **Live play link: owner confirmed after switching Netlify to `play` (owner-reported).** Still owner demo checks: installing the app over the old one with decks/saves kept, **Play online** on the live link, and the Sprint 15 demo-note links without GitHub sign-in (the demo notes do not exist yet) |
+
+**Bugs open: none.** QA-S15-1 is fixed (975075d). The observations from round 1 still stand.
