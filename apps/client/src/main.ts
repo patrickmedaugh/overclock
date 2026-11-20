@@ -5,6 +5,7 @@ import 'pixi.js/unsafe-eval';
 import { type DeckDef, getCard } from '@overclock/cards';
 import type { Action, DeckSet, GameEvent, GameOptions, Side } from '@overclock/engine';
 import { Application, updateRenderGroupTransforms } from 'pixi.js';
+import { appDownloadFrom } from './appDownload';
 import { Board } from './board';
 import { createZoomFace, flushZoomFaces, fullFaceInfo, setCardRenderer, smallFaceLayout } from './cardFace';
 import { type DeckEntry, DeckLibrary, picksOf } from './deckStore';
@@ -562,6 +563,18 @@ async function start(): Promise<void> {
     const rest = params.toString();
     window.history.replaceState(null, '', `${window.location.pathname}${rest ? `?${rest}` : ''}${window.location.hash}`);
     start.show('here', { picks });
+  }
+
+  // Sprint 15 (S-15-5): the play site offers the newest Android app when it has one (never in the
+  // app itself; never awaited by a tap). `app/latest.json` is next to the game on the site.
+  if (!__NATIVE__) {
+    fetch(`${import.meta.env.BASE_URL}app/latest.json`, { cache: 'no-store', credentials: 'omit' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j: unknown) => {
+        const app = appDownloadFrom(j);
+        start.setApp(app ? { ...app, href: `${import.meta.env.BASE_URL}${app.href}` } : null);
+      })
+      .catch(() => undefined);
   }
 
   // Sprint 14: on start, decks waiting to go online (or a code to check) are synced (off the boot path).
