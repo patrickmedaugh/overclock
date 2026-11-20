@@ -118,10 +118,19 @@ export interface DeckListNav {
   newDeck(side: Side): void;
 }
 
-export function renderDeckList(screen: HTMLElement, deps: DeckScreenDeps, nav: DeckListNav): void {
+/** Sprint 14: the online part of the Decks title row (the status line under the title, the deck code buttons). */
+export interface DeckListOnline {
+  status: HTMLElement;
+  buttons: HTMLElement[];
+}
+
+export function renderDeckList(screen: HTMLElement, deps: DeckScreenDeps, nav: DeckListNav, online?: DeckListOnline): void {
   screen.classList.add('decks');
   const head = el('div', 'deck-title');
-  head.append(el('h2', '', DECK_TEXT.title));
+  const title = el('div', 'deck-title-text');
+  title.append(el('h2', '', DECK_TEXT.title));
+  if (online) title.append(online.status);
+  head.append(title, ...(online?.buttons ?? []));
   screen.append(head);
   if (deps.library.readOnly) screen.append(el('p', 'error', DECK_TEXT.newer));
   const cols = el('div', 'deck-cols');
@@ -633,4 +642,82 @@ export function renderPicker(screen: HTMLElement, deps: DeckScreenDeps, picks: P
     const get = (side: Side) => entries[side].find((d) => d.id === chosen[side]) ?? deps.library.standard(side);
     start({ corp: get('corp'), runner: get('runner') });
   });
+}
+
+// ---- the online deck picker (Sprint 14, S-14-3) -----------------------------------------------
+
+/** True if the player has a deck of `side` that is Ready to play (else the online picker is skipped). */
+export function hasReadyDeck(library: DeckLibrary, side: Side): boolean {
+  return library.mine(side).some((d) => deckSummary(d).ready);
+}
+
+export interface OnlinePickerText {
+  title: string;
+  sub?: string;
+  go: string;
+  error?: string;
+}
+
+/**
+ * One side's decks for an online game: the standard deck picked already, the player's Ready decks
+ * listed, unfinished ones dimmed with their red note. `go` gets the picked deck.
+ */
+export function renderOnlinePicker(screen: HTMLElement, deps: DeckScreenDeps, side: Side, text: OnlinePickerText, go: (deck: DeckEntry) => void): void {
+  screen.classList.add('deck-pick', 'online-pick');
+  let chosen = STANDARD_ID[side];
+  const head = el('div', 'deck-title');
+  const title = el('div', 'deck-title-text');
+  title.append(el('h2', '', text.title));
+  if (text.sub) title.append(el('small', 'deck-sub', text.sub));
+  head.append(title);
+  const goBtn = el('button', `choice ${side} deck-start`);
+  goBtn.type = 'button';
+  goBtn.dataset.action = 'online-deck-go';
+  goBtn.append(el('b', '', text.go));
+  head.append(goBtn);
+  screen.append(head);
+  if (text.error) {
+    const e = el('p', 'error deck-refused', text.error);
+    e.setAttribute('role', 'alert');
+    e.dataset.testid = 'deck-refused';
+    screen.append(e);
+  }
+  const list = el('section', `deck-grid ${side}`);
+  list.dataset.side = side;
+  list.setAttribute('role', 'radiogroup');
+  list.setAttribute('aria-label', side === 'corp' ? DECK_TEXT.corpDeck : DECK_TEXT.runnerDeck);
+  const entries = [deps.library.standard(side), ...deps.library.mine(side)];
+  const opts: HTMLButtonElement[] = [];
+  const mark = () => {
+    for (const o of opts) o.setAttribute('aria-checked', String(o.dataset.deck === chosen));
+  };
+  for (const d of entries) {
+    const sum = deckSummary(d);
+    const b = el('button', `deck-item pick ${side}`);
+    b.type = 'button';
+    b.setAttribute('role', 'radio');
+    b.dataset.deck = d.id;
+    b.dataset.testid = 'deck-pick';
+    b.dataset.ready = String(sum.ready);
+    if (!sum.ready) {
+      b.classList.add('dim');
+      b.setAttribute('aria-disabled', 'true');
+    }
+    const line = el('small');
+    line.append(`${sum.count} · `, noteEl(sum.ready, sum.note));
+    b.append(el('b', '', deckName(d)), line);
+    onTap(b, () => {
+      if (!sum.ready) {
+        deps.toast(sum.note);
+        return;
+      }
+      chosen = d.id;
+      mark();
+    });
+    opts.push(b);
+    list.append(b);
+  }
+  mark();
+  screen.append(list);
+  onTap(goBtn, () => go(entries.find((d) => d.id === chosen) ?? deps.library.standard(side)));
 }

@@ -159,3 +159,37 @@
   #start .deck-row { min-height: 44px; }
   #start .deck-item { min-height: 46px; }
 }
+
+/* Sprint 14: the Decks title row carries the online line and the deck code buttons. */
+#start .deck-title-text { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; justify-content: center; }
+#start .deck-title-text h2 { flex: 0 0 auto; }
+#start .deck-sync, #start .deck-sub { font-size: 12px; font-weight: 700; line-height: 1.25; color: #9fb0c8; }
+#start .deck-sync:empty { display: none; }
+#start .deck-sync.saved { color: #6dff9e; }
+#start .deck-sync.pending { color: #ffc04a; }
+#start .deck-title .deck-act { font-size: 14px; padding: 0 12px; border-color: #3a4a62; color: #e8f6ff; }
+#start .toast.good { background: #0d2418; border-color: #6dff9e; color: #c9ffd9; }
+
+/* My deck code / I have a deck code. */
+#start .deck-code-big { font-size: clamp(26px, 10vh, 46px); letter-spacing: 0.12em; text-indent: 0.12em; color: #19e6ff; text-shadow: 0 0 14px rgba(25, 230, 255, 0.5); min-height: 1em; white-space: nowrap; }
+#start .screen.deck-code { width: min(720px, 100%); }
+#start .screen.deck-code p { font-size: clamp(12px, 4vh, 15px); max-width: 640px; }
+#start form.deck-link { width: min(520px, 100%); }
+#start form.deck-link input { font-size: 24px; letter-spacing: 3px; text-indent: 3px; }
+#start form.deck-link input:disabled { opacity: 0.5; }
+#start .choice.dim { opacity: 0.45; }
+
+/* The online deck picker: one side's decks in a grid that scrolls. */
+#start .deck-grid {
+  flex: 1 1 auto; min-height: 0; overflow-y: auto; touch-action: pan-y; overscroll-behavior: contain;
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); grid-auto-rows: min-content; gap: 6px; padding: 2px 4px 8px; align-content: start;
+}
+#start .deck-refused { font-size: 13px; padding: 0 4px; }
+
+@media (max-width: 700px) {
+  #start .deck-title .deck-act { font-size: 13px; padding: 0 8px; min-width: 0; }
+}
+@media (max-height: 330px) {
+  #start .screen.dense { gap: 6px; }
+  #start .screen.deck-code p { font-size: 12px; }
+}

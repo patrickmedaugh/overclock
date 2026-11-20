@@ -4,10 +4,21 @@
 // only asks the handlers to start or join.
 import type { DeckDef } from '@overclock/cards';
 import type { Side } from '@overclock/engine';
-import { CODE_LENGTH, isGameCode, normalizeCode } from '@overclock/protocol';
-import { type DeckLibrary, dealOf } from './deckStore';
-import { DECK_TEXT } from './deckText';
-import { DeckEditor, type DeckPicks, type ZoomImage, type ZoomInfo, renderDeckList, renderNewDeck, renderPicker } from './decksScreen';
+import { CODE_LENGTH, DECK_CODE_LENGTH, formatDeckCode, isGameCode, normalizeCode } from '@overclock/protocol';
+import { type DeckEntry, type DeckLibrary, dealOf } from './deckStore';
+import type { DeckSync, SyncStatus } from './deckSync';
+import { DECK_TEXT, ONLINE_DECK_TEXT, SYNC_TEXT } from './deckText';
+import {
+  DeckEditor,
+  type DeckPicks,
+  type ZoomImage,
+  type ZoomInfo,
+  hasReadyDeck,
+  renderDeckList,
+  renderNewDeck,
+  renderOnlinePicker,
+  renderPicker,
+} from './decksScreen';
 import { SIDE_NAME } from './terms';
 import './start.css';
 
@@ -50,18 +61,38 @@ export const FAIL_TEXT: Record<string, string> = {
   no_game: 'No game with that code',
   full: 'That game already has two players',
   network: "Can't reach the online game. Check your connection and try again.",
-  version: 'This copy of the game is out of date. Reload the page, or update the app.',
+  // Sprint 14 (S-14-4 AC4): the other phone (or the service) speaks another version.
+  version: 'Update the game to play online',
   expired: 'That game has ended.',
   bad_token: 'That seat belongs to another device now.',
   replaced: 'This game was opened on another screen.',
   bad_message: 'Something went wrong. Try again.',
 };
 
-/** Sprint 13: `decks` (the Decks list), `new_deck`, `deck` (the editor), `here` (the pass-the-phone deck picker). */
-export type StartScreenName = 'home' | 'online' | 'pick' | 'join' | 'not_set_up' | 'message' | 'lobby' | 'decks' | 'new_deck' | 'deck' | 'here';
+/**
+ * Sprint 13: `decks` (the Decks list), `new_deck`, `deck` (the editor), `here` (the pass-the-phone
+ * deck picker). Sprint 14: `deck_code` (My deck code), `link` (I have a deck code), `online_deck`
+ * (the starter picks a deck after the side), `choose` (the joiner picks a deck for their side).
+ */
+export type StartScreenName =
+  | 'home'
+  | 'online'
+  | 'pick'
+  | 'join'
+  | 'not_set_up'
+  | 'message'
+  | 'lobby'
+  | 'decks'
+  | 'new_deck'
+  | 'deck'
+  | 'here'
+  | 'deck_code'
+  | 'link'
+  | 'online_deck'
+  | 'choose';
 
 /** Screens laid out from the top (lists), not centred. */
-const FULL: ReadonlySet<StartScreenName> = new Set(['decks', 'deck', 'here']);
+const FULL: ReadonlySet<StartScreenName> = new Set(['decks', 'deck', 'here', 'online_deck', 'choose']);
 
 export interface StartHandlers {
   /**
@@ -75,8 +106,16 @@ export interface StartHandlers {
   zoomFace(cardId: string): ZoomImage | null;
   /** True when this build knows the online service's address. */
   onlineReady(): boolean;
-  /** Start an online game playing `side`. */
-  startOnline(side: Side): void;
+  /** Start an online game playing `side` with `deck` (Sprint 14; absent: the standard deck). */
+  startOnline(side: Side, deck?: DeckEntry): void;
+  /** Sprint 14: the joiner's deck for the seat the service gave them (absent: the standard deck). */
+  pickOnline(deck?: DeckEntry): void;
+  /** Sprint 14: the decks kept online (null: this build has no online service). */
+  deckSync: DeckSync | null;
+  /** Sprint 14: copies text to the clipboard (true if it worked). */
+  copy(text: string): Promise<boolean>;
+  /** Sprint 14: the Decks list opened (true) or closed (false): the online copy is checked every few seconds while it's open. */
+  decksOpen(open: boolean): void;
   /** Join the online game with this (normalised, well-formed) code. */
   joinOnline(code: string): void;
   /**
@@ -108,6 +147,10 @@ const PARENT: Record<StartScreenName, StartScreenName | null> = {
   new_deck: 'decks',
   deck: 'decks',
   here: 'home',
+  deck_code: 'decks',
+  link: 'decks',
+  online_deck: 'pick',
+  choose: 'online',
 };
 
 export interface ShowOptions {
@@ -121,6 +164,8 @@ export interface ShowOptions {
   side?: Side;
   /** `here`: decks to pick at first (each only if still Ready to play). */
   picks?: Partial<DeckPicks>;
+  /** Sprint 14 `lobby`: the friend has joined and is picking a deck. */
+  picking?: boolean;
 }
 
 export class StartScreen {
@@ -129,6 +174,10 @@ export class StartScreen {
   private editor: DeckEditor | null = null;
   private toastEl: HTMLElement | null = null;
   private toastTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Sprint 14: re-enables "I have a deck code" when the wait is over. */
+  private lockTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Sprint 14: a request started from this screen (My deck code / Link) whose answer is still wanted. */
+  private ask = 0;
 
   constructor(
     parent: HTMLElement,
@@ -138,6 +187,11 @@ export class StartScreen {
     this.root.id = 'start';
     parent.appendChild(this.root);
     this.show('home');
+    // Sprint 14: decks from another device arrive while the Decks list shows: draw it again.
+    handlers.library.onChange((c) => {
+      if (c === 'remote' && this.visible && this.current === 'decks') this.redrawDecks();
+    });
+    handlers.deckSync?.onStatus((st) => this.setSyncLine(st));
   }
 
   get screen(): StartScreenName {
@@ -158,7 +212,7 @@ export class StartScreen {
     if (this.editor?.back()) return true;
     const to = PARENT[this.current];
     if (to === null) return false;
-    if (this.current === 'message' || this.current === 'lobby') this.handlers.cancel();
+    if (this.current === 'message' || this.current === 'lobby' || this.current === 'choose') this.handlers.cancel();
     this.show(to);
     return true;
   }
@@ -167,6 +221,10 @@ export class StartScreen {
     // Leaving the editor: its changes are written now.
     this.editor?.close();
     this.editor = null;
+    if (this.current === 'decks' && name !== 'decks') this.handlers.decksOpen(false);
+    if (this.lockTimer !== null) clearTimeout(this.lockTimer);
+    this.lockTimer = null;
+    this.ask++;
     this.current = name;
     this.root.hidden = false;
     this.root.dataset.screen = name;
@@ -208,7 +266,6 @@ export class StartScreen {
       case 'online': {
         screen.append(el('h2', '', START_TEXT.playOnline));
         if (opts.note) screen.append(el('p', 'error', opts.note));
-        else screen.append(el('p', 'online-note', DECK_TEXT.onlineStandard));
         const row = el('div', 'choices');
         row.append(
           this.choice('start-game', START_TEXT.startGame, START_TEXT.startGameSub, 'runner', () => this.show('pick')),
@@ -221,10 +278,25 @@ export class StartScreen {
         screen.append(el('h2', '', `${START_TEXT.startGame}: ${START_TEXT.pickTitle.toLowerCase()}`));
         const row = el('div', 'choices');
         row.append(
-          this.choice('side-corp', 'Corp', START_TEXT.corpSub, 'corp', () => this.handlers.startOnline('corp')),
-          this.choice('side-runner', 'Runner', START_TEXT.runnerSub, 'runner', () => this.handlers.startOnline('runner')),
+          this.choice('side-corp', 'Corp', START_TEXT.corpSub, 'corp', () => this.pickSide('corp')),
+          this.choice('side-runner', 'Runner', START_TEXT.runnerSub, 'runner', () => this.pickSide('runner')),
         );
-        screen.append(row, el('p', '', START_TEXT.pickNote), el('p', 'online-note', DECK_TEXT.onlineStandard));
+        screen.append(row, el('p', '', START_TEXT.pickNote));
+        break;
+      }
+      case 'online_deck': {
+        // Sprint 14 (S-14-3): the starter's deck for the side just picked.
+        const side = opts.side ?? 'corp';
+        renderOnlinePicker(screen, this.deckDeps(), side, { title: ONLINE_DECK_TEXT.pickTitle(side), go: ONLINE_DECK_TEXT.start, ...(opts.error ? { error: opts.error } : {}) }, (d) =>
+          this.handlers.startOnline(side, d.standard ? undefined : d),
+        );
+        break;
+      }
+      case 'choose': {
+        // Sprint 14 (S-14-3): the joiner sees their side and picks a deck for it.
+        const side = opts.side ?? 'runner';
+        const text = { title: ONLINE_DECK_TEXT.youPlay(side), sub: ONLINE_DECK_TEXT.pickTitle(side), go: ONLINE_DECK_TEXT.join, ...(opts.error ? { error: opts.error } : {}) };
+        renderOnlinePicker(screen, this.deckDeps(), side, text, (d) => this.handlers.pickOnline(d.standard ? undefined : d));
         break;
       }
       case 'join': {
@@ -260,7 +332,7 @@ export class StartScreen {
           }
           this.handlers.joinOnline(code);
         });
-        screen.append(form, error, el('p', 'online-note', DECK_TEXT.onlineStandard));
+        screen.append(form, error);
         // Open the keyboard straight away (no-op where the browser won't).
         if (!opts.code) queueMicrotask(() => input.focus());
         break;
@@ -287,18 +359,23 @@ export class StartScreen {
         const row = el('div', 'choices');
         row.style.maxWidth = '280px';
         row.append(this.choice('share', START_TEXT.share, START_TEXT.shareSub, 'runner', () => this.handlers.share(code)));
-        const info = el('p', 'busy', opts.message ?? START_TEXT.waiting);
+        const info = el('p', 'busy', opts.message ?? (opts.picking ? ONLINE_DECK_TEXT.friendPicking : START_TEXT.waiting));
         info.dataset.role = 'lobby-status';
         screen.append(el('h2', '', START_TEXT.lobbyTitle), big, el('p', '', START_TEXT.lobbyNote), row, info);
         break;
       }
       case 'decks': {
-        renderDeckList(screen, this.deckDeps(), {
-          open: (id) => this.show('deck', { deckId: id }),
-          newDeck: (side) => this.show('new_deck', { side }),
-        });
+        this.renderDecks(screen);
+        // Sprint 14: opening Decks checks the online copy (and keeps checking while it's open).
+        this.handlers.decksOpen(true);
         break;
       }
+      case 'deck_code':
+        this.renderDeckCode(screen);
+        break;
+      case 'link':
+        this.renderLink(screen, opts);
+        break;
       case 'new_deck': {
         const side = opts.side ?? 'corp';
         renderNewDeck(screen, side, (from) => {
@@ -335,13 +412,203 @@ export class StartScreen {
     }
   }
 
+  /** Sprint 14: Start a game → side: the deck picker if this side has a Ready deck of the player's, else straight on (standard deck). */
+  private pickSide(side: Side): void {
+    if (hasReadyDeck(this.handlers.library, side)) this.show('online_deck', { side });
+    else this.handlers.startOnline(side);
+  }
+
+  private renderDecks(screen: HTMLElement): void {
+    const sync = this.handlers.deckSync;
+    let online: { status: HTMLElement; buttons: HTMLElement[] } | undefined;
+    if (sync?.enabled) {
+      const status = el('small', 'deck-sync');
+      status.dataset.testid = 'deck-sync';
+      status.setAttribute('role', 'status');
+      online = {
+        status,
+        buttons: [
+          this.smallButton('my-deck-code', SYNC_TEXT.myCode, () => this.show('deck_code')),
+          this.smallButton('have-deck-code', SYNC_TEXT.haveCode, () => this.show('link')),
+        ],
+      };
+    }
+    renderDeckList(
+      screen,
+      this.deckDeps(),
+      {
+        open: (id) => this.show('deck', { deckId: id }),
+        newDeck: (side) => this.show('new_deck', { side }),
+      },
+      online,
+    );
+    if (sync) this.setSyncLine(sync.status());
+  }
+
+  /** The Decks list again (decks from another device), keeping where each column was scrolled. */
+  private redrawDecks(): void {
+    const tops = [...this.root.querySelectorAll<HTMLElement>('.deck-col')].map((c) => c.scrollTop);
+    const screen = el('div', 'screen');
+    this.renderDecks(screen);
+    this.root.querySelector('.screen')?.replaceWith(screen);
+    this.root.querySelectorAll<HTMLElement>('.deck-col').forEach((c, i) => {
+      c.scrollTop = tops[i] ?? 0;
+    });
+  }
+
+  /** The Decks screen's line: "✓ Saved online" / "Saving online…" / "Saved on this device · goes online when you're connected". */
+  private setSyncLine(st: SyncStatus): void {
+    const line = this.root.querySelector<HTMLElement>('[data-testid="deck-sync"]');
+    if (!line) return;
+    line.dataset.status = st;
+    line.replaceChildren();
+    line.className = `deck-sync ${st}`;
+    if (st === 'saved') line.append(el('span', 'tick', '✓'), ` ${SYNC_TEXT.saved}`);
+    else if (st === 'saving') line.append(SYNC_TEXT.saving);
+    else if (st === 'pending') line.append(SYNC_TEXT.pending);
+  }
+
+  /** My deck code: the code (asked from the service if this device has none yet), Copy, keep it safe. */
+  private renderDeckCode(screen: HTMLElement): void {
+    screen.classList.add('dense', 'deck-code');
+    screen.append(el('h2', '', SYNC_TEXT.codeTitle));
+    const big = el('div', 'code-big deck-code-big', '');
+    big.dataset.testid = 'deck-code';
+    const status = el('p', 'busy', SYNC_TEXT.gettingCode);
+    status.setAttribute('role', 'status');
+    const row = el('div', 'choices');
+    row.style.maxWidth = '240px';
+    const copy = this.choice('copy-deck-code', SYNC_TEXT.copy, '', 'runner', () => {
+      const code = big.dataset.code;
+      if (!code) return;
+      void this.handlers.copy(formatDeckCode(code)).then((ok) => {
+        if (ok) this.toast(SYNC_TEXT.copied, true);
+      });
+    });
+    copy.hidden = true;
+    row.append(copy);
+    screen.append(big, row, status);
+    const show = (code: string) => {
+      big.dataset.code = code;
+      big.textContent = formatDeckCode(code);
+      big.setAttribute('aria-label', `Deck code ${code.split('').join(' ')}`);
+      copy.hidden = false;
+      status.className = '';
+      status.textContent = `${SYNC_TEXT.codeNote} ${SYNC_TEXT.keepSafe}`;
+    };
+    const sync = this.handlers.deckSync;
+    if (sync?.code) {
+      show(sync.code);
+      return;
+    }
+    const ask = this.ask;
+    void (sync ? sync.myCode() : Promise.resolve({ ok: false as const, reason: 'network' as const })).then((r) => {
+      if (ask !== this.ask) return;
+      if (r.ok) show(r.code);
+      else {
+        status.className = 'error';
+        status.textContent = r.reason === 'wait' ? SYNC_TEXT.waitNew(r.waitMs) : SYNC_TEXT.noService;
+      }
+    });
+  }
+
+  /** I have a deck code: type it, Link; wrong codes and the wait after too many say so. */
+  private renderLink(screen: HTMLElement, opts: ShowOptions): void {
+    screen.classList.add('dense');
+    screen.append(el('h2', '', SYNC_TEXT.linkTitle));
+    const form = el('form', 'code deck-link') as HTMLFormElement;
+    const input = document.createElement('input');
+    input.name = 'deck-code';
+    input.placeholder = 'KX4P-9MTR-QZ7D';
+    input.autocomplete = 'off';
+    input.spellcheck = false;
+    input.setAttribute('autocapitalize', 'characters');
+    input.setAttribute('autocorrect', 'off');
+    input.setAttribute('aria-label', 'Deck code');
+    input.dataset.testid = 'deck-code-input';
+    input.enterKeyHint = 'go';
+    input.maxLength = DECK_CODE_LENGTH + 8;
+    input.value = opts.code ? formatDeckCode(opts.code) : '';
+    const error = el('p', 'error', opts.error ?? '');
+    error.setAttribute('role', 'alert');
+    error.dataset.testid = 'deck-link-error';
+    input.addEventListener('input', () => {
+      const v = formatDeckCode(normalizeCode(input.value).slice(0, DECK_CODE_LENGTH));
+      if (v !== input.value) input.value = v;
+      error.textContent = '';
+    });
+    const submit = this.choice('link-deck-code', SYNC_TEXT.link, '', 'runner', () => form.requestSubmit());
+    submit.type = 'submit';
+    form.append(input, submit);
+    const sync = this.handlers.deckSync;
+    let busy = false;
+    const lock = () => {
+      const wait = (sync?.lockUntil ?? 0) - Date.now();
+      const locked = wait > 0;
+      input.disabled = locked;
+      submit.setAttribute('aria-disabled', String(locked));
+      submit.classList.toggle('dim', locked);
+      if (!locked) return;
+      error.textContent = SYNC_TEXT.wait(wait);
+      if (this.lockTimer !== null) clearTimeout(this.lockTimer);
+      // Re-check once a minute (the minutes count down) and when the wait ends.
+      this.lockTimer = setTimeout(() => {
+        this.lockTimer = null;
+        if (this.current !== 'link') return;
+        if ((sync?.lockUntil ?? 0) - Date.now() <= 0) error.textContent = '';
+        lock();
+      }, Math.min(wait + 50, 60_000));
+    };
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      if (busy || input.disabled) return;
+      const code = normalizeCode(input.value);
+      if (code.length !== DECK_CODE_LENGTH) {
+        error.textContent = SYNC_TEXT.badCode;
+        return;
+      }
+      if (!sync) {
+        error.textContent = SYNC_TEXT.noService;
+        return;
+      }
+      busy = true;
+      error.className = 'busy';
+      error.textContent = SYNC_TEXT.linking;
+      const ask = this.ask;
+      void sync.link(code).then((r) => {
+        if (ask !== this.ask) return;
+        busy = false;
+        error.className = 'error';
+        if (r.ok) {
+          this.show('decks');
+          this.toast(SYNC_TEXT.linked, true);
+          return;
+        }
+        error.textContent = r.reason === 'bad_code' ? SYNC_TEXT.badCode : r.reason === 'no_decks' ? SYNC_TEXT.noDecks : r.reason === 'wait' ? SYNC_TEXT.wait(r.waitMs) : SYNC_TEXT.noService;
+        lock();
+      });
+    });
+    screen.append(form, error, el('p', 'online-note', SYNC_TEXT.linkNote));
+    lock();
+    if (!input.disabled && !opts.code) queueMicrotask(() => input.focus());
+  }
+
+  private smallButton(action: string, label: string, fn: () => void): HTMLButtonElement {
+    const b = el('button', 'deck-act') as HTMLButtonElement;
+    b.type = 'button';
+    b.dataset.action = action;
+    b.textContent = label;
+    tapNow(b, fn);
+    return b;
+  }
+
   /** Sprint 13 (test hook): what the editor's zoom shows, or null. */
   zoomInfo(): ZoomInfo | null {
     return this.editor?.zoomInfo() ?? null;
   }
 
-  /** A short note at the bottom that fades by itself (never blocks a tap). */
-  toast(text: string): void {
+  /** A short note at the bottom that fades by itself (never blocks a tap). `good`: a success note (green). */
+  toast(text: string, good = false): void {
     if (!this.toastEl) {
       this.toastEl = el('div', 'toast');
       this.toastEl.setAttribute('role', 'status');
@@ -350,6 +617,7 @@ export class StartScreen {
     }
     const t = this.toastEl;
     t.textContent = text;
+    t.classList.toggle('good', good);
     t.classList.add('on');
     if (this.toastTimer !== null) clearTimeout(this.toastTimer);
     this.toastTimer = setTimeout(() => t.classList.remove('on'), 1600);

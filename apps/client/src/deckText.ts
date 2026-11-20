@@ -27,10 +27,41 @@ export const DECK_TEXT = {
   corpDeck: 'Corp deck',
   runnerDeck: 'Runner deck',
   start: 'Start',
-  onlineStandard: 'Online games use the standard decks for now.',
   newer: 'These decks were saved by a newer version of the game. Update to change them.',
   notKept: "Decks can't be kept on this device (storage is off).",
   otherSide: "This deck's identity is for the other side",
+} as const;
+
+/** "2 minutes" (whole minutes, rounded up, at least 1). */
+function minutesText(ms: number): string {
+  return plural(Math.max(1, Math.ceil(ms / 60_000)), 'minute', 'minutes');
+}
+
+/** Sprint 14 (S-14-1, S-14-2): the decks kept online and the deck code. */
+export const SYNC_TEXT = {
+  saved: 'Saved online',
+  saving: 'Saving online…',
+  pending: "Saved on this device · goes online when you're connected",
+  myCode: 'My deck code',
+  haveCode: 'I have a deck code',
+  codeTitle: 'Your deck code',
+  codeNote: 'On your other device, tap Decks, then I have a deck code, and type it.',
+  keepSafe: "Keep it safe (a screenshot or a note): it's the key to your decks. Share it only between your own devices.",
+  copy: 'Copy',
+  copied: 'Code copied',
+  gettingCode: 'Getting your code…',
+  noService: "Can't reach the online service. Check your connection and try again.",
+  linkTitle: 'I have a deck code',
+  linkNote: 'Type the code from your other device. The decks on both devices end up on both.',
+  link: 'Link',
+  linking: 'Linking…',
+  linked: 'Linked: your decks are here now',
+  badCode: 'Deck codes are 12 letters or numbers, like KX4P-9MTR-QZ7D',
+  noDecks: 'No decks with that code',
+  /** "Too many wrong codes. Try again in 2 minutes." (whole minutes, rounded up). */
+  wait: (ms: number) => `Too many wrong codes. Try again in ${minutesText(ms)}.`,
+  /** Too many new codes asked for from this device (the service's limit). */
+  waitNew: (ms: number) => `Too many new codes from this device. Try again in ${minutesText(ms)}.`,
 } as const;
 
 const SIDE_WORD: Record<Side, string> = { corp: 'Corp', runner: 'Runner' };
@@ -180,4 +211,37 @@ export function problemsText(s: DeckStatus, identity: string): string[] {
 /** "2 / 3": copies in the deck against the copy limit. */
 export function copiesText(n: number, limit: number): string {
   return `${n} / ${limit}`;
+}
+
+/** Sprint 14 (S-14-3): online deck picking. */
+export const ONLINE_DECK_TEXT = {
+  /** Host, after picking a side: "Pick your Corp deck". */
+  pickTitle: (side: Side) => `Pick your ${SIDE_WORD[side]} deck`,
+  start: 'Get the code',
+  /** Guest, after typing the code: "You'll play the Runner". */
+  youPlay: (side: Side) => `You'll play the ${SIDE_WORD[side]}`,
+  join: 'Join',
+  friendPicking: 'Your friend is picking a deck…',
+  refused: "This deck isn't ready to play",
+} as const;
+
+/**
+ * The online service refused a deck (S-14-4): "This deck isn't ready to play: 4 copies of Hedge
+ * Fund". `problems` come from the service (checked only for a string `kind`), so anything this
+ * build can't word falls back to the short sentence.
+ */
+export function refusedText(problems: readonly { kind: string }[], identity: string): string {
+  const words: string[] = [];
+  for (const p of problems) {
+    let w: string | undefined;
+    try {
+      const q = p as DeckProblem;
+      if (q.kind === 'too_many_copies' && typeof q.copies === 'number' && typeof q.cardId === 'string') w = `${q.copies} copies of ${getCard(q.cardId)?.name ?? 'a card'}`;
+      else w = problemText(q, identity) as string | undefined;
+    } catch {
+      w = undefined;
+    }
+    if (typeof w === 'string' && w && !words.includes(w)) words.push(w);
+  }
+  return words.length > 0 ? `${ONLINE_DECK_TEXT.refused}: ${words.join(' · ')}` : ONLINE_DECK_TEXT.refused;
 }

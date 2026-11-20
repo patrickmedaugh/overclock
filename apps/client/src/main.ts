@@ -7,8 +7,10 @@ import type { Action, DeckSet, GameEvent, GameOptions, Side } from '@overclock/e
 import { Application, updateRenderGroupTransforms } from 'pixi.js';
 import { Board } from './board';
 import { createZoomFace, flushZoomFaces, fullFaceInfo, setCardRenderer, smallFaceLayout } from './cardFace';
-import { DeckLibrary, picksOf } from './deckStore';
-import type { DeckPicks, ZoomImage } from './decksScreen';
+import { type DeckEntry, DeckLibrary, picksOf } from './deckStore';
+import { DeckSync, deckServiceUrl } from './deckSync';
+import { ONLINE_DECK_TEXT, refusedText } from './deckText';
+import { type DeckPicks, type ZoomImage, hasReadyDeck } from './decksScreen';
 import { computeLayout } from './layout';
 import { forceFrameSpeed, noteDraw, noteTick } from './frameClock';
 import type { BackAction } from './back';
@@ -21,6 +23,7 @@ import { readSafeArea } from './safeArea';
 import type { Session } from './session';
 import { FAIL_TEXT, START_TEXT, StartScreen, continueOnlineLabel } from './startScreen';
 import { OnlineMatch, type StoreLike, browserDeps, forgetStoredSeat, readStoredSeat, seatOutdated } from './online';
+import type { DeckChoice } from '@overclock/protocol';
 import { type HotSeatSave, SaveWriter, forgetHotSeatSave, readHotSeatSave } from './savedGame';
 import { SIDE_NAME } from './terms';
 import { theme } from './theme';
@@ -58,8 +61,16 @@ async function start(): Promise<void> {
   // (Sprint 7 15/17 cards, no identities), `core` (Sprint 11 30 cards), `core45` (Sprint 12 45
   // cards). Any other value, or no flag, plays the engine's default, as production always does.
   const deckSet = __TEST_HOOK__ ? deckSetFlag(params.get('decks')) : null;
+  // `deckip=` (Sprint 14): the test "device" the deck service's guess limit counts (header sent only with this switch).
+  const deckIp = __TEST_HOOK__ ? params.get('deckip') : null;
   /** The start screen's address (a reload there forgets the board; test switches for the service stay). */
-  const startUrl = () => `${window.location.pathname}${serverParam !== null ? `?server=${encodeURIComponent(serverParam)}` : ''}`;
+  const startUrl = () => {
+    const keep = new URLSearchParams();
+    if (serverParam !== null) keep.set('server', serverParam);
+    if (deckIp !== null) keep.set('deckip', deckIp);
+    const q = keep.toString();
+    return `${window.location.pathname}${q ? `?${q}` : ''}`;
+  };
   let storage: StoreLike | null = null;
   try {
     storage = window.localStorage;
@@ -94,6 +105,22 @@ async function start(): Promise<void> {
       setTimeout(run, 250);
     },
   });
+  // Sprint 14 (S-14-1, S-14-2): a copy of the decks online (never awaited by a tap).
+  const deckSync = new DeckSync({
+    server: deckServiceUrl(serverUrl),
+    storage,
+    library,
+    post: (url, body, headers) => fetch(url, { method: 'POST', body, headers, mode: 'cors', credentials: 'omit', cache: 'no-store' }),
+    setTimeout: (fn, ms) => window.setTimeout(fn, ms),
+    clearTimeout: (id) => window.clearTimeout(id as number),
+    now: () => Date.now(),
+    online: () => navigator.onLine !== false,
+    ...(deckIp ? { headers: { 'X-Overclock-Test-Ip': deckIp } } : {}),
+  });
+  let decksOpen = false;
+  const pollDecks = () => deckSync.setPolling(decksOpen && document.visibilityState !== 'hidden');
+  window.addEventListener('online', () => deckSync.networkChanged());
+  window.addEventListener('offline', () => deckSync.networkChanged());
   window.addEventListener('pagehide', () => {
     saver.flush();
     library.flush();
@@ -102,7 +129,8 @@ async function start(): Promise<void> {
     if (document.visibilityState === 'hidden') {
       saver.flush();
       library.flush();
-    }
+    } else void deckSync.syncNow();
+    pollDecks();
   });
 
   // The game being played (null on the start screen). The board talks only to the Session interface.
@@ -376,13 +404,30 @@ async function start(): Promise<void> {
    * Runs an online game from the start screen: the lobby while waiting, the
    * board once both phones are in, the reason on the start screen if it fails.
    */
+  // Sprint 14: the deck this phone sent (to word a refusal).
+  let sentDeck: { side: Side; identity: string } | null = null;
+  const choiceOf = (d: DeckEntry): DeckChoice => ({ identity: d.identity, cards: { ...d.cards } });
   const goOnline = (m: OnlineMatch, failTo: (text: string) => void): void => {
     online?.leave();
     online = m;
     m.onPhase((p) => {
       if (online !== m) return;
       if (p.kind === 'lobby') {
-        if (!start.visible || start.screen !== 'lobby') start.show('lobby', { code: p.code });
+        if (!start.visible || start.screen !== 'lobby') start.show('lobby', { code: p.code, picking: p.picking === true });
+        else start.setLobbyStatus(p.picking ? ONLINE_DECK_TEXT.friendPicking : START_TEXT.waiting);
+      } else if (p.kind === 'choose') {
+        // Sprint 14 (S-14-3): the joiner picks a deck for their side; no Ready deck of their own → the standard one at once.
+        if (hasReadyDeck(library, p.seat)) start.show('choose', { side: p.seat });
+        else {
+          sentDeck = null;
+          m.pick();
+        }
+      } else if (p.kind === 'refused') {
+        // S-14-4: the service said why the deck can't be played; pick again.
+        const side = sentDeck?.side ?? m.seat;
+        const error = refusedText(p.problems, sentDeck?.identity ?? '');
+        if (m.starter) start.show('online_deck', { side, error });
+        else start.show('choose', { side, error });
       } else if (p.kind === 'playing') {
         if (game !== m) play(m);
       } else if (p.kind === 'failed') {
@@ -419,9 +464,31 @@ async function start(): Promise<void> {
     },
     continueHere,
     onlineReady: () => serverUrl !== '',
-    startOnline: (side) => {
+    startOnline: (side, deck) => {
       start.show('message', { title: START_TEXT.startGame, message: START_TEXT.connecting });
-      goOnline(OnlineMatch.create(deps(), side), (note) => start.show('online', { note }));
+      sentDeck = deck ? { side, identity: deck.identity } : null;
+      goOnline(OnlineMatch.create(deps(), side, undefined, deck ? choiceOf(deck) : undefined), (note) => start.show('online', { note }));
+    },
+    pickOnline: (deck) => {
+      const m = online;
+      if (!m || game === m) return;
+      sentDeck = deck ? { side: m.seat, identity: deck.identity } : null;
+      start.show('message', { title: `Joining ${m.gameCode ?? ''}`.trim(), message: START_TEXT.connecting });
+      m.pick(deck ? choiceOf(deck) : undefined);
+    },
+    deckSync: deckSync.enabled ? deckSync : null,
+    copy: async (text) => {
+      try {
+        await navigator.clipboard.writeText(text);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    decksOpen: (open) => {
+      decksOpen = open;
+      if (open) void deckSync.syncNow();
+      pollDecks();
     },
     joinOnline: (code) => {
       start.show('message', { title: `Joining ${code}`, message: START_TEXT.connecting });
@@ -458,10 +525,13 @@ async function start(): Promise<void> {
       gameOptions: () => (game instanceof HotSeat ? game.save().options : null),
       back,
       exitRequests: () => exitRequests,
-      startOnline: (side, test) => {
+      startOnline: (side, test, deck) => {
         start.show('message', { title: START_TEXT.startGame, message: START_TEXT.connecting });
-        goOnline(OnlineMatch.create(deps(), side, test), (note) => start.show('online', { note }));
+        sentDeck = deck ? { side, identity: deck.identity } : null;
+        goOnline(OnlineMatch.create(deps(), side, test, deck), (note) => start.show('online', { note }));
       },
+      deckSync: () => deckSync.info(),
+      syncNow: () => deckSync.syncNow(),
     };
   }
   const joinCode = joinCodeFromUrl(window.location.search);
@@ -493,6 +563,9 @@ async function start(): Promise<void> {
     window.history.replaceState(null, '', `${window.location.pathname}${rest ? `?${rest}` : ''}${window.location.hash}`);
     start.show('here', { picks });
   }
+
+  // Sprint 14: on start, decks waiting to go online (or a code to check) are synced (off the boot path).
+  setTimeout(() => void deckSync.syncNow(), 0);
 
   document.getElementById('boot')?.remove();
   document.body.dataset.ready = 'true';

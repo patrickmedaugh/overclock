@@ -78,8 +78,8 @@ describe('deckText (S-13-3 words)', () => {
     expect(m && addBlockText(m)).toBe('Max 3 copies');
   });
 
-  it('online note wording', () => {
-    expect(DECK_TEXT.onlineStandard).toBe('Online games use the standard decks for now.');
+  it('Sprint 14: the "standard decks for now" online note is gone (S-14-3)', () => {
+    expect(Object.values(DECK_TEXT)).not.toContain('Online games use the standard decks for now.');
   });
 });
 
