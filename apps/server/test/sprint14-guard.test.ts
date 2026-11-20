@@ -11,6 +11,7 @@ import {
   GUARD_NEW_PER_HOUR,
   attempt,
   guardKey,
+  guardSubject,
   newLocker,
   right,
   waitAfter,
@@ -26,6 +27,18 @@ describe('S-14 E3 guard (pure)', () => {
     expect(k).toMatch(/^[0-9a-f]{64}$/);
     expect(k).not.toContain('203.0.113.7');
     expect(guardKey('203.0.113.8')).not.toBe(k);
+  });
+
+  it('IPv6 callers count by their /64 (no fresh guesses by stepping addresses); IPv4 by the address', () => {
+    expect(guardSubject('2001:DB8:a:b:1:2:3:4')).toBe('2001:db8:a:b::/64');
+    expect(guardSubject('2001:db8:a:b::9')).toBe('2001:db8:a:b::/64');
+    expect(guardSubject('2001:0db8:000a:000b:ffff::1')).toBe('2001:db8:a:b::/64');
+    expect(guardSubject('2001:db8::1')).toBe('2001:db8:0:0::/64');
+    expect(guardSubject('::ffff:203.0.113.7')).toBe('203.0.113.7');
+    expect(guardSubject('203.0.113.7')).toBe('203.0.113.7');
+    expect(guardSubject('unknown')).toBe('unknown');
+    expect(guardKey('2001:db8:a:b:1:2:3:4')).toBe(guardKey('2001:db8:a:b:ffff::5'));
+    expect(guardKey('2001:db8:a:c::1')).not.toBe(guardKey('2001:db8:a:b::1'));
   });
 
   it('waits: 5 free, then 60 s × 2ⁿ, capped at 1 h', () => {

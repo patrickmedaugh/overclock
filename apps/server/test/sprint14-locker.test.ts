@@ -14,6 +14,7 @@ import {
 } from '@overclock/protocol';
 import { mergeDeckStores, type DeckStore } from '@overclock/match';
 import { describe, expect, it } from 'vitest';
+import { readCapped } from '../src/decks';
 import { createLocker, readLocker, syncLocker } from '../src/locker';
 import { DeckWorld, MemKv, ORIGIN, T, deck, ownStore } from './deck-fakes';
 
@@ -164,6 +165,23 @@ describe('S-14 E3 deck HTTP API', () => {
     const r = await w.post(DECKS_NEW_PATH, { v: 1, store: ownStore('a') }, { headers: { 'Content-Length': String(MAX_DECK_UPLOAD_BYTES + 1) } });
     expect(r.status).toBe(413);
     expect(w.lockerCount).toBe(0);
+  });
+
+  it('a streamed body with no Content-Length is cut off once it passes the limit (never held whole)', async () => {
+    let pulled = 0;
+    const chunk = new Uint8Array(64 * 1024).fill(0x20);
+    const body = new ReadableStream<Uint8Array>({
+      pull(c) {
+        pulled++;
+        if (pulled > 1000) c.close();
+        else c.enqueue(chunk);
+      },
+    });
+    const req = new Request(`${ORIGIN}/x`, { method: 'POST', body, duplex: 'half' } as RequestInit);
+    expect(await readCapped(req, MAX_DECK_UPLOAD_BYTES)).toBe('too_big');
+    expect(pulled).toBeLessThan(10);
+    expect(await readCapped(new Request(`${ORIGIN}/x`, { method: 'POST', body: '{"a":"é"}' }), MAX_DECK_UPLOAD_BYTES)).toBe('{"a":"é"}');
+    expect(await readCapped(new Request(`${ORIGIN}/x`, { method: 'POST', body: new Uint8Array([0xff, 0xfe]) }), MAX_DECK_UPLOAD_BYTES)).toBeNull();
   });
 
   it('CORS: allowed origins get a preflight and ACAO on every reply; others and no-origin get 403', async () => {

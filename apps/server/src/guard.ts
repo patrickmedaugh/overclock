@@ -37,9 +37,34 @@ export const FRESH_GUARD: GuardState = { wrong: 0, lockedUntil: 0, news: [], see
 
 export type GuardAnswer = { readonly ok: true; readonly state: GuardState } | { readonly ok: false; readonly state: GuardState; readonly retryAfterMs: number };
 
-/** The guard's key for a caller: never the raw IP. */
+/**
+ * The guard's key for a caller: never the raw IP. An IPv6 address counts by its /64 (one home
+ * network or phone gets a whole /64 and could otherwise step to a fresh address per guess);
+ * IPv4 (also IPv4-mapped IPv6) by the full address (architect review, Sprint 14).
+ */
 export function guardKey(ip: string): string {
-  return sha256Hex(`overclock-guess-guard:${ip}`);
+  return sha256Hex(`overclock-guess-guard:${guardSubject(ip)}`);
+}
+
+/** `2001:db8:a:b:1:2:3:4` → `2001:db8:a:b::/64`; IPv4 and anything unparsable stay as they are. */
+export function guardSubject(ip: string): string {
+  const s = ip.trim().toLowerCase();
+  if (!s.includes(':') || s.includes('.')) {
+    const v4 = s.match(/(\d{1,3}(?:\.\d{1,3}){3})$/);
+    return v4 ? v4[1]! : s;
+  }
+  const halves = s.split('::');
+  if (halves.length > 2) return s;
+  const head = halves[0] ? halves[0].split(':') : [];
+  const tail = halves.length === 2 && halves[1] ? halves[1].split(':') : [];
+  const fill = halves.length === 2 ? 8 - head.length - tail.length : 0;
+  if (fill < 0 || (halves.length === 1 && head.length !== 8)) return s;
+  const groups = [...head, ...Array<string>(fill).fill('0'), ...tail];
+  if (!groups.every((g) => /^[0-9a-f]{1,4}$/.test(g))) return s;
+  return `${groups
+    .slice(0, 4)
+    .map((g) => parseInt(g, 16).toString(16))
+    .join(':')}::/64`;
 }
 
 /** How long to wait after the `wrong`-th wrong code in a row (0 = free). */

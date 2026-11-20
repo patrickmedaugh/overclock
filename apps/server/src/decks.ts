@@ -91,6 +91,43 @@ function fail(error: DeckApiError, cors: Record<string, string>, retryAfterMs?: 
   return json(DECK_API_STATUS[error], body, cors);
 }
 
+/**
+ * The body as text, reading at most `max` bytes: a body without (or with a false) Content-Length is
+ * cut off as soon as it passes the limit instead of being held in memory whole (architect review).
+ * null = the body could not be read.
+ */
+export async function readCapped(req: Request, max: number): Promise<string | 'too_big' | null> {
+  if (!req.body) return '';
+  const reader = req.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > max) {
+        void reader.cancel().catch(() => undefined);
+        return 'too_big';
+      }
+      chunks.push(value);
+    }
+  } catch {
+    return null;
+  }
+  const all = new Uint8Array(size);
+  let at = 0;
+  for (const c of chunks) {
+    all.set(c, at);
+    at += c.byteLength;
+  }
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(all);
+  } catch {
+    return null;
+  }
+}
+
 /** Answers a request to DECKS_NEW_PATH / DECKS_SYNC_PATH (call only when `isDeckPath`). */
 export async function handleDecks(req: Request, cfg: DeckHttpConfig, svc: DeckServices): Promise<Response> {
   const kind = new URL(req.url).pathname === DECKS_NEW_PATH ? 'new' : 'sync';
@@ -102,12 +139,9 @@ export async function handleDecks(req: Request, cfg: DeckHttpConfig, svc: DeckSe
 
   const declared = Number(req.headers.get('Content-Length'));
   if (Number.isFinite(declared) && declared > MAX_DECK_UPLOAD_BYTES) return fail('too_big', cors);
-  let raw: string;
-  try {
-    raw = await req.text();
-  } catch {
-    return fail('bad_store', cors);
-  }
+  const raw = await readCapped(req, MAX_DECK_UPLOAD_BYTES);
+  if (raw === 'too_big') return fail('too_big', cors);
+  if (raw === null) return fail('bad_store', cors);
   const parsed = parseDeckRequest(kind, raw);
   const guard = svc.guard(guardKey(callerIp(req, cfg.testMode)));
 
