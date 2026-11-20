@@ -554,22 +554,23 @@ test.describe('QA S-13-5 pick your decks', () => {
     expect([...(await page.evaluate(() => window.__overclockStart!.gameOptions()))!.decks!.corp!.cards].sort()).toEqual(expected);
   });
 
-  test('Play online screens say "Online games use the standard decks for now." (readable, >= 10 px)', async ({ page }) => {
+  // Sprint 14 (S-14-3 AC6): the note is gone; the screens stay readable.
+  test('Play online screens no longer say "Online games use the standard decks for now." (readable, >= 10 px)', async ({ page }) => {
     const NOTE = 'Online games use the standard decks for now.';
     await openStart(page);
     await tapStart(page, /Play online/);
     test.skip((await screenName(page)) !== 'online', 'this build has no online service');
-    await expect(page.locator(START).getByText(NOTE)).toBeVisible();
+    await expect(page.locator(START).getByText(NOTE)).toHaveCount(0);
     await expectTextFloor(page);
     await expectTargets(page);
     await snap(page, 'online-note');
     await tapStart(page, /Start a game/);
-    await expect(page.locator(START).getByText(NOTE)).toBeVisible();
+    await expect(page.locator(START).getByText(NOTE)).toHaveCount(0);
     await expectTargets(page);
     await snap(page, 'online-pick-note');
     await tapStart(page, 'Back');
     await tapStart(page, /Join with code/);
-    await expect(page.locator(START).getByText(NOTE)).toBeVisible();
+    await expect(page.locator(START).getByText(NOTE)).toHaveCount(0);
     await snap(page, 'online-join-note');
   });
 });

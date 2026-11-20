@@ -146,18 +146,19 @@ test('Continue after the deck was edited and then deleted: the game goes on with
   expect(v.players.corp.hand).toEqual(before.players.corp.hand);
 });
 
-test('online games say "Online games use the standard decks for now."', async ({ page }) => {
+// Sprint 14 (S-14-3 AC6): online games use your own decks now, so the Sprint 13 note is gone.
+test('online screens no longer say "Online games use the standard decks for now."', async ({ page }) => {
   const NOTE = 'Online games use the standard decks for now.';
   await openStart(page);
   await tapStart(page, /Play online/);
   expect(await screenName(page)).toBe('online');
-  await expect(page.locator(START)).toContainText(NOTE);
+  await expect(page.locator(START)).not.toContainText(NOTE);
   await shot(page, 'online-note');
   await tapStart(page, /Start a game/);
-  await expect(page.locator(START)).toContainText(NOTE);
+  await expect(page.locator(START)).not.toContainText(NOTE);
   await tapStart(page, 'Back');
   await tapStart(page, /Join with code/);
-  await expect(page.locator(START)).toContainText(NOTE);
+  await expect(page.locator(START)).not.toContainText(NOTE);
 });
 
 test('New game after a game with your own decks: the picker opens with the same decks picked', async ({ page }) => {
