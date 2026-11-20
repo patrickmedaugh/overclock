@@ -133,6 +133,7 @@ export class Hand {
     card.back.visible = false;
     card.face.visible = true;
     this.lifted = card;
+    this.lastLean = 0;
     this.restack();
     return true;
   }
@@ -146,10 +147,14 @@ export class Hand {
   lean(angle: number): void {
     const card = this.lifted;
     if (!card) return;
+    this.lastLean = angle;
     this.ui.cancel(card.root);
     card.root.rotation = angle;
     if (angle !== 0) this.ui.add({ target: card.root, to: { rotation: 0 }, delay: 30, duration: 80, ease: ease.outCubic, owner: card.root });
   }
+
+  /** The lean the last finger move gave the lifted card (radians), before it eases back. */
+  lastLean = 0;
 
   /** How far the lifted card leans now (radians; 0 when none is lifted). */
   liftedRotation(): number {

@@ -372,6 +372,8 @@ export interface LayoutSnapshot {
     hover: { kind: TargetSnapshot['kind']; server?: string; lit: boolean } | null;
     /** S-15-1: how far it leans now (radians, + = its top leans right), 0 when straight. */
     rotation: number;
+    /** S-15-1: the lean the last finger move gave it (radians), before it eases back toward straight. */
+    lean: number;
   } | null;
   /**
    * S-05-2: what the ICE just did ("Enigma: you lost 1 click. Enigma ended your run."),

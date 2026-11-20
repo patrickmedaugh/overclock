@@ -2094,8 +2094,11 @@ export class Board {
     switch (a.at) {
       case 'hand':
         if (a.side === viewer) return this.cardAt(layout.handArea, card.width, card.height);
-        // The other player's hand: their name row at the top edge.
-        return this.cardAt({ ...layout.top.label, y: layout.top.label.y - layout.unit.height / 2 }, layout.unit.width, layout.unit.height);
+        {
+          // The other player's hand: their name row at the top edge (kept on screen).
+          const b = this.cardAt(layout.top.label, layout.unit.width, layout.unit.height);
+          return { ...b, y: Math.max(layout.insets.top, b.y) };
+        }
       case 'deck':
         return gen.decks[a.side].box();
       case 'discard':
@@ -4534,6 +4537,7 @@ export class Board {
           this.dropWait = null;
           hand.settle(RETURN_MS);
           this.callbacks.log({ kind: 'card_return', scheduledMs: RETURN_MS });
+          this.callbacks.log({ kind: 'hand_return', scheduledMs: RETURN_MS });
           this.callbacks.changed();
         }, DROP_WAIT_MS);
       }
@@ -4562,7 +4566,11 @@ export class Board {
     this.activeTargets[lift.hover]?.marker.setHover(false);
     this.lift = null;
     if (view) this.hands[view.viewer].settle(ms);
-    if (ms > 0) this.callbacks.log({ kind: 'card_return', scheduledMs: ms });
+    if (ms > 0) {
+      this.callbacks.log({ kind: 'card_return', scheduledMs: ms });
+      // S-15-1: it glides home (and straightens) instead of jumping.
+      this.callbacks.log({ kind: 'hand_return', scheduledMs: ms });
+    }
     this.showTargets();
     if (view) this.applyView(view, false);
   }
@@ -4587,6 +4595,7 @@ export class Board {
       cardId: lift.cardId,
       box,
       rotation: this.hands[view.viewer].liftedRotation(),
+      lean: this.hands[view.viewer].lastLean,
       hover: t ? { kind: t.kind, ...(t.server !== undefined ? { server: t.server } : {}), lit: t.option.reject === null } : null,
     };
   }
