@@ -41,7 +41,9 @@ if (/Turn your phone sideways/.test(index)) problems.push('index.html: contains 
 
 const noUrls = [join(root, 'index.html'), ...files.filter((p) => /\.css$/.test(p) || /manifest\.webmanifest$/.test(p))];
 for (const f of noUrls) {
-  const m = text(f).match(/https?:\/\/[^\s"'<>)]*/);
+  // The CSP meta is checked exactly below (Sprint 14: it names the deck service's https:// origin).
+  const body = text(f).replace(/<meta http-equiv="Content-Security-Policy" content="[^"]*"\s*\/?>/, '');
+  const m = body.match(/https?:\/\/[^\s"'<>)]*/);
   if (m) problems.push(`${rel(f)}: loads from the internet (${m[0]})`);
   if (/\.css$/.test(f) && /#rotate\b/.test(text(f))) problems.push(`${rel(f)}: contains the rotate prompt (#rotate)`);
 }
