@@ -161,6 +161,30 @@ test.describe('S-15-6 hold a card to play it', () => {
     expect((await anims(page)).some((a) => a.kind === 'card_lift')).toBe(false);
   });
 
+  test('QA-S15-2: a quick flick handed over only after the hold timer lifted the card (busy page) is undone: it browses, nothing is played', async ({ page }) => {
+    test.skip(test.info().project.use.hasTouch !== true, 'touch (event times made in the past)');
+    await openBoard(page, 4);
+    const before = await getView(page);
+    const open = await openHand(page, 4); // Hedge Fund: its lit place is the whole table
+    const c = center(open.handView!.centre);
+    const cdp = await page.context().newCDPSession(page);
+    const t0 = Date.now();
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [c], timestamp: t0 / 1000 });
+    // The browser hands the flick over late: the timer has lifted the card by then.
+    await page.waitForFunction(() => window.__overclock!.layout().drag !== null);
+    // The flick itself was made 70-110 ms after the finger went down, let go at 120 ms, over the table.
+    for (let k = 1; k <= 5; k++) await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: c.x - 25 * k, y: c.y }], timestamp: (t0 + 60 + 10 * k) / 1000 });
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [], timestamp: (t0 + 120) / 1000 });
+    await cdp.detach();
+    await page.waitForTimeout(400);
+    const l = await layout(page);
+    expect(l.drag, 'the lift is undone').toBeNull();
+    expect(l.targets).toEqual([]);
+    expect(l.handView?.index, 'it browsed (a flick to the left brings the next card)').toBe(5);
+    expect(await getView(page), 'nothing played or paid').toEqual(before);
+    expect((await anims(page)).some((a) => a.kind === 'play_flight' || a.kind === 'install_flight')).toBe(false);
+  });
+
   test('holding the big card still lifts it at 0.25 s: the view fades, the hand drops away, its places light', async ({ page }) => {
     await openBoard(page, 6);
     const v = await getView(page);

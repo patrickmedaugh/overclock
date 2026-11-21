@@ -156,6 +156,14 @@ function isUnder(c: Container | null, root: Container | null): boolean {
 const LATE_LIFT_MS = 50;
 
 /**
+ * QA-S15-2: after a stall, a late hold timer waits for a frame that starts within this long of the
+ * one before (the page has caught up, so the browser has handed over the moves and release it was
+ * holding back), for at most `CATCH_UP_FRAMES` frames.
+ */
+const CATCH_UP_GAP_MS = 100;
+const CATCH_UP_FRAMES = 6;
+
+/**
  * S-15-6 (U9): draw an arrow from the held card to the hovered place's price pill. Tried at the
  * owner's 891x296 and switched off (DECISIONS 2026-11-20, ui-dev): the strong highlight alone marks
  * the place. `arrowFor` and the drawing stay so it can be switched back on.
@@ -420,6 +428,13 @@ export class Board {
     start: number;
     swiped: boolean;
     timer: ReturnType<typeof setTimeout> | null;
+    /**
+     * QA-S15-2: the hold timer lifted the card and no move or release has yet shown, by its own
+     * event time, that the finger really stayed still for HOLD_MS (a busy page can hand over a
+     * quick flick's moves only after the timer ran). Such a lift is undone by a sideways move made
+     * before HOLD_MS (it was a swipe) or a release before HOLD_MS (a tap or a flick).
+     */
+    timerLift: boolean;
   } | null = null;
   /**
    * S-07-6 / S-15-6: the card held up (out of the hand view or straight from the strip), following
@@ -4257,18 +4272,37 @@ export class Board {
     const now = performance.now();
     const stamp = native instanceof Event ? native.timeStamp : now;
     const at = stamp > 0 && stamp <= now && now - stamp < 10_000 ? stamp : now;
-    const press = { id: e.pointerId, x, y, lastX: x, lastY: y, at, hit, start: zoom.index, swiped: false, timer: null as ReturnType<typeof setTimeout> | null };
+    const press = { id: e.pointerId, x, y, lastX: x, lastY: y, at, hit, start: zoom.index, swiped: false, timer: null as ReturnType<typeof setTimeout> | null, timerLift: false };
     // S-15-6: hold the big card still for HOLD_MS to lift it (judged by when the finger went down).
-    // A timer that runs late (the page stalled) waits one frame, so a release queued meanwhile is
-    // handled first (QA-S3-7).
+    // A timer that runs late (the page stalled) waits until the page has caught up (a frame that
+    // comes on time), so moves and a release queued meanwhile are handled first and judged by
+    // their own times (QA-S3-7, QA-S15-2).
     if (hit.kind === 'centre' && zoom.mode === 'hand') {
+      const lift = () => {
+        if (this.viewPress !== press || this.lift || press.swiped) return;
+        this.liftCentre();
+        if (this.lift) press.timerLift = true;
+      };
       press.timer = setTimeout(() => {
         press.timer = null;
         if (this.viewPress !== press) return;
-        if (performance.now() - press.at < HOLD_MS + LATE_LIFT_MS) this.liftCentre();
-        else requestAnimationFrame(() => {
-          if (this.viewPress === press) this.liftCentre();
-        });
+        const fired = performance.now();
+        if (fired - press.at < HOLD_MS + LATE_LIFT_MS) {
+          lift();
+          return;
+        }
+        let prev = fired;
+        let frames = 0;
+        const frame = () => {
+          if (this.viewPress !== press) return;
+          // When this frame's callbacks got to run (the frame's own time can be from before the stall).
+          const t = performance.now();
+          const caughtUp = t - prev < CATCH_UP_GAP_MS || ++frames >= CATCH_UP_FRAMES;
+          prev = t;
+          if (caughtUp) lift();
+          else requestAnimationFrame(frame);
+        };
+        requestAnimationFrame(frame);
       }, Math.max(0, HOLD_MS - (performance.now() - at)));
     }
     this.viewPress = press;
@@ -4301,6 +4335,18 @@ export class Board {
     const y = e.global.y;
     p.lastX = x;
     p.lastY = y;
+    if (this.lift && p.timerLift) {
+      // QA-S15-2: a timer lift is judged by this move's own time: a sideways move made before
+      // HOLD_MS was a swipe (the lift is undone and the view browses); a move at or after HOLD_MS,
+      // or leaving the circle upward, confirms the hold.
+      const native: unknown = e.nativeEvent;
+      const at = native instanceof Event && native.timeStamp > 0 ? native.timeStamp : performance.now();
+      const kind = classifyPress(x - p.x, y - p.y, at - p.at, false);
+      if (kind === 'swipe' && at - p.at < HOLD_MS) {
+        this.undoTimerLift();
+        p.swiped = true;
+      } else if (kind !== 'pending') p.timerLift = false;
+    }
     if (this.lift) {
       const native: unknown = e.nativeEvent;
       this.dragMove(x, y, native instanceof Event && native.timeStamp > 0 ? native.timeStamp : performance.now());
@@ -4324,12 +4370,30 @@ export class Board {
     }
     if (!p.swiped) return;
     // Swipe: the cards follow the finger sideways, one card per step.
+    const native: unknown = e.nativeEvent;
+    this.swipeTo(x - p.x, native instanceof Event ? native.timeStamp : performance.now(), p.start);
+  }
+
+  /** A swipe in the hand view `dx` px from where it started (card `start`): the card that far along comes to the middle. */
+  private swipeTo(dx: number, at: number, start = this.zoom?.index ?? 0): void {
+    const zoom = this.zoom;
+    if (!zoom?.view) return;
     const ids = this.viewIds();
-    const i = swipeIndex(p.start, x - p.x, Math.max(40, Math.round(zoom.width * 0.32)), ids.length);
+    const i = swipeIndex(start, dx, Math.max(40, Math.round(zoom.width * 0.32)), ids.length);
     const id = ids[i];
     if (id === undefined || i === zoom.index) return;
-    const native: unknown = e.nativeEvent;
-    this.swapZoom(id, this.viewStripBox(i), native instanceof Event ? native.timeStamp : performance.now(), i);
+    this.swapZoom(id, this.viewStripBox(i), at, i);
+  }
+
+  /** QA-S15-2 / QA-S3-7: a lift the late hold timer made is undone at once; the view stays as it was. */
+  private undoTimerLift(): void {
+    this.cancelLift(0);
+    const zoom = this.zoom;
+    if (zoom?.view) {
+      this.ui.cancel(zoom.root);
+      zoom.root.alpha = 1;
+    }
+    this.pressLift(false);
   }
 
   private onViewUp(e: FederatedPointerEvent, cancelled: boolean): void {
@@ -4348,15 +4412,18 @@ export class Board {
       // The page stalled and lifted the card, but the finger was down for less than the hold time
       // and never moved away: it was a tap on the big card (QA-S3-7: a tap is judged by its own
       // times). The lift is undone at once and the view stays, with the tip.
-      if (!cancelled && !p.swiped && classifyPress(e.global.x - p.x, e.global.y - p.y, upAt - p.at, true) === 'tap') {
-        this.cancelLift(0);
-        const zoom = this.zoom;
-        if (zoom?.view) {
-          this.ui.cancel(zoom.root);
-          zoom.root.alpha = 1;
-        }
-        this.pressLift(false);
+      const kind = classifyPress(e.global.x - p.x, e.global.y - p.y, upAt - p.at, true);
+      if (!cancelled && !p.swiped && kind === 'tap') {
+        this.undoTimerLift();
         this.showTip(upAt);
+        this.callbacks.changed();
+        return;
+      }
+      // QA-S15-2: lifted by the timer, let go before HOLD_MS after leaving the circle sideways (its
+      // moves came with the release): a quick flick. The lift is undone and the view browses.
+      if (!cancelled && p.timerLift && kind === 'swipe' && upAt - p.at < HOLD_MS) {
+        this.undoTimerLift();
+        this.swipeTo(e.global.x - p.x, upAt, p.start);
         this.callbacks.changed();
         return;
       }
