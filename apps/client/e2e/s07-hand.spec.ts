@@ -343,8 +343,9 @@ test.describe('S-07-6 hand: tap to open, long-press to light places, drag to pla
       expect(d.box.x).toBeGreaterThanOrEqual(-0.5);
       expect(d.box.x + d.box.width).toBeLessThanOrEqual(W + 0.5);
       expect(d.box.y).toBeGreaterThanOrEqual(-0.5);
-      // Right above the finger (same x), or beside it at most a card's width away near the top.
-      expect(Math.abs(center(d.box).x - p.x)).toBeLessThanOrEqual(d.box.width + 12);
+      // Right above the finger (same x), or beside it at most a card's width away near the top (plus
+      // `aside`: over a place it steps sideways off it so the place's price shows).
+      expect(Math.abs(center(d.box).x - d.aside - p.x)).toBeLessThanOrEqual(d.box.width + 12);
       expect(Math.abs(center(d.box).y - p.y)).toBeLessThanOrEqual(d.box.height + 12);
     }
     const moves = await page.evaluate(() => (window as unknown as { __dm: { at: number; drawn: number }[] }).__dm);

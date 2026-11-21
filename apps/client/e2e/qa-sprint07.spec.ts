@@ -494,7 +494,8 @@ test.describe('QA S-07-6 hand view and drag', () => {
         if (q.some((m) => m.drawn === null)) {
           const d = window.__overclock!.layout().drag;
           if (d) {
-            const cx = d.box.x + d.box.width / 2;
+            // `aside`: the card steps sideways off the hovered place (ui-dev, QA round 7 note); the finger rule is unchanged.
+            const cx = d.box.x + d.box.width / 2 - d.aside;
             const cy = d.box.y + d.box.height / 2;
             const now = performance.now();
             for (let k = q.length - 1; k >= 0; k--) {

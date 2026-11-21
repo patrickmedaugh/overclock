@@ -385,6 +385,11 @@ export interface LayoutSnapshot {
     rotation: number;
     /** S-15-1: the lean the last finger move gave it (radians), before it eases back toward straight. */
     lean: number;
+    /**
+     * S-15-6 (QA round 7 note): how far (px, + = right) it is moved sideways off the hovered place
+     * so that place's price and name show; `box` already includes it.
+     */
+    aside: number;
     /** S-15-6: picked up from the hand view or straight from the hand strip. */
     from: 'view' | 'strip';
     /** S-15-6: the card can't be played now: it is dimmed, nothing is lit and `reason` says why. */

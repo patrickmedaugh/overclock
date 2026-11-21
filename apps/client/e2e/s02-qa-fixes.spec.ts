@@ -92,18 +92,20 @@ test.describe('QA-S2-1 hints are readable and clear of the board', () => {
     test.skip(l0.viewport.height > 500, 'sideways phones only (the column layout has its own hint slot)');
     const help = l0.text.help;
     expect(help).not.toBe('');
-    // S-15-6: Neural EMP can't be played yet: held up, it lifts dimmed and says why; let go, it goes back.
+    // S-15-6: Neural EMP can't be played yet: held up, it lifts dimmed; let go, it goes back and says why
+    // (owner review 2026-11-21: the reason shows on letting go, not while held).
     const box = l0.hand[handIndexByName(l0, 'Neural EMP')]!.box;
     const start = center(box);
     const h = await holdAt(page, box);
     await dragTo(h, start, { x: start.x, y: box.y - box.height * 0.3 }, 3);
     await page.waitForFunction(() => window.__overclock!.layout().drag?.dimmed === true);
+    await dragTo(h, { x: start.x, y: box.y - box.height * 0.3 }, start, 2);
+    await h.release();
+    await page.waitForFunction(() => window.__overclock!.layout().hint !== null);
     const l = await layout(page);
     expect((await anims(page)).find((a) => a.kind === 'hint')?.text).toBe('Only after the Runner made a run');
     expect(l.hint?.text).toBe('Only after the Runner made a run');
     expect(l.labels).not.toContain(help);
-    await dragTo(h, { x: start.x, y: box.y - box.height * 0.3 }, start, 2);
-    await h.release();
     // Back once the hint has faded (about 1.4s).
     await page.waitForFunction((t) => window.__overclock!.layout().hint === null && window.__overclock!.layout().labels.includes(t), help, { timeout: 3000 });
   });

@@ -18,7 +18,7 @@ import { framesAreSlow } from './frameClock';
 import { Cover } from './cover';
 import { centeredBox, clearOf, freeRect } from './geometry';
 import { Hand, type HandCard } from './hand';
-import { DROP_WAIT_MS, HAND_BACK_DELAY_MS, HOLD_MS, MINIMIZE_MS, PRESS_MS, PRESS_RISE, PRESS_SCALE, RETURN_MS, SWIPE_TOLERANCE, type Segment, TIP_MS, VIEW_FADE_MS, type ViewHit, arrowFor, classifyPress, heldCenter, heldScale, leanAngle, swipeIndex, targetAt, viewHit } from './handGesture';
+import { DROP_WAIT_MS, HAND_BACK_DELAY_MS, HOLD_MS, MINIMIZE_MS, PRESS_MS, PRESS_RISE, PRESS_SCALE, RETURN_MS, SWIPE_TOLERANCE, type Segment, TIP_MS, VIEW_FADE_MS, type ViewHit, ASIDE_MS, arrowFor, classifyPress, heldAside, heldCenter, heldScale, leanAngle, swipeIndex, targetAt, viewHit } from './handGesture';
 import type { AnimRecord, Box, EndTurnClock, InstalledSnapshot, Insets, LayoutSnapshot, SideLayout, TargetSnapshot } from './hook-types';
 import { type Anchor, type Flight, type FlightKind, MOTION, planMotion } from './motion';
 /** S-15-3: the score counter ticks up, then a short glow (ms). */
@@ -458,6 +458,11 @@ export class Board {
     arrow: Segment | null;
     /** S-15-6 (owner review): how many times a hand card's size the held card is drawn. */
     scale: number;
+    /**
+     * S-15-6 (QA round 7 note): how far (px, sideways) the held card is moved off the hovered place
+     * so its price and name stay readable (`x`, eased toward `to`).
+     */
+    aside: { x: number; to: number };
   } | null = null;
   /** S-15-6 (owner review): the hand view fades back in after the put-back card's glide (a tap finishes it). */
   private viewReturn: Container | null = null;
@@ -4457,11 +4462,25 @@ export class Board {
       return;
     }
     if (cancelled || p.swiped) return;
-    // Held long enough to lift but the page was too busy to show it: a hold is never a tap.
-    if (p.hit.kind === 'centre' && upAt - p.at >= HOLD_MS) return;
     const zoom = this.zoom;
     const view = this.view;
     if (!zoom?.view || !view) return;
+    // Held long enough to lift but the page was too busy to show it: a hold is never a tap (never
+    // toggles, plays or opens anything). QA-S15-4: a still press on the hand view's big card still
+    // answers, as a lifted-and-let-go card would: a card that can't be played says why; otherwise
+    // the "Drag it to a lit place" tip.
+    if (p.hit.kind === 'centre' && upAt - p.at >= HOLD_MS) {
+      if (zoom.mode === 'hand') {
+        const refused = this.refusePick(zoom.index);
+        if (refused !== null) {
+          // As a dimmed card let go: the view closes so the reason shows with the board in view.
+          this.closeZoom(true);
+          this.showHint(refused || "Can't play it now");
+        } else this.showTip(upAt, DRAG_TIP);
+        this.callbacks.changed();
+      }
+      return;
+    }
     // S-10-5: the discard view's Confirm (pressed and let go on it).
     const cb = zoom.confirm?.box;
     if (cb && inBox(cb, p.x, p.y) && inBox(cb, e.global.x, e.global.y)) {
@@ -4615,7 +4634,7 @@ export class Board {
     this.finishHandReturn();
     const scale = heldScale(layout.card.height, layout.zoom.height, layout.viewport.height);
     if (!hand.lift(index, dimmed, scale)) return;
-    this.lift = { index, cardId, hover: -1, boxes: [], lastX: x, lastAt: NaN, from, dimmed, reason: refused ?? '', arrow: null, scale };
+    this.lift = { index, cardId, hover: -1, boxes: [], lastX: x, lastAt: NaN, from, dimmed, reason: refused ?? '', arrow: null, scale, aside: { x: 0, to: 0 } };
     this.showTargets();
     this.lift.boxes = this.activeTargets.map((t) => t.marker.box);
     // The strip drops away so the whole table shows; Modded's places are cards in the strip: it stays.
@@ -4683,9 +4702,10 @@ export class Board {
     const view = this.view;
     if (!lift || !layout || !view) return;
     const c = layout.card;
-    heldCenter(x, y, c.width * lift.scale, c.height * lift.scale, layout.viewport.width, layout.viewport.height, this.ghostAt);
+    const w = c.width * lift.scale;
+    const h = c.height * lift.scale;
+    heldCenter(x, y, w, h, layout.viewport.width, layout.viewport.height, this.ghostAt);
     const hand = this.hands[view.viewer];
-    hand.dragTo(this.ghostAt.x, this.ghostAt.y);
     if (at !== undefined) {
       const dt = at - lift.lastAt;
       // Decorative: off where drawing frames is slow (S-05-3 rule).
@@ -4699,6 +4719,21 @@ export class Board {
       this.activeTargets[hover]?.marker.setHover(true);
       lift.hover = hover;
     }
+    // QA round 7 note: over a place, the card steps aside so the place's price and name show (not
+    // for the one-shot "table" place: its price is in its middle, well clear of the card).
+    const t = this.activeTargets[hover];
+    const over = t && !(t.kind === 'play' && t.server === undefined) ? lift.boxes[hover] : undefined;
+    const to = over ? heldAside(this.ghostAt.x, this.ghostAt.y, w, h, over, layout.viewport.width) : 0;
+    const aside = lift.aside;
+    if (to !== aside.to) {
+      aside.to = to;
+      this.ui.cancel(aside);
+      // Eased where frames are quick; at once where drawing is slow (QA-S15-3: extra frames for a
+      // glide there make the next finger move wait for them).
+      if (framesAreSlow()) aside.x = to;
+      else this.ui.add({ target: aside, to: { x: to }, duration: ASIDE_MS, ease: ease.outCubic, onUpdate: () => this.placeHeld() });
+    }
+    this.placeHeld();
     this.updateArrow();
     if (this.callbacks.redraw) this.callbacks.redraw();
     else this.callbacks.changed();
@@ -4812,10 +4847,19 @@ export class Board {
   }
 
   /** The lifted card goes home over `ms`; its places go dark and the hand comes back up. */
+  /** The held card's spot: above the finger (`ghostAt`), moved aside off the hovered place. */
+  private placeHeld(): void {
+    const lift = this.lift;
+    const view = this.view;
+    if (!lift || !view) return;
+    this.hands[view.viewer].dragTo(this.ghostAt.x + lift.aside.x, this.ghostAt.y);
+  }
+
   private cancelLift(ms: number): void {
     const lift = this.lift;
     const view = this.view;
     if (!lift) return;
+    this.ui.cancel(lift.aside);
     this.activeTargets[lift.hover]?.marker.setHover(false);
     this.lift = null;
     this.updateArrow();
@@ -4873,6 +4917,7 @@ export class Board {
       box,
       rotation: this.hands[view.viewer].liftedRotation(),
       lean: this.hands[view.viewer].lastLean,
+      aside: lift.aside.x,
       hover: t ? { kind: t.kind, ...(t.server !== undefined ? { server: t.server } : {}), lit: t.option.reject === null } : null,
       from: lift.from,
       dimmed: lift.dimmed,

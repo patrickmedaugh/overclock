@@ -224,6 +224,30 @@ export function heldCenter(x: number, y: number, w: number, h: number, vw: numbe
   return out;
 }
 
+/** How long the held card takes to slide aside of (or back over) a hovered place (input feedback). */
+export const ASIDE_MS = 90;
+
+/**
+ * S-15-6 (QA round 7 note, 2026-11-21): the big held card (centre cx/cy, drawn w x h) slides
+ * sideways off the place under the finger (`over`), so that place's price and name stay readable
+ * while it is hovered. It goes toward the screen centre (the other way if there is no room), a
+ * small gap clear of the place; returns how far to move it (px; 0 when it already does not overlap
+ * the place, or the place is too wide for the card to fit beside it on screen).
+ */
+export function heldAside(cx: number, cy: number, w: number, h: number, over: Box, vw: number): number {
+  const overlaps = cx + w / 2 > over.x && cx - w / 2 < over.x + over.width && cy + h / 2 > over.y && cy - h / 2 < over.y + over.height;
+  if (!overlaps) return 0;
+  const gap = 4;
+  const right = over.x + over.width + gap + w / 2;
+  const left = over.x - gap - w / 2;
+  const fitsRight = right + w / 2 <= vw;
+  const fitsLeft = left - w / 2 >= 0;
+  const preferRight = over.x + over.width / 2 < vw / 2;
+  if (preferRight ? fitsRight : !fitsLeft && fitsRight) return right - cx;
+  if (fitsLeft) return left - cx;
+  return 0;
+}
+
 /**
  * S-15-6 (owner review 2026-11-21: "show the card fly back and then the hand after a slight
  * delay"): after a drop or a put-back the hand strip (and the hand view) waits this long before it

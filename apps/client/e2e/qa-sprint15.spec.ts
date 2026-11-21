@@ -1326,7 +1326,8 @@ test.describe('QA S-15-6 hold a card to play it', () => {
         const d = window.__overclock!.layout().drag;
         if (d === null) return false;
         const covers = q.x >= d.box.x && q.x <= d.box.x + d.box.width && q.y >= d.box.y && q.y <= d.box.y + d.box.height;
-        const cx = d.box.x + d.box.width / 2;
+        // `aside` (ui-dev, round 7 note): over a place the card steps sideways off it.
+        const cx = d.box.x + d.box.width / 2 - d.aside;
         const cy = d.box.y + d.box.height / 2;
         return !covers && Math.abs(cx - q.x) <= d.box.width + 12 && Math.abs(cy - q.y) <= d.box.height + 12;
       }, p, { timeout: 3000 });
@@ -2535,6 +2536,8 @@ test.describe('QA S-15-6 round 7: owner steps 1-9 on real input', () => {
   }
 
   test('step 2: clicks / presses held 300 and 400 ms still on the big card never play it, whatever is under it', async ({ page }) => {
+    // 10 presses with the view opened and closed each time: ~25-30 s on a 4x slowed page (the default 30 s ran out once).
+    test.setTimeout(90_000);
     await openBoard(page, 6);
     const before = await getView(page);
     const h = await human(page);
@@ -2553,10 +2556,9 @@ test.describe('QA S-15-6 round 7: owner steps 1-9 on real input', () => {
         const recs = await anims(page);
         const tips = recs.filter((a) => a.kind === 'hold_tip').map((a) => a.text);
         test.info().annotations.push({ type: 'r7-held-click', description: `card ${i}, ${ms} ms: ${recs.map((a) => a.kind + (a.text ? `(${a.text})` : '')).join(',')}` });
-        // QA-S15-4 (low, open): on a slow page a still press of 0.25-0.45 s that the page could not lift in time shows
-        // nothing at all (no lift, no tip): recorded, not failed here (the hard check is "never played", above).
-        if (tips.length === 0 && !recs.some((a) => a.kind === 'card_lift')) test.info().annotations.push({ type: 'QA-S15-4', description: `card ${i}, ${ms} ms: no lift and no tip` });
-        else expect(tips.length, 'a tip showed').toBeGreaterThan(0);
+        // QA-S15-4 (fixed by ui-dev 2026-11-21): even on a slow page that could not lift the card in time, a still
+        // press always answers with a tip (never nothing).
+        expect(tips.length, 'a tip showed').toBeGreaterThan(0);
         for (const t of tips) expect(['Hold to play', 'Drag it to a lit place']).toContain(t);
         // Close the view: tap the top-left corner.
         await press(page, h, center(outsideHandView(l)), 80, false);

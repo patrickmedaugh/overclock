@@ -55,6 +55,8 @@ test.describe('S-15-2 played cards fly to the board and land', () => {
     // Touch moves are delivered with the next frame (Chrome aligns them), so the hover can show
     // before the last move lands: wait two frames so `dropped` is where the finger let go.
     await page.evaluate(() => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))));
+    // Over the place the card steps aside off it (about 0.1 s): measure once it has settled.
+    await page.waitForTimeout(200);
     const dropped = (await layout(page)).drag!.box;
     await hold(page);
     await page.evaluate(() => window.__overclock!.clearAnims());

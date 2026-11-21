@@ -1,7 +1,7 @@
 // S-07-6: the hand view's gestures (what a press is on, swipe to browse,
 // which lit place a dragged card is over, where the lifted card is drawn).
 import { describe, expect, it } from 'vitest';
-import { HAND_BACK_DELAY_MS, HOLD_MS, LIFT_MS, MINIMIZE_MS, RETURN_MS, STRIP_UP_RATIO, VIEW_FADE_MS, arrowFor, classifyPress, ghostCenter, heldCenter, heldScale, isUpward, segmentHitsBox, stripPickUp, swipeIndex, targetAt, viewHit } from '../src/handGesture';
+import { HAND_BACK_DELAY_MS, HOLD_MS, LIFT_MS, MINIMIZE_MS, RETURN_MS, STRIP_UP_RATIO, VIEW_FADE_MS, arrowFor, classifyPress, ghostCenter, heldAside, heldCenter, heldScale, isUpward, segmentHitsBox, stripPickUp, swipeIndex, targetAt, viewHit } from '../src/handGesture';
 
 const box = (x: number, y: number, width: number, height: number) => ({ x, y, width, height });
 
@@ -234,5 +234,36 @@ describe('arrowFor (S-15-6: an arrow only where it helps)', () => {
     expect(segmentHitsBox(0, 0, 10, 0, box(4, 4, 2, 2))).toBe(false);
     expect(segmentHitsBox(0, 5, 3, 5, box(4, 4, 2, 2))).toBe(false);
     expect(segmentHitsBox(5, 0, 5, 10, box(4, 4, 2, 2))).toBe(true);
+  });
+});
+
+describe('heldAside (QA round 7 note: the hovered place\'s price and name stay readable)', () => {
+  const W = 89;
+  const H = 124;
+  const overlapX = (cx: number, b: { x: number; width: number }) => cx + W / 2 > b.x && cx - W / 2 < b.x + b.width;
+  it('moves the card off a place on the left side toward the screen centre (right)', () => {
+    const hq = box(0, 80, 60, 150);
+    const c = heldCenter(30, 210, W, H, 891, 296);
+    const dx = heldAside(c.x, c.y, W, H, hq, 891);
+    expect(dx).toBeGreaterThan(0);
+    expect(overlapX(c.x + dx, hq)).toBe(false);
+    expect(c.x + dx + W / 2).toBeLessThanOrEqual(891);
+  });
+  it('moves it left off a place on the right half', () => {
+    const p = box(600, 80, 60, 150);
+    const c = heldCenter(630, 210, W, H, 891, 296);
+    const dx = heldAside(c.x, c.y, W, H, p, 891);
+    expect(dx).toBeLessThan(0);
+    expect(overlapX(c.x + dx, p)).toBe(false);
+  });
+  it('goes the other way when there is no room toward the centre', () => {
+    const p = box(380, 80, 60, 150);
+    // Toward the centre would be right (place left of 445), but a narrow screen leaves no room there.
+    const dx = heldAside(410, 100, W, H, p, 520);
+    expect(410 + dx + W / 2).toBeLessThanOrEqual(380);
+  });
+  it('stays put when it does not overlap the place, or the place is too wide to step off', () => {
+    expect(heldAside(400, 60, W, H, box(0, 200, 60, 90), 891)).toBe(0);
+    expect(heldAside(400, 100, W, H, box(20, 80, 850, 150), 891)).toBe(0);
   });
 });
