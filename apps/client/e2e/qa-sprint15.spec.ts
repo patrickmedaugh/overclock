@@ -1016,7 +1016,10 @@ async function slide(f: Finger, to: Pt, steps = 4): Promise<void> {
 }
 
 interface QaFrame {
+  /** The frame's own time (rAF stamp: when the frame began, which can be before work done earlier in that frame's task). */
   t: number;
+  /** When QA's callback read the state for this frame (performance.now()): the state drawn was made by then. */
+  now: number;
   drag: boolean;
   dimmed: boolean;
   targets: number;
@@ -1054,6 +1057,7 @@ async function qaWatch(page: Page): Promise<void> {
       const l = window.__overclock!.layout();
       q.frames.push({
         t,
+        now: performance.now(),
         drag: l.drag !== null,
         dimmed: l.drag?.dimmed ?? false,
         targets: l.targets.length,
@@ -1295,7 +1299,19 @@ test.describe('QA S-15-6 hold a card to play it', () => {
     test.info().annotations.push({ type: 'lift-after-down-ms', description: (lift.startedAt - down).toFixed(1) });
     expect(lift.startedAt - down).toBeGreaterThanOrEqual(245);
     expect(lift.startedAt).toBeLessThanOrEqual(due);
-    expect(log0.frames.filter((fr) => fr.t < down + 245).some((fr) => fr.drag), 'nothing held before 0.25 s').toBe(false);
+    // Round 5: judged by when each frame's state was read, not by the frame's rAF stamp. The rAF stamp is
+    // when the frame began; if the hold timer lifts the card just after that (in a task before the frame's
+    // callbacks run), the frame shows the card held yet carries a stamp from before the lift (a test race
+    // seen once on [phone]). The 0.25 s rule itself is unchanged: the lift happens >= 245 ms after the down
+    // (above) and no frame read before then shows a held card.
+    const heldFrames = log0.frames.filter((fr) => fr.drag);
+    const stampedEarly = heldFrames.filter((fr) => fr.t < down + 245);
+    test.info().annotations.push({
+      type: 'first-held-frame',
+      description: JSON.stringify({ stampMs: heldFrames[0] ? +(heldFrames[0].t - down).toFixed(1) : null, readMs: heldFrames[0] ? +(heldFrames[0].now - down).toFixed(1) : null, liftMs: +(lift.startedAt - down).toFixed(1), stampedBefore245: stampedEarly.length }),
+    });
+    expect(heldFrames.every((fr) => fr.now >= lift.startedAt), 'every held frame was read after the lift').toBe(true);
+    expect(log0.frames.filter((fr) => fr.now < down + 245).some((fr) => fr.drag), 'nothing held before 0.25 s').toBe(false);
     // Follows the finger: three spots on the table, the card is drawn under the finger each time.
     const l1 = await layout(page);
     for (const p of [{ x: l1.viewport.width * 0.3, y: l1.viewport.height * 0.4 }, { x: l1.viewport.width * 0.6, y: l1.viewport.height * 0.3 }, { x: l1.viewport.width * 0.45, y: l1.viewport.height * 0.55 }]) {
@@ -2083,5 +2099,110 @@ test.describe('QA S-15-6 round 4: QA-S15-2 fix on busy pages', () => {
     // Whatever the gesture became, a bad stamp must never play the card by itself.
     expect(await getView(page)).toEqual(before);
     await cdp.detach();
+  });
+});
+
+// QA round 5 (strip follow-up of QA-S15-2, written by QA): on the small hand strip, a reading hold
+// (hold-to-read, 0.35 s) that the busy page opens late, then a quick flick made before the hold time
+// that rises sideways out of the strip. The flick's moves reach the game only after the late hold
+// opened (as when the page runs the late timer before the queued moves), each stamped with when it
+// was made. By its own time it was a flick: it must never pick a card up and never play anything.
+// A genuine upward pull (late-opened hold or an on-time one) must still pick the card up.
+test.describe('QA S-15-6 round 5: strip follow-up (QA-S15-2 on the small hand)', () => {
+  const STRIP_CARD = 3; // Ice Wall (playable: a pick-up would light places)
+  /** Finger down on strip card `i` stamped now, the page stalls `ms`, and the hold-to-read opens late. */
+  async function lateReadHold(page: Page, i: number, ms: number): Promise<{ cdp: CDPSession; t0: number; c: Pt; l0: LayoutSnapshot; openedMs: number }> {
+    const l0 = await waitIdle(page);
+    const c = center(l0.hand[i]!.box);
+    await qaWatch(page);
+    await page.evaluate(() => window.__overclock!.clearAnims());
+    const { cdp, t0 } = await stampedDown(page, c);
+    await busy(page, { frames: 1, ms });
+    await page.waitForFunction(() => window.__overclock!.layout().zoom !== null, undefined, { timeout: ms + 4000 });
+    const openedMs = Date.now() - t0;
+    return { cdp, t0, c, l0, openedMs };
+  }
+  const flicks = [
+    { name: 'rising 30° left', sx: -1, deg: 30 },
+    { name: 'rising 30° right', sx: 1, deg: 30 },
+    { name: 'rising 45° left (just outside the 40° pick-up cone)', sx: -1, deg: 45 },
+  ];
+  for (const fl of flicks) {
+    test(`strip: a late-opened reading hold, then a quick flick ${fl.name} out of the strip (made before the hold time): no pick-up, nothing played`, async ({ page }) => {
+      await openBoard(page, 4);
+      const before = await getView(page);
+      const { cdp, t0, c, l0, openedMs } = await lateReadHold(page, STRIP_CARD, 700);
+      // Rise to well above the "pulled out while reading" line (STRIP_PULL = 0.15 of a card above the strip).
+      const h = l0.hand[STRIP_CARD]!.box.height;
+      const rise = c.y - (l0.handArea.y - 0.15 * h) + 0.3 * h;
+      const run = rise / Math.tan((fl.deg * Math.PI) / 180);
+      const moves = [1, 2, 3, 4, 5].map((k) => ({ p: { x: c.x + (fl.sx * run * k) / 5, y: c.y - (rise * k) / 5 }, t: t0 + 60 + 10 * k }));
+      await stampedGesture(page, c, moves, t0 + 120, cdp);
+      await page.waitForTimeout(1200);
+      const recs = await anims(page);
+      const log = await qaLog(page);
+      const d0 = log.downs.at(-1)!;
+      const held = log.frames.filter((fr) => fr.drag || fr.targets > 0 || fr.minimized);
+      const l = await waitIdle(page);
+      test.info().annotations.push({
+        type: 'r5-strip-flick',
+        description: JSON.stringify({ holdOpenedMs: openedMs, moves: log.moves.map((m) => [Math.round(m.at - d0), Math.round(m.handled - d0), Math.round(m.x), Math.round(m.y)]), stripTop: Math.round(l0.handArea.y), kinds: recs.map((a) => a.kind) }),
+      });
+      expect(openedMs, 'the reading hold opened late (after the flick was made)').toBeGreaterThan(400);
+      expect.soft(recs.some((a) => a.kind === 'card_lift'), 'never picked up').toBe(false);
+      expect.soft(held.length, 'no frame shows a held card, lit place or dropped hand').toBe(0);
+      expect.soft(await getView(page), 'nothing played or paid').toEqual(before);
+      expect.soft(l.drag, 'nothing held at the end').toBeNull();
+      // (A strip hold opens the hand view, which stays open after the release by design: not checked here.)
+      expect.soft(l.hand.length).toBe(l0.hand.length);
+      if (fl === flicks[0]) await snap3(page, 's15-6-r5-strip-flick-no-pickup');
+      await cdp.detach();
+    });
+  }
+
+  test('strip: a late-opened reading hold whose first move out (made before the hold time) is straight up still picks the card up; let go off every place, nothing played', async ({ page }) => {
+    await openBoard(page, 4);
+    const before = await getView(page);
+    const { cdp, t0, c, l0, openedMs } = await lateReadHold(page, STRIP_CARD, 700);
+    const h = l0.hand[STRIP_CARD]!.box.height;
+    const moves = [1, 2, 3].map((k) => ({ p: { x: c.x + k, y: c.y - 0.3 * h * k }, t: t0 + 60 + 15 * k }));
+    await stampedGesture(page, c, moves, null, cdp);
+    await waitDrag(page);
+    const l = await layout(page);
+    test.info().annotations.push({ type: 'r5-strip-pull', description: JSON.stringify({ holdOpenedMs: openedMs, from: l.drag!.from, cardId: l.drag!.cardId }) });
+    expect(openedMs).toBeGreaterThan(400);
+    expect(l.drag!.index, 'the pressed card is the one picked up').toBe(STRIP_CARD);
+    expect(l.drag!.cardId).toBe(l0.hand[STRIP_CARD]!.cardId);
+    expect(l.targets.some((t) => t.lit), 'its places light').toBe(true);
+    await snap3(page, 's15-6-r5-strip-late-pull-up');
+    const off = offPlace(l);
+    const f2: Finger = { at: moves.at(-1)!.p, down: async () => undefined, move: async (p) => void (await cdp.send(touchProject() ? 'Input.dispatchTouchEvent' : 'Input.dispatchMouseEvent', touchProject() ? { type: 'touchMove', touchPoints: [p] } : { type: 'mouseMoved', x: p.x, y: p.y, button: 'left', buttons: 1 })), up: async () => undefined, cancel: async () => undefined };
+    await slide(f2, off, 3);
+    if (touchProject()) await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    else await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: off.x, y: off.y, button: 'left', buttons: 0, clickCount: 1 });
+    await waitBack(page);
+    expect(await getView(page), 'nothing played or paid').toEqual(before);
+    await cdp.detach();
+  });
+
+  test('strip: an on-time reading hold, then pulled up out of the strip, picks up the card being read (unchanged)', async ({ page }) => {
+    await openBoard(page, 4);
+    const before = await getView(page);
+    const l0 = await waitIdle(page);
+    const c = center(l0.hand[STRIP_CARD]!.box);
+    const f = await qaFinger(page);
+    await f.down(c);
+    await page.waitForFunction(() => window.__overclock!.layout().zoom !== null);
+    await page.waitForTimeout(150);
+    const h = l0.hand[STRIP_CARD]!.box.height;
+    await slide(f, { x: c.x + 0.6 * h, y: l0.handArea.y - 0.6 * h }, 4);
+    await waitDrag(page);
+    const l = await layout(page);
+    expect(l.drag!.cardId, 'the card being read is picked up').toBe(l0.hand[l.drag!.index]!.cardId);
+    expect(l.targets.some((t) => t.lit)).toBe(true);
+    await slide(f, offPlace(l), 3);
+    await f.up();
+    await waitBack(page);
+    expect(await getView(page), 'nothing played or paid').toEqual(before);
   });
 });

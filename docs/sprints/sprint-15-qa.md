@@ -295,3 +295,72 @@ This is the bound the architect accepted: input is never blocked meanwhile, and 
 | S-15-6 Hold a card to play it | **PASSED QA: 12/12** (AC9 on intent; wording question for the PM/owner) |
 
 **Bugs open: none.** QA-S15-2: **fixed, verified.** Owner checks: as in round 3, plus quick flicks on the owner's phone, and how fast a still hold feels while the game is busy (observation above).
+
+## Round 5 (2026-11-21, product code 02aad8c: AC12 texture cap + strip follow-up of QA-S15-2)
+
+QA did not write either change. Checked: ui-dev's texture cap (`apps/client/src/gpuLimits.ts`, `main.ts`; d18222f's CI failed QA's AC12 test on desktop with long tasks of 602 / 633 ms), the strip follow-up (`input.ts`, merged in 5873ed1) and the comment clean-ups (`hand.ts`, `layout.ts`), and ui-dev's report that QA's AC2 test failed once on [phone].
+
+**Result: the AC12 fix works and the strip fix works, but the texture cap makes dragging a card jerky on the 640×360 and 844×390 screens (new bug QA-S15-3). CI on 02aad8c is red for this reason only. S-15-6 stays PASSED QA (its 12 criteria all pass). S-15-4 ("never slower than today") is FAILED until QA-S15-3 is fixed.**
+
+### Bug QA-S15-3 (ui-dev; blocks a green CI and S-15-4): with the texture cap, dragging a card stutters on phone sizes
+- **What the player would see:** while a card is dragged across the board, every few moves it lags behind the finger by 0.1–0.17 s instead of under 0.035 s.
+- **Failing test:** `apps/client/e2e/qa-sprint07.spec.ts:471` "drag latency (QA measure): a fast continuous drag, each move drawn under the finger in < 100 ms" (rule: every finger move is drawn under the finger within 0.1 s).
+- **CI, 02aad8c, PR #34 run 44898452920:** failed on **both tries** in shard 1/4 [phone] (118 ms) and shard 2/4 [phone-small] (105 ms). In earlier rounds this test sometimes failed once and passed on its retry; now it fails both times.
+- **Repro (local, `apps/client`):** `npx playwright test e2e/qa-sprint07.spec.ts -g "drag latency" --project=phone-small --repeat-each=5 --retries=0`
+  - 02aad8c as is (cap 4): **4 of 5 failed**, slowest move drawn after 124 / 149 / 156 / 170 ms (one pass at 86). The slow moves keep coming back through the drag (many 65–170 ms gaps), so it is not a one-time start-up cost.
+  - Same code, only the `capBatchTextures()` call in `main.ts` commented out: **5/5 passed**, slowest 33–36 ms. [phone] passes 5/5 either way here (max 32–35 ms); on CI it failed.
+  - Hint for ui-dev (not a fix decision): with `MAX_BATCH_TEXTURES = 8` the same drag test passed 5/5 (slowest 33–35 ms) and QA's AC12 test passed 3/3 on desktop (longest task 195–220 ms). Measured once each, on this runner only.
+- Product code was not changed by QA. Both trial edits were put back (`git status` clean for `src/`).
+
+### (a) AC12 with the texture cap (QA's test `qa-sprint15.spec.ts` "AC12: the card reacts…", `--retries=0`)
+| Run | Result | Longest task (limit 600 ms) | Lift after the finger went down |
+|---|---|---|---|
+| 4 sizes × 3, 2 workers | **12/12 passed** | 891x296 115 ms · 844x390 135 ms · 640x360 112 ms · 1280x800 **168 ms** | 253–263 ms |
+| 6× CPU throttle, 1 worker, 4 sizes × 2 (with AC2 still hold, 16 tests) | **16/16 passed** | 891x296 172 ms · 844x390 247 ms · 640x360 194 ms · 1280x800 **283 ms** | AC12 279–470 ms, AC2 275–495 ms |
+| Full `qa-sprint15.spec.ts`, 4 sizes (below) | passed | 1280x800 140 ms, phones 101–124 ms | — |
+
+Compared with round 4: the longest task at 6× was up to 516 ms; now 283 ms. CI on 02aad8c: AC12 passed at all 4 sizes (shards 1–4).
+
+### (b) Strip follow-up of QA-S15-2 (QA's new tests, describe "QA S-15-6 round 5: strip follow-up (QA-S15-2 on the small hand)", 5 tests × 4 sizes)
+Setup for each test: the finger goes down on Ice Wall in the small hand (stamped with the time). The page then stalls for 0.7 s, so the hold-to-read (0.35 s) opens late, about 1 s after the down. Only then do the finger's moves reach the game, each stamped with the time it was really made (70–110 ms after the down), as when a busy phone runs its late timer before the queued moves.
+| Test | Checks |
+|---|---|
+| quick flick rising 30° left / rising 30° right / rising 45° left (just outside the 40° pick-up cone), ending well above the strip's "pulled out while reading" line | the hold really opened late (> 0.4 s); **no `card_lift` at all; no drawn frame with a held card, a lit place or the hand dropped; whole game view unchanged (nothing played or paid)**; nothing held at the end; hand size unchanged |
+| late-opened hold whose first move out is straight up | **still picks up** the pressed card (index and id), its places light; let go away from every place: nothing played |
+| on-time hold-to-read, then pulled up out of the strip | picks up the card being read (unchanged behaviour); let go away from every place: nothing played |
+
+- **Current code (02aad8c): 4 sizes × 3 = 60/60 passed. At 6× throttle (1 worker): 20/20 passed.**
+- **The tests catch the bug:** with the old `input.ts` (d99eb5d) swapped in locally: **all 12 flick runs failed** (each picked up the card; **3 of them installed Ice Wall**: `install_flight`, `server_open`). The 8 pull-up runs passed there too, as expected. `input.ts` was put back afterwards.
+- Screenshots: `docs/sprints/sprint-15-qa/r3-{891x296,844x390,640x360,1280x800}-s15-6-r5-strip-flick-no-pickup.png` (after the flick: nothing held, hand view open on the browsed card) and `…-r5-strip-late-pull-up.png` (Ice Wall picked up, HQ / R&D / Archives / New server lit).
+- QA's own test mistake (fixed): the first version expected the reading view to close at the release. A hold on the small hand opens the hand view, and the hand view stays open after the release by design (board.ts `onLongPressEnd`), so that check was removed.
+- Unit tests `test/input.test.ts` + `test/gpuLimits.test.ts`: 18/18 pass.
+
+### (c) AC2 "nothing held before 0.25 s": a race in QA's own test, not an early lift
+- **Cause:** QA's frame recorder stamped each frame with the frame's `requestAnimationFrame` time. That is when the frame *began*. The hold timer can lift the card a few ms later, before that same frame's callbacks run. The frame then shows the card held but carries a time from before the lift. Measured (4 sizes × 10, new annotation `first-held-frame`): the first held frame's stamp was **up to 6 ms before the lift** in 7 of 10 runs on [phone] (e.g. stamped 248.9 ms, lift 254.9 ms, read 263.1 ms after the down). If a frame begins before 245 ms and the timer lifts at about 250 ms, the old check fails, though nothing was early.
+- **The product never lifted early:** the lift came 253.0–278.7 ms after the down in all 40 AC2 runs and 12 AC12 runs here, and on CI (the test also checks the lift time itself, ≥ 245 ms). **No QA-S15-3 for this; the QA-S15-3 number above is the drag bug.**
+- **Fix (test only, rule unchanged):** the recorder now also notes when it read each frame's state (`now`). The test checks (1) the lift ≥ 245 ms after the down (unchanged), (2) every frame showing a held card was read after the lift, and (3) no frame read before 245 ms shows a held card. **After the fix: 40/40 passed (4 sizes × 10) and 8/8 at 6× throttle.** No frame was read before 245 ms with a held card (`stampedBefore245` = 0 in every run).
+
+### (d) S-15-6 regression and visual check
+- **Full `qa-sprint15.spec.ts` (all of S-15-1…S-15-6, incl. AC1–AC12 and the round-4/5 tests), 4 sizes, `--retries=0`: 219 passed, 13 skipped (touch-only on desktop), 0 failed.**
+- **Visual (the texture cap must not change appearance):** new 891×296 screenshots compared pixel by pixel with the round-1/3/4 ones. Unchanged: `r3-…-r4-busy-flick-browsed`, `r1-…-cover-up`, `abt-ripple`, `access-steal-mid`, `access-trash-mid`, `bank-job-to-heap`, `upright-mid-movement`, `play-branch-served-locally` (0 pixels differ), `lit-event`, `lit-program`, `pass-cover` (0.00 %). Other differences, all explained: the rail help text changed in round 3 (S-15-6 wording), cards caught at a different moment of a movement (discard ripple, a reason line fading in), and the round-3 shots were saved at a lower pixel ratio. Side-by-side checks of `lit-asset` and `dimmed-c12` (`/tmp` comparisons, not kept): same colours, glows, card faces and text. **No wrong or missing textures anywhere.** Only the new round-5 screenshots were added to the repo.
+- `npm run typecheck` passes; eslint on QA's spec passes.
+
+### Observations (not caused by these changes)
+- `s02-corp.spec.ts:62` "one agenda or asset per server; upgrades …" at 640x360 (flaky on CI shard 2, passed on retry) also fails locally 1–5 times in 10 **on every build tried**: round-4 product code (d99eb5d) 3/10, 02aad8c 5/10 then 2/5, 02aad8c without the cap 3/10, with the old `input.ts` 1/10. An extra server (`remote2`) shows up, so a tap probably installed a card twice or a cancel tap was taken as an install. It is an older flaky test, not from this round. Worth a look by ui-dev.
+- `s07-hand.spec.ts:130` (flaky on CI desktop, shard 4): 5/5 passed locally.
+
+### CI result (round 5)
+- **02aad8c (`02aad8c969de70625a867d1f2d7b391b89f3f078`): PR #34 run 44898452920 — failure.** `checks` success, `guard-mutation` success, `e2e shard 3/4` success (568 passed, 19 skipped), `e2e shard 4/4` success (571 passed, 14 skipped, 1 flaky: `s07-hand:130` desktop), **`e2e shard 1/4` failure** (584 passed, 2 skipped, 1 failed: `qa-sprint07:471` drag latency [phone], both tries), **`e2e shard 2/4` failure** (578 passed, 7 skipped, 1 failed: the same test [phone-small], both tries; 1 flaky: `s02-corp:62`). All of QA's S-15-6 tests passed, including AC2 (`:1277`) and AC12 (`:1759`) at all 4 sizes. The failure is QA-S15-3.
+- QA's commit (round-5 tests + AC2 measurement fix + this report): its PR run is recorded below.
+
+### Final per-story result (Sprint 15, round 5)
+| Story | Result |
+|---|---|
+| S-15-1 Cards lift and lean in your hand | **PASSED QA** (unchanged) |
+| S-15-2 Played cards fly to the board and land | **PASSED QA** (unchanged) |
+| S-15-3 Cards fly to and from the piles | **PASSED QA** (unchanged) |
+| S-15-4 Never slower than today | **FAILED (QA-S15-3)**: the texture cap makes a dragged card lag 0.1–0.17 s behind the finger at 640x360 (and on CI at 844x390). Was PASSED in round 4. AC3 phone smoothness is still an owner check. |
+| S-15-5 Play link and app download with a private repo | unchanged from round 2 (owner checks listed there) |
+| S-15-6 Hold a card to play it | **PASSED QA: 12/12** (AC12 now passes on CI at all sizes; strip follow-up verified; AC9 on intent, wording question for the PM/owner) |
+
+**Bugs open: QA-S15-3** (ui-dev). QA-S15-2: fixed and its strip follow-up verified. AC2 one-off failure: a race in QA's own test, fixed in the test (rule unchanged).
