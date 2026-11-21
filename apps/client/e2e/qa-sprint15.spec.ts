@@ -1213,11 +1213,9 @@ test.describe('QA S-15-6 hold a card to play it', () => {
     expect(await getView(page)).toEqual(before);
   });
 
-  // QA-S15-2 (open): a sideways flick made before 0.25 s but handled after the hold timer ran (a busy
-  // page) is picked up instead of browsed, and letting go over a lit place PLAYS the card. Gated so CI
-  // stays green until the fix: run with QA_REPRO=1; ui-dev removes the skip with the fix.
+  // QA-S15-2 (fixed): a sideways flick made before 0.25 s but handled after the hold timer ran (a busy
+  // page) was picked up instead of browsed, and letting go over a lit place PLAYED the card.
   test('QA-S15-2 repro: a quick sideways flick on a busy page browses; it never picks up or plays the card', async ({ page }) => {
-    test.skip(process.env.QA_REPRO !== '1', 'QA-S15-2 repro (fails until fixed): QA_REPRO=1');
     test.skip(!touchProject(), 'touch');
     await openBoard(page, 4);
     const before = await getView(page);
