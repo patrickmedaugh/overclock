@@ -21,6 +21,7 @@ import {
   toStep,
   waitIdle,
   pickHand,
+  emptySpot,
 } from './helpers';
 import { pixelStats } from './pixels';
 
@@ -103,7 +104,7 @@ test.describe('QA S-04-3 hold and slide', () => {
     await page.waitForFunction(() => window.__overclock!.layout().zoom === null);
   });
 
-  test('S-15-6: after sliding, leaving the hand upward picks up the card read; let go over End turn plays, picks and spends nothing', async ({ page }) => {
+  test('S-15-6: after sliding, leaving the hand upward picks up the card read; let go off every place plays, picks and spends nothing', async ({ page }) => {
     await openBoard(page, 1);
     const l = await layout(page);
     const before = await getView(page);
@@ -111,12 +112,14 @@ test.describe('QA S-04-3 hold and slide', () => {
     await waitZoom(page, l.hand[1]!.cardId);
     await h.move(center(l.hand[3]!.box).x, center(l.hand[3]!.box).y);
     await waitZoom(page, l.hand[3]!.cardId);
-    // Drag up over the HQ column (out of the hand: the card read lifts), then over End turn, and let go there.
+    // Drag up over the HQ column (out of the hand: the card read lifts), then away from every place, and let go there.
     const hq = l.servers.find((s) => s.id === 'hq')!;
     await h.move(center(hq.box).x, center(hq.box).y);
     await page.waitForFunction(() => window.__overclock!.layout().drag !== null);
     expect((await layout(page)).drag).toMatchObject({ index: 3, cardId: l.hand[3]!.cardId, from: 'strip' });
-    await h.move(center(l.endTurn!.box).x, center(l.endTurn!.box).y);
+    // Let go off every lit place (on desktop the End turn spot can sit inside a lit server column).
+    const away = center(emptySpot(await layout(page)));
+    await h.move(away.x, away.y);
     await h.release();
     await page.waitForFunction(() => window.__overclock!.layout().drag === null && !window.__overclock!.layout().handMinimized);
     await page.waitForTimeout(400);

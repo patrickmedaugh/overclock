@@ -271,7 +271,7 @@ test.describe('S-15-6 hold a card to play it', () => {
     await dragTo(hold, at, off, 3);
     await page.waitForFunction(() => window.__overclock!.layout().targets.every((t) => !t.hover));
     await dragTo(hold, off, center(rd.box), 5);
-    await page.waitForFunction(() => window.__overclock!.layout().targets.some((t) => t.hover));
+    await page.waitForFunction(() => window.__overclock!.layout().targets.some((t) => t.hover && t.server === 'rd'));
     let now = await layout(page);
     expect(now.targets.filter((t) => t.hover).map(placeOfTarget)).toEqual(['server:rd']);
     expect(now.drag!.hover).toEqual({ kind: 'server', server: 'rd', lit: true });
@@ -385,7 +385,7 @@ test.describe('S-15-6 hold a card to play it', () => {
     await hold.release();
     await waitHandBack(page);
     expect(await getView(page)).toEqual(before);
-    expect((await layout(page)).hint?.text).toBe('No clicks left');
+    expect((await anims(page)).filter((a) => a.kind === 'hint').every((a) => a.text === 'No clicks left')).toBe(true);
   });
 
   test('not enough credits: dimmed, nothing lit, the reason says so', async ({ page }) => {

@@ -1970,12 +1970,12 @@ export class Board {
       helpText = "No clicks left. Tap End turn when you're ready.";
     } else if (viewer === 'runner' && view.runOptions.length > 0 && view.activePlayer === viewer) {
       const use = this.usableOnTable(view) ? ' Tap a card on the table to use it.' : '';
-      helpText = `Tap your ${TERMS.stack} to draw, your credits for +1, ${TERMS.run} to attack a server, or your hand to play a card.${use}`;
+      helpText = `Tap your ${TERMS.stack} to draw, your credits for +1 or ${TERMS.run} to attack a server. Hold a card in your hand and drag it up to play it.${use}`;
     } else {
       const deck = viewer === 'corp' ? TERMS.rd : `your ${TERMS.stack}`;
       // Any card on the table with a move the engine would take now (advance, rez, an ability).
       const use = this.usableOnTable(view) ? ' Tap a card on the table to use it.' : '';
-      helpText = `Tap ${deck} to draw, your credits for +1, or your hand to play a card.${use}\nIn the hand, hold a card and drag it to play it.`;
+      helpText = `Tap ${deck} to draw or your credits for +1.${use}\nHold a card in your hand and drag it up to play it.`;
     }
     if (help.text !== helpText) help.text = helpText;
     const hb = this.helpBox(layout);
@@ -4516,6 +4516,9 @@ export class Board {
     const dimmed = refused !== null;
     this.cancelSelection();
     this.hideTip();
+    // Pulled out of the strip while its hold-to-read view was open: the view goes at once (the card
+    // is in the hand, not in the view; a let-go off a place goes back to the board).
+    if (from === 'strip' && this.zoom) this.closeZoom(true);
     if (!hand.lift(index, dimmed)) return;
     this.lift = { index, cardId, hover: -1, boxes: [], lastX: x, lastAt: NaN, from, dimmed, reason: refused ?? '', arrow: null };
     this.showTargets();
@@ -4692,7 +4695,7 @@ export class Board {
       // A dimmed card or place: say why, with the board in view. From the strip: back to the board.
       this.closeZoom(true);
       // A dimmed card already says why since it lifted: said again only if that line has faded.
-      const showing = lift.dimmed && this.hint?.text === reason && this.hint.root.alpha > 0.05;
+      const showing = lift.dimmed && this.hint?.text === reason && !this.hint.root.destroyed;
       if (reason && !showing) this.showHint(reason);
     } else {
       // Let go elsewhere: the hand view comes back.

@@ -228,6 +228,16 @@ export function attachPress(target: Container, handlers: PressHandlers, opts: Pr
     if (longFired) {
       if (Math.hypot(x - startX, y - startY) > tolerance) slid = true;
       const at = madeAt(stampOf(e), performance.now());
+      // S-15-6: a move made before the hold time (the page was busy and handled it late) is judged as
+      // made then (QA-S3-7): leaving the circle upward is a pick-up, not a slide of the hold.
+      const early = !slid && at - downAt < longPressMs && Math.hypot(x - startX, y - startY) > tolerance;
+      if (early && handlers.onPull?.(x, y, x - startX, y - startY, at, false)) {
+        dragging = true;
+        longFired = false;
+        clearTimer();
+        handlers.onDrag?.(x, y, at);
+        return;
+      }
       // S-15-6: pulled out first (the card read so far is the one lifted), else the hold slides on.
       if (handlers.onPull?.(x, y, x - startX, y - startY, at, true)) {
         dragging = true;

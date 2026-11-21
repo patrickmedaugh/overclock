@@ -164,10 +164,18 @@ async function dropHeld(page: Page, b: Box): Promise<boolean> {
   const h = held.get(page);
   if (!h) return false;
   held.delete(page);
-  const stillHeld = await page.evaluate(() => window.__overclock!.layout().drag !== null);
-  if (!stillHeld) {
+  const drag = await page.evaluate(() => window.__overclock!.layout().drag);
+  if (!drag) {
     await h.hold.release();
     return false;
+  }
+  // A tap on the held card itself (the old "tap the picked card again to cancel", given the card's
+  // own box from the layout): it is put back.
+  const same = (p: number, q: number) => Math.abs(p - q) < 1;
+  if (same(b.x, drag.box.x) && same(b.y, drag.box.y) && same(b.width, drag.box.width) && same(b.height, drag.box.height)) {
+    held.set(page, h);
+    await putBack(page);
+    return true;
   }
   // The browser hands the page these moves and the release in order: the card is let go at `b`.
   await dragTo(h.hold, h.at, center(b), 3);
@@ -677,7 +685,8 @@ export async function liftRefused(page: Page, name: string): Promise<{ l: Layout
   const hints = recs.filter((a) => a.kind === 'hint');
   expect(hints.length, `${name} says why`).toBeGreaterThan(0);
   expect(hints[0]!.startedAt - lift!.startedAt, 'at once').toBeLessThan(100);
-  return { l, hints: hints.map((h) => h.text!) };
+  // Once each (said again on letting go only if a slow page let it fade meanwhile).
+  return { l, hints: [...new Set(hints.map((h) => h.text!))] };
 }
 
 /** S-07-6: a spot outside the open hand view's cards (its top-left corner): a tap there closes the view. */
