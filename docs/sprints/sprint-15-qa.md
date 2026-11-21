@@ -225,3 +225,73 @@ QA did not write the S-15-6 code. Every S-15-6 criterion was checked with QA's o
 | S-15-6 Hold a card to play it | **NOT PASSED: 11/12 PASS (AC9 on intent, wording question for the PM), AC1 FAIL (QA-S15-2)** |
 
 **Bugs open: QA-S15-2.**
+
+## Round 4 (2026-11-21, re-check of QA-S15-2 fix; product code a32f502, branch head 548b107 adds only DECISIONS/STATE)
+
+QA did not write the fix. Checked: ui-dev's fix in `apps/client/src/board.ts` (bb81b7e..a32f502: a late hold timer waits for two on-time frames in a row, max 6, before lifting; a timer-made lift is undone by a sideways move or release stamped before 0.25 s), the test changes, and the architect's notes (DECISIONS 2026-11-21).
+
+**Result: QA-S15-2 is fixed. S-15-6 AC1 now PASSES; no regression in AC2–AC12. S-15-6 passes QA (AC9 on intent; its wording stays a PM/owner question).**
+
+### Test changes reviewed (developers' edits to tests)
+- QA's repro (`qa-sprint15.spec.ts` "QA-S15-2 repro…"): the diff only removes the `QA_REPRO` skip line and rewrites the comment ("(open)" → "(fixed)"). Gesture, timings and all 3 checks unchanged. OK.
+- `s15-hand.spec.ts` "a press that moves on without a hold (a swipe)…" and "swiping in the hand view slides the cards…": `holdAt` → new `flickAt`, which sends the **same moves** but stamps each touch with when it was made (down now, each move 20 ms later, capped at "now"). On desktop it is still the plain `holdAt` mouse. All checks are the same as before. OK. This is a fair fix, not a looser test: a real touch screen stamps events, and the game judges by those stamps.
+- New dev test `s15-hold` "QA-S15-2: a quick flick handed over only after the hold timer lifted the card…" tests the undo path on its own (it waits for the lift, then sends early-stamped moves).
+
+### QA's new round-4 tests (`qa-sprint15.spec.ts`, describe "QA S-15-6 round 4: QA-S15-2 fix on busy pages", 11 tests)
+| Test | What it checks |
+|---|---|
+| a quick flick on a busy page … (5 cases, touch) | Different busy patterns than the repro: Ice Wall flat right with 4 stalls of 350 ms; Hedge Fund rising 30° left with 2×600 ms; falling 30° left with 8×200 ms; Ice Wall flat left with one 900 ms stall; and a steadily slow page (20 frames of 150 ms). Each: nothing played or paid (whole game view equal), **no drawn frame** with a held card, lit place or dropped hand, and it browsed the way of the flick |
+| a quick flick while the page is already busy … (2 cases, all 4 sizes incl. mouse) | Down, flick and release are all sent at their real times while the page is stalled (none waits for the page). Same checks |
+| a quick tap on a busy page (touch) / a quick tap while the page is already busy (4 sizes) | The round-3 "tap flash" case: "Hold to play" shows, the card stays big, nothing played, no held or lit frame |
+| a still hold on a busy page still lifts (4×350 ms; 30×150 ms) | A still finger still lifts (≥ 245 ms after the down), and letting go away from every place sends it home with nothing played |
+| architect note: a move stamped before the finger went down … | See "Bad stamps" below |
+
+Desktop skips (6): the "busy after the down" flick and tap tests are touch only. On this runner a CDP mouse press reaches the page about 0.2 s late, so those tests would send the mouse flick only after the hold timer had already run. A real mouse cannot do that, and in early runs those desktop cases showed a held card for 1 frame for this reason only. The "already busy" tests cover the mouse fairly (moves sent when made): they pass on desktop.
+
+### Runs (local, `--retries=0`)
+- **QA-S15-2 repro, now un-gated:** 891x296 / 844x390 / 640x360 **3/3 passed** (desktop skipped: touch). **10× repeat at the 3 touch sizes: 30/30 passed**. Records each time: `hand_press, carousel_slide, zoom_swap`, credits 5 → 5, hand 6 → 6 (round 3: `card_lift … play_flight`, credits 5 → 9).
+- **Round-4 tests, final file:** 4 sizes **42 passed, 6 skipped, 0 failed**. Earlier runs of the same tests (repeated 2–3 times, while QA fixed its own test mistakes listed below): every busy-page touch flick (45 runs at the 3 touch sizes) **never played, never drew a held or lit frame**, and always browsed. In 3 of those 45 runs the game logged a `card_lift` that the flick undid **before any frame was drawn**, so a player can't see it. After QA's test fixes, every run of every round-4 test passed (the "already busy" flick 48 runs, the "already busy" tap 16 runs, the still hold 28 runs, bad stamp 26 runs, over 4 sizes).
+- QA's own test mistakes, found and fixed during the round (not product bugs): (a) a 125 px flick is less than one browse step on the 1280×800 big card, so the flick is now scaled to 1.3 steps; (b) a fast flick at 891×296 can move 2 cards (round-3 observation 2), so the check is now "browsed in the flick's direction"; (c) the still-hold release was at the screen centre, where a lit place can be, so it now lets go away from every place; (d) the desktop timing artefact explained above.
+- **6× CPU throttle, hold/flick specs only** (TESTING §3): QA's AC1 flicks, QA-S15-2 repro, AC2 still hold, AC12; dev `s15-hold` still-hold and QA-S15-2; dev `s15-hand` 2 swipe tests; `s15-snappy` S-15-6 test, at 4 sizes: **32 passed, 4 skipped (touch-only on desktop), 0 failed**. **Still-hold lift at 6×: QA AC2 543–733 ms, QA AC12 589–780 ms, dev s15-hold 348–770 ms**, against **560–900 ms in round 3**, so no slower. Long tasks max 516 ms (< 600).
+- **Unthrottled lift (normal page):** AC2 345–459 ms, AC12 398–470 ms (round 3: 364–543). Press reaction 0.4–0.8 ms after the page handled it. **Timer check with fast frames** (scratch, 844x390 at 1x pixels, 6 holds): **357, 298, 250, 250, 250, 250 ms**, so the lift still comes at 0.25 s on a page drawing on time.
+- `qa-sprint07` "drag latency" and `actions` "with 0 clicks…" were flaky in CI (below). Locally at 640x360 ×5 each: 10/10 passed. Both were flaky before this sprint (sprint-08 QA, sprint-15 round 2), so not caused by the fix.
+- `npm run lint`, `npm run typecheck` pass (with QA's new tests).
+
+### Bad stamps (architect's non-blocking note)
+`onViewMove` uses a move's stamp as is. QA tested the case the architect called unsafe: a real still hold (the card lifted, about 0.45 s), then a sideways move whose stamp is **before** the finger went down. Result at 4 sizes: the lift is **undone and the view browses** (1 card). Nothing is played or paid. So a broken stamp can only turn a real hold into a browse (the player holds again). It can never play a card. Real browsers stamp moves after the down, so QA does not count this as a bug. The architect's note stands as a code-hygiene item.
+
+### Observation (not a bug, for the PM): a still hold on a very slow page lifts later than before
+The catch-up wait (up to 6 frames) delays a still hold only when the page is already late. On a normal page the lift is at 0.25 s (above). QA measured a busy page with the fix and with the code before the fix (691534a, swapped in locally then restored), 844x390:
+- 4 stalls of 350 ms: 1.75–1.99 s after the down with the fix (before: 1.51–1.61 s).
+- A steadily slow page (every frame blocked 150 ms, about 4 frames a second on this runner): 1.52–1.83 s with the fix (before: 0.90–1.09 s).
+
+This is the bound the architect accepted: input is never blocked meanwhile, and drag-up still lifts at once. It matters only on a page far below 10 frames a second. Owner feel check on the phone.
+
+### S-15-6 per-criterion results (round 4)
+| AC | Result | Evidence |
+|---|---|---|
+| 1 Flick left/right browses, nothing picked up | **PASS** (was FAIL) | QA-S15-2 repro 3 sizes + 30/30 repeats + 6× throttle; round-4 busy-page flicks (5 patterns, 3 directions, 2 cards) and "already busy" flicks at 4 sizes incl. mouse; AC1 flicks and AC1/2 slide in CI; dev s15-hold QA-S15-2 + s15-hand swipe tests (also at 6×); `docs/sprints/sprint-15-qa/r3-{891x296,844x390,640x360}-s15-6-r4-busy-flick-browsed.png` (Ice Wall flicked on a stalled page: browsed, credits and clicks unchanged) |
+| 2 Still hold 0.25 s / drag up lifts … | PASS | AC2 tests in CI (4 sizes); lift 345–459 ms here (frame time), 250 ms with fast frames; at 6× 543–733 ms; still hold on busy pages still lifts (round-4) |
+| 3, 4, 5, 6, 7 | PASS | QA's round-3 tests, all green in CI on 548b107 (4 sizes) |
+| 8 Quick tap: "Hold to play", nothing lit | PASS; **round-3 tap-flash note resolved** | AC8 in CI; round-4 busy-page taps: no held or lit frame in any run since the test fixes (touch and mouse) |
+| 9 Unplayable card lifts dimmed with a reason | PASS on intent; **wording still flagged for PM/owner** ("Not enough credits" vs the AC's "Needs 5 credits") | AC9 tests in CI |
+| 10 Mouse | PASS | AC10 in CI; "already busy" flick/tap tests on desktop |
+| 11 Both sides, pass-the-phone, online, app | PASS (app: CI + owner) | AC11 tests and `[android]` in CI |
+| 12 Timing | PASS | AC12 in CI and locally (lift 398–470 ms, press 0.4–0.8 ms after handled); 6× throttle 32/32; long tasks < 600 ms |
+
+### CI result (round 4)
+- **548b107 (`548b107b390752bcf7f074c4d67999703316eed9`, product code = a32f502): PR #34 run 44885399527 — success.** `checks` success, `guard-mutation` success, **`e2e shard 1/4`, `2/4`, `3/4`, `4/4` all success** (573 + 566 + 562 + 560 passed; 2 + 7 + 13 + 14 skipped), `e2e` success. The un-gated QA-S15-2 repro and the dev QA-S15-2 test ran and passed. 2 flaky (passed on retry), both 640x360 and both older specs flaky before this sprint: `actions.spec` "with 0 clicks, the runner's credits and deck do nothing…" and `qa-sprint07` "drag latency (QA measure)…". s15-hand's two swipe tests were **not** flaky this time (they were the 2 flaky in round 3).
+- Earlier runs on 879382d / 20c944b / a32f502 were cancelled by newer pushes. That is why the record here is 548b107's.
+- QA's push of this report + the 11 round-4 tests changes test code, so the PR's next run will run them in CI too.
+
+### Final per-story result (Sprint 15, round 4)
+| Story | Result |
+|---|---|
+| S-15-1 Cards lift and lean in your hand | **PASSED QA** (unchanged; s15-hand swipe tests green in CI and at 6×) |
+| S-15-2 Played cards fly to the board and land | **PASSED QA** |
+| S-15-3 Cards fly to and from the piles | **PASSED QA** |
+| S-15-4 Never slower than today | **PASSED QA** for AC1, AC2, AC4, AC5; AC3 phone smoothness = owner check |
+| S-15-5 Play link and app download with a private repo | unchanged from round 2 (owner checks listed there) |
+| S-15-6 Hold a card to play it | **PASSED QA: 12/12** (AC9 on intent; wording question for the PM/owner) |
+
+**Bugs open: none.** QA-S15-2: **fixed, verified.** Owner checks: as in round 3, plus quick flicks on the owner's phone, and how fast a still hold feels while the game is busy (observation above).

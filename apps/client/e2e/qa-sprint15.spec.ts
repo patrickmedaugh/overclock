@@ -20,7 +20,7 @@
 import { mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { type Page, expect, test } from '@playwright/test';
+import { type CDPSession, type Page, expect, test } from '@playwright/test';
 import { getCard } from '@overclock/cards';
 import type { Action, CardOption, PlayerView } from '@overclock/engine';
 import { planToStep } from '@overclock/match/testing';
@@ -1837,5 +1837,251 @@ test.describe('QA S-15-6 timing (hold)', () => {
     const final = await qaLog(page);
     test.info().annotations.push({ type: 'longtasks', description: final.long.map((x) => x.toFixed(0)).join(',') || 'none' });
     for (const lt of final.long) expect(lt, 'no long task blocks input > 0.6 s').toBeLessThan(600);
+  });
+});
+
+// QA round 4 (QA-S15-2 fix check, written by QA): the same quick gestures on pages that are busy in
+// other ways than the original repro (longer / shorter / many stalls, a steadily slow page), other
+// directions and cards, a quick tap on a busy page (the round-3 tap flash) and a still hold on a busy
+// page (it must still lift). Every gesture is stamped with the time it was made, as a touch screen does.
+type Busy = { frames: number; ms: number };
+/** Waits in the test process (not in the page, which may be blocked). */
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, Math.max(0, ms)));
+/** Makes the page busy: `frames` frames in a row each blocked for `ms` (a struggling phone). */
+async function busy(page: Page, b: Busy): Promise<void> {
+  await page.evaluate((x) => {
+    let n = 0;
+    const work = () => {
+      const t = performance.now();
+      while (performance.now() - t < x.ms) {
+        /* busy */
+      }
+      if (++n < x.frames) requestAnimationFrame(work);
+    };
+    requestAnimationFrame(work);
+  }, b);
+}
+/** Sends stamped input without waiting for each (a stalled page acks late). Touch on phones, mouse on desktop. */
+async function stampedGesture(page: Page, c: Pt, moves: { p: Pt; t: number }[], upAt: number | null, cdpIn?: CDPSession): Promise<void> {
+  const cdp = cdpIn ?? (await page.context().newCDPSession(page));
+  const touch = touchProject();
+  const sent: Promise<unknown>[] = [];
+  let last = c;
+  for (const m of moves) {
+    last = m.p;
+    sent.push(touch ? cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [m.p], timestamp: m.t / 1000 }) : cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: m.p.x, y: m.p.y, button: 'left', buttons: 1, timestamp: m.t / 1000 }));
+  }
+  if (upAt !== null) sent.push(touch ? cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [], timestamp: upAt / 1000 }) : cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: last.x, y: last.y, button: 'left', buttons: 0, clickCount: 1, timestamp: upAt / 1000 }));
+  await Promise.all(sent);
+}
+/** The finger (mouse button) goes down on `c`, stamped now; returns the session and the stamp. */
+async function stampedDown(page: Page, c: Pt): Promise<{ cdp: CDPSession; t0: number }> {
+  const cdp = await page.context().newCDPSession(page);
+  if (!touchProject()) await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: c.x, y: c.y, buttons: 0 });
+  const t0 = Date.now();
+  if (touchProject()) await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [c], timestamp: t0 / 1000 });
+  else await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: c.x, y: c.y, button: 'left', buttons: 1, clickCount: 1, timestamp: t0 / 1000 });
+  return { cdp, t0 };
+}
+async function openViewOn(page: Page, i: number): Promise<Pt> {
+  const l0 = await waitIdle(page);
+  await tap(page, l0.hand[i]!.box);
+  await page.waitForFunction((k) => window.__overclock!.layout().handView?.index === k, i);
+  await quietFrames(page);
+  return center((await layout(page)).handView!.centre);
+}
+
+test.describe('QA S-15-6 round 4: QA-S15-2 fix on busy pages', () => {
+  const flicks: { name: string; card: number; busy: Busy; dx: number; dy: number }[] = [
+    { name: 'Ice Wall, flat right, 4 stalls of 350 ms', card: 3, busy: { frames: 4, ms: 350 }, dx: 25, dy: 0 },
+    { name: 'Hedge Fund, rising 30° left, 2 stalls of 600 ms', card: 4, busy: { frames: 2, ms: 600 }, dx: -25, dy: -14 },
+    { name: 'Hedge Fund, falling 30° left, 8 stalls of 200 ms', card: 4, busy: { frames: 8, ms: 200 }, dx: -25, dy: 14 },
+    { name: 'Ice Wall, flat left, one 900 ms stall', card: 3, busy: { frames: 1, ms: 900 }, dx: -25, dy: 0 },
+    { name: 'Hedge Fund, flat left, a steadily slow page (20 frames of 150 ms)', card: 4, busy: { frames: 20, ms: 150 }, dx: -25, dy: 0 },
+  ];
+  // The page is already busy when the finger goes down: the down, the flick and the release are all
+  // sent while it is stalled, in the order made (none waits for the page), as a touch screen queues them.
+  for (const fl of [flicks[0]!, flicks[4]!]) {
+    test(`a quick flick while the page is already busy (down, flick and release all queued) browses, never lifts, lights or plays: ${fl.name}`, async ({ page }) => {
+      await openBoard(page, 4);
+      const before = await getView(page);
+      const c = await openViewOn(page, fl.card);
+      const zw = (await layout(page)).zoom!.box.width;
+      await qaWatch(page);
+      await page.evaluate(() => window.__overclock!.clearAnims());
+      const cdp = await page.context().newCDPSession(page);
+      const touch = touchProject();
+      if (!touch) await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: c.x, y: c.y, buttons: 0 });
+      // Start the stall without waiting for the page (it is about to be blocked), then put the finger down.
+      void busy(page, fl.busy);
+      await sleep(40);
+      const t0 = Date.now();
+      const sent: Promise<unknown>[] = [];
+      sent.push(touch ? cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [c], timestamp: t0 / 1000 }) : cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: c.x, y: c.y, button: 'left', buttons: 1, clickCount: 1, timestamp: t0 / 1000 }));
+      const scale = Math.max(1, (1.3 * 0.32 * zw) / 125);
+      let last = c;
+      for (let k = 1; k <= 5; k++) {
+        await sleep(t0 + 60 + 10 * k - Date.now());
+        last = { x: c.x + fl.dx * k * scale, y: c.y + fl.dy * k * scale };
+        const t = Date.now();
+        sent.push(touch ? cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [last], timestamp: t / 1000 }) : cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: last.x, y: last.y, button: 'left', buttons: 1, timestamp: t / 1000 }));
+      }
+      await sleep(t0 + 120 - Date.now());
+      const tu = Date.now();
+      sent.push(touch ? cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [], timestamp: tu / 1000 }) : cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: last.x, y: last.y, button: 'left', buttons: 0, clickCount: 1, timestamp: tu / 1000 }));
+      await Promise.all(sent);
+      await page.waitForTimeout(fl.busy.frames * fl.busy.ms + 1500);
+      const recs = await anims(page);
+      const log = await qaLog(page);
+      const d0 = log.downs.at(-1)!;
+      const flash = log.frames.filter((fr) => fr.drag || fr.targets > 0 || fr.minimized);
+      const idx = (await layout(page)).handView?.index ?? -1;
+      test.info().annotations.push({ type: 'r4-events', description: JSON.stringify({ sentUpAfterDown: tu - t0, moves: log.moves.map((m) => [Math.round(m.at - d0), Math.round(m.handled - d0)]), up: [Math.round(log.ups.at(-1)! - d0), Math.round(log.upsAt.at(-1)! - d0)], downHandled: Math.round(log.downsAt.at(-1)! - d0), lift: recs.filter((a) => a.kind === 'card_lift').map((a) => Math.round(a.startedAt - d0)), flash: flash.map((fr) => Math.round(fr.t - d0)), index: [fl.card, idx] }) });
+      expect.soft(await getView(page), 'nothing played or paid').toEqual(before);
+      expect.soft(recs.some((a) => a.kind === 'card_lift'), 'never lifted').toBe(false);
+      expect.soft(flash.length, 'no frame shows a held card, lit place or dropped hand').toBe(0);
+      if (fl.dx < 0) expect.soft(idx, 'it browsed').toBeGreaterThan(fl.card);
+      else expect.soft(idx, 'it browsed').toBeLessThan(fl.card);
+      await cdp.detach();
+    });
+  }
+  for (const fl of flicks) {
+    test(`a quick flick on a busy page browses, never shows a held card or lit place, never plays: ${fl.name}`, async ({ page }) => {
+      // Desktop: this runner hands a CDP mouse press to the page ~0.2 s late, so the flick below would
+      // only be sent after the hold timer ran (not a real sequence); the "already busy" test covers the mouse.
+      test.skip(!touchProject(), 'touch (see the already-busy test for the mouse)');
+      await openBoard(page, 4);
+      const before = await getView(page);
+      const c = await openViewOn(page, fl.card);
+      const zw = (await layout(page)).zoom!.box.width;
+      await qaWatch(page);
+      await page.evaluate(() => window.__overclock!.clearAnims());
+      const { cdp, t0 } = await stampedDown(page, c);
+      await busy(page, fl.busy);
+      await page.waitForTimeout(150);
+      // Made 70-110 ms after the finger went down, let go at 120 ms; at least 1.3 browse steps long
+      // (a step is 0.32 of the big card's width: the 1280x800 card is wider than 125 px / 0.32).
+      const scale = Math.max(1, (1.3 * 0.32 * zw) / 125);
+      const moves = [1, 2, 3, 4, 5].map((k) => ({ p: { x: c.x + fl.dx * k * scale, y: c.y + fl.dy * k * scale }, t: t0 + 60 + 10 * k }));
+      await stampedGesture(page, c, moves, t0 + 120, cdp);
+      await page.waitForTimeout(fl.busy.frames * fl.busy.ms + 1500);
+      const recs = await anims(page);
+      const log = await qaLog(page);
+      test.info().annotations.push({ type: 'r4', description: `${recs.map((a) => a.kind).join(',')}; up handled ${(log.upsAt.at(-1)! - log.downs.at(-1)!).toFixed(0)} ms after down` });
+      const flash = log.frames.filter((fr) => fr.drag || fr.targets > 0 || fr.minimized);
+      const idx = (await layout(page)).handView?.index ?? -1;
+      const d0 = log.downs.at(-1)!;
+      test.info().annotations.push({ type: 'r4-events', description: JSON.stringify({ moves: log.moves.map((m) => [Math.round(m.at - d0), Math.round(m.handled - d0), Math.round(m.x)]), up: [Math.round(log.ups.at(-1)! - d0), Math.round(log.upsAt.at(-1)! - d0)], downHandled: Math.round(log.downsAt.at(-1)! - d0), lift: recs.filter((a) => a.kind === 'card_lift').map((a) => Math.round(a.startedAt - d0)), flash: flash.map((fr) => Math.round(fr.t - d0)) }) });
+      test.info().annotations.push({ type: 'r4-flash', description: `flash frames ${flash.length} over ${flash.length ? (flash.at(-1)!.t - flash[0]!.t).toFixed(0) : 0} ms (lit ${Math.max(0, ...flash.map((fr) => fr.targets))}); index ${fl.card} -> ${idx}` });
+      expect.soft(await getView(page), 'nothing played or paid').toEqual(before);
+      // A lift the timer made and the flick undid before any frame was drawn is not seen: only drawn frames count.
+      test.info().annotations.push({ type: 'r4-lift-record', description: String(recs.some((a) => a.kind === 'card_lift')) });
+      expect.soft(flash.length, 'no frame shows a held card, lit place or dropped hand').toBe(0);
+      // A fast flick may move one or two cards (round-3 observation 2): it browsed in the flick's direction.
+      if (fl.dx < 0) expect.soft(idx, 'it browsed').toBeGreaterThan(fl.card);
+      else expect.soft(idx, 'it browsed').toBeLessThan(fl.card);
+      if (fl === flicks[0]) await snap3(page, 's15-6-r4-busy-flick-browsed');
+      await cdp.detach();
+    });
+  }
+
+  test('a quick tap on a busy page shows "Hold to play" and never flashes a held card or lit places (round-3 note)', async ({ page }) => {
+    test.skip(!touchProject(), 'touch (the runner hands a CDP mouse press over ~0.2 s late; see the already-busy tap test)');
+    await openBoard(page, 4);
+    const before = await getView(page);
+    const c = await openViewOn(page, 3);
+    await qaWatch(page);
+    await page.evaluate(() => window.__overclock!.clearAnims());
+    const { cdp, t0 } = await stampedDown(page, c);
+    await busy(page, { frames: 4, ms: 350 });
+    await page.waitForTimeout(150);
+    await stampedGesture(page, c, [], t0 + 80, cdp);
+    await page.waitForFunction(() => window.__overclock!.layout().handView?.tip !== null, undefined, { timeout: 5000 });
+    await page.waitForTimeout(300);
+    const log = await qaLog(page);
+    const recs = await anims(page);
+    test.info().annotations.push({ type: 'r4', description: `${recs.map((a) => a.kind).join(',')}; up handled ${(log.upsAt.at(-1)! - log.downs.at(-1)!).toFixed(0)} ms after down` });
+    const flash = log.frames.filter((fr) => fr.drag || fr.targets > 0 || fr.minimized);
+    test.info().annotations.push({ type: 'r4-flash', description: `flash frames ${flash.length} over ${flash.length ? (flash.at(-1)!.t - flash[0]!.t).toFixed(0) : 0} ms (lit ${Math.max(0, ...flash.map((fr) => fr.targets))})` });
+    expect.soft(await getView(page)).toEqual(before);
+    expect.soft((await layout(page)).handView).toMatchObject({ index: 3, lifted: false });
+    expect.soft(flash.length, 'no flash').toBe(0);
+    expect.soft(recs.some((a) => a.kind === 'card_lift')).toBe(false);
+    await cdp.detach();
+  });
+
+  test('a quick tap while the page is already busy (press and release both queued) shows "Hold to play", never a held card or lit places', async ({ page }) => {
+    await openBoard(page, 4);
+    const before = await getView(page);
+    const c = await openViewOn(page, 3);
+    await qaWatch(page);
+    await page.evaluate(() => window.__overclock!.clearAnims());
+    const cdp = await page.context().newCDPSession(page);
+    const touch = touchProject();
+    if (!touch) await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: c.x, y: c.y, buttons: 0 });
+    void busy(page, { frames: 4, ms: 350 });
+    await sleep(40);
+    const t0 = Date.now();
+    const sent: Promise<unknown>[] = [touch ? cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [c], timestamp: t0 / 1000 }) : cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: c.x, y: c.y, button: 'left', buttons: 1, clickCount: 1, timestamp: t0 / 1000 })];
+    await sleep(t0 + 80 - Date.now());
+    const tu = Date.now();
+    sent.push(touch ? cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [], timestamp: tu / 1000 }) : cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: c.x, y: c.y, button: 'left', buttons: 0, clickCount: 1, timestamp: tu / 1000 }));
+    await Promise.all(sent);
+    await page.waitForFunction(() => window.__overclock!.layout().handView?.tip !== null, undefined, { timeout: 5000 });
+    await page.waitForTimeout(300);
+    const log = await qaLog(page);
+    const flash = log.frames.filter((fr) => fr.drag || fr.targets > 0 || fr.minimized);
+    test.info().annotations.push({ type: 'r4-flash', description: `flash frames ${flash.length}; released ${tu - t0} ms after down, handled ${(log.upsAt.at(-1)! - log.downs.at(-1)!).toFixed(0)} ms after down` });
+    expect.soft(await getView(page)).toEqual(before);
+    expect.soft((await layout(page)).handView).toMatchObject({ index: 3, lifted: false });
+    expect.soft(flash.length, 'no flash').toBe(0);
+    await cdp.detach();
+  });
+
+  for (const b of [{ frames: 4, ms: 350 }, { frames: 30, ms: 150 }] as Busy[]) {
+    test(`a still hold on a busy page still lifts (${b.frames} frames of ${b.ms} ms), and letting go off every place sends it home`, async ({ page }) => {
+      await openBoard(page, 4);
+      const before = await getView(page);
+      const c = await openViewOn(page, 3);
+      await qaWatch(page);
+      await page.evaluate(() => window.__overclock!.clearAnims());
+      const { cdp } = await stampedDown(page, c);
+      await busy(page, b);
+      await waitDrag(page, 15_000);
+      const recs = await anims(page);
+      const log = await qaLog(page);
+      const lift = recs.find((a) => a.kind === 'card_lift')!;
+      test.info().annotations.push({ type: 'r4-lift-after-down-ms', description: (lift.startedAt - log.downs.at(-1)!).toFixed(0) });
+      expect(lift.startedAt - log.downs.at(-1)!).toBeGreaterThanOrEqual(245);
+      await page.waitForTimeout(b.frames * b.ms);
+      // Let go where nothing is lit (the held card follows the finger there first).
+      const off = offPlace(await layout(page));
+      await stampedGesture(page, c, [1, 2, 3, 4].map((k) => ({ p: { x: c.x + ((off.x - c.x) * k) / 4, y: c.y + ((off.y - c.y) * k) / 4 }, t: Date.now() })), null, cdp);
+      await page.waitForTimeout(300);
+      await stampedGesture(page, off, [], Date.now(), cdp);
+      await cdp.detach();
+      expect((await waitBack(page)).drag).toBeNull();
+      expect(await getView(page)).toEqual(before);
+    });
+  }
+
+  test('architect note: a move stamped before the finger went down, after a real hold lifted the card (bad stamp)', async ({ page }) => {
+    await openBoard(page, 4);
+    const before = await getView(page);
+    const c = await openViewOn(page, 4);
+    await page.evaluate(() => window.__overclock!.clearAnims());
+    const { cdp, t0 } = await stampedDown(page, c);
+    await waitDrag(page);
+    await page.waitForTimeout(200);
+    // The finger really held still ~0.45 s; now it moves sideways, but its moves carry a bad stamp from before the down.
+    await stampedGesture(page, c, [1, 2, 3].map((k) => ({ p: { x: c.x - 40 * k, y: c.y }, t: t0 - 300 })), null, cdp);
+    await page.waitForTimeout(400);
+    const l = await layout(page);
+    test.info().annotations.push({ type: 'r4-bad-stamp', description: `drag ${l.drag !== null}, handView index ${l.handView?.index ?? 'none'}` });
+    await stampedGesture(page, c, [], Date.now(), cdp);
+    await page.waitForTimeout(800);
+    // Whatever the gesture became, a bad stamp must never play the card by itself.
+    expect(await getView(page)).toEqual(before);
+    await cdp.detach();
   });
 });
