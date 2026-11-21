@@ -88,7 +88,7 @@ test.describe('S-12-3 Modded and The Toolbox', () => {
     const toolbox = grip.find((t) => t.index === Number(plan.info['installIndex']))!;
     expect(toolbox).toMatchObject({ label: `${plan.info['cost']} credits (−${plan.info['discount']})`, lit: true });
     await page.waitForFunction(() => window.__overclock!.layout().hint === null);
-    expect((await layout(page)).text.help).toContain('Tap a lit card in your Grip to install it');
+    expect((await layout(page)).text.help).toContain('Let go on a lit card in your Grip to install it');
     expect(plan.info['discount']).toBe('4');
     expect(l.hand[toolbox.index!]!.cardId).toBe(TOOLBOX);
     expectThumb(l, toolbox.box, 'Toolbox target');
@@ -131,14 +131,12 @@ test.describe('S-12-3 Modded and The Toolbox', () => {
     const seed = 1;
     await openBoard(page, { seed, decks: 'core45' });
     const plan = await toStep(page, seed, 'modded_no_target');
+    // S-15-6: held up it lifts dimmed (nothing lit) and says why.
     const l = await pickHand(page, Number(plan.info['handIndex']));
-    const play = targetOf(l, 'play');
-    expect(play).toMatchObject({ lit: false, reject: 'condition_not_met', note: 'No program or hardware in your Grip' });
-    expectThumb(l, play.box, 'Play');
-    expect(l.targets.filter((t) => t.kind === 'grip')).toEqual([]);
+    expect(l.targets).toEqual([]);
+    // Said at the lift (read from the log: the toast may have faded on a slow runner).
+    expect((await page.evaluate(() => window.__overclock!.anims())).filter((a) => a.kind === 'hint').map((a) => a.text)).toContain('No program or hardware in your Grip');
     await shot(page, 's12-3-modded-no-target');
-    await tap(page, play.box);
-    await page.waitForFunction(() => window.__overclock!.layout().hint?.text === 'No program or hardware in your Grip');
   });
 
   test('The Toolbox pays for icebreakers: the break / pump buttons say "The Toolbox pays"', async ({ page }) => {

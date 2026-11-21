@@ -228,12 +228,15 @@ export function attachPress(target: Container, handlers: PressHandlers, opts: Pr
     if (longFired) {
       if (Math.hypot(x - startX, y - startY) > tolerance) slid = true;
       const at = madeAt(stampOf(e), performance.now());
-      handlers.onHoldMove?.(x, y, at);
+      // S-15-6: pulled out first (the card read so far is the one lifted), else the hold slides on.
       if (handlers.onPull?.(x, y, x - startX, y - startY, at, true)) {
         dragging = true;
         longFired = false;
         clearTimer();
+        handlers.onDrag?.(x, y, at);
+        return;
       }
+      handlers.onHoldMove?.(x, y, at);
       return;
     }
     if (Math.hypot(x - startX, y - startY) > tolerance) {

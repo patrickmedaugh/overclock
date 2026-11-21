@@ -51,9 +51,11 @@ const sorted = (xs: string[]) => [...xs].sort();
 function awaySpot(l: LayoutSnapshot): { x: number; y: number } {
   const s = emptySpot(l);
   const p = center(s);
-  const inAny = (b: Box) => p.x >= b.x && p.x <= b.x + b.width && p.y >= b.y && p.y <= b.y + b.height;
-  expect(l.targets.some((t) => inAny(t.box)), 'the away spot is off every lit place').toBe(false);
-  return { x: Math.min(p.x, l.viewport.width - 4), y: p.y };
+  const inAny = (b: Box, q: { x: number; y: number }) => q.x >= b.x && q.x <= b.x + b.width && q.y >= b.y && q.y <= b.y + b.height;
+  // S-15-6: a one-shot card's place is the whole table: then the rail's help text (never a place).
+  const q = l.targets.some((t) => inAny(t.box, p)) ? { x: l.viewport.width - 4, y: Math.round(l.viewport.height * 0.35) } : { x: Math.min(p.x, l.viewport.width - 4), y: p.y };
+  expect(l.targets.some((t) => inAny(t.box, q)), 'the away spot is off every lit place').toBe(false);
+  return q;
 }
 
 test.describe('S-07-6 hand: tap to open, long-press to light places, drag to play', () => {

@@ -66,8 +66,8 @@ export class Hand {
   readonly container = new Container();
   /**
    * S-15-6: the cards in the hand strip (inside `container`). It drops below the screen while a
-   * card is held (`minimize`); the held card is moved out of it into `container`, so it stays
-   * under the finger.
+   * card is held (`minimize`); the held card stays in it (moving it would lose Pixi's track of the
+   * finger's press) and is drawn against the strip's offset, so it stays under the finger.
    */
   private readonly strip = new Container();
   private cards: HandCard[] = [];
@@ -75,6 +75,8 @@ export class Hand {
   private minimized = false;
   /** S-15-6: the held card is dimmed (it can't be played now). */
   private liftDimmed = false;
+  /** S-15-6: where the held card's centre is on screen (the strip may be offset under it). */
+  private readonly liftAt = { x: 0, y: 0 };
   private layout: BoardLayout | null = null;
   /** The layout generation the sprites were made for (sizes). */
   sizeKey = '';
@@ -115,11 +117,25 @@ export class Hand {
     const to = on && layout ? Math.max(0, layout.viewport.height - layout.handArea.y) + 4 : 0;
     if (ms <= 0) {
       this.strip.y = to;
-      this.strip.alpha = 1;
+      this.pinLifted();
     } else {
-      this.ui.add({ target: this.strip, to: { y: to }, duration: ms, ease: on ? ease.inCubic : ease.outCubic, owner: this.strip });
+      this.ui.add({ target: this.strip, to: { y: to }, duration: ms, ease: on ? ease.inCubic : ease.outCubic, owner: this.strip, onUpdate: () => this.pinLifted() });
     }
     this.callbacks.log({ kind: on ? 'hand_minimize' : 'hand_restore', scheduledMs: Math.max(0, ms) });
+  }
+
+  /** The held card stays where the finger put it while the strip moves under it. */
+  private pinLifted(): void {
+    const card = this.lifted;
+    if (card && !card.root.destroyed && card.root.parent === this.strip) card.root.y = this.liftAt.y - this.strip.y;
+  }
+
+  /**
+   * S-15-6: the held card was let go on its place: it stays exactly there (the play's flight starts
+   * from it) while the strip comes back up. The finger is up, so it can leave the strip now.
+   */
+  park(): void {
+    if (this.lifted) this.unhome(this.lifted);
   }
 
   /** Puts a card drawn outside the strip (held, or let go and refused) back in it, where it is now on screen. */
@@ -202,8 +218,9 @@ export class Hand {
     this.liftDimmed = dimmed;
     card.face.alpha = dimmed ? 0.5 : 1;
     card.flip.tint = dimmed ? 0x8a8a8a : 0xffffff;
-    this.unhome(card);
     card.root.zIndex = 2000;
+    this.liftAt.x = card.root.x;
+    this.liftAt.y = card.root.y + this.strip.y;
     this.lifted = card;
     this.lastLean = 0;
     this.restack();
@@ -224,7 +241,11 @@ export class Hand {
 
   /** The lifted card's centre goes to x/y (set in the move handler: no tween, no allocation). */
   dragTo(x: number, y: number): void {
-    this.lifted?.root.position.set(x, y);
+    const card = this.lifted;
+    if (!card) return;
+    this.liftAt.x = x;
+    this.liftAt.y = y;
+    card.root.position.set(x, card.root.parent === this.strip ? y - this.strip.y : y);
   }
 
   /** S-15-1: the lifted card leans `angle` (radians) and straightens again once the finger stops. */

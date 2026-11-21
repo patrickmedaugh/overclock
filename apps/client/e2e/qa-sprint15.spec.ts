@@ -185,7 +185,7 @@ test.describe('QA S-15-1 hand: press, tap, glide home', () => {
     // game judges a tap by the events' times (QA-S3-7), so the release is stamped 150 ms after it.
     const t0 = Date.now();
     await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: c.x, y: c.y }], timestamp: t0 / 1000 });
-    await page.waitForTimeout(150); // < 350 ms hold: a tap, not a lift
+    await page.waitForTimeout(150); // < 250 ms hold: a tap, not a lift
     await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [], timestamp: (t0 + 150) / 1000 });
     await page.waitForTimeout(250);
     const qa = await page.evaluate(() => {
@@ -211,11 +211,13 @@ test.describe('QA S-15-1 hand: press, tap, glide home', () => {
     expect(full, 'grows about 8 %').toBeTruthy();
     expect(full!.y, 'and rises').toBeLessThan(centre.y - 1);
     expect(Math.max(...qa.samples.map((s) => s.w)), 'a little, not a lot').toBeLessThan(centre.width * 1.1);
-    // A quick tap picks the card (today's behaviour): the view closes, nothing is left lifted or enlarged.
+    // S-15-6: a quick tap never picks: the view stays open on the card ("Hold to play"), nothing is left lifted or enlarged.
     const l = await waitIdle(page);
     expect(l.drag).toBeNull();
-    expect(l.handView).toBeNull();
-    expect(l.selected).toBe(1);
+    expect(l.handView).toMatchObject({ index: 1, lifted: false });
+    expect(l.handView!.tip?.text).toBe('Hold to play');
+    expect(l.selected).toBeNull();
+    expect(l.zoom!.box.width).toBeCloseTo(centre.width, 0);
     expect(l.motion.flights).toEqual([]);
     await cdp.detach();
   });
@@ -275,7 +277,7 @@ test.describe('QA S-15-1 hand: press, tap, glide home', () => {
 
 // ---------------------------------------------------------------------------------------------
 test.describe('QA S-15-2 played cards fly and land', () => {
-  test('a button install (pick with a tap, tap the lit new-server place) flies from the hand card to its spot and settles', async ({ page }) => {
+  test('a held install (picked up, let go on the lit new-server place) flies from where it was let go to its spot and settles', async ({ page }) => {
     await openBoard(page, 1);
     const v = await getView(page);
     const i = cardWith(v, 'new_server');
@@ -289,7 +291,9 @@ test.describe('QA S-15-2 played cards fly and land', () => {
     let l = await layout(page);
     const f0 = l.motion.flights.find((f) => f.kind === 'install')!;
     expect(f0.cardId, "the Corp's own card on the Corp's screen").toBe(cardId);
-    expect(dist(center(f0.box), center(handBox)), 'starts at the hand card').toBeLessThan(Math.max(handBox.width, handBox.height));
+    // S-15-6: picked up and let go on the place: it flies from where it was let go (the held card).
+    const dropAt = center(targetOf(picked, 'new_server').box);
+    expect(dist(center(f0.box), dropAt), 'starts where it was let go').toBeLessThan(Math.max(handBox.width, handBox.height));
     l = await advance(page, 120);
     await snap(page, 's15-2-button-install-mid');
     const remote = l.servers.at(-1)!;

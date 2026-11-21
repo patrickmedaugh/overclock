@@ -12,14 +12,19 @@ import { getCard } from '@overclock/cards';
 import { expect, test, type Page } from '@playwright/test';
 import {
   BOARD_FLAGS,
+  type LayoutSnapshot,
   anims,
+  center,
+  dragTo,
+  handIndexByName,
+  holdAt,
+  waitHandBack,
+  putBack,
   expectCleanLayout,
   getView,
   layout,
-  measureTap,
   openBoard,
   passTurn,
-  openHand,
   pickCard,
   pickHand,
   pressAndHold,
@@ -129,13 +134,11 @@ test.describe('QA S-02-4 needs runs (Sprint 3: the cards work now)', () => {
     await openBoard(page, 14);
     await page.evaluate(() => window.__overclock!.clearAnims());
     const before = await getView(page);
-    let l = await pickCard(page, 'Neural EMP');
-    expect(targetOf(l, 'play')).toMatchObject({ label: 'Play · 2 credits', reject: 'condition_not_met', lit: false });
-    const m = await measureTap(page, targetOf(l, 'play').box);
-    expect(m.events).toEqual([{ type: 'action_rejected', reason: 'condition_not_met' }]);
-    expect(m.view).toEqual(before);
-    expect(m.anims.map((a) => [a.kind, a.text])).toEqual([['hint', 'Only after the Runner made a run']]);
-    await tap(page, l.hand[l.selected!]!.box); // cancel
+    // S-15-6: Neural EMP can't be played yet: held up it lifts dimmed, nothing lit, and says why.
+    let l = await pickHand(page, handIndexByName(await layout(page), 'Neural EMP'));
+    expect(l.targets).toEqual([]);
+    expect(await getView(page)).toEqual(before);
+    expect((await anims(page)).filter((a) => a.kind === 'hint').map((a) => a.text)).toContain('Only after the Runner made a run');
     await toRunnerTurn(page);
     l = await pickCard(page, 'Inside Job');
     expect(l.targets.every((t) => t.kind === 'play' && t.server !== undefined && t.lit)).toBe(true);
@@ -144,8 +147,8 @@ test.describe('QA S-02-4 needs runs (Sprint 3: the cards work now)', () => {
 });
 
 test.describe('QA snappiness: picking a card', () => {
-  test('tapping a hand card lights its targets inside the same tap (< 100ms), on both sides', async ({ page }) => {
-    // S-07-6: each pick is now three taps (open the hand view, tap the big card); a GPU-less CI desktop needs longer than 30 s.
+  test('picking a hand card up lights its targets inside the same move (< 100ms), on both sides', async ({ page }) => {
+    // S-15-6: a card is picked up by dragging it up out of the hand strip; the move that lifts it is measured.
     test.setTimeout(90_000);
     await openBoard(page, 2);
     const samples: number[] = [];
@@ -153,31 +156,43 @@ test.describe('QA snappiness: picking a card', () => {
       if (side === 'runner') await toRunnerTurn(page);
       const l = await waitIdle(page);
       for (let i = 0; i < l.hand.length; i++) {
-        // S-07-6: the hand view opens on the card first; the tap on its big card is the pick measured here.
-        const open = await openHand(page, i);
         await page.evaluate(() => {
           const w = window as unknown as { __p?: unknown };
           w.__p = undefined;
-          window.addEventListener(
-            'pointerup',
-            (e) => {
-              const hook = window.__overclock!;
-              const inp = hook.lastInput();
-              const lay = hook.layout();
-              w.__p = { at: performance.now(), handled: inp && inp.eventAt === e.timeStamp ? inp.handledAt : NaN, targets: lay.targets.length, selected: lay.selected };
-            },
-            { once: true },
-          );
+          // Capture on window: when the page starts on a move (before the game's own handler).
+          let began = 0;
+          const first = () => (began = performance.now());
+          const on = () => {
+            const lay = window.__overclock!.layout();
+            if (lay.drag === null) return;
+            window.removeEventListener('pointermove', on);
+            window.removeEventListener('pointermove', first, true);
+            w.__p = { began, at: performance.now(), targets: lay.targets.length, selected: lay.selected, dimmed: lay.drag.dimmed };
+          };
+          window.addEventListener('pointermove', first, true);
+          // A bubble listener: runs right after the game handled the move.
+          window.addEventListener('pointermove', on);
         });
-        await tap(page, open.handView!.centre);
+        const box = l.hand[i]!.box;
+        const start = center(box);
+        const hold = await holdAt(page, box);
+        const up = { x: start.x, y: box.y - box.height * 0.3 };
+        await dragTo(hold, start, up, 3);
         await page.waitForFunction(() => (window as unknown as { __p?: unknown }).__p !== undefined);
-        const p = await page.evaluate(() => (window as unknown as { __p: { at: number; handled: number; targets: number; selected: number | null } }).__p);
+        const p = await page.evaluate(() => (window as unknown as { __p: { began: number; at: number; targets: number; selected: number | null; dimmed: boolean } }).__p);
         const card = getCard(l.hand[i]!.cardId)!;
-        expect(p.selected, `${card.name} picked`).toBe(i);
-        expect(p.targets, `${card.name} lit targets`).toBeGreaterThan(0);
-        expect(p.at - p.handled, `${card.name} answered within 100ms`).toBeLessThan(100);
-        samples.push(p.at - p.handled);
-        await tap(page, l.hand[i]!.box); // cancel
+        const v = await getView(page);
+        const playable = v.handOptions[i]!.some((o) => o.reject === null);
+        if (playable) {
+          expect(p.selected, `${card.name} picked`).toBe(i);
+          expect(p.targets, `${card.name} lit targets`).toBeGreaterThan(0);
+        } else expect(p.dimmed, `${card.name} dimmed`).toBe(true);
+        // The lift and its lit places are drawn in the same handler as the move (the hook reads them right after).
+        expect(p.at - p.began, `${card.name} answered within 100ms`).toBeLessThan(100);
+        samples.push(p.at - p.began);
+        await dragTo(hold, up, start, 2);
+        await hold.release();
+        await waitHandBack(page);
         expect((await layout(page)).selected).toBeNull();
       }
     }
@@ -260,9 +275,9 @@ test.describe('QA Sprint 2 playthrough (screenshots)', () => {
     await shot(page, '12-ninja-installed-memory-1-of-4');
 
     await page.evaluate(() => window.__overclock!.clearAnims());
-    l = await pickCard(page, "The Maker's Eye");
+    // S-15-6: it can't be played now: held up it lifts dimmed and says why (then goes back).
+    l = await pickHand(page, handIndexByName(l, "The Maker's Eye"));
     await shot(page, '13-makers-eye-needs-runs');
-    await tap(page, l.hand[l.selected!]!.box);
 
     l = await pickCard(page, 'Diesel');
     await tap(page, targetOf(l, 'play').box);
@@ -273,13 +288,15 @@ test.describe('QA Sprint 2 playthrough (screenshots)', () => {
     const v = await getView(page);
     const poor = v.handOptions.findIndex((opts) => opts.some((o) => o.reject === 'no_credits'));
     if (poor >= 0) {
-      l = await pickHand(page, poor);
-      const t = l.targets.find((x) => x.reject === 'no_credits')!;
+      // S-15-6: held up, a card with no affordable place lifts dimmed and says why; one with some
+      // affordable places says why when let go on a dimmed one.
       await page.evaluate(() => window.__overclock!.clearAnims());
-      await tap(page, t.box);
+      l = await pickHand(page, poor);
+      const t = l.targets.find((x) => x.reject === 'no_credits');
+      if (t) await tap(page, t.box);
       expect((await anims(page)).find((a) => a.kind === 'hint')?.text).toBe('Not enough credits');
       await shot(page, '15-runner-not-enough-credits');
-      await tap(page, l.hand[poor]!.box);
+      await putBack(page);
     }
 
     await passTurn(page);
@@ -361,9 +378,9 @@ test.describe('QA-S2-1 hints are readable', () => {
     // Sprint 3: the long hint is Neural EMP's condition (seed 14), no card says "Needs runs" any more.
     await openBoard(page, 14);
     await page.evaluate(() => window.__overclock!.clearAnims());
-    let l = await pickCard(page, 'Neural EMP');
-    await tap(page, targetOf(l, 'play').box);
+    await pickHand(page, handIndexByName(await layout(page), 'Neural EMP'));
     await record();
+    let l: LayoutSnapshot;
     await openBoard(page, 5);
     await toRunnerTurn(page);
     await page.evaluate(() => window.__overclock!.clearAnims());
@@ -372,10 +389,9 @@ test.describe('QA-S2-1 hints are readable', () => {
     l = await pickCard(page, 'Ninja');
     await tap(page, targetOf(l, 'install').box);
     await waitIdle(page);
-    l = await pickCard(page, 'Corroder');
-    await tap(page, targetOf(l, 'install').box);
+    // S-15-6: Corroder is too dear now: held up, it lifts dimmed and says why.
+    l = await pickHand(page, handIndexByName(await layout(page), 'Corroder'));
     await record();
-    await tap(page, l.hand[l.selected!]!.box);
     for (let i = 0; i < 3; i++) await page.evaluate(() => window.__overclock!.dispatch({ type: 'gain_credit', player: 'runner' }));
     await page.evaluate(() => window.__overclock!.dispatch({ type: 'gain_credit', player: 'runner' }));
     await record();
@@ -454,9 +470,7 @@ test.describe('QA round 2: fixes hold in harder cases', () => {
     // Sprint 3: Neural EMP's refusal (seed 14, Corp's first turn) replaces the old "Needs runs" hint.
     await openBoard(page, 14);
     await page.evaluate(() => window.__overclock!.clearAnims());
-    let l = await pickCard(page, 'Neural EMP');
-    await tap(page, targetOf(l, 'play').box);
-    l = await layout(page);
+    const l = await pickHand(page, handIndexByName(await layout(page), 'Neural EMP'));
     const h = (await anims(page)).filter((a) => a.kind === 'hint').pop()!;
     expect(h.text).toBe('Only after the Runner made a run');
     const eps = 0.5;

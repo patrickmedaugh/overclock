@@ -661,6 +661,25 @@ export async function pickHand(page: Page, i: number): Promise<LayoutSnapshot> {
   return now;
 }
 
+/**
+ * S-15-6: holds up the hand card named `name`, which can't be played now: it lifts dimmed with
+ * nothing lit and says why at once (then the finger lets go and it goes back). Returns the layout
+ * after letting go and the hints shown since the lift (checked: shown within 0.1 s of the lift).
+ */
+export async function liftRefused(page: Page, name: string): Promise<{ l: LayoutSnapshot; hints: string[] }> {
+  await page.evaluate(() => window.__overclock!.clearAnims());
+  const l = await pickHand(page, handIndexByName(await layout(page), name));
+  const recs = await anims(page);
+  const lift = recs.find((a) => a.kind === 'card_lift');
+  expect(lift, `${name} lifted`).toBeTruthy();
+  expect(l.targets, `${name}: nothing lit`).toEqual([]);
+  expect(l.selected).toBeNull();
+  const hints = recs.filter((a) => a.kind === 'hint');
+  expect(hints.length, `${name} says why`).toBeGreaterThan(0);
+  expect(hints[0]!.startedAt - lift!.startedAt, 'at once').toBeLessThan(100);
+  return { l, hints: hints.map((h) => h.text!) };
+}
+
 /** S-07-6: a spot outside the open hand view's cards (its top-left corner): a tap there closes the view. */
 export function outsideHandView(l: LayoutSnapshot): Box {
   const safe = safeRect(l);
@@ -735,7 +754,13 @@ export function emptySpot(l: LayoutSnapshot): Box {
   const cols = [...l.servers.map((s) => s.box), ...l.targets.filter((t) => t.kind === 'new_server').map((t) => t.box)];
   const right = Math.max(...cols.map((b) => b.x + b.width));
   const col = cols[0]!;
-  return { x: right + 20, y: col.y + col.height / 2 - 5, width: 10, height: 10 };
+  const spot = { x: right + 20, y: col.y + col.height / 2 - 5, width: 10, height: 10 };
+  // S-15-6: a held one-shot card's place is the whole table: then the rail's help text (never a place).
+  const c = center(spot);
+  if (l.targets.some((t) => c.x >= t.box.x && c.x <= t.box.x + t.box.width && c.y >= t.box.y && c.y <= t.box.y + t.box.height)) {
+    return { x: l.viewport.width - 9, y: Math.round(l.viewport.height * 0.35) - 5, width: 10, height: 10 };
+  }
+  return spot;
 }
 
 /** Ends the active seat's turn through the hook, discarding the first cards if asked. */

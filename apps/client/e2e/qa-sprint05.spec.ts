@@ -9,7 +9,9 @@ import { fileURLToPath } from 'node:url';
 import { type Page, expect, test } from '@playwright/test';
 import {
   type LayoutSnapshot,
+  anims,
   center,
+  pickHand,
   getView,
   holdAt,
   inside,
@@ -200,13 +202,18 @@ test.describe('QA S-05-2 the ICE says what it does', () => {
     await tap(page, l.hand[i]!.box);
     const r1 = await seen();
     expect((await layout(page)).handView?.index).toBe(i);
+    // S-15-6: a tap only reads; the card is picked by holding it up (from the hand strip, view closed).
+    await page.evaluate(() => window.__overclock!.back());
+    await page.waitForFunction(() => window.__overclock!.layout().handView === null);
+    await page.evaluate(() => window.__overclock!.clearAnims());
     await watch('pick');
-    await tap(page, (await layout(page)).handView!.centre);
+    await pickHand(page, i);
     const r = await seen();
     expect((await layout(page)).selected).toBe(i);
-    test.info().annotations.push({ type: 'pick-after-report', description: `view: on frame ${(r1.sel - r1.input!.eventAt).toFixed(1)}ms after the tap; pick: handled ${(r.input!.handledAt - r.input!.eventAt).toFixed(1)}ms after the tap; lit on frame ${(r.sel - r.input!.eventAt).toFixed(1)}ms after the tap` });
+    const lift = (await anims(page)).find((a) => a.kind === 'card_lift')!;
+    test.info().annotations.push({ type: 'pick-after-report', description: `view: on frame ${(r1.sel - r1.input!.eventAt).toFixed(1)}ms after the tap; pick: lit on frame ${(r.sel - lift.startedAt).toFixed(1)}ms after the lift` });
     expect(r1.sel - r1.input!.handledAt).toBeLessThan(100);
-    expect(r.sel - r.input!.handledAt).toBeLessThan(100);
+    expect(r.sel - lift.startedAt).toBeLessThan(100);
   });
 
   test('Enigma and Neural Katana messages name the ICE (screenshots)', async ({ page }) => {

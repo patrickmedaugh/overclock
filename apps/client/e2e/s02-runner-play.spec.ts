@@ -16,6 +16,7 @@ import {
   targetOf,
   toRunnerTurn,
   waitIdle,
+  liftRefused,
 } from './helpers';
 
 // Seeds re-picked for the 17-card Corp deck (Sprint 3):
@@ -66,17 +67,14 @@ test.describe('S-02-3 Runner: install programs, hardware and resources', () => {
   test("without enough credits, Install only shows \"Not enough credits\" and nothing changes", async ({ page }) => {
     await openBoard(page, 858);
     await toRunnerTurn(page);
-    let l = await pickCard(page, 'Ninja');
+    const l = await pickCard(page, 'Ninja');
     await tap(page, targetOf(l, 'install').box); // 5 -> 1 credit
     await waitIdle(page);
-    l = await pickCard(page, 'Gordian Blade');
-    const t = targetOf(l, 'install');
-    expect(t).toMatchObject({ label: 'Install · 4 credits', lit: false, reject: 'no_credits' });
+    // S-15-6: held up, it lifts dimmed (nothing lit) and only says "Not enough credits".
     const before = await getView(page);
-    const m = await measureTap(page, t.box);
-    expect(m.events).toEqual([{ type: 'action_rejected', reason: 'no_credits' }]);
-    expect(m.view).toEqual(before);
-    expect(m.anims.map((a) => [a.kind, a.text])).toEqual([['hint', 'Not enough credits']]);
+    const { hints } = await liftRefused(page, 'Gordian Blade');
+    expect(hints).toEqual(['Not enough credits']);
+    expect(await getView(page)).toEqual(before);
   });
 
   test("on the Corp's turn the Runner's installed cards are face up", async ({ page }) => {
@@ -165,13 +163,11 @@ test.describe('S-02-4 play money and draw cards', () => {
       await waitIdle(page);
     }
     expect((await getView(page)).players.corp.credits).toBe(4);
-    const l = await pickCard(page, 'Hedge Fund');
-    const t = targetOf(l, 'play');
-    expect(t).toMatchObject({ label: 'Play · 5 credits', lit: false, reject: 'no_credits' });
+    // S-15-6: held up, it lifts dimmed (nothing lit) and only says "Not enough credits".
     const before = await getView(page);
-    const m = await measureTap(page, t.box);
-    expect(m.view).toEqual(before);
-    expect(m.anims.map((a) => [a.kind, a.text])).toEqual([['hint', 'Not enough credits']]);
+    const { hints } = await liftRefused(page, 'Hedge Fund');
+    expect(hints).toEqual(['Not enough credits']);
+    expect(await getView(page)).toEqual(before);
   });
 
   test("The Maker's Eye is playable now (Sprint 3): Play shows its price and no \"Needs runs\" hint", async ({ page }) => {

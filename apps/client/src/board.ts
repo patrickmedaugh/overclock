@@ -4491,7 +4491,8 @@ export class Board {
    */
   private onStripPull(side: Side, index: number, x: number, y: number, at: number): boolean {
     const view = this.view;
-    if (!view || side !== view.viewer || this.lift || this.flipPending || view.result) return false;
+    // After the game is over a card still lifts (dimmed: "The game is over").
+    if (!view || side !== view.viewer || this.lift || this.flipPending) return false;
     if (view.pendingDiscard > 0 || panelUp(view) || this.sheet || this.cover || this.leave) return false;
     if (this.viewPress) return false;
     this.beginLift(index, x, y, 'strip', at);
@@ -4658,6 +4659,7 @@ export class Board {
       this.activeTargets[lift.hover]?.marker.setHover(false);
       this.lift = null;
       this.updateArrow();
+      hand.park();
       hand.minimize(false, MINIMIZE_MS);
       this.closeZoom(true);
       this.showTargets();
@@ -4689,7 +4691,9 @@ export class Board {
     if (reason || lift.from === 'strip' || !zoom?.view) {
       // A dimmed card or place: say why, with the board in view. From the strip: back to the board.
       this.closeZoom(true);
-      if (reason) this.showHint(reason);
+      // A dimmed card already says why since it lifted: said again only if that line has faded.
+      const showing = lift.dimmed && this.hint?.text === reason && this.hint.root.alpha > 0.05;
+      if (reason && !showing) this.showHint(reason);
     } else {
       // Let go elsewhere: the hand view comes back.
       this.ui.cancel(zoom.root);

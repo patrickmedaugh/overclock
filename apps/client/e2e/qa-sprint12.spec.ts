@@ -196,18 +196,17 @@ test.describe('QA S-12-2 Archived Memories and Experiential Data (real taps)', (
     await shot(page, '08-archived-memories-taken');
   });
 
-  test('seed 202, Archives empty: Archived Memories dimmed, "Archives is empty"; a tap plays nothing', async ({ page }) => {
+  test('seed 202, Archives empty: Archived Memories lifts dimmed, "Archives is empty"; it plays nothing', async ({ page }) => {
     const seed = 202;
     await openBoard(page, { seed, decks: 'core45' });
     const plan = await toStep(page, seed, 'archived_memories_empty');
     const before = await getView(page);
+    // S-15-6: held up it lifts dimmed (nothing lit) and says why; let go, it goes back.
     const l = await pickHand(page, Number(plan.info['handIndex']));
-    const play = targetOf(l, 'play');
-    expect(play).toMatchObject({ lit: false, note: 'Archives is empty' });
-    thumb(l, play.box, 'dimmed Play');
+    expect(l.targets).toEqual([]);
+    // Said at the lift (read from the log: the toast may have faded on a slow runner).
+    expect((await page.evaluate(() => window.__overclock!.anims())).filter((a) => a.kind === 'hint').map((a) => a.text)).toContain('Archives is empty');
     await shot(page, '09-archived-memories-empty');
-    await tap(page, play.box);
-    await page.waitForFunction(() => window.__overclock!.layout().hint?.text === 'Archives is empty');
     const w = await getView(page);
     expect(w.players.corp.handCount).toBe(before.players.corp.handCount);
     expect(w.players.corp.clicks).toBe(before.players.corp.clicks);
@@ -289,8 +288,11 @@ test.describe('QA S-12-3 The Toolbox and Modded (real taps)', () => {
     const seed = 201;
     await openBoard(page, { seed, decks: 'core45' });
     const plan = await toStep(page, seed, 'modded_no_target');
+    // S-15-6: held up it lifts dimmed (nothing lit) and says why.
     const l = await pickHand(page, Number(plan.info['handIndex']));
-    expect(targetOf(l, 'play')).toMatchObject({ lit: false, note: 'No program or hardware in your Grip' });
+    expect(l.targets).toEqual([]);
+    // Said at the lift (read from the log: the toast may have faded on a slow runner).
+    expect((await page.evaluate(() => window.__overclock!.anims())).filter((a) => a.kind === 'hint').map((a) => a.text)).toContain('No program or hardware in your Grip');
     await shot(page, '14-modded-no-target');
   });
 

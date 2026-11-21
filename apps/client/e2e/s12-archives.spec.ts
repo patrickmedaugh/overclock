@@ -147,14 +147,12 @@ test.describe('S-12-2 Archived Memories', () => {
     const seed = 1;
     await openBoard(page, { seed, decks: 'core45' });
     const plan = await toStep(page, seed, 'archived_memories_empty');
+    // S-15-6: held up it lifts dimmed (nothing lit) and says why; nothing is played.
     const l = await pickHand(page, Number(plan.info['handIndex']));
-    const play = targetOf(l, 'play');
-    expect(play).toMatchObject({ lit: false, reject: 'condition_not_met', note: 'Archives is empty' });
-    expect(Math.min(play.box.width, play.box.height)).toBeGreaterThanOrEqual(44);
+    expect(l.targets).toEqual([]);
+    // Said at the lift (read from the log: the toast may have faded on a slow runner).
+    expect((await page.evaluate(() => window.__overclock!.anims())).filter((a) => a.kind === 'hint').map((a) => a.text)).toContain('Archives is empty');
     await shot(page, 's12-2-archives-empty');
-    // Tapped anyway: the same words, nothing played.
-    await tap(page, play.box);
-    await page.waitForFunction(() => window.__overclock!.layout().hint?.text === 'Archives is empty');
     expect((await getView(page)).choice).toBeNull();
   });
 });

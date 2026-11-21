@@ -270,8 +270,11 @@ test.describe('S-09-4 SEA Source, Ichi 1.0, Access to Globalsec', () => {
   test('SEA Source not ready: dimmed, "Runner made no successful run last turn"', async ({ page }) => {
     await core(page);
     const plan = await toStep(page, SEED, 'sea_source_not_ready');
+    // S-15-6: held up it lifts dimmed (nothing lit) and says why in the card's own words.
     const l = await pickHand(page, Number(plan.info['handIndex']));
-    expect(targetOf(l, 'play')).toMatchObject({ lit: false, reject: 'condition_not_met', note: 'Runner made no successful run last turn' });
+    expect(l.targets).toEqual([]);
+    // Said at the lift (read from the log: the toast may have faded on a slow runner).
+    expect((await page.evaluate(() => window.__overclock!.anims())).filter((a) => a.kind === 'hint').map((a) => a.text)).toContain('Runner made no successful run last turn');
     await shot(page, 's09-4-sea-source-not-ready');
   });
 

@@ -21,6 +21,7 @@ import {
   toRunnerTurn,
   toStep,
   waitIdle,
+  liftRefused,
 } from './helpers';
 
 /** The installed card `uid` as drawn, wherever it is. */
@@ -159,12 +160,10 @@ test.describe('S-03-5 run cards', () => {
     await openBoard(page, 14);
     const before = await getView(page);
     await page.evaluate(() => window.__overclock!.clearAnims());
-    const l = await pickCard(page, 'Neural EMP');
-    expect(targetOf(l, 'play')).toMatchObject({ label: 'Play · 2 credits', lit: false, reject: 'condition_not_met' });
-    const m = await measureTap(page, targetOf(l, 'play').box);
-    expect(m.events).toEqual([{ type: 'action_rejected', reason: 'condition_not_met' }]);
-    expect(m.view).toEqual(before);
-    expect(m.anims.map((a) => [a.kind, a.text])).toEqual([['hint', 'Only after the Runner made a run']]);
+    // S-15-6: held up, it lifts dimmed (nothing lit), says why, and nothing is spent.
+    const { hints } = await liftRefused(page, 'Neural EMP');
+    expect(hints).toEqual(['Only after the Runner made a run']);
+    expect(await getView(page)).toEqual(before);
   });
 
   test('Inside Job: pick a server; the first rezzed ICE met is bypassed. Then Neural EMP does 1 net damage', async ({ page }) => {

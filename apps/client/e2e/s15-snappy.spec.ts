@@ -120,11 +120,11 @@ test.describe('S-15-4 never slower than today', () => {
     await dragTo(hold, center(open.handView!.centre), center(t.box), 4);
     await hold.release();
     await page.waitForFunction(() => window.__overclock!.layout().drag === null && !window.__overclock!.layout().handMinimized);
+    const all: AnimRecord[] = await page.evaluate(() => window.__overclock!.anims());
+    for (const k of ['hand_minimize', 'hand_restore', 'card_lift', 'install_flight'] as const) expect(all.some((r) => r.kind === k), k).toBe(true);
+    for (const r of all) if (r.kind !== 'hint' && r.kind !== 'notice') expect(r.scheduledMs, `${r.kind} within 0.6 s`).toBeLessThanOrEqual(600);
     const m = await measureTap(page, (await layout(page)).corp.credits);
     expectSnappy(m, ['credit_pop']);
-    const all: AnimRecord[] = await page.evaluate(() => window.__overclock!.anims());
-    for (const r of all) if (r.kind !== 'hint' && r.kind !== 'notice') expect(r.scheduledMs, `${r.kind} within 0.6 s`).toBeLessThanOrEqual(600);
-    for (const k of ['hand_minimize', 'hand_restore', 'card_lift'] as const) expect(all.some((r) => r.kind === k), k).toBe(true);
   });
 });
 
