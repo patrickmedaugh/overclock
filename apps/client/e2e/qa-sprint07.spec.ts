@@ -468,7 +468,7 @@ test.describe('QA S-07-6 hand view and drag', () => {
     expect(await getView(page)).toEqual(after);
   });
 
-  test('drag latency (QA measure): a fast continuous drag, each move drawn under the finger in < 100 ms', async ({ page }) => {
+  test('drag latency (QA measure): a fast continuous drag, each move drawn by the finger in < 100 ms', async ({ page }) => {
     test.setTimeout(90_000);
     await openBoard(page, 1);
     const v = await getView(page);
@@ -476,20 +476,30 @@ test.describe('QA S-07-6 hand view and drag', () => {
     const { hold, lifted } = await liftHand(page, i);
     await page.waitForTimeout(200);
     await page.evaluate(() => {
-      type M = { at: number; x: number; drawn: number | null; hover?: string };
+      type M = { at: number; x: number; y: number; drawn: number | null; hover?: string };
       const w = window as unknown as { __q: M[] };
       w.__q = [];
-      window.addEventListener('pointermove', (e) => w.__q.push({ at: e.timeStamp, x: e.clientX, drawn: null }));
+      window.addEventListener('pointermove', (e) => w.__q.push({ at: e.timeStamp, x: e.clientX, y: e.clientY, drawn: null }));
+      // Where the held card's centre goes for a finger at (x, y): a copy of `heldCenter` (handGesture.ts; S-15-6 owner
+      // review 2026-11-21: the card sits above the finger, sliding beside it near the top). If the game's rule
+      // changes and this copy does not, no move is ever matched and the test fails loudly (it cannot pass by mistake).
+      const spot = (x: number, y: number, bw: number, bh: number) => {
+        const gap = Math.max(10, Math.round(bh * 0.08));
+        const t = Math.max(0, Math.min(1, (gap + bh - y + bh * 0.25) / (bh * 0.25)));
+        const side = x + gap + bw <= innerWidth ? 1 : -1;
+        return { x: Math.max(bw / 2, Math.min(innerWidth - bw / 2, x + side * t * (gap + bw / 2))), y: Math.max(bh / 2, Math.min(innerHeight - bh / 2, y - gap - bh / 2)) };
+      };
       const loop = () => {
         const q = w.__q;
         if (q.some((m) => m.drawn === null)) {
           const d = window.__overclock!.layout().drag;
           if (d) {
             const cx = d.box.x + d.box.width / 2;
+            const cy = d.box.y + d.box.height / 2;
             const now = performance.now();
             for (let k = q.length - 1; k >= 0; k--) {
-              const ex = Math.max(d.box.width / 2, Math.min(innerWidth - d.box.width / 2, q[k]!.x));
-              if (Math.abs(ex - cx) < 1.5) {
+              const e = spot(q[k]!.x, q[k]!.y, d.box.width, d.box.height);
+              if (Math.abs(e.x - cx) < 1.5 && Math.abs(e.y - cy) < 1.5) {
                 for (let j = 0; j <= k; j++)
                   if (q[j]!.drawn === null) {
                     q[j]!.drawn = now;

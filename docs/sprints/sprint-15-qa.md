@@ -432,3 +432,147 @@ The control run confirms ui-dev's root cause: on this build, the gate alone deci
 | S-15-6 Hold a card to play it | **PASSED QA: 12/12** (AC12 longest task ≤ 306 ms even at 6×; AC9 is checked on intent: the wording question for the PM/owner is still open) |
 
 **Bugs open: none blocking.** QA-S15-3: **fixed and verified.** Flaky tests, not caused by this sprint's code: `android.spec:73` (3/10 locally on both gate versions) and `s02-corp` at 640x360. Both are for ui-dev to look at later.
+
+## Round 7 (2026-11-21, product code fd8d7bb: ui-dev's fixes after the owner's round-2 review)
+
+QA did not write this change. The owner played the round-2 demo and listed problems with "Try this" steps 2–9 (DECISIONS 2026-11-21). The earlier QA rounds missed them because the tests used made-up input: gestures stamped in advance and finger moves sent in one big jump. **This round QA tested like a person, with real input.**
+- Touch (and mouse) events go in through the browser with no made-up times. The browser stamps each event as it arrives.
+- Events are sent as the finger moves, and the test does not wait for the page between them, as on a real screen.
+- Thumb drags of 150–400 ms on straight, slanted and curved paths.
+- Taps of 40–200 ms with 2 px of finger wobble; clicks held 100–400 ms.
+- Every frame the page draws is recorded (held card, lit places, where the hand is, tip, hint, help text).
+- Order: 891x296 (the owner's phone) first, then 844x390, 640x360, a desktop with a real mouse, and the Android bundle. Then 891x296 again (and desktop, 640x360) with the CPU slowed 4×.
+
+New QA tests:
+- `qa-sprint15.spec.ts`, describe "QA S-15-6 round 7: owner steps 1-9 on real input": 31 tests per size.
+- `qa-sprint15-android.spec.ts`: the Android bundle, judged from screenshots because the app has no test hook.
+- QA's own older test `qa-sprint07.spec.ts` "drag latency" was updated for the owner's design change (see CI below).
+
+**Result: every owner step (1–9) passes on real input at all 4 sizes and at 4× slow-down. The owner's step 5 ("the hand does not come back") could not be reproduced in 10 different ways. But the full CI suite on fd8d7bb is RED, because of 2 tests the owner's changes made out of date (QA-S15-5, QA-S15-6 below).**
+
+### Per owner step (round-2 "Try this"), as Corp and Runner
+Final local run, `--retries=0`: **118 passed, 3 skipped (the mouse-only test on phones), 0 failed** (891x296, 844x390, 640x360, desktop, Android bundle).
+
+| Step | What QA did | Result | Evidence |
+|---|---|---|---|
+| 1 flick | 6 flicks of 120–250 ms (rising/falling up to 30 px), Corp and Runner | **PASS** | No frame showed a held card or a lit place; the view browsed. Tests "step 1 (corp/runner)". |
+| 2 single tap/click | Touch taps of 40/80/120/160/200 ms; mouse clicks held 100/150/200 ms (event times matched what was sent, ±20 ms) | **PASS** | 0 frames with a held card or lit place. "Hold to play" every time; nothing played. Tests "step 2 (corp/runner)". Screenshot `sprint-15-qa/r7-891x296-s15-6-step2-tap-corp.png`. |
+| 2 slow still click | Presses of 300/400 ms held still on the big card, for every playable hand card | **PASS** | Never played, no flight. One low bug at 4× on desktop (QA-S15-4). Test "step 2: clicks / presses held 300 and 400 ms…". |
+| 3 hold, react, lift, big card | Still hold with finger wobble | **PASS** | Card reacts 3–27 ms after the finger. It lifts and shows 269–282 ms after the finger at 1×; every place lights in that same frame and the hand drops. Held card: 89×124 px at 891x296 (was ~60 px tall), 117×164 at 844x390, 109×151 at 640x360, 241×336 on desktop. Tests "steps 3/4". |
+| 4 strong glow | Slide on a curve over each lit place, then off | **PASS** | Brightness just outside the place's edge rises by +50 to +53 (servers) and +116 to +121 (new server, rig) at 891x296; +65 to +141 on the other sizes. Only that place is highlighted. The held card never covers the finger. Screenshots `r7-891x296-s15-6-step4-hover-corp.png`, `…-hover-runner.png`. |
+| 5 play, hand comes back | See the step 5 section below | **PASS** (not reproduced) | Hand first shows again 202–326 ms after letting go; whole hand back 256–394 ms (all ≤ 0.6 s). Never left down. Screenshot `r7-891x296-s15-6-step5-after-corp.png`. |
+| 6 card first, then hand | Let go on empty table, from the hand view and from the small hand | **PASS** | Card glides home first. The hand first shows 236–257 ms after letting go at 891x296 (251–315 ms at 4×) and is all back by 318 ms. From the hand view, the view comes back on the same card; from the small hand, it returns to the board. |
+| 7 drag up out of the small hand | 5 thumb paths (straight 200 ms, 30° slant 150 ms, 45° slant 250 ms, starts flat then curves up 300 ms, slow 400 ms) × leftmost/middle/rightmost card | **PASS** | Each time it lifted the card the thumb started on, and no frame showed the hand view. Screenshot `r7-891x296-s15-6-step7-held-from-strip.png`. |
+| 8 no clicks: reason only on letting go | Clicks spent; hold 0.6 s from the hand view and from the small hand, Corp and Runner | **PASS** | While held: dimmed, nothing lit, 0 frames with a hint or "No clicks" in the help text (the help says "Let go to put it back."). Let go: "No clicks left" shows 0–33 ms later and nothing is played. Screenshots `r7-891x296-s15-6-step8-dimmed-held-corp-strip.png`, `…-reason-on-letgo-corp-strip.png`. |
+| 9 Runner | Pass-the-phone with the real cover; after the hand-over the Runner holds a program onto the rig and an event into the middle | **PASS** | Both played, and the hand came back each time (first 220–266 ms, all back ≤ 316 ms). |
+
+### Step 5 ("the hand does not come back"): tried hard, not reproduced
+Every way QA tried, the hand came back: first visible 202–326 ms after letting go, fully back ≤ 394 ms, all hand cards drawn, never left down.
+1. Corp ICE from the hand view onto a server.
+2. Corp asset/agenda from the small hand into a new server.
+3. Corp operation (Hedge Fund) from the hand view into the middle.
+4. Runner hardware/program from the small hand onto the rig.
+5. Runner event from the hand view.
+6. Runner install from the hand view.
+7. Three plays in a row, each started as soon as the hand was visible again.
+8. The **last card** in the hand: the empty hand is not left down, and a card drawn next shows and can be held at once.
+9. After **Accelerated Beta Test** (score it, look at 3, trash them): the hand is redrawn 6/6, then a play by holding brings it back too.
+10. **Online**, on both phones.
+11. Pass-the-phone with the cover.
+12. All of the above again at 4× slow-down.
+
+Videos show the same order: the card flies, then the hand rises about 0.2 s later.
+
+One thing to ask the owner: **after a play, the big hand view does not reopen** (only the small hand at the bottom comes back), while after a put-back the hand view does return. If he expected his hand view back after playing, that would explain "the hand does not come back". This is the same question ui-dev raised on PR #34. It is a product question, not a bug.
+
+### "Sluggish" (step 3)
+- On this runner, a still hold lifts at 0.27–0.28 s at 1×. At 4× it lifts at 0.29–0.31 s at 891x296 and 0.35–0.56 s on desktop.
+- The slow 4× desktop cases come from slow frames. Right after a press, this machine takes 100–250 ms per frame, because it draws with a software graphics chip.
+- A CPU profile of press → hold → drag → let go on desktop (`qa7/press.cpuprofile` in the scratchpad) shows **less than 30 ms of game JavaScript in total**. The rest is the browser's own drawing.
+- So this is not game code. It still passes QA's AC12 rule (lift by 0.35 s or within 0.1 s of the second frame after 0.25 s).
+- Whether it feels quick enough on the owner's phone is his call.
+
+### Side finding from ui-dev (a mouse click on the small hand right after a mouse move sometimes did not open the hand view, 2/24)
+**Not reproduced: 0/30** with `page.mouse` (move in, then click at once, held 60–180 ms) and **0/20** with mouse events sent as the mouse moves (100–250 ms approach, pressed on arrival), on desktop at 1× and at 4×. Test "side finding…".
+
+### Android bundle
+`qa-sprint15-android.spec.ts`, 3/3 runs passed:
+- A quick 80 ms tap on the big card does not drop the hand (the strip's pixels are unchanged, so nothing lifted).
+- A slanted 200 ms thumb drag out of the small hand lifts the card (the strip area changes as the hand drops away).
+- Letting go on the opponent's row brings the hand back.
+- Screenshots are too slow here (0.1–0.3 s) to time "card first, then hand". That order is checked frame by frame in the hooked tests.
+
+### Bugs
+- **QA-S15-5 (ui-dev; blocks a green CI).** `e2e/s02-qa-fixes.spec.ts:89` "sideways, the help text steps aside while a hint shows…" fails in CI on fd8d7bb at 844x390 and 640x360 (both tries), and locally.
+  - Cause: the test still expects the reason hint *while the card is held*. The owner changed AC 9 on 2026-11-21: the reason now shows only when the card is let go. The product behaves as the owner asked (round-7 step 8); the test was not moved over.
+  - Repro: `npx playwright test e2e/s02-qa-fixes.spec.ts:89 --project=phone` gives `Expected: "Only after the Runner made a run", Received: undefined` at line 102.
+  - Fix in the test: let go first, then check the hint and that the help steps aside.
+- **QA-S15-6 (QA; fixed in this commit).** QA's own `qa-sprint07.spec.ts:471` "drag latency" timed out in CI on fd8d7bb at 3 sizes.
+  - Cause: it found a drawn move by looking for the held card centred under the finger. The owner's change puts the card above the finger and slides it aside near the top, so no move ever matched.
+  - QA changed the test to look for the card where the game puts it for that finger (a copy of `heldCenter`; if the rule drifts, the test fails loudly, it cannot pass by mistake).
+  - Latency is unchanged: max 35.9 ms (844x390), 33.6 ms (640x360), 18.8 ms (desktop). Limit 100 ms.
+- **QA-S15-4 (low, ui-dev, not blocking).** On a slowed page (desktop at 4×, 2/2 runs), a still click held 300 ms on the big card shows **nothing at all**: no lift, no tip.
+  - Repro: `E2E_CPU_THROTTLE=4 npx playwright test e2e/qa-sprint15.spec.ts -g "round 7.*held 300" --project=desktop`, then look for the `QA-S15-4` annotation.
+  - Cause: `onViewUp` in `board.ts` ("Held long enough to lift but the page was too busy to show it: a hold is never a tap") returns without feedback.
+  - Nothing is played, so no criterion fails, but the player gets no answer. Suggestion: show "Drag it to a lit place".
+  - The test records this case as an annotation instead of failing; the hard check there is "never played".
+
+### Observations (for the owner/PM, not bugs)
+- At 891x296 the big held card, sitting just above the finger, covers about the top half of the server column under it, including that place's price pill: 54% of a server, 42% of the rig.
+  - The finger point, the lower half of the place and its glow stay visible.
+  - That matches the reworded AC 2 ("never hides the place under your finger"), but the owner should judge whether it reads well.
+- At 4×, a slow 400 ms drag up out of the small hand sometimes (2 in ~40) logs the hand view opening, because the page stalled and saw no move until 353 ms.
+  - The view was never drawn (0 frames) and the card lifted, so the player sees nothing wrong.
+
+### Videos and screenshots
+- Videos are in the scratchpad, not the repo (Playwright video, one folder per test; `video.webm` is the game page):
+  - `/tmp/claude-0/-home-claude-overclock/4b0e334c-3beb-5e35-a226-bb4dd60503fd/scratchpad/qa7/vid-891x296/`
+  - `…/qa7/vid-891x296-cpu4x/`
+  - `…/qa7/vid-other/` (844x390, 640x360, desktop)
+  - `…/qa7/vid-android/`
+  - A frame sheet of a play at 891x296: `…/qa7/step5-sheet.png`
+- Screenshots in the repo (891x296, scaled to 1×): `docs/sprints/sprint-15-qa/r7-891x296-s15-6-*.png` (7 files).
+
+### S-15-6 per-criterion results (round 7)
+| AC | Result | Evidence |
+|---|---|---|
+| 1 flick browses | PASS | step 1 tests, 4 sizes + 4× |
+| 2 hold/drag up lifts; big card above the finger; slanted thumb drag from the small hand (reworded) | PASS | steps 3/4 and 7 tests; held card 0.75 of the big card (at most 42% of the screen height) |
+| 3 every place lights at once | PASS | lit in the lift frame (steps 3/4), Corp 4 places, Runner rig |
+| 4 strong glow (reworded) | PASS | +50 to +141 brightness outside the edge |
+| 5 arrow tried / none | PASS (unchanged) | no arrow drawn |
+| 6 drop plays, card first then hand ~0.2 s; still click never plays (reworded) | PASS | step 5 variants; 300/400 ms still clicks never play |
+| 7 let go off a place: glides home, then hand ~0.2 s (reworded) | PASS | step 6 tests |
+| 8 quick tap: no play, nothing lit, "Hold to play" | PASS | step 2 tests (0 frames lit) |
+| 9 can't play: dimmed, reason only on letting go (reworded) | PASS | steps 8/9 tests |
+| 10 mouse works the same | PASS | desktop runs of every step (mouse) + side finding |
+| 11 Corp and Runner; pass-the-phone, online, app | PASS | step 9 (real cover), step 5 online, Android bundle test |
+| 12 timing | PASS | react ≤ 27 ms, lift 0.27–0.28 s at 1×, hand back ≤ 0.39 s; QA-S15-6 latency ≤ 36 ms |
+
+### CI result (round 7)
+- **fd8d7bb had no PR run** (only the push run, where e2e is not run). QA started a manual run: **run 44952565501 — FAILURE.**
+  - `checks` success, `guard-mutation` success.
+  - shard 1/4: 598 passed, 2 failed.
+  - shard 2/4: 593 passed, 2 failed.
+  - shard 3/4: 582 passed, 1 failed.
+  - shard 4/4: 587 passed, 1 flaky (the known `android.spec:73`).
+- The failures are exactly the 2 out-of-date tests:
+  - QA-S15-6 (`qa-sprint07:471` at 844x390, 640x360, desktop): fixed by QA in this commit.
+  - QA-S15-5 (`s02-qa-fixes:89` at 844x390 and 640x360): open, for ui-dev.
+- No product failure was seen.
+
+### Final per-story result (Sprint 15, round 7)
+| Story | Result |
+|---|---|
+| S-15-1 to S-15-5 | unchanged from round 6 |
+| S-15-6 Hold a card to play it | **12/12 criteria pass on real input. Not PASSED QA yet:** CI must be green first, and QA-S15-5 (an out-of-date developer test) still fails. Once ui-dev updates that test and CI is green on the PR, S-15-6 passes QA with no product change. |
+
+**Bugs open:**
+- QA-S15-5 (test only, blocks CI).
+- QA-S15-4 (low, no feedback on a slow still click on a slowed page).
+
+**Fixed:** QA-S15-6 (QA's own test).
+
+**Owner questions to carry:**
+- Should the hand view reopen after a play (step 5)?
+- How much of a place may the big held card cover?

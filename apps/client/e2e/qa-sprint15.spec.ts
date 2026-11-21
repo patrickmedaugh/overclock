@@ -26,7 +26,10 @@ import type { Action, CardOption, PlayerView } from '@overclock/engine';
 import { planToStep } from '@overclock/match/testing';
 import type { AnimRecord } from '../src/hook-types';
 import {
+  type Box,
   type LayoutSnapshot,
+  outsideHandView,
+  waitHandBack,
   anims,
   center,
   dispatch,
@@ -49,6 +52,7 @@ import {
   toStep,
   waitIdle,
 } from './helpers';
+import { pixelStats } from './pixels';
 import { act, joinGame, layoutOf, openPhone, startTestGame, view, waitPlaying, waitView } from './online';
 
 const SHOTS = join(dirname(fileURLToPath(import.meta.url)), '../../../docs/sprints/sprint-15-qa');
@@ -2217,5 +2221,980 @@ test.describe('QA S-15-6 round 5: strip follow-up (QA-S15-2 on the small hand)',
     await f.up();
     await waitBack(page);
     expect(await getView(page), 'nothing played or paid').toEqual(before);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// QA round 7 (2026-11-21): the owner's round-2 "Try this" steps 1-9, walked like a person on real
+// input. Plain page.mouse / CDP touch events WITHOUT made-up timestamps (the browser stamps them
+// as they arrive), sent one by one with real pauses: thumb drags of 150-400 ms on slanted and curved
+// paths, taps of 40-200 ms with a few px of finger jitter, clicks held 100-400 ms. Every frame the
+// page draws is sampled (held card, lit places, hand strip position, hint, help text).
+// Videos: run with a config that sets `use.video`; `E2E_CPU_THROTTLE=4` runs it on a 4x slowed CPU;
+// `QA_SCREENS=1` writes r7-* screenshots to docs/sprints/sprint-15-qa/.
+test.describe('QA S-15-6 round 7: owner steps 1-9 on real input', () => {
+  interface H {
+    down(p: Pt): Promise<void>;
+    move(p: Pt): Promise<void>;
+    up(): Promise<void>;
+    /** Waits until the browser has taken every event sent so far. */
+    flush(): Promise<void>;
+    at: Pt;
+  }
+  const isTouch = () => test.info().project.use.hasTouch === true;
+  /** Wall-clock wait on the test side (page.waitForTimeout costs ~100 ms extra per call on this runner). */
+  const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, Math.max(0, ms)));
+
+  /**
+   * A finger (touch projects) or the mouse, through CDP input with no made-up timestamps. Like a real
+   * device, events are sent when the finger moves, not when the page is ready for them: a send is not
+   * awaited (the browser takes them in order and stamps each as it arrives); `up` waits for all.
+   */
+  async function human(page: Page): Promise<H> {
+    const cdp = await page.context().newCDPSession(page);
+    const pending: Promise<unknown>[] = [];
+    const touch = isTouch();
+    const send = (method: 'Input.dispatchTouchEvent' | 'Input.dispatchMouseEvent', params: Record<string, unknown>) => {
+      pending.push(cdp.send(method, params as never));
+    };
+    const h: H = {
+      at: { x: 0, y: 0 },
+      down: async (p) => {
+        h.at = p;
+        if (touch)
+          send('Input.dispatchTouchEvent', {
+            type: 'touchStart',
+            touchPoints: [{ x: p.x, y: p.y }],
+          });
+        else {
+          send('Input.dispatchMouseEvent', {
+            type: 'mouseMoved',
+            x: p.x,
+            y: p.y,
+            button: 'none',
+            buttons: 0,
+          });
+          send('Input.dispatchMouseEvent', {
+            type: 'mousePressed',
+            x: p.x,
+            y: p.y,
+            button: 'left',
+            buttons: 1,
+            clickCount: 1,
+          });
+        }
+      },
+      move: async (p) => {
+        h.at = p;
+        if (touch)
+          send('Input.dispatchTouchEvent', {
+            type: 'touchMove',
+            touchPoints: [{ x: p.x, y: p.y }],
+          });
+        else
+          send('Input.dispatchMouseEvent', {
+            type: 'mouseMoved',
+            x: p.x,
+            y: p.y,
+            button: 'left',
+            buttons: 1,
+          });
+      },
+      up: async () => {
+        if (touch)
+          send('Input.dispatchTouchEvent', {
+            type: 'touchEnd',
+            touchPoints: [],
+          });
+        else
+          send('Input.dispatchMouseEvent', {
+            type: 'mouseReleased',
+            x: h.at.x,
+            y: h.at.y,
+            button: 'left',
+            buttons: 0,
+            clickCount: 1,
+          });
+        await h.flush();
+      },
+      flush: async () => {
+        await Promise.all(pending.splice(0));
+      },
+    };
+    return h;
+  }
+
+  /** A drag of about `ms` along a curve (bend: sideways bulge in px), one move every ~16 ms. */
+  async function drag(page: Page, h: H, to: Pt, ms: number, bend = 0): Promise<void> {
+    const from = h.at;
+    const n = Math.max(3, Math.round(ms / 16));
+    const dx = to.x - from.x;
+    const dy = to.y - from.y;
+    const len = Math.hypot(dx, dy) || 1;
+    const ctrl = {
+      x: (from.x + to.x) / 2 + (-dy / len) * bend,
+      y: (from.y + to.y) / 2 + (dx / len) * bend,
+    };
+    const t0 = Date.now();
+    for (let k = 1; k <= n; k++) {
+      const s = k / n;
+      const p = {
+        x: (1 - s) * (1 - s) * from.x + 2 * (1 - s) * s * ctrl.x + s * s * to.x,
+        y: (1 - s) * (1 - s) * from.y + 2 * (1 - s) * s * ctrl.y + s * s * to.y,
+      };
+      await h.move(p);
+      await sleep(t0 + (ms * k) / n - Date.now());
+    }
+    void page;
+  }
+
+  /** A tap (touch) or click (mouse) held `ms`, with a couple of px of finger wobble halfway. */
+  async function press(page: Page, h: H, p: Pt, ms: number, wobble = true): Promise<void> {
+    void page;
+    const t0 = Date.now();
+    await h.down(p);
+    if (wobble) {
+      await sleep(ms / 2);
+      await h.move({ x: p.x + 2, y: p.y - 1 });
+    }
+    await sleep(t0 + ms - Date.now());
+    await h.up();
+  }
+
+  interface F {
+    t: number;
+    held: boolean;
+    dimmed: boolean;
+    lit: number;
+    hover: string | null;
+    minimized: boolean;
+    stripTop: number;
+    stripBottom: number;
+    vh: number;
+    view: boolean;
+    tip: string | null;
+    hint: string | null;
+    help: string;
+    hand: number;
+  }
+  interface W {
+    frames: F[];
+    downs: number[];
+    ups: number[];
+    moves: number[];
+  }
+  async function watch7(page: Page): Promise<void> {
+    await page.evaluate(() => {
+      const w = window as unknown as { __r7: W; __r7On?: boolean };
+      w.__r7 = { frames: [], downs: [], ups: [], moves: [] };
+      if (w.__r7On) return;
+      w.__r7On = true;
+      window.addEventListener('pointerdown', (e) => w.__r7.downs.push(e.timeStamp), { capture: true });
+      window.addEventListener('pointerup', (e) => w.__r7.ups.push(e.timeStamp), { capture: true });
+      window.addEventListener('pointermove', (e) => w.__r7.moves.push(e.timeStamp), { capture: true });
+      const loop = (t: number) => {
+        const l = window.__overclock!.layout();
+        const strip = l.hand;
+        w.__r7.frames.push({
+          t,
+          held: l.drag !== null,
+          dimmed: l.drag?.dimmed ?? false,
+          lit: l.targets.filter((x) => x.lit).length,
+          hover: l.drag?.hover?.kind ?? null,
+          minimized: l.handMinimized,
+          stripTop: strip.length ? Math.max(...strip.map((c) => c.box.y)) : -1,
+          stripBottom: strip.length ? Math.max(...strip.map((c) => c.box.y + c.box.height)) : -1,
+          vh: l.viewport.height,
+          view: l.handView !== null,
+          tip: l.handView?.tip?.text ?? null,
+          hint: l.hint?.text ?? null,
+          help: l.text.help,
+          hand: strip.length,
+        });
+        requestAnimationFrame(loop);
+      };
+      requestAnimationFrame(loop);
+    });
+  }
+  const watched7 = (page: Page) => page.evaluate(() => (window as unknown as { __r7: W }).__r7);
+
+  async function shot7(page: Page, name: string): Promise<void> {
+    const p = test.info().project.name;
+    const save = process.env.QA_SCREENS === '1' && p === 'phone-short';
+    if (save) mkdirSync(SHOTS, { recursive: true });
+    const body = await page.screenshot(save ? { path: join(SHOTS, `r7-${SIZE[p] ?? p}-${name}.png`) } : {});
+    await test.info().attach(name, { body, contentType: 'image/png' });
+  }
+
+  /** Opens the hand view on card i with a real tap on the small hand (90 ms). */
+  async function open7(page: Page, h: H, i: number): Promise<LayoutSnapshot> {
+    const l0 = await waitIdle(page);
+    await press(page, h, center(l0.hand[i]!.box), 90);
+    await page.waitForFunction((k) => window.__overclock!.layout().handView?.index === k, i, { timeout: 3000 });
+    return waitIdle(page);
+  }
+
+  const idxOf = (v: PlayerView, pred: (o: CardOption) => boolean) => v.handOptions.findIndex((os) => os.some((o) => o.reject === null && pred(o)));
+
+  /** Opens a board where the active side has a playable card matching `pred` (tries seeds). */
+  async function boardWith(page: Page, side: 'corp' | 'runner', pred: (o: CardOption, id: string) => boolean): Promise<{ seed: number; i: number }> {
+    for (const seed of [6, 3, 4, 1, 2, 5, 7, 8, 9, 10, 11, 12]) {
+      await openBoard(page, seed);
+      if (side === 'runner') await toRunnerTurn(page);
+      const v = await getView(page);
+      const hand = v.players[side].hand!;
+      const i = v.handOptions.findIndex((os, k) => os.some((o) => o.reject === null && pred(o, hand[k]!)));
+      if (i >= 0) return { seed, i };
+    }
+    throw new Error(`no seed with such a ${side} card`);
+  }
+
+  /** After a release at `up`: when the strip first shows on screen and when it is all back. */
+  function handBack(w: W, up: number): { first: number | null; full: number | null } {
+    const after = w.frames.filter((f) => f.t > up && !f.held);
+    const first = after.find((f) => f.hand > 0 && f.stripTop < f.vh - 1);
+    const full = after.find((f) => f.hand > 0 && !f.minimized && f.stripBottom <= f.vh + 0.5);
+    return {
+      first: first ? first.t - up : null,
+      full: full ? full.t - up : null,
+    };
+  }
+
+  for (const side of ['corp', 'runner'] as const) {
+    test(`step 1 (${side}): quick flicks left and right in the hand view browse and never pick a card up`, async ({ page }) => {
+      await openBoard(page, side === 'corp' ? 6 : 3);
+      if (side === 'runner') await toRunnerTurn(page);
+      const before = await getView(page);
+      const h = await human(page);
+      let l = await open7(page, h, 2);
+      const c = center(l.handView!.centre);
+      await watch7(page);
+      const seen: number[] = [l.handView!.index];
+      const flicks = [
+        { dx: -110, dy: -14, ms: 140 },
+        { dx: 120, dy: 10, ms: 180 },
+        { dx: -90, dy: -22, ms: 120 },
+        { dx: 130, dy: -30, ms: 220 },
+        { dx: -140, dy: 8, ms: 250 },
+        { dx: 100, dy: -18, ms: 160 },
+      ];
+      for (const fl of flicks) {
+        await h.down({ x: c.x - fl.dx / 2, y: c.y - fl.dy / 2 });
+        await drag(page, h, { x: c.x + fl.dx / 2, y: c.y + fl.dy / 2 }, fl.ms, 8);
+        await h.up();
+        await page.waitForTimeout(260);
+        l = await layout(page);
+        if (l.handView) seen.push(l.handView.index);
+      }
+      const w = await watched7(page);
+      test.info().annotations.push({
+        type: 'r7-flicks',
+        description: `view index after each flick: ${seen.join(' ')}`,
+      });
+      expect(w.frames.filter((f) => f.held || f.lit > 0).length, 'no frame shows a held card or a lit place').toBe(0);
+      expect(new Set(seen).size, 'the flicks browsed the hand').toBeGreaterThan(1);
+      expect(await getView(page), 'nothing played or paid').toEqual(before);
+    });
+  }
+
+  for (const side of ['corp', 'runner'] as const) {
+    test(`step 2 (${side}): taps of 40-200 ms (a click held 100-200 ms) on the big card never lift it or light anything; "Hold to play" shows`, async ({ page }) => {
+      await openBoard(page, side === 'corp' ? 6 : 3);
+      if (side === 'runner') await toRunnerTurn(page);
+      const before = await getView(page);
+      const i = idxOf(before, () => true);
+      const h = await human(page);
+      const open = await open7(page, h, i);
+      const c = center(open.handView!.centre);
+      const lengths = isTouch() ? [40, 80, 120, 160, 200] : [100, 150, 200];
+      const rows: string[] = [];
+      let judged = 0;
+      for (const ms of lengths) {
+        await page.waitForFunction(() => window.__overclock!.layout().handView?.tip == null && !window.__overclock!.layout().animating);
+        await watch7(page);
+        await press(page, h, { x: c.x + (ms % 7) - 3, y: c.y + (ms % 5) - 2 }, ms);
+        await page.waitForTimeout(350);
+        const w = await watched7(page);
+        const held = w.ups.at(-1)! - w.downs.at(-1)!;
+        const bad = w.frames.filter((f) => f.held || f.lit > 0).length;
+        const l = await layout(page);
+        rows.push(`${ms} ms sent -> ${Math.round(held)} ms by event times: held/lit frames ${bad}, tip "${l.handView?.tip?.text ?? ''}"`);
+        expect(await getView(page), 'nothing played or paid').toEqual(before);
+        if (held < 235) {
+          judged++;
+          expect.soft(bad, `${ms} ms tap: no frame shows a held card or lit place`).toBe(0);
+          expect.soft(l.handView?.index, 'the big card stays').toBe(i);
+          expect.soft(l.handView?.tip?.text).toBe('Hold to play');
+        }
+        if (ms === 120 || (!isTouch() && ms === 150)) await shot7(page, `s15-6-step2-tap-${side}`);
+        await waitHandBack(page);
+      }
+      test.info().annotations.push({ type: 'r7-taps', description: rows.join(' | ') });
+      expect(judged, 'most taps were quick enough to judge').toBeGreaterThanOrEqual(lengths.length - 1);
+    });
+  }
+
+  test('step 2: clicks / presses held 300 and 400 ms still on the big card never play it, whatever is under it', async ({ page }) => {
+    await openBoard(page, 6);
+    const before = await getView(page);
+    const h = await human(page);
+    for (const i of [0, 1, 2, 3, 4, 5]) {
+      if (before.handOptions[i]?.every((o) => o.reject !== null)) continue;
+      for (const ms of [300, 400]) {
+        const open = await open7(page, h, i);
+        await page.evaluate(() => window.__overclock!.clearAnims());
+        await press(page, h, center(open.handView!.centre), ms);
+        await page.waitForTimeout(450);
+        await waitHandBack(page);
+        expect(await getView(page), `card ${i}, ${ms} ms: nothing played`).toEqual(before);
+        expect((await anims(page)).some((a) => a.kind === 'install_flight' || a.kind === 'play_flight')).toBe(false);
+        const l = await layout(page);
+        // The tip (logged as it shows; on a slowed page it may have faded by now).
+        const recs = await anims(page);
+        const tips = recs.filter((a) => a.kind === 'hold_tip').map((a) => a.text);
+        test.info().annotations.push({ type: 'r7-held-click', description: `card ${i}, ${ms} ms: ${recs.map((a) => a.kind + (a.text ? `(${a.text})` : '')).join(',')}` });
+        // QA-S15-4 (low, open): on a slow page a still press of 0.25-0.45 s that the page could not lift in time shows
+        // nothing at all (no lift, no tip): recorded, not failed here (the hard check is "never played", above).
+        if (tips.length === 0 && !recs.some((a) => a.kind === 'card_lift')) test.info().annotations.push({ type: 'QA-S15-4', description: `card ${i}, ${ms} ms: no lift and no tip` });
+        else expect(tips.length, 'a tip showed').toBeGreaterThan(0);
+        for (const t of tips) expect(['Hold to play', 'Drag it to a lit place']).toContain(t);
+        // Close the view: tap the top-left corner.
+        await press(page, h, center(outsideHandView(l)), 80, false);
+        await page.waitForFunction(() => window.__overclock!.layout().handView === null);
+      }
+    }
+  });
+
+  for (const side of ['corp', 'runner'] as const) {
+    test(`steps 3/4 (${side}): hold still (finger wobbling) - reacts, lifts at ~0.25 s with every place lit in that frame; slide over each lit place on a curve - it glows strongly, the big held card never covers the finger`, async ({
+      page,
+    }) => {
+      await openBoard(page, side === 'corp' ? 6 : 3);
+      if (side === 'runner') await toRunnerTurn(page);
+      const v = await getView(page);
+      const i = side === 'corp' ? idxOf(v, (o) => o.action.type === 'install') : idxOf(v, (o) => o.action.type === 'install');
+      const h = await human(page);
+      const open = await open7(page, h, i);
+      const c = center(open.handView!.centre);
+      await watch7(page);
+      await page.evaluate(() => window.__overclock!.clearAnims());
+      await h.down(c);
+      for (let k = 0; k < 6; k++) {
+        await sleep(55);
+        await h.move({ x: c.x + (k % 2 ? 2 : -1), y: c.y + (k % 3) - 1 });
+      }
+      await page.waitForFunction(() => window.__overclock!.layout().drag !== null, undefined, { timeout: 2000 });
+      const w = await watched7(page);
+      const down = w.downs.at(-1)!;
+      const firstHeld = w.frames.find((f) => f.held)!;
+      const lift = firstHeld.t - down;
+      const recs = await anims(page);
+      const pressRec = recs.find((a) => a.kind === 'hand_press');
+      test.info().annotations.push({
+        type: 'r7-lift',
+        description: `lift seen ${Math.round(lift)} ms after the down; lit in that frame: ${firstHeld.lit}; minimized: ${firstHeld.minimized}; press record: ${pressRec ? Math.round(pressRec.startedAt - down) + ' ms' : 'none'}; kinds ${recs.map((a) => a.kind).join(',')}`,
+      });
+      expect(pressRec, 'the big card reacts to the press').toBeTruthy();
+      expect(pressRec!.startedAt - down, 'it reacts within 0.1 s').toBeLessThan(100);
+      expect(lift, 'lifts at about 0.25 s, not before').toBeGreaterThanOrEqual(240);
+      // Same rule as QA's AC12 check: by 0.35 s, or within 0.1 s of the second frame after 0.25 s (this runner draws with a
+      // software GPU: 100-250 ms frames right after a press are the machine, not game code - see the round-7 notes).
+      const after250 = w.frames.filter((f) => f.t >= down + 250).map((f) => f.t);
+      test.info().annotations.push({ type: 'r7-lift-frames', description: `frames from the down: ${w.frames.filter((f) => f.t >= down && f.t <= firstHeld.t).map((f) => Math.round(f.t - down)).join(' ')}` });
+      expect(firstHeld.t, 'lifts as soon as 0.25 s is up').toBeLessThanOrEqual(Math.max(down + 350, (after250[1] ?? Infinity) + 100));
+      expect(firstHeld.lit, 'every place lit in the lift frame').toBeGreaterThan(0);
+      let l = await layout(page);
+      expect(l.handMinimized, 'the hand dropped away').toBe(true);
+      expect(l.drag!.box.height, 'the held card is big (close to the big card, capped at 42% of the screen)').toBeGreaterThanOrEqual(
+        Math.min(open.handView!.centre.height * 0.7, l.viewport.height * 0.4) - 1,
+      );
+      const lit = l.targets.filter((t) => t.lit);
+      const rows: string[] = [];
+      let prev = h.at;
+      for (const [k, t] of lit.entries()) {
+        const f = {
+          x: t.box.x + t.box.width / 2,
+          y: t.box.y + t.box.height * 0.6,
+        };
+        const ring: Box = {
+          x: t.box.x + t.box.width + 2,
+          y: f.y - 6,
+          width: 5,
+          height: 12,
+        };
+        const ringL: Box = { x: t.box.x - 7, y: f.y - 6, width: 5, height: 12 };
+        // Plain lit first (finger elsewhere), then over it.
+        const [plain, plainL] = await pixelStats(page, [ring, ringL]);
+        await drag(page, h, f, 200 + 60 * (k % 3), k % 2 ? 25 : -25);
+        await page.waitForFunction(() => window.__overclock!.layout().drag?.hover != null, undefined, { timeout: 2000 });
+        await page.waitForTimeout(120);
+        l = await layout(page);
+        const [strong, strongL] = await pixelStats(page, [ring, ringL]);
+        if (k === 0) await shot7(page, `s15-6-step4-hover-${side}`);
+        const d = l.drag!.box;
+        const covers = f.x >= d.x && f.x <= d.x + d.width && f.y >= d.y && f.y <= d.y + d.height;
+        const ox = Math.max(0, Math.min(d.x + d.width, t.box.x + t.box.width) - Math.max(d.x, t.box.x));
+        const oy = Math.max(0, Math.min(d.y + d.height, t.box.y + t.box.height) - Math.max(d.y, t.box.y));
+        const cover = (ox * oy) / (t.box.width * t.box.height);
+        const gain = Math.max(strong!.mean - plain!.mean, strongL!.mean - plainL!.mean);
+        rows.push(
+          `${t.kind}${t.server ? ':' + t.server : ''} glow +${Math.round(gain)} lum, held ${Math.round(d.width)}x${Math.round(d.height)}, covers finger ${covers}, covers ${Math.round(cover * 100)}% of the place`,
+        );
+        expect.soft(l.drag!.hover?.kind, 'the place under the finger is the hovered one').toBe(t.kind);
+        expect.soft(l.targets.filter((x) => x.hover).length, 'only that place is highlighted').toBe(1);
+        expect.soft(covers, `${t.kind}: the held card does not cover the finger point`).toBe(false);
+        // The one-shot "middle of the table" place is the whole table: the glow there is inside it.
+        if (t.kind !== 'play') expect.soft(gain, `${t.kind}: strong glow right outside the place's edge`).toBeGreaterThan(40);
+        // Off again: back to plain lit.
+        prev = {
+          x: l.viewport.width - 4,
+          y: Math.round(l.viewport.height * 0.35),
+        };
+        await drag(page, h, prev, 150);
+        await page.waitForFunction(() => window.__overclock!.layout().drag?.hover == null, undefined, { timeout: 2000 });
+      }
+      test.info().annotations.push({ type: 'r7-hover', description: rows.join(' | ') });
+      await h.up();
+      await waitHandBack(page);
+    });
+  }
+
+  /** Lifts card i (from the view by holding still, or from the strip with a thumb drag), drops it on the first lit target matching `pick`. */
+  async function playByHold(page: Page, h: H, i: number, from: 'view' | 'strip', pick: (t: LayoutSnapshot['targets'][number]) => boolean): Promise<{ w: W; up: number; l0: LayoutSnapshot }> {
+    const l0 = await waitIdle(page);
+    if (from === 'view') {
+      const open = await open7(page, h, i);
+      await h.down(center(open.handView!.centre));
+    } else {
+      const b = l0.hand[i]!.box;
+      const s = center(b);
+      await h.down(s);
+      await drag(page, h, { x: s.x + 18, y: b.y - b.height * 0.5 }, 180, 6);
+    }
+    await page.waitForFunction(() => window.__overclock!.layout().drag !== null, undefined, { timeout: 2500 });
+    const l = await layout(page);
+    const t = l.targets.find((x) => x.lit && pick(x));
+    expect(t, `a lit place to drop on (have ${l.targets.map((x) => x.kind).join(',')})`).toBeTruthy();
+    const to = t!.kind === 'play' ? { x: l.viewport.width * 0.42, y: l.viewport.height * 0.4 } : { x: t!.box.x + t!.box.width / 2, y: t!.box.y + t!.box.height * 0.6 };
+    await drag(page, h, to, 300, 30);
+    await page.waitForFunction(() => window.__overclock!.layout().drag?.hover?.lit === true, undefined, { timeout: 2000 });
+    await page.waitForTimeout(60);
+    await watch7(page);
+    await page.evaluate(() => window.__overclock!.clearAnims());
+    await h.up();
+    await page.waitForTimeout(700);
+    const w = await watched7(page);
+    return { w, up: w.ups.at(-1)!, l0 };
+  }
+
+  /** The hand is back after a play: first shows only after the card started flying (>= 150 ms), all back within 0.6 s; all cards on screen. */
+  async function expectHandBack(page: Page, w: W, up: number, label: string): Promise<void> {
+    const r = handBack(w, up);
+    const l = await waitIdle(page);
+    const v = await getView(page);
+    test.info().annotations.push({
+      type: `r7-${label}`,
+      description: `hand first visible ${r.first === null ? 'never' : Math.round(r.first) + ' ms'}, all back ${r.full === null ? 'never' : Math.round(r.full) + ' ms'} after the release; hand view open after: ${l.handView !== null}; cards ${l.hand.length}/${v.players[v.viewer].hand!.length}`,
+    });
+    expect(l.handMinimized, `${label}: not left dropped`).toBe(false);
+    expect(l.hand.length, `${label}: every hand card drawn`).toBe(v.players[v.viewer].hand!.length);
+    expect(
+      l.hand.every((c) => c.box.y + c.box.height <= l.viewport.height + 0.5 && c.box.y >= l.handArea.y - 2),
+      `${label}: the whole hand is back in its strip`,
+    ).toBe(true);
+    if (l.hand.length > 0) {
+      expect(r.first, `${label}: the hand came back`).not.toBeNull();
+      expect(r.first!, `${label}: card first, hand a moment later`).toBeGreaterThanOrEqual(150);
+      expect(r.full!, `${label}: hand all back within 0.6 s`).toBeLessThanOrEqual(600);
+    }
+  }
+
+  const variants = [
+    {
+      name: 'Corp ICE from the hand view onto a server',
+      side: 'corp',
+      from: 'view',
+      card: (o: CardOption, id: string) => o.action.type === 'install' && getCard(id)?.type === 'ice',
+      drop: (t: { kind: string }) => t.kind === 'server' || t.kind === 'new_server',
+    },
+    {
+      name: 'Corp asset/agenda from the small hand into a new server',
+      side: 'corp',
+      from: 'strip',
+      card: (o: CardOption, id: string) => o.action.type === 'install' && getCard(id)?.type !== 'ice',
+      drop: (t: { kind: string }) => t.kind === 'new_server',
+    },
+    {
+      name: 'Corp operation from the hand view (the middle)',
+      side: 'corp',
+      from: 'view',
+      card: (o: CardOption) => o.action.type === 'play',
+      drop: (t: { kind: string }) => t.kind === 'play',
+    },
+    {
+      name: 'Runner program/hardware/resource from the small hand onto the rig',
+      side: 'runner',
+      from: 'strip',
+      card: (o: CardOption) => o.action.type === 'install',
+      drop: (t: { kind: string }) => t.kind === 'install',
+    },
+    {
+      name: 'Runner event from the hand view (the middle)',
+      side: 'runner',
+      from: 'view',
+      card: (o: CardOption) => o.action.type === 'play' && !('server' in o.action),
+      drop: (t: { kind: string }) => t.kind === 'play',
+    },
+    {
+      name: 'Runner install from the hand view onto the rig',
+      side: 'runner',
+      from: 'view',
+      card: (o: CardOption) => o.action.type === 'install',
+      drop: (t: { kind: string }) => t.kind === 'install',
+    },
+  ] as const;
+  for (const vr of variants) {
+    test(`step 5: play by holding - ${vr.name}: played, flies, and the hand clearly comes back (card first, hand ~0.2 s later)`, async ({ page }) => {
+      const { seed, i } = await boardWith(page, vr.side, vr.card);
+      const before = await getView(page);
+      const h = await human(page);
+      const { w, up } = await playByHold(page, h, i, vr.from, vr.drop);
+      expect(await getView(page), 'it was played').not.toEqual(before);
+      expect(
+        (await anims(page)).some((a) => a.kind === 'install_flight' || a.kind === 'play_flight'),
+        'it flew',
+      ).toBe(true);
+      await expectHandBack(page, w, up, `seed${seed}`);
+      if (vr === variants[0] || vr === variants[4]) await shot7(page, `s15-6-step5-after-${vr.side}`);
+      // And straight away the next card can be held again (from the strip).
+      const v = await getView(page);
+      const j = v.handOptions.findIndex((os) => os.length > 0);
+      if (j >= 0) {
+        const l = await waitIdle(page);
+        const b = l.hand[j]!.box;
+        await h.down(center(b));
+        await drag(page, h, { x: center(b).x - 10, y: b.y - b.height * 0.5 }, 160);
+        await page.waitForFunction(() => window.__overclock!.layout().drag !== null, undefined, { timeout: 2000 });
+        await drag(page, h, { x: l.viewport.width - 4, y: Math.round(l.viewport.height * 0.35) }, 150);
+        await h.up();
+        await waitHandBack(page);
+      }
+    });
+  }
+
+  test('step 5: three plays in a row, each started as soon as the hand is visible again (Corp, clicks 3 -> 0)', async ({ page }) => {
+    await openBoard(page, 6);
+    const h = await human(page);
+    for (let n = 0; n < 3; n++) {
+      const v = await getView(page);
+      const i = idxOf(v, (o) => o.action.type === 'install' && 'server' in o.action && o.action.server === 'new');
+      expect(i).toBeGreaterThanOrEqual(0);
+      const { w, up } = await playByHold(page, h, i, n === 1 ? 'view' : 'strip', (t) => t.kind === 'new_server');
+      await expectHandBack(page, w, up, `play${n + 1}`);
+    }
+    expect((await getView(page)).players.corp.clicks).toBe(0);
+  });
+
+  test('step 5: the last card in the hand (Runner): after it is played the empty hand is not left dropped; the next card in the hand shows', async ({ page }) => {
+    let trail: string[] = [];
+    for (const seed of [3, 4, 1, 2, 5, 6, 7, 8, 9, 10]) {
+      await openBoard(page, seed);
+      await toRunnerTurn(page);
+      // Hook: the Runner (who draws only by clicking) installs / plays credit events down to one card that installs, with a click left.
+      trail = await page.evaluate(() => {
+        const hook = window.__overclock!;
+        const log: string[] = [];
+        const simple = (id: string, o: CardOption) => o.reject === null && (o.action.type === 'install' || ((id === 'r14' || id === 'r01') && o.action.type === 'play'));
+        for (let guard = 0; guard < 30; guard++) {
+          const v = hook.getView();
+          const hand = v.players.runner.hand ?? [];
+          if (v.activePlayer === 'runner' && hand.length === 1 && v.players.runner.clicks > 0 && v.handOptions[0]!.some((x) => x.reject === null && x.action.type === 'install')) return log;
+          if (v.activePlayer === 'runner' && v.players.runner.clicks > 0 && hand.length > 1) {
+            const keep = hand.findIndex((_, k) => v.handOptions[k]!.some((x) => x.reject === null && x.action.type === 'install'));
+            const o = keep < 0 ? undefined : v.handOptions.flatMap((os, k) => (k === keep ? [] : os.filter((x) => simple(hand[k]!, x))))[0];
+            if (o) {
+              hook.dispatch(o.action);
+              log.push(`runner ${o.action.type} -> hand ${hook.getView().players.runner.hand!.length}`);
+              continue;
+            }
+            if (v.players.runner.clicks > 0) {
+              hook.dispatch({ type: 'gain_credit', player: 'runner' });
+              log.push('runner credit');
+              continue;
+            }
+          }
+          const who = v.activePlayer;
+          hook.dispatch({ type: 'end_turn', player: who });
+          const w = hook.getView();
+          if (w.pendingDiscard > 0)
+            hook.dispatch({
+              type: 'discard',
+              player: who,
+              handIndices: Array.from({ length: w.pendingDiscard }, (_, k) => k),
+            });
+          log.push(`${who} end_turn`);
+        }
+        return log;
+      });
+      const got = await getView(page);
+      if (got.viewer === 'runner' && got.players.runner.hand!.length === 1) {
+        trail.unshift(`seed ${seed}`);
+        break;
+      }
+    }
+    test.info().annotations.push({
+      type: 'r7-last-trail',
+      description: trail.join('; '),
+    });
+    await waitIdle(page);
+    const v = await getView(page);
+    expect(v.viewer).toBe('runner');
+    expect(v.players.runner.hand).toHaveLength(1);
+    const h = await human(page);
+    const { w, up } = await playByHold(page, h, 0, 'strip', (t) => t.kind === 'install');
+    await expectHandBack(page, w, up, 'last-card');
+    let l = await waitIdle(page);
+    expect(l.hand).toHaveLength(0);
+    // Click for a card: it shows in the (no longer dropped) strip, fully on screen.
+    await dispatch(page, { type: 'draw', player: 'runner' });
+    l = await waitIdle(page);
+    expect(l.handMinimized).toBe(false);
+    expect(l.hand).toHaveLength(1);
+    expect(l.hand[0]!.box.y + l.hand[0]!.box.height).toBeLessThanOrEqual(l.viewport.height + 0.5);
+    // And it can be held straight away.
+    const b = l.hand[0]!.box;
+    await h.down(center(b));
+    await drag(page, h, { x: center(b).x + 8, y: b.y - b.height * 0.6 }, 200);
+    await page.waitForFunction(() => window.__overclock!.layout().drag !== null, undefined, { timeout: 2000 });
+    await drag(page, h, { x: l.viewport.width - 4, y: Math.round(l.viewport.height * 0.35) }, 150);
+    await h.up();
+    await waitHandBack(page);
+  });
+
+  test('step 5: after Accelerated Beta Test (look at 3, put them away), the hand comes back, and a play by holding then brings it back too', async ({ page }) => {
+    await openBoard(page, { seed: 2, decks: 'core45' });
+    const plan = await toStep(page, 2, 'abt_scorable_no_ice');
+    let l = await waitIdle(page);
+    const card = l.servers.flatMap((s) => s.content).find((c) => c.uid === plan.info['uid'])!;
+    await tap(page, card.box);
+    await page.waitForFunction((u) => window.__overclock!.layout().selectedInstalled === u, plan.info['uid']);
+    await tap(page, targetOf(await layout(page), 'score').box);
+    await page.waitForFunction(() => window.__overclock!.layout().sheet?.kind === 'look');
+    l = await waitIdle(page);
+    await tap(page, targetOf(l, 'look_done').box);
+    await page.waitForFunction(() => window.__overclock!.layout().sheet === null);
+    l = await waitIdle(page);
+    const v = await getView(page);
+    test.info().annotations.push({
+      type: 'r7-abt',
+      description: `after ABT: hand drawn ${l.hand.length}/${v.players.corp.hand!.length}, minimized ${l.handMinimized}, clicks ${v.players.corp.clicks}`,
+    });
+    expect(l.hand.length).toBe(v.players.corp.hand!.length);
+    expect(l.handMinimized).toBe(false);
+    expect(l.hand.every((c) => c.box.y + c.box.height <= l.viewport.height + 0.5)).toBe(true);
+    const i = idxOf(v, () => true);
+    if (v.players.corp.clicks > 0 && i >= 0) {
+      const h = await human(page);
+      const { w, up } = await playByHold(page, h, i, 'strip', (t) => t.lit);
+      await expectHandBack(page, w, up, 'after-abt');
+    }
+  });
+
+  test('step 5 online: the Runner plays by holding on his own phone; his hand comes back (card first, then hand)', async ({ browser }) => {
+    const corp = await openPhone(browser);
+    const runner = await openPhone(browser);
+    const code = await startTestGame(corp, 'corp', {
+      seed: 6,
+      actions: [],
+      deckSet: 'starter',
+    });
+    await joinGame(runner, code);
+    await Promise.all([waitPlaying(corp), waitPlaying(runner)]);
+    // Corp: one play by holding on the Corp phone, then end the turn by the hook.
+    const ch = await human(corp.page);
+    const cv = await view(corp);
+    const ci = idxOf(cv, (o) => o.action.type === 'install');
+    const c1 = await playByHold(corp.page, ch, ci, 'view', (t) => t.kind === 'server' || t.kind === 'new_server');
+    await expectHandBack(corp.page, c1.w, c1.up, 'online-corp');
+    await act(corp, { type: 'end_turn', player: 'corp' });
+    await waitView(runner, (w) => w.activePlayer === 'runner');
+    await runner.page.waitForFunction(() => !window.__overclock!.layout().animating);
+    const rv = await view(runner);
+    const ri = idxOf(rv, (o) => o.action.type === 'install');
+    const rh = await human(runner.page);
+    const r1 = await playByHold(runner.page, rh, ri, 'strip', (t) => t.kind === 'install');
+    await expectHandBack(runner.page, r1.w, r1.up, 'online-runner');
+    await corp.context.close();
+    await runner.context.close();
+  });
+
+  for (const from of ['view', 'strip'] as const) {
+    test(`step 6 (from the ${from}): let go on empty table - nothing played, the card glides home first, the hand (and hand view) come back a moment later`, async ({ page }) => {
+      await openBoard(page, 6);
+      const before = await getView(page);
+      const i = idxOf(before, (o) => o.action.type === 'install');
+      const h = await human(page);
+      const l0 = await waitIdle(page);
+      if (from === 'view') {
+        const open = await open7(page, h, i);
+        await h.down(center(open.handView!.centre));
+      } else {
+        const b = l0.hand[i]!.box;
+        await h.down(center(b));
+        await drag(page, h, { x: center(b).x - 15, y: b.y - b.height * 0.6 }, 220, -8);
+      }
+      await page.waitForFunction(() => window.__overclock!.layout().drag !== null, undefined, { timeout: 2500 });
+      const spot = {
+        x: l0.viewport.width - 4,
+        y: Math.round(l0.viewport.height * 0.35),
+      };
+      await drag(page, h, spot, 280, 40);
+      await page.waitForTimeout(80);
+      await watch7(page);
+      await page.evaluate(() => window.__overclock!.clearAnims());
+      await h.up();
+      await page.waitForTimeout(150);
+      await shot7(page, `s15-6-step6-gliding-${from}`);
+      await page.waitForTimeout(600);
+      const w = await watched7(page);
+      const up = w.ups.at(-1)!;
+      const r = handBack(w, up);
+      const recs = await anims(page);
+      const l = await waitIdle(page);
+      test.info().annotations.push({
+        type: 'r7-putback',
+        description: `hand first visible ${r.first === null ? 'never' : Math.round(r.first)} ms, all back ${r.full === null ? 'never' : Math.round(r.full)} ms; view back: ${l.handView !== null}; kinds ${recs.map((a) => `${a.kind}:${a.scheduledMs}`).join(',')}`,
+      });
+      expect(await getView(page), 'nothing played or paid').toEqual(before);
+      expect(
+        recs.some((a) => a.kind === 'card_return'),
+        'it glides home',
+      ).toBe(true);
+      expect(r.first, 'the hand comes back').not.toBeNull();
+      expect(r.first!, 'card first, then the hand').toBeGreaterThanOrEqual(150);
+      expect(r.full!, 'all back within 0.6 s').toBeLessThanOrEqual(600);
+      if (from === 'view') expect(l.handView?.index, 'the hand view comes back on that card').toBe(i);
+      else expect(l.handView, 'from the small hand: back to the board').toBeNull();
+    });
+  }
+
+  const thumbs = [
+    { name: 'straight up, 200 ms', dx: 0, ms: 200, bend: 0 },
+    { name: 'slanted right ~30°, 150 ms', dx: 0.6, ms: 150, bend: 0 },
+    { name: 'slanted left ~45°, 250 ms', dx: -1, ms: 250, bend: 0 },
+    {
+      name: 'curved (starts flat, then up), 300 ms',
+      dx: 0.8,
+      ms: 300,
+      bend: 30,
+    },
+    { name: 'slow, 400 ms, slight curve', dx: 0.3, ms: 400, bend: -15 },
+  ];
+  for (const th of thumbs) {
+    test(`step 7: a thumb drag up out of the small hand (${th.name}) lifts the card it started on, without opening the hand view`, async ({ page }) => {
+      await openBoard(page, 6);
+      const before = await getView(page);
+      const h = await human(page);
+      const rows: string[] = [];
+      for (const k of [0, 2, 5]) {
+        const l0 = await waitIdle(page);
+        const b = l0.hand[k]!.box;
+        const s = center(b);
+        const rise = s.y - (l0.handArea.y - b.height * 0.8);
+        await watch7(page);
+        await page.evaluate(() => window.__overclock!.clearAnims());
+        await h.down(s);
+        await drag(page, h, { x: s.x + th.dx * rise, y: s.y - rise }, th.ms, th.bend);
+        const got = await page
+          .waitForFunction(() => window.__overclock!.layout().drag !== null, undefined, { timeout: 1500 })
+          .then(() => true)
+          .catch(() => false);
+        const l = await layout(page);
+        const w = await watched7(page);
+        const opened = (await anims(page)).some((a) => a.kind === 'hand_open');
+        rows.push(
+          `card ${k}: lifted ${got} (${l.drag?.from ?? '-'}, index ${l.drag?.index ?? '-'}), view opened ${opened} (frames showing the view before the lift: ${w.frames.filter((f) => f.view && !f.held).length}), moves ${w.moves.length} at ${w.moves.map((m) => Math.round(m - (w.downs.at(-1) ?? 0))).join('/')} ms, drag ${Math.round((w.moves.at(-1) ?? 0) - (w.downs.at(-1) ?? 0))} ms`,
+        );
+        expect.soft(got, `card ${k}: lifted`).toBe(true);
+        if (got) {
+          expect.soft(l.drag!.index, `card ${k}: the card the thumb started on`).toBe(k);
+          expect.soft(l.drag!.from).toBe('strip');
+          // What the player sees: no frame draws the hand view before the lift (a hand_open logged but never drawn, because the page
+          // only saw the moves after the read-hold time on a stalled page, is reported above).
+          expect.soft(w.frames.filter((f) => f.view && !f.held).length, `card ${k}: the hand view is never shown`).toBe(0);
+          if (k === 2 && th === thumbs[1]) await shot7(page, 's15-6-step7-held-from-strip');
+        }
+        await drag(
+          page,
+          h,
+          {
+            x: l0.viewport.width - 4,
+            y: Math.round(l0.viewport.height * 0.35),
+          },
+          150,
+        );
+        await h.up();
+        await waitHandBack(page);
+        if ((await layout(page)).handView) {
+          await press(page, h, center(outsideHandView(await layout(page))), 80, false);
+          await page.waitForFunction(() => window.__overclock!.layout().handView === null);
+        }
+      }
+      test.info().annotations.push({ type: 'r7-thumb', description: rows.join(' | ') });
+      expect(await getView(page), 'nothing played').toEqual(before);
+    });
+  }
+
+  for (const side of ['corp', 'runner'] as const) {
+    for (const from of ['view', 'strip'] as const) {
+      test(`steps 8/9 (${side}, from the ${from}): clicks spent - held 0.6 s it is dimmed, nothing lit and nothing says "No clicks left"; let go - it goes back and "No clicks left" shows`, async ({
+        page,
+      }) => {
+        await openBoard(page, side === 'corp' ? 6 : 3);
+        if (side === 'runner') await toRunnerTurn(page);
+        const v0 = await getView(page);
+        for (let k = 0; k < v0.players[side].clicks; k++) await dispatch(page, { type: 'gain_credit', player: side });
+        const before = await getView(page);
+        expect(before.players[side].clicks).toBe(0);
+        const h = await human(page);
+        const l0 = await waitIdle(page);
+        if (from === 'view') {
+          const open = await open7(page, h, 1);
+          await h.down(center(open.handView!.centre));
+        } else {
+          const b = l0.hand[1]!.box;
+          await h.down(center(b));
+          await drag(page, h, { x: center(b).x + 12, y: b.y - b.height * 0.6 }, 200, 5);
+        }
+        await page.waitForFunction(() => window.__overclock!.layout().drag !== null, undefined, { timeout: 2500 });
+        await watch7(page);
+        await page.evaluate(() => window.__overclock!.clearAnims());
+        await drag(page, h, { x: l0.viewport.width * 0.4, y: l0.viewport.height * 0.35 }, 300, 20);
+        await page.waitForTimeout(300);
+        const held = await layout(page);
+        await shot7(page, `s15-6-step8-dimmed-held-${side}-${from}`);
+        let w = await watched7(page);
+        expect(held.drag).toMatchObject({ dimmed: true });
+        expect(
+          held.targets.filter((t) => t.lit),
+          'nothing lit',
+        ).toEqual([]);
+        expect(w.frames.filter((f) => f.hint !== null || /No clicks/.test(f.help)).length, 'no frame says why while held').toBe(0);
+        expect((await anims(page)).filter((a) => a.kind === 'hint')).toEqual([]);
+        expect(
+          held.labels.some((s) => /No clicks left/.test(s)),
+          'no board label says it',
+        ).toBe(false);
+        await watch7(page);
+        await h.up();
+        await page.waitForFunction(() => window.__overclock!.layout().hint !== null, undefined, { timeout: 2000 });
+        w = await watched7(page);
+        const up = w.ups.at(-1)!;
+        const hintAt = w.frames.find((f) => f.hint !== null)!.t - up;
+        const l = await layout(page);
+        test.info().annotations.push({
+          type: 'r7-reason',
+          description: `reason "${l.hint!.text}" seen ${Math.round(hintAt)} ms after letting go`,
+        });
+        expect(l.hint!.text).toBe('No clicks left');
+        expect(hintAt, 'shows as it is let go').toBeLessThan(150);
+        await shot7(page, `s15-6-step8-reason-on-letgo-${side}-${from}`);
+        await waitHandBack(page);
+        expect(await getView(page), 'nothing played').toEqual(before);
+      });
+    }
+  }
+
+  test('step 9: pass-the-phone with the real cover - after the hand-over the Runner holds a program onto the rig and an event into the middle', async ({ page }) => {
+    await page.goto('./?seed=3&play=here&decks=starter');
+    await page.waitForFunction(() => document.body.dataset.ready === 'true' && !!window.__overclock);
+    const h = await human(page);
+    const liftCover = async () => {
+      const l = await layout(page);
+      if (!l.cover) return;
+      await press(page, h, { x: l.viewport.width / 2, y: l.viewport.height - 35 }, 90, false);
+      await page.waitForFunction(() => window.__overclock!.layout().cover === null);
+    };
+    await liftCover();
+    await passTurn(page);
+    await page.waitForFunction(() => window.__overclock!.layout().cover !== null, undefined, { timeout: 5000 });
+    await liftCover();
+    await waitIdle(page);
+    let v = await getView(page);
+    expect(v.viewer).toBe('runner');
+    const ii = idxOf(v, (o) => o.action.type === 'install');
+    const a = await playByHold(page, h, ii, 'view', (t) => t.kind === 'install');
+    await expectHandBack(page, a.w, a.up, 'runner-install');
+    v = await getView(page);
+    const ei = idxOf(v, (o) => o.action.type === 'play' && !('server' in o.action));
+    if (ei >= 0) {
+      const b = await playByHold(page, h, ei, 'strip', (t) => t.kind === 'play');
+      await expectHandBack(page, b.w, b.up, 'runner-event');
+    } else
+      test.info().annotations.push({
+        type: 'r7-runner-event',
+        description: 'no playable event in this deal',
+      });
+  });
+
+  test('side finding: a real mouse click on a small-hand card right after a mouse move opens the hand view (30 tries)', async ({ page }) => {
+    test.skip(isTouch(), 'mouse only');
+    test.setTimeout(150_000);
+    await openBoard(page, 6);
+    let miss = 0;
+    const rows: string[] = [];
+    for (let k = 0; k < 30; k++) {
+      const l = await waitIdle(page);
+      const card = l.hand[k % l.hand.length]!;
+      const c = center(card.box);
+      // Move in from somewhere on the table, then click at once (no pause), held 60-180 ms.
+      await page.mouse.move(c.x - 120 + (k % 5) * 30, c.y - 140, { steps: 1 });
+      await page.mouse.move(c.x + (k % 3) - 1, c.y + (k % 4) - 2, {
+        steps: 3 + (k % 4),
+      });
+      await page.mouse.down();
+      await sleep(60 + (k % 5) * 30);
+      await page.mouse.up();
+      const ok = await page
+        .waitForFunction(() => window.__overclock!.layout().handView !== null, undefined, { timeout: 1200 })
+        .then(() => true)
+        .catch(() => false);
+      if (!ok) {
+        miss++;
+        const m = await layout(page);
+        rows.push(`try ${k}: no view (drag ${m.drag !== null}, zoom ${m.zoom !== null}, hint "${m.hint?.text ?? ''}")`);
+      }
+      const m = await waitIdle(page);
+      if (m.handView || m.zoom) {
+        await page.mouse.click(m.viewport.width * 0.02 + 4, m.viewport.height * 0.02 + 4, { delay: 60 });
+        await page.waitForFunction(() => window.__overclock!.layout().handView === null && window.__overclock!.layout().zoom === null, undefined, { timeout: 2000 });
+      }
+    }
+    // The same with CDP mouse events sent as the mouse moves (not waiting for the page): moving in over
+    // 100-250 ms, pressed at once on arrival.
+    const h = await human(page);
+    let miss2 = 0;
+    for (let k = 0; k < 20; k++) {
+      const l = await waitIdle(page);
+      const c = center(l.hand[k % l.hand.length]!.box);
+      await h.move({ x: c.x + 80 - (k % 4) * 40, y: c.y - 150 });
+      await drag(page, h, { x: c.x + (k % 3) - 1, y: c.y }, 100 + (k % 4) * 50, 20);
+      await h.down(h.at);
+      await sleep(70 + (k % 4) * 30);
+      await h.up();
+      const ok = await page.waitForFunction(() => window.__overclock!.layout().handView !== null, undefined, { timeout: 1200 }).then(() => true).catch(() => false);
+      if (!ok) {
+        miss2++;
+        rows.push(`cdp try ${k}: no view`);
+      }
+      const m = await waitIdle(page);
+      if (m.handView || m.zoom) {
+        await page.mouse.click(m.viewport.width * 0.02 + 4, m.viewport.height * 0.02 + 4, { delay: 60 });
+        await page.waitForFunction(() => window.__overclock!.layout().handView === null && window.__overclock!.layout().zoom === null, undefined, { timeout: 2000 });
+      }
+    }
+    test.info().annotations.push({ type: 'r7-click-after-move', description: `page.mouse ${miss}/30 missed, CDP ${miss2}/20 missed. ${rows.join(' | ')}` });
+    expect(miss, 'every click opened the hand view').toBe(0);
+    expect(miss2, 'every CDP click opened the hand view').toBe(0);
   });
 });
