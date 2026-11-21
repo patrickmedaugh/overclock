@@ -3,7 +3,7 @@
 //   engine ("5 credits (−4)": Modded's 3 off plus Kate's 1 on her first install); a tap installs
 //   it (the lit card shows the price; the help column says to tap it to install). With none in the Grip it is dimmed and says "No program or hardware in your Grip".
 // - The Toolbox: memory +2, link +2, 2 credits on it; its credits pay icebreakers ("The Toolbox pays").
-// - Infiltration: two buttons, "Gain 2 credits" and "Expose 1 card"; Expose lights every face-down
+// - Infiltration (S-15-6: while held): "Gain 2 credits" and every face-down card it can expose light at once;
 //   Corp card; a tap shows that card over its place until tapped away. It stays face down.
 // 45-card decks (the default). 640x360 and 891x296 screenshots go to docs/sprints/sprint-12-screens/.
 import { mkdirSync } from 'node:fs';
@@ -165,21 +165,14 @@ test.describe('S-12-4 Infiltration', () => {
     const plan = await toStep(page, seed, 'infiltration_ready');
     const hand = Number(plan.info['handIndex']);
     const before = await getView(page);
+    // S-15-6: while Infiltration is held, "Gain 2 credits" and every card it can expose light at once
+    // (letting go on a card exposes it; the separate "Expose 1 card" step is gone).
     let l = await pickHand(page, hand);
     const gain = targetOf(l, 'play');
-    const open = targetOf(l, 'expose_open');
     expect(gain).toMatchObject({ label: 'Gain 2 credits', lit: true });
-    expect(open).toMatchObject({ label: 'Expose 1 card', lit: true });
     expectThumb(l, gain.box, 'Gain 2 credits');
-    expectThumb(l, open.box, 'Expose 1 card');
-    expect(overlaps(gain.box, open.box)).toBe(false);
-    expect(l.targets.filter((t) => t.kind === 'expose')).toEqual([]);
-    await shot(page, 's12-4-infiltration-modes');
-
-    // Expose: one lit card per engine option (each face-down installed Corp card).
-    await tap(page, open.box);
-    await page.waitForFunction(() => window.__overclock!.layout().targets.some((t) => t.kind === 'expose'));
-    l = await layout(page);
+    expect(l.targets.some((t) => t.kind === 'expose_open')).toBe(false);
+    // One lit card per engine option (each face-down installed Corp card).
     const offered = before.handOptions[hand]!.flatMap((o) => (o.action.type === 'play' && o.action.uid !== undefined ? [o.action.uid] : []));
     const lit = l.targets.filter((t) => t.kind === 'expose');
     expect(lit.map((t) => t.uid)).toEqual(offered);
@@ -188,14 +181,9 @@ test.describe('S-12-4 Infiltration', () => {
       expect(c.faceUp).toBe(false);
       expect(t.box).toEqual(c.box);
       expect(t).toMatchObject({ label: 'Expose', lit: true });
+      expect(overlaps(gain.box, t.box)).toBe(false);
     }
-    await shot(page, 's12-4-infiltration-pick');
-    // Tapping Expose again puts them out (nothing sent).
-    await tap(page, targetOf(l, 'expose_open').box);
-    await page.waitForFunction(() => !window.__overclock!.layout().targets.some((t) => t.kind === 'expose'));
-    await tap(page, targetOf(await layout(page), 'expose_open').box);
-    await page.waitForFunction(() => window.__overclock!.layout().targets.some((t) => t.kind === 'expose'));
-    l = await layout(page);
+    await shot(page, 's12-4-infiltration-modes');
 
     await tap(page, l.targets.find((t) => t.kind === 'expose' && t.uid === plan.info['uid'])!.box);
     await page.waitForFunction(() => window.__overclock!.layout().exposed !== null);

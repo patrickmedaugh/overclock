@@ -500,10 +500,14 @@ export function computeLayout(width: number, height: number, insetsIn?: Partial<
  * sideways, the column upright) from its top down to the hand strip. Nested places (a server
  * column) are smaller, so `targetAt` still picks them where they overlap.
  */
+/** S-15-6: the play zone keeps this far (CSS px) inside the play area's right edge. */
+export const PLAY_ZONE_INSET = 10;
+
 export function playZoneOf(l: Pick<BoardLayout, 'board' | 'handArea'>): Box {
   const { board, handArea } = l;
   const bottom = Math.max(board.y + 1, Math.min(board.y + board.height, handArea.y));
-  return box(board.x, board.y, board.width, bottom - board.y);
+  // Its glow (while held over it) stays off the rail's words: kept PLAY_ZONE_INSET px inside on the right.
+  return box(board.x, board.y, Math.max(1, board.width - PLAY_ZONE_INSET), bottom - board.y);
 }
 
 function landscapeLayout(vw: number, vh: number, insets: Insets, safe: Box, viewer: Side, shape: BoardShape): Omit<BoardLayout, 'playZone'> {

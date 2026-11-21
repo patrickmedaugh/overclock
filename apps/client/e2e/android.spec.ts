@@ -109,6 +109,37 @@ test.describe('S-04-2 the app bundle', () => {
     expect(errors).toEqual([]);
   });
 
+  test('S-15-6 in the app bundle: a card pulled straight up out of the hand strip lifts, the hand drops away, and comes back when let go away', async ({ page }) => {
+    const errors: string[] = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto('./');
+    await page.waitForFunction(() => document.body.dataset.ready === 'true');
+    await playHere(page);
+    await page.waitForTimeout(600);
+    const W = BOARD.width;
+    const H = BOARD.height;
+    // The hand strip along the bottom, left of the rail.
+    const strip = { x: Math.round(W * 0.2), y: H - 50, width: Math.round(W * 0.45), height: 40 };
+    const [before] = await pixelStats(page, [strip]);
+    const cdp = await page.context().newCDPSession(page);
+    const x = W * 0.45;
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y: H - 30 }] });
+    for (let k = 1; k <= 3; k++) await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y: H - 30 - k * 40 }] });
+    await page.waitForTimeout(400);
+    const [held] = await pixelStats(page, [strip]);
+    // The strip's cards dropped below the screen: the strip area is (nearly) empty board now.
+    expect(Math.abs(held!.mean - before!.mean), 'the hand dropped away').toBeGreaterThan(5);
+    await test.info().attach('app-held-from-strip', { body: await page.screenshot(), contentType: 'image/png' });
+    // Let go over the opponent's row (no place to play): the card goes back, the hand comes back up.
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: W * 0.25, y: H * 0.12 }] });
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    await cdp.detach();
+    await page.waitForTimeout(500);
+    const [back] = await pixelStats(page, [strip]);
+    expect(Math.abs(back!.mean - before!.mean), 'the hand is back').toBeLessThan(Math.abs(held!.mean - before!.mean) / 2);
+    expect(errors).toEqual([]);
+  });
+
   test('S-11-3: the app killed and opened again: Continue game brings the pass-the-phone game back', async ({ page, context }) => {
     // Android may kill the app in the background; its WebView storage stays (DECISIONS 2026-11-17).
     // Here: close the page and open the bundle again in the same browser storage.

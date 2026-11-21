@@ -619,7 +619,7 @@ describe('playZone (S-15-6: where a held one-shot card is dropped)', () => {
       const z = l.playZone;
       expect(z).toEqual(playZoneOf(l));
       expect(z.x).toBe(l.board.x);
-      expect(z.width).toBe(l.board.width);
+      expect(z.width).toBe(l.board.width - 10);
       expect(z.y).toBe(l.board.y);
       expect(z.y + z.height).toBeLessThanOrEqual(l.handArea.y + 0.5);
       expect(z.height).toBeGreaterThan(l.card.height);

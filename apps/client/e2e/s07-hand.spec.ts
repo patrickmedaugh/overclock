@@ -1,4 +1,4 @@
-// S-07-6 (owner's design, PR #17 answer 1B): tap the hand to open it big and
+// S-07-6 (owner's design, PR #17 answer 1B; S-15-6: a tap only reads, holding plays): tap the hand to open it big and
 // readable; long-press a card to light every place it can go; drag it onto a
 // lit place and let go to play it there; let go anywhere else and the hand
 // view is back; tap outside (or Back) closes it. The dragged card follows the
@@ -105,11 +105,20 @@ test.describe('S-07-6 hand: tap to open, long-press to light places, drag to pla
     expect((await layout(page)).selected).toBeNull();
   });
 
-  test('a tap on the big card picks it the no-drag way: the view closes, its places light up', async ({ page }) => {
+  test('S-15-6: a tap on the big card never plays or picks it; holding it up (from the strip) lights its places', async ({ page }) => {
     await openBoard(page, 1);
     const v = await getView(page);
     const i = cardWith(v, 'new_server');
-    const l = await pickHand(page, i);
+    const open = await openHand(page, i);
+    await tap(page, open.handView!.centre);
+    await page.waitForFunction(() => !!window.__overclock!.layout().handView?.tip);
+    let l = await layout(page);
+    expect(l.handView).toMatchObject({ index: i, lifted: false, tip: { text: 'Hold to play' } });
+    expect(l.selected).toBeNull();
+    expect(l.targets).toEqual([]);
+    await page.evaluate(() => window.__overclock!.back());
+    await page.waitForFunction(() => window.__overclock!.layout().handView === null);
+    l = await pickHand(page, i);
     expect(l.handView).toBeNull();
     expect(l.selected).toBe(i);
     expect(sorted(l.targets.map((t) => t.kind))).toEqual(sorted(v.handOptions[i]!.map(kindOf)));
@@ -214,11 +223,11 @@ test.describe('S-07-6 hand: tap to open, long-press to light places, drag to pla
     expect(v.players.runner.credits).toBe(1);
     const i = v.handOptions.findIndex((os) => os.length > 0 && os.every((o) => o.reject === 'no_credits'));
     expect(i, 'a card the Runner cannot afford').toBeGreaterThanOrEqual(0);
+    // S-15-6: a card with no affordable place lifts dimmed (nothing lit) and says why; let go anywhere.
     const { hold, lifted } = await liftHand(page, i);
-    const dim = lifted.targets.find((t) => !t.lit)!;
-    expect(dim).toBeTruthy();
-    await dragTo(hold, center(lifted.handView!.centre), center(dim.box), 6);
-    await page.waitForFunction(() => window.__overclock!.layout().drag?.hover?.lit === false);
+    expect(lifted.drag).toMatchObject({ dimmed: true, reason: 'Not enough credits' });
+    expect(lifted.targets).toEqual([]);
+    await dragTo(hold, center(lifted.handView!.centre), awaySpot(lifted), 6);
     await hold.release();
     await page.waitForFunction(() => window.__overclock!.layout().hint !== null);
     const l = await layout(page);
@@ -228,7 +237,7 @@ test.describe('S-07-6 hand: tap to open, long-press to light places, drag to pla
     expect(await getView(page)).toEqual(v);
   });
 
-  test('a card that cannot be played now: long-press says why and lights nothing', async ({ page }) => {
+  test('a card that cannot be played now: long-press lifts it dimmed, says why and lights nothing', async ({ page }) => {
     await openBoard(page, 1);
     for (let k = 0; k < 3; k++) await dispatch(page, { type: 'gain_credit', player: 'corp' });
     await waitIdle(page);
@@ -238,9 +247,10 @@ test.describe('S-07-6 hand: tap to open, long-press to light places, drag to pla
     await page.waitForFunction(() => window.__overclock!.layout().hint !== null);
     const l = await layout(page);
     expect(l.hint!.text).toBe('No clicks left');
-    expect(l.drag).toBeNull();
+    expect(l.drag).toMatchObject({ index: 0, dimmed: true, reason: 'No clicks left' });
     expect(l.targets).toEqual([]);
     await h.release();
+    await page.waitForFunction(() => window.__overclock!.layout().drag === null);
     expect(await getView(page)).toEqual(before);
   });
 

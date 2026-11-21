@@ -3,7 +3,7 @@
 // nothing blocks play for more than 0.6 s; turning the phone mid-movement leaves nothing floating.
 import { type Page, expect, test } from '@playwright/test';
 import type { AnimRecord } from '../src/hook-types';
-import { dispatch, expectSnappy, getView, layout, measureTap, openBoard, passTurn, tap, toRunnerTurn, waitIdle } from './helpers';
+import { anims, center, dispatch, dragTo, expectSnappy, getView, holdAt, layout, measureTap, openBoard, openHand, passTurn, tap, toRunnerTurn, waitIdle } from './helpers';
 
 async function startDraw(page: Page): Promise<void> {
   const l = await waitIdle(page);
@@ -65,6 +65,66 @@ test.describe('S-15-4 never slower than today', () => {
     await page.evaluate(() => window.__overclock!.motion('normal'));
     const idle = await waitIdle(page);
     expect(now.hand.map((h) => h.box), 'hand cards where an idle board puts them').toEqual(idle.hand.map((h) => h.box));
+  });
+
+  test('S-15-6 hold to play: the card reacts at once, lifts at 0.25 s, and nothing stops play for more than 0.6 s', async ({ page }) => {
+    await openBoard(page, 6);
+    const open = await openHand(page, 0);
+    // The view's neighbour faces are drawn ahead one frame at a time: let that finish first.
+    await page.evaluate(
+      () =>
+        new Promise<void>((done) => {
+          let last = performance.now();
+          let quick = 0;
+          const step = (t: number) => {
+            quick = t - last < 50 ? quick + 1 : 0;
+            last = t;
+            if (quick >= 5) done();
+            else requestAnimationFrame(step);
+          };
+          requestAnimationFrame(step);
+        }),
+    );
+    await page.evaluate(() => {
+      const w = window as unknown as { __down: number; __gap: number };
+      w.__gap = 0;
+      window.addEventListener('pointerdown', (e) => (w.__down = e.timeStamp), { capture: true, once: true });
+      let last = performance.now();
+      const loop = (t: number) => {
+        w.__gap = Math.max(w.__gap, t - last);
+        last = t;
+        requestAnimationFrame(loop);
+      };
+      requestAnimationFrame(loop);
+      window.__overclock!.clearAnims();
+    });
+    const hold = await holdAt(page, open.handView!.centre);
+    await page.waitForFunction(() => window.__overclock!.layout().drag !== null);
+    const { down, gap } = await page.evaluate(() => {
+      const w = window as unknown as { __down: number; __gap: number };
+      return { down: w.__down, gap: w.__gap };
+    });
+    const recs = await anims(page);
+    const press = recs.find((r) => r.kind === 'hand_press')!;
+    const lift = recs.find((r) => r.kind === 'card_lift')!;
+    test.info().annotations.push({ type: 'hold-ms', description: JSON.stringify({ press: press.startedAt - down, lift: lift.startedAt - down, longestFrame: gap }) });
+    // Reacts (rises) as soon as the press is handled, within a tenth of a second.
+    expect(press.startedAt - press.inputAt!).toBeLessThan(100);
+    expect(press.scheduledMs).toBeLessThanOrEqual(100);
+    // Lifts at 0.25 s after the finger went down (never before; late only by a frame the runner was drawing).
+    expect(lift.startedAt - down).toBeGreaterThanOrEqual(245);
+    expect(lift.startedAt - down).toBeLessThan(250 + 100 + gap);
+    // Drop it on a lit place: the hand comes back and the next tap is answered at once.
+    const l = await layout(page);
+    const t = l.targets.find((x) => x.lit)!;
+    await dragTo(hold, center(open.handView!.centre), center(t.box), 4);
+    await hold.release();
+    await page.waitForFunction(() => window.__overclock!.layout().drag === null && !window.__overclock!.layout().handMinimized);
+    const m = await measureTap(page, (await layout(page)).corp.credits);
+    expectSnappy(m, ['credit_pop']);
+    const all: AnimRecord[] = await page.evaluate(() => window.__overclock!.anims());
+    for (const r of all) if (r.kind !== 'hint' && r.kind !== 'notice') expect(r.scheduledMs, `${r.kind} within 0.6 s`).toBeLessThanOrEqual(600);
+    for (const k of ['hand_minimize', 'hand_restore', 'card_lift'] as const) expect(all.some((r) => r.kind === k), k).toBe(true);
   });
 });
 

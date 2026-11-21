@@ -377,11 +377,8 @@ test.describe('QA S-12-4 Infiltration (real taps)', () => {
     const before = await getView(page);
     let l = await pickHand(page, Number(plan.info['handIndex']));
     expect(targetOf(l, 'play')).toMatchObject({ label: 'Gain 2 credits', lit: true });
-    expect(targetOf(l, 'expose_open')).toMatchObject({ label: 'Expose 1 card', lit: true });
+    // S-15-6: while held, every card it can expose lights at once (no separate Expose step).
     await shot(page, '17-infiltration-two-choices');
-    await tap(page, targetOf(l, 'expose_open').box);
-    await page.waitForFunction(() => window.__overclock!.layout().targets.some((t) => t.kind === 'expose'));
-    l = await layout(page);
     const faceDown = before.corpServers.flatMap((s) => [...s.ice, ...s.content]).filter((c) => !c.faceUp).map((c) => c.uid);
     expect(l.targets.filter((t) => t.kind === 'expose').map((t) => t.uid).sort()).toEqual([...faceDown].sort());
     await snappyTap(page, l.targets.find((t) => t.kind === 'expose' && t.uid === uid)!.box);
@@ -527,11 +524,8 @@ test.describe('QA Sprint 12 online (two phones)', () => {
     const cBefore = await view(corp);
     const mark = runner.received.length;
     const hand = Number(plan.info['handIndex']);
-    await tap(runner.page, (await layoutOf(runner)).hand[hand]!.box);
-    await runner.page.waitForFunction((k) => window.__overclock!.layout().handView?.index === k, hand);
-    await tap(runner.page, (await layoutOf(runner)).handView!.centre);
-    await runner.page.waitForFunction(() => window.__overclock!.layout().targets.some((t) => t.kind === 'expose_open'));
-    await tap(runner.page, targetOf(await layoutOf(runner), 'expose_open').box);
+    // S-15-6: held up, Infiltration lights every card it can expose at once.
+    await pickHand(runner.page, hand);
     await runner.page.waitForFunction(() => window.__overclock!.layout().targets.some((t) => t.kind === 'expose'));
     await tap(runner.page, (await layoutOf(runner)).targets.find((t) => t.kind === 'expose' && t.uid === uid)!.box);
     for (const p of [runner, corp]) await p.page.waitForFunction((u) => window.__overclock!.layout().exposed?.uid === u, uid);

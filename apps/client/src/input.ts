@@ -130,6 +130,14 @@ export function attachPress(target: Container, handlers: PressHandlers, opts: Pr
   let slid = false;
   /** S-15-6: the press was pulled into a drag (onPull said yes): moves and the release go to onDrag / onDrop. */
   let dragging = false;
+  /** Where the finger was last seen (a cancelled touch is let go there). */
+  let lastX = 0;
+  let lastY = 0;
+  /**
+   * S-15-6: Pixi never passes on `pointercancel` (the system took the touch: a gesture bar swipe, a
+   * call): a DOM listener while pressed ends the press as cancelled, so nothing stays held.
+   */
+  let offCancel: (() => void) | null = null;
 
   const clearTimer = () => {
     if (timer !== null) clearTimeout(timer);
@@ -150,6 +158,8 @@ export function attachPress(target: Container, handlers: PressHandlers, opts: Pr
     if (pointerId === null) return;
     pointerId = null;
     clearTimer();
+    offCancel?.();
+    offCancel = null;
     const held = upAt === null ? null : upAt - downAt;
     if (dragging) {
       dragging = false;
@@ -177,6 +187,16 @@ export function attachPress(target: Container, handlers: PressHandlers, opts: Pr
     pointerId = e.pointerId;
     startX = e.global.x;
     startY = e.global.y;
+    lastX = startX;
+    lastY = startY;
+    const id = e.pointerId;
+    const domCancel = (ev: Event) => {
+      if ((ev as PointerEvent).pointerId === id && pointerId === id) end(false, null, lastX, lastY, true);
+    };
+    if (typeof globalThis.addEventListener === 'function') {
+      globalThis.addEventListener('pointercancel', domCancel, true);
+      offCancel = () => globalThis.removeEventListener('pointercancel', domCancel, true);
+    }
     downAt = madeAt(stampOf(e), performance.now());
     longFired = false;
     slid = false;
@@ -198,6 +218,8 @@ export function attachPress(target: Container, handlers: PressHandlers, opts: Pr
     if (pointerId !== e.pointerId) return;
     const x = e.global.x;
     const y = e.global.y;
+    lastX = x;
+    lastY = y;
     if (dragging) {
       handlers.onDrag?.(x, y, madeAt(stampOf(e), performance.now()));
       return;
@@ -263,6 +285,8 @@ export function attachPress(target: Container, handlers: PressHandlers, opts: Pr
 
   return () => {
     clearTimer();
+    offCancel?.();
+    offCancel = null;
     target.off('pointerdown', onDown);
     target.off('globalpointermove', onMove);
     target.off('pointerup', onUp);

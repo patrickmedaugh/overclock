@@ -3,6 +3,7 @@
 // (never its face), and nothing in what the service sent changes (movement is client-only).
 import { expect, test } from '@playwright/test';
 import type { CardOption } from '@overclock/engine';
+import { center, dragTo, holdAt } from './helpers';
 import { act, joinGame, layoutOf, openPhone, startTestGame, view, waitPlaying, waitView } from './online';
 
 test.describe('S-15-2 online: the other player\'s cards fly in', () => {
@@ -36,6 +37,46 @@ test.describe('S-15-2 online: the other player\'s cards fly in', () => {
     // The service's frames are what they were before movement existed: no card id for the Runner.
     const cardId = v.players.corp.hand![v.handOptions.findIndex((os) => os.includes(opt))]!;
     for (const raw of runner.received.slice(framesBefore)) expect(raw.includes(`"${cardId}"`), 'the Runner never receives the card').toBe(false);
+    await corp.context.close();
+    await runner.context.close();
+  });
+
+  test('S-15-6: a card held over a lit place is never sent; the other phone sees only the played card, face down', async ({ browser }) => {
+    const corp = await openPhone(browser);
+    const runner = await openPhone(browser);
+    const code = await startTestGame(corp, 'corp', { seed: 1, actions: [], deckSet: 'starter' });
+    await joinGame(runner, code);
+    await Promise.all([waitPlaying(corp), waitPlaying(runner)]);
+    const v = await view(corp);
+    const i = v.handOptions.findIndex((os) => os.some((o: CardOption) => o.reject === null && o.action.type === 'install' && o.action.server === 'new'));
+    const cardId = v.players.corp.hand![i]!;
+    await corp.page.waitForFunction(() => !window.__overclock!.layout().animating);
+    const l0 = await layoutOf(corp);
+    const box = l0.hand[i]!.box;
+    const start = center(box);
+    const up = { x: start.x, y: box.y - box.height * 0.3 };
+    const hold = await holdAt(corp.page, box);
+    await dragTo(hold, start, up, 3);
+    await corp.page.waitForFunction(() => window.__overclock!.layout().drag !== null);
+    const target = (await layoutOf(corp)).targets.find((t) => t.kind === 'new_server' && t.lit)!;
+    await dragTo(hold, up, center(target.box), 4);
+    await corp.page.waitForFunction(() => window.__overclock!.layout().drag?.hover?.kind === 'new_server');
+    // Keep-alive pings (every 20 s) are not game frames.
+    const game = (frames: string[]) => frames.filter((f) => !/"t":"p[io]ng"/.test(f)).length;
+    const sentBefore = game(corp.sent);
+    const receivedBefore = runner.received.length;
+    const gameReceivedBefore = game(runner.received);
+    const runnerBefore = await view(runner);
+    // Held for a second over the lit place: nothing leaves the Corp's phone, nothing reaches the Runner's.
+    await corp.page.waitForTimeout(1000);
+    expect(game(corp.sent), 'the Corp phone sent nothing while holding').toBe(sentBefore);
+    expect(game(runner.received), 'the Runner phone received no game frame').toBe(gameReceivedBefore);
+    expect(await view(runner)).toEqual(runnerBefore);
+    await hold.release();
+    const seen = await waitView(runner, (w) => w.corpServers.length > runnerBefore.corpServers.length);
+    const remote = seen.corpServers.at(-1)!;
+    expect([...remote.content, ...remote.ice].every((c) => c.cardId === null && !c.faceUp), 'face down to the Runner').toBe(true);
+    for (const raw of runner.received.slice(receivedBefore)) expect(raw.includes(`"${cardId}"`), 'the Runner never receives the card').toBe(false);
     await corp.context.close();
     await runner.context.close();
   });

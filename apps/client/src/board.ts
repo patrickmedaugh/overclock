@@ -533,6 +533,11 @@ export class Board {
     this.stage.addChild(this.table, this.fxLayer, this.hintLayer, this.statusLayer, this.panelLayer, this.zoomLayer, this.coverLayer, this.dialogLayer);
     this.statusLayer.eventMode = 'none';
     // S-05-1: a tap anywhere outside the Last run strip (and its button) closes it; the tap still acts.
+    // S-15-6: Pixi never passes on a cancelled touch: a press in the hand view (or a card held from
+    // it) ends as cancelled, so nothing stays lifted or pressed.
+    if (typeof globalThis.addEventListener === 'function') {
+      globalThis.addEventListener('pointercancel', (e) => this.cancelViewPress((e as PointerEvent).pointerId), true);
+    }
     this.stage.eventMode = 'static';
     this.stage.on('pointerdown', (e) => {
       const strip = this.lastRunStrip;
@@ -4455,6 +4460,16 @@ export class Board {
     this.callbacks.changed();
   }
 
+  /** S-15-6: the system cancelled the hand view's press (pointer `id`): a held card goes back, nothing is played. */
+  private cancelViewPress(id: number): void {
+    const p = this.viewPress;
+    if (!p || p.id !== id) return;
+    this.endViewPress();
+    if (this.lift) this.dropLift(p.lastX, p.lastY, true);
+    else this.pressLift(false);
+    this.callbacks.changed();
+  }
+
   private endViewPress(): void {
     const p = this.viewPress;
     if (p?.timer != null) clearTimeout(p.timer);
@@ -4831,7 +4846,10 @@ export class Board {
     // device a bake in that frame would make the zoom itself late (the held card's
     // own face, first in the list, is already drawn by then). Resumes once it opens.
     const drawnOne = p.ids.length < p.total;
-    if (!this.zoom && drawnOne && performance.now() - p.at > timing.longPress - PREDRAW_QUIET_MS) {
+    // S-15-6: the same while the hand view's big card is pressed, around the moment it lifts.
+    const vp = this.viewPress;
+    const lifting = vp !== null && vp.hit.kind === 'centre' && !vp.swiped && !this.lift && performance.now() - vp.at > HOLD_MS - PREDRAW_QUIET_MS;
+    if ((!this.zoom && drawnOne && performance.now() - p.at > timing.longPress - PREDRAW_QUIET_MS) || lifting) {
       p.frame = requestAnimationFrame(() => this.predrawStep());
       return;
     }
