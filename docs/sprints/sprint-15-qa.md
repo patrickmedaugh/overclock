@@ -365,3 +365,70 @@ Setup for each test: the finger goes down on Ice Wall in the small hand (stamped
 | S-15-6 Hold a card to play it | **PASSED QA: 12/12** (AC12 now passes on CI at all sizes; strip follow-up verified; AC9 on intent, wording question for the PM/owner) |
 
 **Bugs open: QA-S15-3** (ui-dev). QA-S15-2: fixed and its strip follow-up verified. AC2 one-off failure: a race in QA's own test, fixed in the test (rule unchanged).
+
+## Round 6 (2026-11-21, product code 3c59df0: QA-S15-3 fix in the slow-frame gate)
+
+QA did not write this change. ui-dev kept the texture cap at 4 and fixed the slow-frame gate in `apps/client/src/frameClock.ts`. The gate decides when to skip decorative movement on slow devices. The old rule ("slower than 50 ms") counted a frame of exactly 50.0 ms as quick, so the held card's lean stayed on and the dragged card fell behind the finger. Changes: `SLOW_FRAME_MS` 50 → 40, and decorative movement only comes back after `FAST_FRAMES_TO_RESUME` = 3 quick frames in a row. Also in this commit: a Pixi version tripwire (`VERIFIED_PIXI`), argument forwarding and test clean-up in `gpuLimits`, and a new real-browser check in `s15-snappy` that the batch shader uses 4 texture slots.
+
+**Result: QA-S15-3 is fixed and verified. CI on 3c59df0 is fully green (all 4 e2e shards). S-15-4 goes back to PASSED QA.**
+
+### Review of the diff (`git diff 0bcedb7..3c59df0`)
+- No test check was loosened. The e2e change only adds a test (the `s15-snappy` shader check). The unit-test changes add checks:
+  - 50 ms counts as slow, 33 ms does not;
+  - one quick frame among slow ones does not switch movement back on;
+  - arguments are forwarded;
+  - the Pixi version tripwire.
+- One existing unit expectation changed with the new rule: after `forceFrameSpeed('measured')` the measured answer stays "slow" until it is reset. This follows from the 3-quick-frames rule and is not a weaker check.
+- lint, typecheck and unit tests all pass (engine 844, cards 816, client 95, ai 75, server 31).
+
+### QA-S15-3 drag latency (QA's `qa-sprint07.spec.ts:471` "drag latency (QA measure)…"; every finger move must be drawn under the finger in < 100 ms)
+| Run (`--retries=0`) | Result | Slowest move drawn |
+|---|---|---|
+| 844x390, 640x360, 1280x800 × 5, 2 workers | **15/15 passed** | all < 100 ms (line reporter, no per-run values) |
+| 891x296 × 5 (scratch config: the `phone-short` device running this spec, which is not in `SHORT_SPECS`) | **5/5 passed** | 34.2–35.2 ms (median 23–28) |
+| 6× CPU throttle, 1 worker: 844x390 / 640x360 / 1280x800 × 3 | **9/9 passed** | phone 49.4–50.9 · phone-small 47.8–53.3 · desktop 28.1–32.8 ms |
+| 6× CPU throttle, 1 worker: 891x296 × 3 | **3/3 passed** | 47.3–51.2 ms |
+| **Control: the old `frameClock.ts` (0bcedb7) swapped in, the rest = 3c59df0**, 640x360 × 5 | **5/5 failed** | 144–182 ms (median 27–30) |
+
+The control run confirms ui-dev's root cause: on this build, the gate alone decides whether the test fails or passes. `frameClock.ts` was put back afterwards (`git status` clean for `src/`).
+
+### The things the gate also controls still work (`--retries=0`, 2 workers unless noted)
+- **S-05-3 carousel slide and S-15-1 lean/settle:** `s05-carousel`, `s05-carousel-timing` and `s15-hand` at 844x390, 640x360 and 1280x800, plus `s15-hand` at 891x296: **31 passed, 7 skipped** (desktop skips its touch-only tests; the "pointing at a hand card" test is skipped on phones by design), 0 failed.
+- **QA's own S-15-1 tests, AC2, AC12, `s15-snappy` "S-15-4 never slower than today" and the new shader check**, 4 sizes: **41 passed, 3 skipped** (desktop touch-only), 0 failed.
+  - AC12 longest task (limit 600 ms): 891x296 89 · 844x390 112 · 640x360 97 · 1280x800 191 ms. Lift 253–255 ms after the finger went down on phones, 352 ms on desktop.
+  - Shader check: every batch shader built with 4 texture slots (`[4,4]`) at all 4 sizes.
+- **6× CPU throttle, 1 worker, 4 sizes:** AC2 still-hold, AC1/2 sideways slide, AC12, and `s05-carousel-timing` (draw slide + carousel slide): **19/19 passed**.
+  - AC12 longest task: 891x296 166 · 844x390 257 · 640x360 225 · 1280x800 306 ms.
+  - Carousel: the new face is on screen 16–71 ms after the swipe.
+  - AC2: no frame read before 245 ms showed a held card (`stampedBefore245` = 0).
+- **Note:** the lean and carousel e2e tests pin frames to "fast" (`frameSpeed('fast')`), so they show that the movement still works. The new 40 ms / 3-frame rule itself is checked by the unit tests in `test/frameClock.test.ts`.
+
+### Main flow screenshots (round 6)
+- Board and a held card over its lit place, at 891x296: `docs/sprints/sprint-15-qa/r6-891x296-s15-board.png` and `r6-891x296-s15-6-held-card-lit.png`.
+- 844x390, 640x360 and 1280x800 were also captured and look the same. They are not kept in the repo (QA-S15-1 repo-size rule).
+- Nothing changes visually in this round, because only the movement timing changed.
+
+### CI result (round 6)
+- **3c59df0 (`3c59df01903f56d05fed8b8a7c38f456b53b7675`): PR #34 run 44909272693 — success.** `checks` success, `guard-mutation` success, `e2e` success.
+- **All 4 e2e shards success:**
+  - shard 1/4: 591 passed, 2 skipped, including drag latency [phone];
+  - shard 2/4: 585 passed, 7 skipped, 1 flaky, including drag latency [phone-small];
+  - shard 3/4: 574 passed, 19 skipped;
+  - shard 4/4: 577 passed, 14 skipped, 1 flaky.
+- The 2 flaky tests (passed on retry):
+  - `s02-corp:82` [phone-small], "tapping the card again … cancels": the same older `s02-corp` flakiness noted in round 5;
+  - `android.spec:73` [android], "S-07-6 in the app bundle … let go away and the hand view is back". The rail was not shaded again 0.5 s after letting go.
+- **The `android.spec:73` flake is not caused by this change.** Locally, 10 repeats each: 3c59df0 **3/10 failed**, and the same with the old `frameClock.ts` **3/10 failed**, with the same error. Older flaky test, for ui-dev to look at (either the hand view comes back late in the app bundle, or 0.5 s is too short a wait on a busy machine). It does not block this sprint.
+- The push run on the same commit: `checks` success; e2e not run, as expected on a push.
+
+### Final per-story result (Sprint 15, round 6)
+| Story | Result |
+|---|---|
+| S-15-1 Cards lift and lean in your hand | **PASSED QA** (lean/settle tests and QA's S-15-1 tests pass with the new gate) |
+| S-15-2 Played cards fly to the board and land | **PASSED QA** (unchanged; green in CI on 3c59df0) |
+| S-15-3 Cards fly to and from the piles | **PASSED QA** (unchanged; green in CI on 3c59df0) |
+| S-15-4 Never slower than today | **PASSED QA** for AC1, AC2, AC4, AC5. QA-S15-3 is fixed: drag ≤ 35 ms at 891x296, all sizes pass ×5, ×3 at 6× throttle, and in CI. AC3 phone smoothness is still an owner check. |
+| S-15-5 Play link and app download with a private repo | unchanged from round 2 (owner checks listed there) |
+| S-15-6 Hold a card to play it | **PASSED QA: 12/12** (AC12 longest task ≤ 306 ms even at 6×; AC9 is checked on intent: the wording question for the PM/owner is still open) |
+
+**Bugs open: none blocking.** QA-S15-3: **fixed and verified.** Flaky tests, not caused by this sprint's code: `android.spec:73` (3/10 locally on both gate versions) and `s02-corp` at 640x360. Both are for ui-dev to look at later.
