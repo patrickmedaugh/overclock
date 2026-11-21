@@ -235,6 +235,49 @@ describe('attachPress: hold and slide (S-04-3)', () => {
     expect(log).toEqual(['down', 'zoom', 'unzoom', 'release']);
   });
 
+  it('QA-S15-2 (strip): after a late-opened hold, a sideways flick made before the hold time never picks the card up, even rising out of the strip', () => {
+    const pulls: string[] = [];
+    const { target, log } = setup({
+      onHoldMove: () => log.push('slide'),
+      // Says yes to any pull: the gesture rules alone decide.
+      onPull: (_x, _y, dx, dy, at, held) => {
+        pulls.push(`${dx},${dy}@${at - down}${held ? ' held' : ''}`);
+        return held || -dy >= 1.2 * Math.abs(dx);
+      },
+      onDrag: () => log.push('drag'),
+      onDrop: () => log.push('drop'),
+    });
+    const down = now;
+    target.emit('pointerdown', { timeStamp: down, x: 100, y: 300 });
+    stall(600);
+    wakeTimers();
+    runFrame(); // the hold opened late, before the queued flick is handled
+    // Flat left, then rising 30 degrees (y above the strip), all made 70-110 ms after the down.
+    target.emit('globalpointermove', { timeStamp: down + 70, x: 75, y: 300 });
+    target.emit('globalpointermove', { timeStamp: down + 90, x: 40, y: 270 });
+    target.emit('globalpointermove', { timeStamp: down + 110, x: 0, y: 240 });
+    target.emit('pointerup', { timeStamp: down + 120, x: 0, y: 240 });
+    expect(pulls, 'only the first exit is asked, as a not-held pull (sideways: no)').toEqual(['-25,0@70']);
+    expect(log).toEqual(['down', 'zoom', 'slide', 'slide', 'slide', 'unzoom', 'release']);
+  });
+
+  it('QA-S15-2 (strip): a late-opened hold whose first exit (made before the hold time) is upward picks the card up', () => {
+    const { target, log } = setup({
+      onHoldMove: () => log.push('slide'),
+      onPull: (_x, _y, dx, dy, _at, held) => !held && -dy >= 1.2 * Math.abs(dx),
+      onDrag: () => log.push('drag'),
+      onDrop: () => log.push('drop'),
+    });
+    const down = now;
+    target.emit('pointerdown', { timeStamp: down, x: 100, y: 300 });
+    stall(600);
+    wakeTimers();
+    runFrame();
+    target.emit('globalpointermove', { timeStamp: down + 60, x: 102, y: 270 });
+    target.emit('pointerup', { timeStamp: down + 120, x: 102, y: 200 });
+    expect(log).toEqual(['down', 'zoom', 'drag', 'drop', 'release']);
+  });
+
   it('a released-outside slide closes the zoom without a tap', () => {
     const { target, log } = setup({ onHoldMove: () => {} });
     target.emit('pointerdown', { timeStamp: now, x: 10, y: 10 });
