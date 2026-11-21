@@ -156,9 +156,9 @@ function isUnder(c: Container | null, root: Container | null): boolean {
 const LATE_LIFT_MS = 50;
 
 /**
- * QA-S15-2: after a stall, a late hold timer waits for a frame that starts within this long of the
- * one before (the page has caught up, so the browser has handed over the moves and release it was
- * holding back), for at most `CATCH_UP_FRAMES` frames.
+ * QA-S15-2: after a stall, a late hold timer waits for two frames in a row that each run within
+ * this long of the one before (the page has caught up, so the browser has handed over the moves and
+ * release it was holding back), for at most `CATCH_UP_FRAMES` frames.
  */
 const CATCH_UP_GAP_MS = 100;
 const CATCH_UP_FRAMES = 6;
@@ -4274,8 +4274,8 @@ export class Board {
     const at = stamp > 0 && stamp <= now && now - stamp < 10_000 ? stamp : now;
     const press = { id: e.pointerId, x, y, lastX: x, lastY: y, at, hit, start: zoom.index, swiped: false, timer: null as ReturnType<typeof setTimeout> | null, timerLift: false };
     // S-15-6: hold the big card still for HOLD_MS to lift it (judged by when the finger went down).
-    // A timer that runs late (the page stalled) waits until the page has caught up (a frame that
-    // comes on time), so moves and a release queued meanwhile are handled first and judged by
+    // A timer that runs late (the page stalled) waits until the page has caught up (two frames in a
+    // row that come on time), so moves and a release queued meanwhile are handled first and judged by
     // their own times (QA-S3-7, QA-S15-2).
     if (hit.kind === 'centre' && zoom.mode === 'hand') {
       const lift = () => {
@@ -4293,11 +4293,13 @@ export class Board {
         }
         let prev = fired;
         let frames = 0;
+        let quick = 0;
         const frame = () => {
           if (this.viewPress !== press) return;
           // When this frame's callbacks got to run (the frame's own time can be from before the stall).
           const t = performance.now();
-          const caughtUp = t - prev < CATCH_UP_GAP_MS || ++frames >= CATCH_UP_FRAMES;
+          quick = t - prev < CATCH_UP_GAP_MS ? quick + 1 : 0;
+          const caughtUp = quick >= 2 || ++frames >= CATCH_UP_FRAMES;
           prev = t;
           if (caughtUp) lift();
           else requestAnimationFrame(frame);
