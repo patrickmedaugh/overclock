@@ -351,7 +351,8 @@ Setup for each test: the finger goes down on Ice Wall in the small hand (stamped
 
 ### CI result (round 5)
 - **02aad8c (`02aad8c969de70625a867d1f2d7b391b89f3f078`): PR #34 run 44898452920 — failure.** `checks` success, `guard-mutation` success, `e2e shard 3/4` success (568 passed, 19 skipped), `e2e shard 4/4` success (571 passed, 14 skipped, 1 flaky: `s07-hand:130` desktop), **`e2e shard 1/4` failure** (584 passed, 2 skipped, 1 failed: `qa-sprint07:471` drag latency [phone], both tries), **`e2e shard 2/4` failure** (578 passed, 7 skipped, 1 failed: the same test [phone-small], both tries; 1 flaky: `s02-corp:62`). All of QA's S-15-6 tests passed, including AC2 (`:1277`) and AC12 (`:1759`) at all 4 sizes. The failure is QA-S15-3.
-- QA's commit (round-5 tests + AC2 measurement fix + this report): its PR run is recorded below.
+- **987c403 (`987c4035b2f7eb664e5565e97f2ffcf48bfc72db`, QA's commit: round-5 tests + AC2 measurement fix; product code = 02aad8c): PR #34 run 44904390212 — failure, for the same reason.** `checks` success, `guard-mutation` success, `e2e shard 3/4` success (573 passed, 19 skipped), `e2e shard 4/4` success (576 passed, 14 skipped, 1 flaky: `s15-hand:187` "swiping in the hand view slides the cards…" [phone-short], one of the two swipe tests that were flaky in round 3), **`e2e shard 1/4` failure** (589 passed, 1 failed: `qa-sprint07:471` drag latency [phone], 128 / 123 ms on its two tries), **`e2e shard 2/4` failure** (583 passed, 1 failed: the same test [phone-small], 168 / 134 ms; 1 flaky: `s02-corp:62`). Every `qa-sprint15` test passed on CI, including the 20 new round-5 strip tests and the AC2 test with the new measurement. **The only failure is QA-S15-3.**
+- This report update is docs-only. CI will run the full suite again on it, because the commit before did not pass. That run should fail the same way.
 
 ### Final per-story result (Sprint 15, round 5)
 | Story | Result |
