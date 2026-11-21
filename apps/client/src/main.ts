@@ -11,6 +11,7 @@ import { createZoomFace, flushZoomFaces, fullFaceInfo, setCardRenderer, smallFac
 import { type DeckEntry, DeckLibrary, picksOf } from './deckStore';
 import { DeckSync, deckServiceUrl } from './deckSync';
 import { ONLINE_DECK_TEXT, refusedText } from './deckText';
+import { capBatchTextures } from './gpuLimits';
 import { type DeckPicks, type ZoomImage, hasReadyDeck } from './decksScreen';
 import { computeLayout } from './layout';
 import { forceFrameSpeed, noteDraw, noteTick } from './frameClock';
@@ -34,6 +35,8 @@ async function start(): Promise<void> {
   const host = document.getElementById('app');
   if (!host) throw new Error('#app missing');
 
+  // Short batch shader: each drawn pixel costs far less on software / weak GPUs (gpuLimits.ts).
+  capBatchTextures();
   const app = new Application();
   await app.init({
     resizeTo: window,
