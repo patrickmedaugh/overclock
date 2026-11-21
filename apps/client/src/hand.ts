@@ -107,7 +107,8 @@ export class Hand {
 
   /**
    * S-15-6: the strip drops below the screen (`on`) or comes back up, over `ms` on the input
-   * queue (never skipped, never blocks). The held card is not in the strip, so it does not move.
+   * queue (never skipped, never blocks). The held card stays a child of the strip (Pixi press
+   * tracking), so `pinLifted` keeps it where the finger put it while the strip moves.
    */
   minimize(on: boolean, ms: number): void {
     const layout = this.layout;
@@ -728,7 +729,7 @@ export class Hand {
         c.root.zIndex = 2000;
         return;
       }
-      if (!c.pressed) c.root.zIndex = c === this.lifted ? 2000 : c === this.browsing ? 950 : c.selected ? 900 : i;
+      if (!c.pressed) c.root.zIndex = c === this.browsing ? 950 : c.selected ? 900 : i;
     });
   }
 

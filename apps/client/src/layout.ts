@@ -495,14 +495,14 @@ export function computeLayout(width: number, height: number, insetsIn?: Partial<
   return { ...l, playZone: playZoneOf(l) };
 }
 
+/** S-15-6: the play zone keeps this far (CSS px) inside the play area's right edge. */
+export const PLAY_ZONE_INSET = 10;
+
 /**
  * S-15-6: the play zone for a held one-shot card: the play area (`board`: left of the rail
  * sideways, the column upright) from its top down to the hand strip. Nested places (a server
  * column) are smaller, so `targetAt` still picks them where they overlap.
  */
-/** S-15-6: the play zone keeps this far (CSS px) inside the play area's right edge. */
-export const PLAY_ZONE_INSET = 10;
-
 export function playZoneOf(l: Pick<BoardLayout, 'board' | 'handArea'>): Box {
   const { board, handArea } = l;
   const bottom = Math.max(board.y + 1, Math.min(board.y + board.height, handArea.y));

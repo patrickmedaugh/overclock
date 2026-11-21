@@ -226,11 +226,14 @@ export function attachPress(target: Container, handlers: PressHandlers, opts: Pr
     }
     if (!holdable) return;
     if (longFired) {
-      if (Math.hypot(x - startX, y - startY) > tolerance) slid = true;
+      const out = Math.hypot(x - startX, y - startY) > tolerance;
       const at = madeAt(stampOf(e), performance.now());
       // S-15-6: a move made before the hold time (the page was busy and handled it late) is judged as
       // made then (QA-S3-7): leaving the circle upward is a pick-up, not a slide of the hold.
-      const early = !slid && at - downAt < longPressMs && Math.hypot(x - startX, y - startY) > tolerance;
+      // (QA-S15-2: judged on the first move out of the circle, before it counts as a slide.)
+      const beforeHold = at - downAt < longPressMs;
+      const early = !slid && out && beforeHold;
+      if (out) slid = true;
       if (early && handlers.onPull?.(x, y, x - startX, y - startY, at, false)) {
         dragging = true;
         longFired = false;
@@ -239,7 +242,9 @@ export function attachPress(target: Container, handlers: PressHandlers, opts: Pr
         return;
       }
       // S-15-6: pulled out first (the card read so far is the one lifted), else the hold slides on.
-      if (handlers.onPull?.(x, y, x - startX, y - startY, at, true)) {
+      // QA-S15-2: not for a move made before the hold time (the page opened the hold late): by its
+      // own time that was a flick, not a hold, so it never picks a card up (it only slides).
+      if (!beforeHold && handlers.onPull?.(x, y, x - startX, y - startY, at, true)) {
         dragging = true;
         longFired = false;
         clearTimer();
