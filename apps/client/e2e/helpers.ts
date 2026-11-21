@@ -671,8 +671,8 @@ export async function pickHand(page: Page, i: number): Promise<LayoutSnapshot> {
 
 /**
  * S-15-6: holds up the hand card named `name`, which can't be played now: it lifts dimmed with
- * nothing lit and says why at once (then the finger lets go and it goes back). Returns the layout
- * after letting go and the hints shown since the lift (checked: shown within 0.1 s of the lift).
+ * nothing lit (then the finger lets go and it goes back, and it says why). Returns the layout
+ * after letting go and the hints shown since the lift (checked: shown within 0.1 s of letting go, not before).
  */
 export async function liftRefused(page: Page, name: string): Promise<{ l: LayoutSnapshot; hints: string[] }> {
   await page.evaluate(() => window.__overclock!.clearAnims());
@@ -684,7 +684,12 @@ export async function liftRefused(page: Page, name: string): Promise<{ l: Layout
   expect(l.selected).toBeNull();
   const hints = recs.filter((a) => a.kind === 'hint');
   expect(hints.length, `${name} says why`).toBeGreaterThan(0);
-  expect(hints[0]!.startedAt - lift!.startedAt, 'at once').toBeLessThan(100);
+  // S-15-6 AC 9 (changed after owner review 2026-11-21): nothing is said while it is held; the
+  // reason shows as it is let go (pickHand lets a dimmed card go at once).
+  const back = recs.find((a) => a.kind === 'card_return' && a.startedAt >= lift!.startedAt);
+  expect(back, `${name} goes back`).toBeTruthy();
+  expect(hints[0]!.startedAt, 'not while held').toBeGreaterThanOrEqual(back!.startedAt);
+  expect(hints[0]!.startedAt - back!.startedAt, 'as it is let go').toBeLessThan(100);
   return { l, hints: hints.map((h) => h.text!) };
 }
 

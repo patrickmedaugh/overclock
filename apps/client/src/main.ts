@@ -205,6 +205,9 @@ async function start(): Promise<void> {
   host.addEventListener(
     'pointerdown',
     (e) => {
+      // S-15-6 (owner review 2026-11-21): the hand coming back after a drop waits a moment; a tap
+      // meanwhile finishes that first (then hit-tests the hand where it ends up).
+      if (board.finishHandReturn() && !fx.active) invalidate();
       if (!fx.active) return;
       const swallow = board.flipPending;
       fx.finishAll();

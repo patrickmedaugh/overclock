@@ -18,7 +18,7 @@ import { framesAreSlow } from './frameClock';
 import { Cover } from './cover';
 import { centeredBox, clearOf, freeRect } from './geometry';
 import { Hand, type HandCard } from './hand';
-import { DROP_WAIT_MS, HOLD_MS, MINIMIZE_MS, PRESS_MS, PRESS_RISE, PRESS_SCALE, RETURN_MS, SWIPE_TOLERANCE, type Segment, TIP_MS, VIEW_FADE_MS, type ViewHit, arrowFor, classifyPress, ghostCenter, leanAngle, swipeIndex, targetAt, viewHit } from './handGesture';
+import { DROP_WAIT_MS, HAND_BACK_DELAY_MS, HOLD_MS, MINIMIZE_MS, PRESS_MS, PRESS_RISE, PRESS_SCALE, RETURN_MS, SWIPE_TOLERANCE, type Segment, TIP_MS, VIEW_FADE_MS, type ViewHit, arrowFor, classifyPress, heldCenter, heldScale, leanAngle, swipeIndex, targetAt, viewHit } from './handGesture';
 import type { AnimRecord, Box, EndTurnClock, InstalledSnapshot, Insets, LayoutSnapshot, SideLayout, TargetSnapshot } from './hook-types';
 import { type Anchor, type Flight, type FlightKind, MOTION, planMotion } from './motion';
 /** S-15-3: the score counter ticks up, then a short glow (ms). */
@@ -172,6 +172,8 @@ export const ARROW = false;
 
 /** S-15-6: the tip a quick tap on the hand view's big card shows. */
 const HOLD_TIP = 'Hold to play';
+/** S-15-6 (owner review 2026-11-21): a card held still and let go where it was picked up is put back, with this tip. */
+const DRAG_TIP = 'Drag it to a lit place';
 
 /** QA-S4-1 pre-draw: no bake from this long before the hold opens the zoom until it has opened (ms). */
 const PREDRAW_QUIET_MS = 60;
@@ -427,6 +429,8 @@ export class Board {
     /** The card in the middle when the press started (a swipe counts from it). */
     start: number;
     swiped: boolean;
+    /** S-15-6 (owner review): the finger has left the 12 px circle around the press point. */
+    left: boolean;
     timer: ReturnType<typeof setTimeout> | null;
     /**
      * QA-S15-2: the hold timer lifted the card and no move or release has yet shown, by its own
@@ -452,7 +456,11 @@ export class Board {
     dimmed: boolean;
     reason: string;
     arrow: Segment | null;
+    /** S-15-6 (owner review): how many times a hand card's size the held card is drawn. */
+    scale: number;
   } | null = null;
+  /** S-15-6 (owner review): the hand view fades back in after the put-back card's glide (a tap finishes it). */
+  private viewReturn: Container | null = null;
   /** S-15-6: the arrow from the held card to the hovered place (drawn only while `ARROW`). */
   private readonly arrowG = new Graphics();
   /** S-15-6: the "Hold to play" tip on the hand view's big card, while it shows. */
@@ -1975,7 +1983,8 @@ export class Board {
       helpText = `You can keep ${keep} cards. Tap cards to pick them.\nHold a card to read it.`;
     } else if (this.lift?.dimmed) {
       // S-15-6: a card that can't be played now: why, and how to put it back.
-      helpText = `${this.lift.reason || "Can't play it now"}.\nLet go to put it back.`;
+      // S-15-6 (owner review 2026-11-21): nothing about why while it is held; the reason shows on letting go.
+      helpText = 'Let go to put it back.';
     } else if (this.lift && this.activeTargets.some((t) => t.kind === 'grip')) {
       // Sprint 12 (S-12-3): Modded.
       helpText = `Let go on a lit card in your ${TERMS.grip} to install it.\nLet go anywhere else to put it back.`;
@@ -4272,7 +4281,7 @@ export class Board {
     const now = performance.now();
     const stamp = native instanceof Event ? native.timeStamp : now;
     const at = stamp > 0 && stamp <= now && now - stamp < 10_000 ? stamp : now;
-    const press = { id: e.pointerId, x, y, lastX: x, lastY: y, at, hit, start: zoom.index, swiped: false, timer: null as ReturnType<typeof setTimeout> | null, timerLift: false };
+    const press = { id: e.pointerId, x, y, lastX: x, lastY: y, at, hit, start: zoom.index, swiped: false, left: false, timer: null as ReturnType<typeof setTimeout> | null, timerLift: false };
     // S-15-6: hold the big card still for HOLD_MS to lift it (judged by when the finger went down).
     // A timer that runs late (the page stalled) waits until the page has caught up (two frames in a
     // row that come on time), so moves and a release queued meanwhile are handled first and judged by
@@ -4288,7 +4297,11 @@ export class Board {
         if (this.viewPress !== press) return;
         const fired = performance.now();
         if (fired - press.at < HOLD_MS + LATE_LIFT_MS) {
-          lift();
+          // S-15-6 (owner review 2026-11-21: "clicking once selects the card"): even on time, the
+          // lift waits for the next frame, so a release the browser already has (a tap a little
+          // under 0.25 s, handed over behind a busy frame) is handled first: a tap never shows a
+          // lifted card or lit places, not even for a frame.
+          requestAnimationFrame(() => lift());
           return;
         }
         let prev = fired;
@@ -4337,6 +4350,7 @@ export class Board {
     const y = e.global.y;
     p.lastX = x;
     p.lastY = y;
+    if (Math.hypot(x - p.x, y - p.y) > SWIPE_TOLERANCE) p.left = true;
     if (this.lift && p.timerLift) {
       // QA-S15-2: a timer lift is judged by this move's own time: a sideways move made before
       // HOLD_MS was a swipe (the lift is undone and the view browses); a move at or after HOLD_MS,
@@ -4426,6 +4440,16 @@ export class Board {
       if (!cancelled && p.timerLift && kind === 'swipe' && upAt - p.at < HOLD_MS) {
         this.undoTimerLift();
         this.swipeTo(e.global.x - p.x, upAt, p.start);
+        this.callbacks.changed();
+        return;
+      }
+      // S-15-6 (owner review 2026-11-21): held still and let go where it was picked up (a slow
+      // click): never a play, even if the big card sat over a lit place. It goes back (a dimmed
+      // card says why); the view returns with a tip on how to play it.
+      if (!cancelled && !p.left && Math.hypot(e.global.x - p.x, e.global.y - p.y) <= SWIPE_TOLERANCE) {
+        const dimmed = this.lift.dimmed;
+        this.dropLift(e.global.x, e.global.y, true);
+        if (!dimmed) this.showTip(upAt, DRAG_TIP);
         this.callbacks.changed();
         return;
       }
@@ -4588,8 +4612,10 @@ export class Board {
     // Pulled out of the strip while its hold-to-read view was open: the view goes at once (the card
     // is in the hand, not in the view; a let-go off a place goes back to the board).
     if (from === 'strip' && this.zoom) this.closeZoom(true);
-    if (!hand.lift(index, dimmed)) return;
-    this.lift = { index, cardId, hover: -1, boxes: [], lastX: x, lastAt: NaN, from, dimmed, reason: refused ?? '', arrow: null };
+    this.finishHandReturn();
+    const scale = heldScale(layout.card.height, layout.zoom.height, layout.viewport.height);
+    if (!hand.lift(index, dimmed, scale)) return;
+    this.lift = { index, cardId, hover: -1, boxes: [], lastX: x, lastAt: NaN, from, dimmed, reason: refused ?? '', arrow: null, scale };
     this.showTargets();
     this.lift.boxes = this.activeTargets.map((t) => t.marker.box);
     // The strip drops away so the whole table shows; Modded's places are cards in the strip: it stays.
@@ -4602,13 +4628,13 @@ export class Board {
       this.ui.cancel(zoom.root);
       this.ui.add({ target: zoom.root, to: { alpha: 0 }, duration: VIEW_FADE_MS, ease: ease.linear, owner: zoom.root });
     }
-    if (dimmed && refused) this.showHint(refused);
+    // S-15-6 (owner review 2026-11-21): a dimmed card says why only when it is let go.
     this.callbacks.log({ kind: 'card_lift', text: cardId, scheduledMs: VIEW_FADE_MS, ...(at !== undefined ? { inputAt: at } : {}) });
     this.callbacks.changed();
   }
 
   /** S-15-6: the "Hold to play" tip on the big card (a quick tap there never plays); it fades by itself. */
-  private showTip(inputAt?: number): void {
+  private showTip(inputAt?: number, text = HOLD_TIP): void {
     const zoom = this.zoom;
     const layout = this.layout;
     if (!zoom?.view || zoom.mode !== 'hand' || !layout) return;
@@ -4617,7 +4643,7 @@ export class Board {
     const root = new Container();
     root.label = 'hold-tip';
     root.eventMode = 'none';
-    const t = new Text({ text: HOLD_TIP, style: { fontFamily: theme.fontFamily, fontSize: Math.max(13, Math.round(15 * s)), fontWeight: '800', fill: 0x140a00 } });
+    const t = new Text({ text, style: { fontFamily: theme.fontFamily, fontSize: Math.max(13, Math.round(15 * s)), fontWeight: '800', fill: 0x140a00 } });
     t.anchor.set(0.5);
     const w = Math.round(t.width + 24 * s);
     const h = Math.max(28, Math.round(t.height + 10 * s));
@@ -4632,10 +4658,10 @@ export class Board {
     root.position.set(cx, cy);
     zoom.root.addChild(root);
     root.alpha = 0;
-    this.tip = { root, text: HOLD_TIP, box: { x: cx - w / 2, y: cy - h / 2, width: w, height: h } };
+    this.tip = { root, text, box: { x: cx - w / 2, y: cy - h / 2, width: w, height: h } };
     this.ui.add({ target: root, to: { alpha: 1 }, duration: 80, owner: root });
     this.ui.add({ target: root, to: { alpha: 0 }, delay: TIP_MS, duration: 200, owner: root, onComplete: () => this.hideTip(root) });
-    this.callbacks.log({ kind: 'hold_tip', text: HOLD_TIP, scheduledMs: 80, ...(inputAt !== undefined ? { inputAt } : {}) });
+    this.callbacks.log({ kind: 'hold_tip', text, scheduledMs: 80, ...(inputAt !== undefined ? { inputAt } : {}) });
   }
 
   /** Takes the tip away (`only`: just that one, if it is still the tip showing). */
@@ -4657,7 +4683,7 @@ export class Board {
     const view = this.view;
     if (!lift || !layout || !view) return;
     const c = layout.card;
-    ghostCenter(x, y, c.width, c.height, layout.viewport.width, layout.viewport.height, this.ghostAt);
+    heldCenter(x, y, c.width * lift.scale, c.height * lift.scale, layout.viewport.width, layout.viewport.height, this.ghostAt);
     const hand = this.hands[view.viewer];
     hand.dragTo(this.ghostAt.x, this.ghostAt.y);
     if (at !== undefined) {
@@ -4732,7 +4758,8 @@ export class Board {
       this.lift = null;
       this.updateArrow();
       hand.park();
-      hand.minimize(false, MINIMIZE_MS);
+      // S-15-6 (owner review): the card flies to its place first; the hand rises a moment later.
+      hand.minimize(false, MINIMIZE_MS, HAND_BACK_DELAY_MS);
       this.closeZoom(true);
       this.showTargets();
       this.applyView(view, false);
@@ -4758,17 +4785,28 @@ export class Board {
       return;
     }
     const zoom = this.zoom;
-    const reason = lift.dimmed ? lift.reason : target && target.option.reject !== null ? rejectText(target.option.reject, view, target.option) : '';
+    const reason = lift.dimmed ? lift.reason || "Can't play it now" : target && target.option.reject !== null ? rejectText(target.option.reject, view, target.option) : '';
     this.cancelLift(RETURN_MS);
     if (reason || lift.from === 'strip' || !zoom?.view) {
       // A dimmed card or place: say why, with the board in view. From the strip: back to the board.
       this.closeZoom(true);
-      // A dimmed card said why when it lifted (and the help text said it while held): not again.
-      if (reason && !lift.dimmed) this.showHint(reason);
+      // S-15-6 (owner review 2026-11-21): the reason shows now, as the card is let go (not while held).
+      if (reason) this.showHint(reason);
     } else {
-      // Let go elsewhere: the hand view comes back.
+      // Let go elsewhere: the card glides home first, then the hand view comes back.
       this.ui.cancel(zoom.root);
-      this.ui.add({ target: zoom.root, to: { alpha: 1 }, duration: timing.zoomIn, ease: ease.outCubic, owner: zoom.root });
+      this.viewReturn = zoom.root;
+      this.ui.add({
+        target: zoom.root,
+        to: { alpha: 1 },
+        delay: HAND_BACK_DELAY_MS,
+        duration: timing.zoomIn,
+        ease: ease.outCubic,
+        owner: zoom.root,
+        onComplete: () => {
+          if (this.viewReturn === zoom.root) this.viewReturn = null;
+        },
+      });
     }
     this.callbacks.changed();
   }
@@ -4783,7 +4821,8 @@ export class Board {
     this.updateArrow();
     if (view) {
       this.hands[view.viewer].settle(ms);
-      this.hands[view.viewer].minimize(false, ms > 0 ? MINIMIZE_MS : 0);
+      // S-15-6 (owner review): the card glides home first; the hand rises a moment later.
+      this.hands[view.viewer].minimize(false, ms > 0 ? MINIMIZE_MS : 0, ms > 0 ? HAND_BACK_DELAY_MS : 0);
     }
     if (ms > 0) {
       this.callbacks.log({ kind: 'card_return', scheduledMs: ms });
@@ -4792,6 +4831,25 @@ export class Board {
     }
     this.showTargets();
     if (view) this.applyView(view, false);
+  }
+
+  /**
+   * S-15-6 (owner review 2026-11-21): a tap while the hand is still coming back (the delayed
+   * strip, the gliding card, the hand view fading back in) finishes that movement at once, so the
+   * tap acts on the board as it ends up. True if anything moved. Called before the tap is handled.
+   */
+  finishHandReturn(): boolean {
+    let moved = false;
+    for (const s of SIDES) moved = this.hands[s].finishReturn() || moved;
+    const root = this.viewReturn;
+    this.viewReturn = null;
+    if (root && !root.destroyed && this.zoom?.root === root && !this.lift) {
+      this.ui.cancel(root);
+      root.alpha = 1;
+      moved = true;
+    }
+    if (moved) this.callbacks.changed();
+    return moved;
   }
 
   /** A dropped card's answer arrived (or the board moved on): stop waiting for it. */

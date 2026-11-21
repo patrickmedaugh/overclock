@@ -160,15 +160,22 @@ test.describe('S-07-6 hand: tap to open, long-press to light places, drag to pla
     const from = center(lifted.handView!.centre);
     const to = center(target.box);
     await dragTo(hold, from, to, 8);
-    // The card is drawn under the finger (just above it), over the place, once the last move is handled
-    // (a busy CI page may still be working through the queued moves).
-    await page.waitForFunction((x) => {
+    // The card follows the finger once the last move is handled (a busy CI page may still be working
+    // through the queued moves). S-15-6 (owner review 2026-11-21): it is drawn big, just above the
+    // finger (or beside it near the top), never over the place under the finger.
+    const near = (d: { box: { x: number; y: number; width: number; height: number } }, p: { x: number; y: number }) => {
+      const covers = p.x >= d.box.x && p.x <= d.box.x + d.box.width && p.y >= d.box.y && p.y <= d.box.y + d.box.height;
+      return !covers && Math.abs(d.box.x + d.box.width / 2 - p.x) <= d.box.width + 2;
+    };
+    await page.waitForFunction((p) => {
       const d = window.__overclock!.layout().drag;
-      return d?.hover?.kind === 'new_server' && Math.abs(d.box.x + d.box.width / 2 - x) < 2;
-    }, to.x);
+      if (!d || d.hover?.kind !== 'new_server') return false;
+      const covers = p.x >= d.box.x && p.x <= d.box.x + d.box.width && p.y >= d.box.y && p.y <= d.box.y + d.box.height;
+      return !covers && Math.abs(d.box.x + d.box.width / 2 - p.x) <= d.box.width + 2;
+    }, to);
     const over = await layout(page);
     expect(over.drag!.hover).toEqual({ kind: 'new_server', server: 'new', lit: true });
-    expect(Math.abs(center(over.drag!.box).x - to.x)).toBeLessThan(2);
+    expect(near(over.drag!, to)).toBe(true);
     await page.evaluate(() => window.__overclock!.clearAnims());
     await hold.release();
     const l = await waitIdle(page);
@@ -203,10 +210,11 @@ test.describe('S-07-6 hand: tap to open, long-press to light places, drag to pla
     expect(l.targets).toEqual([]);
     expect(l.selected).toBeNull();
     expect(await getView(page)).toEqual(before);
-    // The card flies home within 150 ms; nothing blocks for longer than the budget.
+    // The card flies home within 0.2 s (S-15-6 owner review 2026-11-21: 0.18 s, so the glide is
+    // seen before the hand comes back); nothing blocks for longer than the budget.
     const back = (await anims(page)).filter((a) => a.kind === 'card_return');
     expect(back.length).toBe(1);
-    expect(back[0]!.scheduledMs).toBeLessThanOrEqual(150);
+    expect(back[0]!.scheduledMs).toBeLessThanOrEqual(200);
     await waitIdle(page);
     const home = await layout(page);
     await page.waitForTimeout(200);
@@ -247,13 +255,16 @@ test.describe('S-07-6 hand: tap to open, long-press to light places, drag to pla
     const before = await getView(page);
     const open = await openHand(page, 0);
     const h = await holdAt(page, open.handView!.centre);
-    await page.waitForFunction(() => window.__overclock!.layout().hint !== null);
+    await page.waitForFunction(() => window.__overclock!.layout().drag !== null);
     const l = await layout(page);
-    expect(l.hint!.text).toBe('No clicks left');
+    // S-15-6 AC 9 (changed after owner review 2026-11-21): no reason while held; it shows on letting go.
+    expect(l.hint).toBeNull();
     expect(l.drag).toMatchObject({ index: 0, dimmed: true, reason: 'No clicks left' });
     expect(l.targets).toEqual([]);
     await h.release();
     await page.waitForFunction(() => window.__overclock!.layout().drag === null);
+    await page.waitForFunction(() => window.__overclock!.layout().hint !== null);
+    expect((await layout(page)).hint!.text).toBe('No clicks left');
     expect(await getView(page)).toEqual(before);
   });
 
@@ -324,9 +335,17 @@ test.describe('S-07-6 hand: tap to open, long-press to light places, drag to pla
         const dm = (window as unknown as { __dm: { drawn: number | null }[] }).__dm;
         return dm.length > m && dm.every((d) => d.drawn !== null);
       }, n);
-      // The card is where the finger is (centred just above it, kept on screen).
+      // The card is where the finger is (S-15-6 owner review: big, just above it or beside it near
+      // the top, kept on screen, never over the finger).
       const d = (await layout(page)).drag!;
-      expect(Math.abs(center(d.box).x - Math.max(d.box.width / 2, Math.min(W - d.box.width / 2, p.x)))).toBeLessThan(1.5);
+      const covers = p.x >= d.box.x && p.x <= d.box.x + d.box.width && p.y >= d.box.y && p.y <= d.box.y + d.box.height;
+      expect(covers, 'never over the finger').toBe(false);
+      expect(d.box.x).toBeGreaterThanOrEqual(-0.5);
+      expect(d.box.x + d.box.width).toBeLessThanOrEqual(W + 0.5);
+      expect(d.box.y).toBeGreaterThanOrEqual(-0.5);
+      // Right above the finger (same x), or beside it at most a card's width away near the top.
+      expect(Math.abs(center(d.box).x - p.x)).toBeLessThanOrEqual(d.box.width + 12);
+      expect(Math.abs(center(d.box).y - p.y)).toBeLessThanOrEqual(d.box.height + 12);
     }
     const moves = await page.evaluate(() => (window as unknown as { __dm: { at: number; drawn: number }[] }).__dm);
     expect(moves.length).toBeGreaterThanOrEqual(path.length);

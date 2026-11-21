@@ -1,7 +1,7 @@
 // S-07-6: the hand view's gestures (what a press is on, swipe to browse,
 // which lit place a dragged card is over, where the lifted card is drawn).
 import { describe, expect, it } from 'vitest';
-import { HOLD_MS, LIFT_MS, MINIMIZE_MS, RETURN_MS, VIEW_FADE_MS, arrowFor, classifyPress, ghostCenter, isUpward, segmentHitsBox, swipeIndex, targetAt, viewHit } from '../src/handGesture';
+import { HAND_BACK_DELAY_MS, HOLD_MS, LIFT_MS, MINIMIZE_MS, RETURN_MS, STRIP_UP_RATIO, VIEW_FADE_MS, arrowFor, classifyPress, ghostCenter, heldCenter, heldScale, isUpward, segmentHitsBox, stripPickUp, swipeIndex, targetAt, viewHit } from '../src/handGesture';
 
 const box = (x: number, y: number, width: number, height: number) => ({ x, y, width, height });
 
@@ -89,7 +89,70 @@ describe('timings', () => {
     expect(HOLD_MS).toBe(250);
     expect(MINIMIZE_MS).toBeLessThanOrEqual(120);
     expect(VIEW_FADE_MS).toBeLessThanOrEqual(120);
-    expect(RETURN_MS).toBeLessThanOrEqual(150);
+    // S-15-6 (owner review 2026-11-21): the glide is a little slower so it is seen, and the hand
+    // comes back up only after it (a short pause); the whole return still fits the 0.6 s rule.
+    expect(RETURN_MS).toBeLessThanOrEqual(200);
+    expect(HAND_BACK_DELAY_MS).toBeGreaterThanOrEqual(150);
+    expect(HAND_BACK_DELAY_MS).toBeLessThanOrEqual(250);
+    expect(HAND_BACK_DELAY_MS + MINIMIZE_MS).toBeLessThanOrEqual(600);
+    expect(Math.max(RETURN_MS, HAND_BACK_DELAY_MS + MINIMIZE_MS)).toBeLessThanOrEqual(600);
+  });
+});
+
+describe('heldScale (S-15-6 owner review: a bigger held card)', () => {
+  it('is close to the big card, capped at 42% of the screen height', () => {
+    // 891x296: hand card 60 tall, big card ~210: capped by the screen (124 px tall).
+    expect(60 * heldScale(60, 210, 296)).toBeCloseTo(296 * 0.42);
+    // A tall desktop: 0.75 of the big card.
+    expect(113 * heldScale(113, 400, 800)).toBeCloseTo(300);
+    expect(heldScale(60, 210, 296)).toBeGreaterThan(2);
+  });
+  it('never smaller than the old held size', () => {
+    expect(heldScale(100, 90, 200)).toBe(1.08);
+    expect(heldScale(0, 90, 200)).toBe(1.08);
+  });
+});
+
+describe('heldCenter (S-15-6 owner review: the held card never hides the place under the finger)', () => {
+  const W = 89;
+  const H = 124;
+  const covers = (c: { x: number; y: number }, x: number, y: number) => Math.abs(c.x - x) <= W / 2 && Math.abs(c.y - y) <= H / 2;
+  it('sits wholly above the finger when there is room', () => {
+    const c = heldCenter(400, 250, W, H, 891, 296);
+    expect(c.x).toBe(400);
+    expect(c.y + H / 2).toBeLessThan(250);
+  });
+  it('slides beside the finger near the top, never over it', () => {
+    for (const y of [0, 20, 60, 100, 120]) {
+      const c = heldCenter(400, y, W, H, 891, 296);
+      expect(covers(c, 400, y), `finger at y=${y}`).toBe(false);
+      expect(c.y - H / 2).toBeGreaterThanOrEqual(0);
+    }
+    // At the right edge it goes to the left.
+    expect(heldCenter(880, 40, W, H, 891, 296).x).toBeLessThan(880);
+  });
+  it('moves smoothly (no jump) as the finger rises past the top room', () => {
+    let prev = heldCenter(400, 200, W, H, 891, 296);
+    for (let y = 199; y >= 0; y--) {
+      const c = heldCenter(400, y, W, H, 891, 296);
+      expect(Math.hypot(c.x - prev.x, c.y - prev.y)).toBeLessThan(6);
+      prev = c;
+    }
+  });
+});
+
+describe('stripPickUp (S-15-6 owner review: drag up out of the small hand)', () => {
+  it('a slanted start that rises picks up; a flat sideways one does not', () => {
+    expect(stripPickUp(0, -13, 250, 237)).toBe(true);
+    expect(stripPickUp(10, -8, 258, 237)).toBe(true); // ~51 degrees from straight up
+    expect(isUpward(10, -8)).toBe(false); // the hand view's stricter rule would not
+    expect(stripPickUp(13, -3, 262, 237)).toBe(false);
+    expect(stripPickUp(-13, 2, 268, 237)).toBe(false);
+    expect(STRIP_UP_RATIO).toBeLessThan(1);
+  });
+  it('a finger that ends up above the strip picks up however it got there', () => {
+    expect(stripPickUp(40, -20, 230, 237)).toBe(true);
+    expect(stripPickUp(40, 5, 230, 237)).toBe(false);
   });
 });
 

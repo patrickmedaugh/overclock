@@ -364,7 +364,9 @@ test.describe('S-15-6 hold a card to play it', () => {
     expect(v.corpServers.find((s) => s.id === 'rd')!.ice.map((c) => c.cardId)).toEqual([before.players.corp.hand![0]]);
     const recs = await anims(page);
     expect(recs.some((a) => a.kind === 'install_flight')).toBe(true);
-    expect(recs.find((a) => a.kind === 'hand_restore')!.scheduledMs).toBeLessThanOrEqual(140);
+    // AC 6 (changed after owner review 2026-11-21): the hand rises after a short pause (0.2 s) once the card flies.
+    expect(recs.find((a) => a.kind === 'hand_restore')!.scheduledMs).toBeGreaterThanOrEqual(150);
+    expect(recs.find((a) => a.kind === 'hand_restore')!.scheduledMs).toBeLessThanOrEqual(400);
     for (const r of recs) if (r.kind !== 'hint' && r.kind !== 'notice') expect(r.scheduledMs, r.kind).toBeLessThanOrEqual(600);
     const after = await layout(page);
     expect(after.targets).toEqual([]);
@@ -394,7 +396,9 @@ test.describe('S-15-6 hold a card to play it', () => {
     await waitHandBack(page);
     expect(await getView(page)).toEqual(before);
     const recs = await anims(page);
-    expect(recs.find((a) => a.kind === 'hand_return')!.scheduledMs).toBeLessThanOrEqual(150);
+    // AC 7 (changed after owner review 2026-11-21): the glide (0.18 s) comes first, the hand after it.
+    expect(recs.find((a) => a.kind === 'hand_return')!.scheduledMs).toBeLessThanOrEqual(200);
+    expect(recs.find((a) => a.kind === 'hand_restore')!.scheduledMs).toBeGreaterThanOrEqual(recs.find((a) => a.kind === 'card_return')!.scheduledMs);
     const after = await layout(page);
     expect(after.targets).toEqual([]);
     expect(after.handView).toBeNull();
@@ -429,7 +433,7 @@ test.describe('S-15-6 hold a card to play it', () => {
     expect(await getView(page)).toEqual(before);
   });
 
-  test('a card that cannot be played now still lifts, dimmed, nothing lit, and says why; letting go sends it back', async ({ page }) => {
+  test('a card that cannot be played now still lifts, dimmed, nothing lit; letting go sends it back and says why', async ({ page }) => {
     await openBoard(page, 6);
     // No clicks left.
     for (let k = 0; k < 3; k++) await dispatch(page, { type: 'gain_credit', player: 'corp' });
@@ -439,10 +443,12 @@ test.describe('S-15-6 hold a card to play it', () => {
     expect(l.drag).toMatchObject({ index: 0, dimmed: true, reason: 'No clicks left' });
     expect(l.targets).toEqual([]);
     expect(l.selected).toBeNull();
-    expect((await anims(page)).find((a) => a.kind === 'hint')?.text, 'says why at the lift').toBe('No clicks left');
+    // AC 9 (changed after owner review 2026-11-21): no reason while it is held; it shows on letting go.
+    expect((await anims(page)).find((a) => a.kind === 'hint'), 'nothing said while held').toBeUndefined();
     await dragTo(hold, at, { x: at.x, y: at.y - 60 }, 3);
     await hold.release();
     await waitHandBack(page);
+    expect((await anims(page)).find((a) => a.kind === 'hint')?.text, 'says why on letting go').toBe('No clicks left');
     expect(await getView(page)).toEqual(before);
     expect((await anims(page)).filter((a) => a.kind === 'hint').every((a) => a.text === 'No clicks left')).toBe(true);
   });

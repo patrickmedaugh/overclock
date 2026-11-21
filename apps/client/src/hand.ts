@@ -10,7 +10,7 @@ import { attachPress } from './input';
 import { type BoardLayout, handSlots, nearestSlot } from './layout';
 import { theme, timing } from './theme';
 import { ease, type Tweens } from './tween';
-import { STRIP_PULL, isUpward } from './handGesture';
+import { STRIP_PULL, isUpward, stripPickUp } from './handGesture';
 
 export interface HandCard {
   cardId: string;
@@ -61,6 +61,10 @@ export interface HandCallbacks {
 const HOVER_RISE = 0.06;
 const HOVER_LEAN = (4 * Math.PI) / 180;
 const HOVER_MS = 90;
+/** S-15-6 (owner review 2026-11-21): the held card grows to its held size this fast (ms). */
+const HELD_GROW_MS = 90;
+/** S-15-6 (owner review: "sluggish"): a pressed strip card grows this much at once (was 1.06). */
+const PRESS_GROW = 1.12;
 
 export class Hand {
   readonly container = new Container();
@@ -77,6 +81,13 @@ export class Hand {
   private liftDimmed = false;
   /** S-15-6: where the held card's centre is on screen (the strip may be offset under it). */
   private readonly liftAt = { x: 0, y: 0 };
+  /**
+   * S-15-6 (owner review 2026-11-21): a card let go off a place glides home first, drawn over the
+   * board at its slot's on-screen place; it joins the strip once the strip is back up (`minimize`).
+   */
+  private returning: HandCard | null = null;
+  /** S-15-6: the strip's delayed return is still to start or running (a tap finishes it: `finishReturn`). */
+  private restoring = false;
   private layout: BoardLayout | null = null;
   /** The layout generation the sprites were made for (sizes). */
   sizeKey = '';
@@ -110,19 +121,80 @@ export class Hand {
    * queue (never skipped, never blocks). The held card stays a child of the strip (Pixi press
    * tracking), so `pinLifted` keeps it where the finger put it while the strip moves.
    */
-  minimize(on: boolean, ms: number): void {
+  minimize(on: boolean, ms: number, delay = 0): void {
     const layout = this.layout;
-    if (on === this.minimized && (on || this.strip.y === 0)) return;
+    if (on === this.minimized && (on || this.strip.y === 0)) {
+      if (!on) this.homeReturning();
+      return;
+    }
     this.minimized = on;
     this.ui.cancel(this.strip);
+    this.restoring = false;
+    // A card still gliding home from the last hold drops away with the strip.
+    if (on) this.homeReturning();
     const to = on && layout ? Math.max(0, layout.viewport.height - layout.handArea.y) + 4 : 0;
     if (ms <= 0) {
       this.strip.y = to;
       this.pinLifted();
+      if (!on) this.homeReturning();
     } else {
-      this.ui.add({ target: this.strip, to: { y: to }, duration: ms, ease: on ? ease.inCubic : ease.outCubic, owner: this.strip, onUpdate: () => this.pinLifted() });
+      // S-15-6 (owner review): coming back up waits `delay` ms, so the card's own glide is seen first.
+      this.restoring = !on;
+      this.ui.add({
+        target: this.strip,
+        to: { y: to },
+        duration: ms,
+        delay: on ? 0 : Math.max(0, delay),
+        ease: on ? ease.inCubic : ease.outCubic,
+        owner: this.strip,
+        onUpdate: () => this.pinLifted(),
+        onComplete: () => {
+          if (on) return;
+          this.restoring = false;
+          this.homeReturning();
+        },
+      });
     }
-    this.callbacks.log({ kind: on ? 'hand_minimize' : 'hand_restore', scheduledMs: Math.max(0, ms) });
+    this.callbacks.log({ kind: on ? 'hand_minimize' : 'hand_restore', scheduledMs: Math.max(0, ms) + (on ? 0 : Math.max(0, delay)) });
+  }
+
+  /** S-15-6: the strip is on its way back up (or waiting to): a tap finishes that at once. */
+  get isRestoring(): boolean {
+    return this.restoring || this.returning !== null;
+  }
+
+  /**
+   * S-15-6 (owner review: a tap during the hand's return still works): the card gliding home and
+   * the strip coming back up jump to their ends now. True if anything moved.
+   */
+  finishReturn(): boolean {
+    if (!this.isRestoring) return false;
+    const card = this.returning;
+    if (card && !card.root.destroyed) {
+      this.ui.cancel(card.root);
+      this.ui.cancel(card.flip.scale);
+      const i = this.cards.indexOf(card);
+      const slot = this.layout ? handSlots(this.layout, this.cards.length)[i] : undefined;
+      if (slot) card.root.position.set(slot.x + slot.width / 2, slot.y + slot.height / 2);
+      card.root.rotation = 0;
+      card.flip.scale.set(1);
+    }
+    this.ui.cancel(this.strip);
+    this.restoring = false;
+    this.strip.y = this.minimized ? this.strip.y : 0;
+    this.homeReturning();
+    this.restack();
+    return true;
+  }
+
+  /** The card that glided home joins the strip (where it is on screen). */
+  private homeReturning(): void {
+    const card = this.returning;
+    this.returning = null;
+    if (!card || card.root.destroyed) return;
+    this.home(card);
+    card.root.zIndex = this.cards.indexOf(card);
+    this.restack();
   }
 
   /** The held card stays where the finger put it while the strip moves under it. */
@@ -198,9 +270,10 @@ export class Hand {
    * S-07-6: lifts hand card `index` out of the strip: it is drawn over the
    * board, takes no taps, and follows `dragTo` (the finger) with no tween.
    */
-  lift(index: number, dimmed = false): boolean {
+  lift(index: number, dimmed = false, scale = 1.08): boolean {
     const card = this.cards[index];
     if (!card) return false;
+    if (this.returning === card) this.returning = null;
     this.fx.cancel(card.root);
     this.ui.cancel(card.root);
     this.ui.cancel(card.flip.scale);
@@ -211,8 +284,10 @@ export class Hand {
     if (this.hovered === card) this.hovered = null;
     // S-15-6: a card picked up from the strip keeps the finger's moves (its own press goes on).
     card.root.eventMode = card.pressed ? 'static' : 'none';
-    card.flip.scale.set(1.08);
+    // S-15-6 (owner review 2026-11-21): the held card is big (close to the big card's size); it
+    // grows there quickly from its press size (input feedback: never skipped).
     card.root.scale.set(1);
+    this.ui.add({ target: card.flip.scale, to: { x: scale, y: scale }, duration: HELD_GROW_MS, ease: ease.outCubic, owner: card.flip });
     card.back.visible = false;
     card.face.visible = true;
     // S-15-6: a card that can't be played now lifts dimmed (nothing lights).
@@ -288,13 +363,13 @@ export class Hand {
     const layout = this.layout;
     if (!card || card.root.destroyed || !layout) return;
     this.undim(card);
-    this.home(card);
     const i = this.cards.indexOf(card);
     const slot = handSlots(layout, this.cards.length)[i];
     card.root.eventMode = 'static';
     this.ui.cancel(card.flip.scale);
     this.fx.cancel(card.root);
     this.ui.cancel(card.root);
+    if (!slot || ms <= 0 || this.strip.y === 0) this.home(card);
     if (!slot) return;
     const to = { x: slot.x + slot.width / 2, y: slot.y + slot.height / 2 };
     if (ms <= 0) {
@@ -304,8 +379,24 @@ export class Hand {
       this.restack();
       return;
     }
-    // S-15-1: it glides home and straightens on the way.
-    this.ui.add({ target: card.root, to: { ...to, rotation: 0 }, duration: ms, ease: ease.outCubic, owner: card.root, onComplete: () => this.restack() });
+    // S-15-1: it glides home and straightens on the way. S-15-6 (owner review): while the strip is
+    // still down it glides to where its slot is on screen (drawn over the board) and joins the
+    // strip as the strip comes back up, so the player sees it go home before the hand rises.
+    if (card.root.parent !== this.strip) {
+      this.returning = card;
+      card.root.zIndex = 1500;
+    }
+    this.ui.add({
+      target: card.root,
+      to: { ...to, rotation: 0 },
+      duration: ms,
+      ease: ease.outCubic,
+      owner: card.root,
+      onComplete: () => {
+        if (!this.minimized && !this.restoring) this.homeReturning();
+        this.restack();
+      },
+    });
     this.ui.add({ target: card.flip.scale, to: { x: 1, y: 1 }, duration: ms, owner: card.flip });
   }
 
@@ -445,6 +536,7 @@ export class Hand {
     if (!card || !layout) return null;
     const box = this.cardBox(card);
     this.cards.splice(index, 1);
+    if (this.returning === card) this.returning = null;
     // Leaving the hand: drawn where it is on screen (the strip may be dropped below it).
     this.unhome(card);
     if (this.lifted === card) this.lifted = null;
@@ -631,7 +723,7 @@ export class Hand {
         card.pressed = true;
         root.zIndex = 1000;
         this.ui.cancel(card.flip.scale);
-        this.ui.add({ target: card.flip.scale, to: { x: 1.06, y: 1.06 }, duration: timing.pressFeedback, owner: card.flip });
+        this.ui.add({ target: card.flip.scale, to: { x: PRESS_GROW, y: PRESS_GROW }, duration: timing.pressFeedback, owner: card.flip });
       },
       onRelease: () => {
         this.callbacks.onPressEnd();
@@ -651,7 +743,7 @@ export class Hand {
       onHoldMove: (x, y, at) => this.slide(x, y, at),
       // S-15-6: pulled up out of the strip: before a hold, an upward drag picks this card up; during
       // the hold-to-read, leaving the strip upward picks up the card being read.
-      onPull: (x, y, dx, dy, at, held) => {
+      onPull: (x, y, dx, dy, at, held, late) => {
         const layout = this.layout;
         const pull = this.callbacks.onPull;
         if (!layout || !pull) return false;
@@ -659,7 +751,8 @@ export class Hand {
         if (held) {
           if (y > layout.handArea.y - STRIP_PULL * layout.card.height) return false;
           target = this.browsing ?? card;
-        } else if (!isUpward(dx, dy)) return false;
+        } else if (late ? !isUpward(dx, dy) : !stripPickUp(dx, dy, y, layout.handArea.y)) return false;
+        // (QA-S15-2: a flick made before a late-opened reading hold keeps the strict 40° cone.)
         const i = this.cards.indexOf(target);
         if (i < 0) return false;
         if (!pull(i, x, y, at)) return false;
@@ -729,6 +822,10 @@ export class Hand {
         c.root.zIndex = 2000;
         return;
       }
+      if (c === this.returning) {
+        c.root.zIndex = 1500;
+        return;
+      }
       if (!c.pressed) c.root.zIndex = c === this.browsing ? 950 : c.selected ? 900 : i;
     });
   }
@@ -738,6 +835,7 @@ export class Hand {
     if (this.browsing === card) this.browsing = null;
     if (this.hovered === card) this.hovered = null;
     if (this.lifted === card) this.lifted = null;
+    if (this.returning === card) this.returning = null;
     card.detach();
     this.fx.cancel(card.root);
     this.ui.cancel(card.root);

@@ -140,6 +140,37 @@ test.describe('S-04-2 the app bundle', () => {
     expect(errors).toEqual([]);
   });
 
+  test('S-15-6 owner review in the app bundle: a thumb drag up out of the hand strip that starts at a slant still lifts the card', async ({ page }) => {
+    const errors: string[] = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto('./');
+    await page.waitForFunction(() => document.body.dataset.ready === 'true');
+    await playHere(page);
+    await page.waitForTimeout(600);
+    const W = BOARD.width;
+    const H = BOARD.height;
+    const strip = { x: Math.round(W * 0.2), y: H - 50, width: Math.round(W * 0.45), height: 40 };
+    const [before] = await pixelStats(page, [strip]);
+    const cdp = await page.context().newCDPSession(page);
+    const x = W * 0.45;
+    const y = H - 30;
+    // Real touches, no made-up times, one by one: the first 12 px go up at a slant (~56° from vertical).
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
+    for (const [dx, dy] of [[5, -3], [11, -7], [15, -16], [18, -30], [20, -46], [21, -62]] as const) {
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: x + dx, y: y + dy }] });
+    }
+    await page.waitForTimeout(400);
+    const [held] = await pixelStats(page, [strip]);
+    expect(Math.abs(held!.mean - before!.mean), 'lifted: the hand dropped away').toBeGreaterThan(5);
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: W * 0.25, y: H * 0.12 }] });
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    await cdp.detach();
+    await page.waitForTimeout(700);
+    const [back] = await pixelStats(page, [strip]);
+    expect(Math.abs(back!.mean - before!.mean), 'the hand is back').toBeLessThan(Math.abs(held!.mean - before!.mean) / 2);
+    expect(errors).toEqual([]);
+  });
+
   test('S-11-3: the app killed and opened again: Continue game brings the pass-the-phone game back', async ({ page, context }) => {
     // Android may kill the app in the background; its WebView storage stays (DECISIONS 2026-11-17).
     // Here: close the page and open the bundle again in the same browser storage.

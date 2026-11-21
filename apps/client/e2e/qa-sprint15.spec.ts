@@ -1312,13 +1312,19 @@ test.describe('QA S-15-6 hold a card to play it', () => {
     });
     expect(heldFrames.every((fr) => fr.now >= lift.startedAt), 'every held frame was read after the lift').toBe(true);
     expect(log0.frames.filter((fr) => fr.now < down + 245).some((fr) => fr.drag), 'nothing held before 0.25 s').toBe(false);
-    // Follows the finger: three spots on the table, the card is drawn under the finger each time.
+    // Follows the finger: three spots on the table, the card is drawn by the finger each time (AC 2
+    // changed after owner review 2026-11-21: big, just above the finger or beside it near the top,
+    // never over it, so the place under the finger stays visible).
     const l1 = await layout(page);
     for (const p of [{ x: l1.viewport.width * 0.3, y: l1.viewport.height * 0.4 }, { x: l1.viewport.width * 0.6, y: l1.viewport.height * 0.3 }, { x: l1.viewport.width * 0.45, y: l1.viewport.height * 0.55 }]) {
       await slide(f, p, 4);
       await page.waitForFunction((q) => {
         const d = window.__overclock!.layout().drag;
-        return d !== null && q.x >= d.box.x && q.x <= d.box.x + d.box.width && q.y >= d.box.y && q.y <= d.box.y + d.box.height;
+        if (d === null) return false;
+        const covers = q.x >= d.box.x && q.x <= d.box.x + d.box.width && q.y >= d.box.y && q.y <= d.box.y + d.box.height;
+        const cx = d.box.x + d.box.width / 2;
+        const cy = d.box.y + d.box.height / 2;
+        return !covers && Math.abs(cx - q.x) <= d.box.width + 12 && Math.abs(cy - q.y) <= d.box.height + 12;
       }, p, { timeout: 3000 });
     }
     const l = await layout(page);
@@ -1482,7 +1488,8 @@ test.describe('QA S-15-6 hold a card to play it', () => {
       const dropped = sameGame(await getView(page));
       expect(back.targets).toEqual([]);
       expect(back.selected).toBeNull();
-      expect(recs.find((a) => a.kind === 'hand_restore')?.scheduledMs, 'the hand comes back up').toBeLessThanOrEqual(140);
+      // AC 6 (changed after owner review 2026-11-21): the card flies first; the hand comes back up after a short pause.
+      expect(recs.find((a) => a.kind === 'hand_restore')?.scheduledMs, 'the hand comes back up').toBeLessThanOrEqual(400);
       const flew = recs.filter((a) => /flight|showcase|land_settle/.test(a.kind)).map((a) => a.kind);
       test.info().annotations.push({ type: 'drop-anims', description: recs.map((a) => `${a.kind}:${a.scheduledMs}`).join(' ') });
       expect(flew.length, 'it flies to its place').toBeGreaterThan(0);
@@ -1618,10 +1625,9 @@ test.describe('QA S-15-6 hold a card to play it', () => {
       const { f, l } = await qaLiftStrip(page, i);
       expect(l.drag).toMatchObject({ index: i, dimmed: true, reason: r.reason });
       expect(l.targets).toEqual([]);
-      const lift = (await anims(page)).find((a) => a.kind === 'card_lift')!;
-      const hint = (await anims(page)).find((a) => a.kind === 'hint');
-      expect(hint?.text, 'a short line says why').toBe(r.reason);
-      expect(hint!.startedAt - lift.startedAt).toBeLessThan(100);
+      // AC 9 (changed after owner review 2026-11-21): nothing is said while it is held; the reason
+      // shows as it is let go (checked after the release below).
+      expect((await anims(page)).find((a) => a.kind === 'hint'), 'no reason while held').toBeUndefined();
       // Over where it could go if it were playable (the middle of the table): still nothing lit.
       await slide(f, { x: l.viewport.width * 0.4, y: l.viewport.height * 0.35 }, 4);
       await page.waitForTimeout(150);
@@ -1629,6 +1635,11 @@ test.describe('QA S-15-6 hold a card to play it', () => {
       expect((await layout(page)).drag!.dimmed).toBe(true);
       await f.up();
       await waitBack(page);
+      const recs = await anims(page);
+      const back = recs.find((a) => a.kind === 'card_return')!;
+      const hint = recs.find((a) => a.kind === 'hint');
+      expect(hint?.text, 'a short line says why, on letting go').toBe(r.reason);
+      expect(hint!.startedAt - back.startedAt).toBeLessThan(100);
       const log = await qaLog(page);
       expect(log.frames.some((fr) => fr.targets > 0), 'nothing lit at any frame').toBe(false);
       expect(await getView(page)).toEqual(before);
@@ -1740,10 +1751,12 @@ test.describe('QA S-15-6 hold a card to play it', () => {
     let h = await qaLiftStrip(runner.page, 1);
     expect(h.l.drag).toMatchObject({ dimmed: true, reason: 'Not your turn' });
     expect(h.l.targets).toEqual([]);
-    expect((await runner.page.evaluate(() => window.__overclock!.anims())).find((a) => a.kind === 'hint')?.text).toBe('Not your turn');
-    await snap3(runner.page, 's15-6-online-not-your-turn');
+    // AC 9 (changed after owner review 2026-11-21): the reason shows on letting go, not while held.
+    expect((await runner.page.evaluate(() => window.__overclock!.anims())).find((a) => a.kind === 'hint')).toBeUndefined();
     await h.f.up();
     await waitBack(runner.page);
+    expect((await runner.page.evaluate(() => window.__overclock!.anims())).find((a) => a.kind === 'hint')?.text).toBe('Not your turn');
+    await snap3(runner.page, 's15-6-online-not-your-turn');
     expect(game(runner.sent), 'nothing sent for a dimmed lift').toBe(sent0);
     // Corp ends the turn (5 cards after one install: no discard).
     await act(corp, { type: 'install', player: 'corp', handIndex: (await view(corp)).players.corp.hand!.indexOf('c06'), server: 'rd' });

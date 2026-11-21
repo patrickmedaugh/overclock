@@ -569,8 +569,22 @@ export class TargetMarker {
     this.g.roundRect(-w / 2, -h / 2, w, h, r).fill({ color, alpha: lit ? 0.14 : 0.08 });
     glowRoundRect(this.g, -w / 2, -h / 2, w, h, r, color, 2, lit ? 1.2 : 0.5);
     this.strong.clear();
-    this.strong.roundRect(-w / 2, -h / 2, w, h, r).fill({ color: lit ? theme.credit : theme.textDim, alpha: lit ? 0.3 : 0.12 });
-    glowRoundRect(this.strong, -w / 2, -h / 2, w, h, r, lit ? 0xffffff : theme.textDim, lit ? 3 : 2, lit ? 1.8 : 0.8);
+    // S-15-6 (owner review 2026-11-21: "gets slightly bigger but doesn't glow strongly"): a bright,
+    // thick glow that reads on the Corp's pink and the Runner's cyan alike: a gold halo outside the
+    // place, a solid white rim and a strong gold wash inside (a dimmed place stays a little light).
+    if (lit) {
+      const rim = Math.max(4, Math.round(Math.min(w, h) * 0.05));
+      for (let i = 4; i >= 1; i--) {
+        const o = rim * 0.9 * i;
+        this.strong.roundRect(-w / 2 - o, -h / 2 - o, w + 2 * o, h + 2 * o, r + o).stroke({ width: rim * 1.2, color: theme.credit, alpha: 0.5 - i * 0.09 });
+      }
+      this.strong.roundRect(-w / 2, -h / 2, w, h, r).fill({ color: theme.credit, alpha: 0.42 });
+      this.strong.roundRect(-w / 2, -h / 2, w, h, r).stroke({ width: rim + 2, color: theme.credit, alpha: 1 });
+      this.strong.roundRect(-w / 2, -h / 2, w, h, r).stroke({ width: rim * 0.6, color: 0xffffff, alpha: 1 });
+    } else {
+      this.strong.roundRect(-w / 2, -h / 2, w, h, r).fill({ color: theme.textDim, alpha: 0.12 });
+      glowRoundRect(this.strong, -w / 2, -h / 2, w, h, r, theme.textDim, 2, 0.8);
+    }
     let y: number;
     let pw: number;
     let ph: number;

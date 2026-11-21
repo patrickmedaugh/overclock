@@ -68,9 +68,10 @@ export interface PressHandlers {
    * (`held` false; `dx`/`dy`: that move from the press point) or moved while held (`held` true).
    * Return true to pick the card up: from then on every move of this finger goes to `onDrag` and
    * its release to `onDrop` (no tap, no `onLongPressEnd`). Asked once before a hold (at the
-   * moment the finger leaves), on every move while held.
+   * moment the finger leaves), on every move while held. `late`: a move made before the hold time
+   * that the page handled only after a late hold opened (QA-S15-2: judged strictly).
    */
-  onPull?: (x: number, y: number, dx: number, dy: number, at: number, held: boolean) => boolean;
+  onPull?: (x: number, y: number, dx: number, dy: number, at: number, held: boolean, late?: boolean) => boolean;
   /** S-15-6: the picked-up card's finger moved to global x/y (`at`: the move's event time). */
   onDrag?: (x: number, y: number, at: number) => void;
   /** S-15-6: the picked-up card's finger let go at global x/y (`cancelled`: the touch was cancelled). */
@@ -130,6 +131,11 @@ export function attachPress(target: Container, handlers: PressHandlers, opts: Pr
   let slid = false;
   /** S-15-6: the press was pulled into a drag (onPull said yes): moves and the release go to onDrag / onDrop. */
   let dragging = false;
+  /**
+   * S-15-6 (owner review 2026-11-21): the finger left the circle without picking the card up (a
+   * slanted start): every later move still asks `onPull`, so a drag that rises later picks it up.
+   */
+  let watchPull = false;
   /** Where the finger was last seen (a cancelled touch is let go there). */
   let lastX = 0;
   let lastY = 0;
@@ -157,6 +163,7 @@ export function attachPress(target: Container, handlers: PressHandlers, opts: Pr
   const end = (fireTap: boolean, upAt: number | null, x = 0, y = 0, cancelled = false) => {
     if (pointerId === null) return;
     pointerId = null;
+    watchPull = false;
     clearTimer();
     offCancel?.();
     offCancel = null;
@@ -201,6 +208,7 @@ export function attachPress(target: Container, handlers: PressHandlers, opts: Pr
     longFired = false;
     slid = false;
     dragging = false;
+    watchPull = false;
     holdable = !!handlers.onLongPress;
     handlers.onDown?.();
     if (holdable) {
@@ -224,6 +232,15 @@ export function attachPress(target: Container, handlers: PressHandlers, opts: Pr
       handlers.onDrag?.(x, y, madeAt(stampOf(e), performance.now()));
       return;
     }
+    if (watchPull) {
+      const at = madeAt(stampOf(e), performance.now());
+      if (handlers.onPull?.(x, y, x - startX, y - startY, at, false)) {
+        watchPull = false;
+        dragging = true;
+        handlers.onDrag?.(x, y, at);
+      }
+      return;
+    }
     if (!holdable) return;
     if (longFired) {
       const out = Math.hypot(x - startX, y - startY) > tolerance;
@@ -234,7 +251,7 @@ export function attachPress(target: Container, handlers: PressHandlers, opts: Pr
       const beforeHold = at - downAt < longPressMs;
       const early = !slid && out && beforeHold;
       if (out) slid = true;
-      if (early && handlers.onPull?.(x, y, x - startX, y - startY, at, false)) {
+      if (early && handlers.onPull?.(x, y, x - startX, y - startY, at, false, true)) {
         dragging = true;
         longFired = false;
         clearTimer();
@@ -258,6 +275,7 @@ export function attachPress(target: Container, handlers: PressHandlers, opts: Pr
       holdable = false;
       clearTimer();
       if (handlers.onPull?.(x, y, x - startX, y - startY, madeAt(stampOf(e), performance.now()), false)) dragging = true;
+      else if (handlers.onPull) watchPull = true;
     }
   };
   const onUp = (e: FederatedPointerEvent) => {
