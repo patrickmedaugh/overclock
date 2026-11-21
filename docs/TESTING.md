@@ -14,14 +14,30 @@ less waiting. (Owner OK'd 2026-11-13; DECISIONS 2026-11-13.)
   on every push.
 
 ## 2. The full pass: once per QA round, or read CI instead
+- **What CI runs where (Sprint 15, private repo: 2,000 free CI minutes a
+  month; DECISIONS 2026-11-20).** A push to `main` or `sprint-NN` runs
+  `checks` only (lint, typecheck, unit tests, `test:dev`, Android bundle,
+  `check-workflows`). The **full e2e suite (4 shards) and guard-mutation run on
+  pull requests and manual runs**. Docs-only changes skip both, but only when
+  the commit before already passed (`scripts/ci-changes.mjs`). Helper branches
+  get no push run; open a PR or run CI by hand. Nothing a test checks changed.
 - QA runs the full e2e suite **once per QA round**, at the end, with
-  `--retries=0` — **unless CI already passed on that exact commit**. Then QA
-  records the CI result as evidence instead of re-running it:
+  `--retries=0` — **unless CI already ran the full suite on that exact
+  commit**. Then QA records the CI result as evidence instead of re-running it:
   ```
   gh api repos/patrickmedaugh/overclock/commits/<sha>/check-runs \
     --jq '.check_runs[] | [.name, .conclusion] | @tsv'
   ```
-  The `e2e` check is green only if all 4 shards passed.
+  It counts only if the four `e2e shard N/4` runs are listed as `success`.
+  The `e2e` check alone is not enough: on a push run (or a docs-only change)
+  it is green with the note "e2e not run".
+- To get that CI pass instead of a local one (saves session time, costs ~85
+  CI minutes): `gh workflow run ci.yml --ref sprint-NN`, then wait for it
+  (`gh run watch`). The sprint PR's own run counts too.
+- CI minutes: the lead runs `node scripts/ci-minutes.mjs` (this month's billed
+  minutes per workflow; add `--since YYYY-MM-DD`, the day the repo went
+  private, in that month), records the total in `docs/STATE.md` each sprint, and
+  tells the owner once it reaches 1,500.
 - Never run the same test set twice on the same commit without a reason
   (e.g. checking for flakiness).
 - To split a local full pass the same way CI does: `--shard=1/4` … `--shard=4/4`

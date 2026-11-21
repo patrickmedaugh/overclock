@@ -375,7 +375,7 @@ test.describe('S-09-3 Private Security Force, S-09-4 SEA Source', () => {
     l = await waitIdle(page);
     expect(l.gameOver).toMatchObject({ title: 'Corp wins', reason: 'Runner flatlined' });
     expect(l.hint, 'no notice comes back').toBeNull();
-    // A tap after the game is over still says why, but off the game-over box.
+    // A card held up after the game is over still says why, but off the game-over box.
     await page.evaluate(() => window.__overclock!.clearAnims());
     l = await pickHand(page, 0);
     const hint = (await page.evaluate(() => window.__overclock!.anims())).find((a) => a.kind === 'hint');
@@ -403,8 +403,11 @@ test.describe('S-09-3 Private Security Force, S-09-4 SEA Source', () => {
     hand[0] = 'c22';
     const handOptions = [[{ action: { type: 'play', player: 'corp', handIndex: 0 }, cost: 2, reject: 'condition_not_met' } as CardOption], ...v.handOptions.slice(1)];
     await stub(page, { ...v, players: { ...v.players, corp: { ...v.players.corp, hand } }, handOptions });
+    // S-15-6: held up it lifts dimmed (nothing lit) and says why in the card's own words.
     const l = await pickHand(page, 0);
-    expect(targetOf(l, 'play')).toMatchObject({ label: 'Play · 2 credits', lit: false, reject: 'condition_not_met', note: 'Runner made no successful run last turn' });
+    expect(l.targets).toEqual([]);
+    // Said at the lift (read from the log: the toast may have faded on a slow runner).
+    expect((await page.evaluate(() => window.__overclock!.anims())).filter((a) => a.kind === 'hint').map((a) => a.text)).toContain('Runner made no successful run last turn');
     await shot(page, 's09-4-sea-source-dim');
   });
 });

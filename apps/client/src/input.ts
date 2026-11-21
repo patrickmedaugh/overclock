@@ -63,6 +63,18 @@ export interface PressHandlers {
    * (performance.now() clock).
    */
   onHoldMove?: (x: number, y: number, at: number) => void;
+  /**
+   * S-15-6: the finger is pulling the card out: it left the move tolerance before a hold fired
+   * (`held` false; `dx`/`dy`: that move from the press point) or moved while held (`held` true).
+   * Return true to pick the card up: from then on every move of this finger goes to `onDrag` and
+   * its release to `onDrop` (no tap, no `onLongPressEnd`). Asked once before a hold (at the
+   * moment the finger leaves), on every move while held.
+   */
+  onPull?: (x: number, y: number, dx: number, dy: number, at: number, held: boolean) => boolean;
+  /** S-15-6: the picked-up card's finger moved to global x/y (`at`: the move's event time). */
+  onDrag?: (x: number, y: number, at: number) => void;
+  /** S-15-6: the picked-up card's finger let go at global x/y (`cancelled`: the touch was cancelled). */
+  onDrop?: (x: number, y: number, cancelled: boolean) => void;
 }
 
 export interface PressOptions {
@@ -116,6 +128,16 @@ export function attachPress(target: Container, handlers: PressHandlers, opts: Pr
   let longFired = false;
   /** The finger slid away after the hold opened (a slide is never a tap). */
   let slid = false;
+  /** S-15-6: the press was pulled into a drag (onPull said yes): moves and the release go to onDrag / onDrop. */
+  let dragging = false;
+  /** Where the finger was last seen (a cancelled touch is let go there). */
+  let lastX = 0;
+  let lastY = 0;
+  /**
+   * S-15-6: Pixi never passes on `pointercancel` (the system took the touch: a gesture bar swipe, a
+   * call): a DOM listener while pressed ends the press as cancelled, so nothing stays held.
+   */
+  let offCancel: (() => void) | null = null;
 
   const clearTimer = () => {
     if (timer !== null) clearTimeout(timer);
@@ -132,12 +154,18 @@ export function attachPress(target: Container, handlers: PressHandlers, opts: Pr
   };
 
   /** `upAt`: when the release was made, or null (cancel / released outside). */
-  const end = (fireTap: boolean, upAt: number | null) => {
+  const end = (fireTap: boolean, upAt: number | null, x = 0, y = 0, cancelled = false) => {
     if (pointerId === null) return;
     pointerId = null;
     clearTimer();
+    offCancel?.();
+    offCancel = null;
     const held = upAt === null ? null : upAt - downAt;
-    if (longFired) {
+    if (dragging) {
+      dragging = false;
+      longFired = false;
+      handlers.onDrop?.(x, y, cancelled);
+    } else if (longFired) {
       longFired = false;
       handlers.onLongPressEnd?.();
       // The zoom opened late (page stalled), but the finger was down for less
@@ -159,9 +187,20 @@ export function attachPress(target: Container, handlers: PressHandlers, opts: Pr
     pointerId = e.pointerId;
     startX = e.global.x;
     startY = e.global.y;
+    lastX = startX;
+    lastY = startY;
+    const id = e.pointerId;
+    const domCancel = (ev: Event) => {
+      if ((ev as PointerEvent).pointerId === id && pointerId === id) end(false, null, lastX, lastY, true);
+    };
+    if (typeof globalThis.addEventListener === 'function') {
+      globalThis.addEventListener('pointercancel', domCancel, true);
+      offCancel = () => globalThis.removeEventListener('pointercancel', domCancel, true);
+    }
     downAt = madeAt(stampOf(e), performance.now());
     longFired = false;
     slid = false;
+    dragging = false;
     holdable = !!handlers.onLongPress;
     handlers.onDown?.();
     if (holdable) {
@@ -176,15 +215,49 @@ export function attachPress(target: Container, handlers: PressHandlers, opts: Pr
     }
   };
   const onMove = (e: FederatedPointerEvent) => {
-    if (pointerId !== e.pointerId || !holdable) return;
-    if (longFired) {
-      if (Math.hypot(e.global.x - startX, e.global.y - startY) > tolerance) slid = true;
-      handlers.onHoldMove?.(e.global.x, e.global.y, madeAt(stampOf(e), performance.now()));
+    if (pointerId !== e.pointerId) return;
+    const x = e.global.x;
+    const y = e.global.y;
+    lastX = x;
+    lastY = y;
+    if (dragging) {
+      handlers.onDrag?.(x, y, madeAt(stampOf(e), performance.now()));
       return;
     }
-    if (Math.hypot(e.global.x - startX, e.global.y - startY) > tolerance) {
+    if (!holdable) return;
+    if (longFired) {
+      const out = Math.hypot(x - startX, y - startY) > tolerance;
+      const at = madeAt(stampOf(e), performance.now());
+      // S-15-6: a move made before the hold time (the page was busy and handled it late) is judged as
+      // made then (QA-S3-7): leaving the circle upward is a pick-up, not a slide of the hold.
+      // (QA-S15-2: judged on the first move out of the circle, before it counts as a slide.)
+      const beforeHold = at - downAt < longPressMs;
+      const early = !slid && out && beforeHold;
+      if (out) slid = true;
+      if (early && handlers.onPull?.(x, y, x - startX, y - startY, at, false)) {
+        dragging = true;
+        longFired = false;
+        clearTimer();
+        handlers.onDrag?.(x, y, at);
+        return;
+      }
+      // S-15-6: pulled out first (the card read so far is the one lifted), else the hold slides on.
+      // QA-S15-2: not for a move made before the hold time (the page opened the hold late): by its
+      // own time that was a flick, not a hold, so it never picks a card up (it only slides).
+      if (!beforeHold && handlers.onPull?.(x, y, x - startX, y - startY, at, true)) {
+        dragging = true;
+        longFired = false;
+        clearTimer();
+        handlers.onDrag?.(x, y, at);
+        return;
+      }
+      handlers.onHoldMove?.(x, y, at);
+      return;
+    }
+    if (Math.hypot(x - startX, y - startY) > tolerance) {
       holdable = false;
       clearTimer();
+      if (handlers.onPull?.(x, y, x - startX, y - startY, madeAt(stampOf(e), performance.now()), false)) dragging = true;
     }
   };
   const onUp = (e: FederatedPointerEvent) => {
@@ -195,27 +268,47 @@ export function attachPress(target: Container, handlers: PressHandlers, opts: Pr
     const outer = current;
     current = madeAt(eventAt, handledAt);
     try {
-      end(true, current);
+      end(true, current, e.global.x, e.global.y);
     } finally {
       current = outer;
     }
   };
   const onUpOutside = (e: FederatedPointerEvent) => {
-    if (pointerId === e.pointerId) end(false, null);
+    if (pointerId !== e.pointerId) return;
+    if (!dragging) {
+      end(false, null);
+      return;
+    }
+    // S-15-6: a held card let go away from where it was picked up: that release plays it (or not).
+    const handledAt = performance.now();
+    const eventAt = stampOf(e);
+    last = { eventAt, handledAt, target: 'drop' };
+    const outer = current;
+    current = madeAt(eventAt, handledAt);
+    try {
+      end(false, current, e.global.x, e.global.y);
+    } finally {
+      current = outer;
+    }
+  };
+  const onCancel = (e: FederatedPointerEvent) => {
+    if (pointerId === e.pointerId) end(false, null, e.global.x, e.global.y, true);
   };
 
   target.on('pointerdown', onDown);
   target.on('globalpointermove', onMove);
   target.on('pointerup', onUp);
   target.on('pointerupoutside', onUpOutside);
-  target.on('pointercancel', onUpOutside);
+  target.on('pointercancel', onCancel);
 
   return () => {
     clearTimer();
+    offCancel?.();
+    offCancel = null;
     target.off('pointerdown', onDown);
     target.off('globalpointermove', onMove);
     target.off('pointerup', onUp);
     target.off('pointerupoutside', onUpOutside);
-    target.off('pointercancel', onUpOutside);
+    target.off('pointercancel', onCancel);
   };
 }

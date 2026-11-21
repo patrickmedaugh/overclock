@@ -14,7 +14,7 @@ import type { Action, Side } from '@overclock/engine';
 import { type StepGoal, planToStep } from '@overclock/match/testing';
 import { STORAGE_KEY } from '@overclock/protocol';
 import { type Browser, type Page, expect, test } from '@playwright/test';
-import { tap, targetOf } from './helpers';
+import { pickHand, tap } from './helpers';
 import { type Phone, act, frames, joinGame, layoutOf, openPhone, startGame, startTestGame, tapButton, view, waitPlaying, waitView } from './online';
 
 const SHOTS = join(dirname(fileURLToPath(import.meta.url)), '../../../docs/sprints/sprint-12-screens');
@@ -101,11 +101,8 @@ test.describe('S-12-4 online: Infiltration expose', () => {
     // Real taps on the Runner's phone: Infiltration, Expose 1 card, the lit card.
     const hand = Number(plan.info['handIndex']);
     let l = await layoutOf(runner);
-    await tap(runner.page, l.hand[hand]!.box);
-    await runner.page.waitForFunction((k) => window.__overclock!.layout().handView?.index === k, hand);
-    await tap(runner.page, (await layoutOf(runner)).handView!.centre);
-    await runner.page.waitForFunction(() => window.__overclock!.layout().targets.some((t) => t.kind === 'expose_open'));
-    await tap(runner.page, targetOf(await layoutOf(runner), 'expose_open').box);
+    // S-15-6: held up, Infiltration lights every card it can expose at once.
+    await pickHand(runner.page, hand);
     await runner.page.waitForFunction(() => window.__overclock!.layout().targets.some((t) => t.kind === 'expose'));
     l = await layoutOf(runner);
     await tap(runner.page, l.targets.find((t) => t.kind === 'expose' && t.uid === uid)!.box);

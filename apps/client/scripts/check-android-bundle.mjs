@@ -3,6 +3,7 @@
 // `vite build --mode android`) before it goes into the app (S-04-1 / S-04-2):
 // - the Playwright test hook (window.__overclock) is not in it;
 // - the "Turn your phone sideways" prompt (#rotate) is not in it;
+// - Sprint 15: the play site's "Get the Android app" lookup (app/latest.json) is not in it;
 // - index.html, the styles and the web manifest load nothing from the internet
 //   (no http:// or https:// URLs): the app works in airplane mode;
 // - assets load from the web root (Capacitor serves the app at https://localhost/);
@@ -33,6 +34,8 @@ const rel = (p) => relative(root, p);
 
 for (const f of files.filter((p) => /\.(js|mjs|html|css)$/.test(p))) {
   if (text(f).includes('__overclock')) problems.push(`${rel(f)}: contains the test hook (__overclock)`);
+  // Sprint 15 (S-15-5): "Get the Android app" is for the play site only (the app never asks for itself).
+  if (/\.(js|mjs)$/.test(f) && text(f).includes('app/latest.json')) problems.push(`${rel(f)}: contains the play site's app download (app/latest.json)`);
 }
 
 const index = text(join(root, 'index.html'));

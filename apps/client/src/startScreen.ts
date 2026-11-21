@@ -25,6 +25,8 @@ import './start.css';
 export const START_TEXT = {
   title: 'OVERCLOCK',
   tagline: 'A two-player hacking card game',
+  /** Sprint 15 (S-15-5): the play site's download button (web only). */
+  getApp: 'Get the Android app',
   playHere: 'Play on this device',
   playHereSub: 'Take turns on one screen',
   playOnline: 'Play online',
@@ -93,6 +95,8 @@ export type StartScreenName =
 
 /** Screens laid out from the top (lists), not centred. */
 const FULL: ReadonlySet<StartScreenName> = new Set(['decks', 'deck', 'here', 'online_deck', 'choose']);
+
+import type { AppDownload } from './appDownload';
 
 export interface StartHandlers {
   /**
@@ -178,6 +182,8 @@ export class StartScreen {
   private lockTimer: ReturnType<typeof setTimeout> | null = null;
   /** Sprint 14: a request started from this screen (My deck code / Link) whose answer is still wanted. */
   private ask = 0;
+  /** Sprint 15 (S-15-5): the app file to offer on the home screen (play site only), once known. */
+  private app: AppDownload | null = null;
 
   constructor(
     parent: HTMLElement,
@@ -205,6 +211,30 @@ export class StartScreen {
   hide(): void {
     this.root.hidden = true;
     (document.activeElement as HTMLElement | null)?.blur?.();
+  }
+
+  /**
+   * Sprint 15 (S-15-5): the play site has an app file: "Get the Android app" shows on the home
+   * screen (a plain download link; the phone installs it over the old app, decks kept).
+   */
+  setApp(app: AppDownload | null): void {
+    this.app = app;
+    if (this.visible && this.current === 'home') {
+      this.root.querySelector('a.get-app')?.remove();
+      this.appLink();
+    }
+  }
+
+  private appLink(): void {
+    if (!this.app) return;
+    const a = document.createElement('a');
+    a.className = 'get-app';
+    a.href = this.app.href;
+    a.setAttribute('download', '');
+    a.dataset.action = 'get-app';
+    a.textContent = START_TEXT.getApp;
+    if (this.app.buildTime) a.title = `Built ${this.app.buildTime}`;
+    this.root.appendChild(a);
   }
 
   /** Back (the phone's button or the on-screen one). False on the home screen (nothing to go back to). */
@@ -261,6 +291,7 @@ export class StartScreen {
         );
         row.classList.add('three');
         screen.appendChild(row);
+        this.appLink();
         break;
       }
       case 'online': {

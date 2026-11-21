@@ -497,6 +497,10 @@ export class MemoryCounter {
 export class TargetMarker {
   readonly root = new Container();
   private readonly g = new Graphics();
+  /** S-15-6: the strong highlight while a held card is over this place (drawn with the marker). */
+  private readonly strong = new Graphics();
+  /** S-15-6: a held card is over this place now. */
+  hovered = false;
   private readonly pill = new Graphics();
   private readonly label: Text;
   private drawn = '';
@@ -520,16 +524,22 @@ export class TargetMarker {
       },
     });
     this.label.anchor.set(0.5);
-    this.root.addChild(this.g, this.pill, this.label);
+    this.strong.visible = false;
+    this.root.addChild(this.g, this.strong, this.pill, this.label);
   }
 
   get text(): string {
     return this.main;
   }
 
-  /** S-07-6: a dragged card is over this place: it swells a little. */
+  /**
+   * S-07-6 / S-15-6: a held card is over this place: it is highlighted strongly (a bright fill and
+   * a thick glow; a dimmed place only a little) and swells a little; off: back to plain lit.
+   */
   setHover(on: boolean): void {
-    this.root.scale.set(on ? 1.05 : 1);
+    this.hovered = on;
+    this.strong.visible = on;
+    this.root.scale.set(on ? 1.04 : 1);
   }
 
   /** The price pill as drawn, relative to the box's center (test hook), and its text size (px). */
@@ -558,6 +568,9 @@ export class TargetMarker {
     this.g.clear();
     this.g.roundRect(-w / 2, -h / 2, w, h, r).fill({ color, alpha: lit ? 0.14 : 0.08 });
     glowRoundRect(this.g, -w / 2, -h / 2, w, h, r, color, 2, lit ? 1.2 : 0.5);
+    this.strong.clear();
+    this.strong.roundRect(-w / 2, -h / 2, w, h, r).fill({ color: lit ? theme.credit : theme.textDim, alpha: lit ? 0.3 : 0.12 });
+    glowRoundRect(this.strong, -w / 2, -h / 2, w, h, r, lit ? 0xffffff : theme.textDim, lit ? 3 : 2, lit ? 1.8 : 0.8);
     let y: number;
     let pw: number;
     let ph: number;

@@ -79,12 +79,13 @@ jobs:
           exit 1
 
       # Sprint 14: the deck service answers a CORS preflight from the web link's origin.
+      # Sprint 15: the web link is the Netlify play site (GitHub Pages is gone with the private repo).
       - name: Deck service preflight (CORS)
         if: steps.ready.outputs.ok == 'true'
         run: |
           set -euo pipefail
           BASE="$(echo "$SERVER_URL" | sed -e 's#^wss://#https://#' -e 's#^ws://#http://#' -e 's#/*$##')"
-          ORIGIN="https://patrickmedaugh.github.io"
+          ORIGIN="https://overcloc.netlify.app"
           HEADERS=$(curl -sS -o /dev/null -D - -X OPTIONS "$BASE/v1/decks/sync" \
             -H "Origin: $ORIGIN" -H "Access-Control-Request-Method: POST" -H "Access-Control-Request-Headers: content-type")
           echo "$HEADERS"

@@ -1,4 +1,4 @@
-// S-07-6 (owner's design, PR #17 answer 1B): tap the hand to open it big and
+// S-07-6 (owner's design, PR #17 answer 1B; S-15-6: a tap only reads, holding plays): tap the hand to open it big and
 // readable; long-press a card to light every place it can go; drag it onto a
 // lit place and let go to play it there; let go anywhere else and the hand
 // view is back; tap outside (or Back) closes it. The dragged card follows the
@@ -22,6 +22,7 @@ import {
   liftHand,
   openBoard,
   openHand,
+  outsideHandView,
   pickHand,
   tap,
   toRunnerTurn,
@@ -51,9 +52,11 @@ const sorted = (xs: string[]) => [...xs].sort();
 function awaySpot(l: LayoutSnapshot): { x: number; y: number } {
   const s = emptySpot(l);
   const p = center(s);
-  const inAny = (b: Box) => p.x >= b.x && p.x <= b.x + b.width && p.y >= b.y && p.y <= b.y + b.height;
-  expect(l.targets.some((t) => inAny(t.box)), 'the away spot is off every lit place').toBe(false);
-  return { x: Math.min(p.x, l.viewport.width - 4), y: p.y };
+  const inAny = (b: Box, q: { x: number; y: number }) => q.x >= b.x && q.x <= b.x + b.width && q.y >= b.y && q.y <= b.y + b.height;
+  // S-15-6: a one-shot card's place is the whole table: then the rail's help text (never a place).
+  const q = l.targets.some((t) => inAny(t.box, p)) ? { x: l.viewport.width - 4, y: Math.round(l.viewport.height * 0.35) } : { x: Math.min(p.x, l.viewport.width - 4), y: p.y };
+  expect(l.targets.some((t) => inAny(t.box, q)), 'the away spot is off every lit place').toBe(false);
+  return q;
 }
 
 test.describe('S-07-6 hand: tap to open, long-press to light places, drag to play', () => {
@@ -105,11 +108,20 @@ test.describe('S-07-6 hand: tap to open, long-press to light places, drag to pla
     expect((await layout(page)).selected).toBeNull();
   });
 
-  test('a tap on the big card picks it the no-drag way: the view closes, its places light up', async ({ page }) => {
+  test('S-15-6: a tap on the big card never plays or picks it; holding it up (from the strip) lights its places', async ({ page }) => {
     await openBoard(page, 1);
     const v = await getView(page);
     const i = cardWith(v, 'new_server');
-    const l = await pickHand(page, i);
+    const open = await openHand(page, i);
+    await tap(page, open.handView!.centre);
+    await page.waitForFunction(() => !!window.__overclock!.layout().handView?.tip);
+    let l = await layout(page);
+    expect(l.handView).toMatchObject({ index: i, lifted: false, tip: { text: 'Hold to play' } });
+    expect(l.selected).toBeNull();
+    expect(l.targets).toEqual([]);
+    await page.evaluate(() => window.__overclock!.back());
+    await page.waitForFunction(() => window.__overclock!.layout().handView === null);
+    l = await pickHand(page, i);
     expect(l.handView).toBeNull();
     expect(l.selected).toBe(i);
     expect(sorted(l.targets.map((t) => t.kind))).toEqual(sorted(v.handOptions[i]!.map(kindOf)));
@@ -214,21 +226,21 @@ test.describe('S-07-6 hand: tap to open, long-press to light places, drag to pla
     expect(v.players.runner.credits).toBe(1);
     const i = v.handOptions.findIndex((os) => os.length > 0 && os.every((o) => o.reject === 'no_credits'));
     expect(i, 'a card the Runner cannot afford').toBeGreaterThanOrEqual(0);
+    // S-15-6: a card with no affordable place lifts dimmed (nothing lit) and says why; let go anywhere.
     const { hold, lifted } = await liftHand(page, i);
-    const dim = lifted.targets.find((t) => !t.lit)!;
-    expect(dim).toBeTruthy();
-    await dragTo(hold, center(lifted.handView!.centre), center(dim.box), 6);
-    await page.waitForFunction(() => window.__overclock!.layout().drag?.hover?.lit === false);
+    expect(lifted.drag).toMatchObject({ dimmed: true, reason: 'Not enough credits' });
+    expect(lifted.targets).toEqual([]);
+    await dragTo(hold, center(lifted.handView!.centre), awaySpot(lifted), 6);
     await hold.release();
-    await page.waitForFunction(() => window.__overclock!.layout().hint !== null);
+    await page.waitForFunction(() => window.__overclock!.layout().drag === null);
     const l = await layout(page);
-    expect(l.hint!.text).toBe('Not enough credits');
+    expect((await anims(page)).filter((a) => a.kind === 'hint').map((a) => a.text)).toEqual(['Not enough credits']);
     expect(l.drag).toBeNull();
     expect(l.handView).toBeNull();
     expect(await getView(page)).toEqual(v);
   });
 
-  test('a card that cannot be played now: long-press says why and lights nothing', async ({ page }) => {
+  test('a card that cannot be played now: long-press lifts it dimmed, says why and lights nothing', async ({ page }) => {
     await openBoard(page, 1);
     for (let k = 0; k < 3; k++) await dispatch(page, { type: 'gain_credit', player: 'corp' });
     await waitIdle(page);
@@ -238,9 +250,10 @@ test.describe('S-07-6 hand: tap to open, long-press to light places, drag to pla
     await page.waitForFunction(() => window.__overclock!.layout().hint !== null);
     const l = await layout(page);
     expect(l.hint!.text).toBe('No clicks left');
-    expect(l.drag).toBeNull();
+    expect(l.drag).toMatchObject({ index: 0, dimmed: true, reason: 'No clicks left' });
     expect(l.targets).toEqual([]);
     await h.release();
+    await page.waitForFunction(() => window.__overclock!.layout().drag === null);
     expect(await getView(page)).toEqual(before);
   });
 
@@ -248,8 +261,12 @@ test.describe('S-07-6 hand: tap to open, long-press to light places, drag to pla
     await openBoard(page, 1);
     const before = await getView(page);
     const open = await openHand(page, 0);
-    // R&D (a tap there would draw a card) is outside the cards.
-    await tap(page, open.corp.deck);
+    // R&D (a tap there would draw a card) is outside the cards on phones; on desktop the big card
+    // covers it (S-15-6: a tap there is the "Hold to play" tip), so a corner outside the cards is used.
+    const c = open.handView!.centre;
+    const d = open.corp.deck;
+    const covered = d.x < c.x + c.width && c.x < d.x + d.width && d.y < c.y + c.height && c.y < d.y + d.height;
+    await tap(page, covered ? outsideHandView(open) : d);
     await page.waitForFunction(() => window.__overclock!.layout().handView === null);
     await page.waitForTimeout(200);
     expect(await getView(page)).toEqual(before);

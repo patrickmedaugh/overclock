@@ -18,11 +18,15 @@ import { framesAreSlow } from './frameClock';
 import { Cover } from './cover';
 import { centeredBox, clearOf, freeRect } from './geometry';
 import { Hand, type HandCard } from './hand';
-import { DROP_WAIT_MS, LIFT_MS, RETURN_MS, SWIPE_TOLERANCE, VIEW_FADE_MS, type ViewHit, ghostCenter, swipeIndex, targetAt, viewHit } from './handGesture';
+import { DROP_WAIT_MS, HOLD_MS, MINIMIZE_MS, PRESS_MS, PRESS_RISE, PRESS_SCALE, RETURN_MS, SWIPE_TOLERANCE, type Segment, TIP_MS, VIEW_FADE_MS, type ViewHit, arrowFor, classifyPress, ghostCenter, leanAngle, swipeIndex, targetAt, viewHit } from './handGesture';
 import type { AnimRecord, Box, EndTurnClock, InstalledSnapshot, Insets, LayoutSnapshot, SideLayout, TargetSnapshot } from './hook-types';
+import { type Anchor, type Flight, type FlightKind, MOTION, planMotion } from './motion';
+/** S-15-3: the score counter ticks up, then a short glow (ms). */
+const MOTION_TICK = 200;
+const MOTION_GLOW = 300;
 import type { Decision, Presentation } from './session';
 import { choiceHint, collapseRepeats, conditionText, hintFor, rejectText } from './hints';
-import { EXPOSED_CAPTION, EXPOSE_HELP, archivesHelpText, archivesTitle, lookDoneLabel, lookHelpText, lookInstallable, lookNotIceText, modeLabel, s12Notice } from './choiceText';
+import { EXPOSED_CAPTION, archivesHelpText, archivesTitle, lookDoneLabel, lookHelpText, lookInstallable, lookNotIceText, modeLabel, s12Notice } from './choiceText';
 import { basicOptionLabel, bidWaitText, isTraceChoice, linkText, meatDamageText, tagsChangedText, taggedText, taggedTrashText, traceNotices } from './traceText';
 import { attachPress, inputTime, noteRelease } from './input';
 import type { FederatedPointerEvent } from 'pixi.js';
@@ -150,6 +154,24 @@ function isUnder(c: Container | null, root: Container | null): boolean {
 
 /** S-07-6: a lift timer running later than this past its due time means the page stalled. */
 const LATE_LIFT_MS = 50;
+
+/**
+ * QA-S15-2: after a stall, a late hold timer waits for two frames in a row that each run within
+ * this long of the one before (the page has caught up, so the browser has handed over the moves and
+ * release it was holding back), for at most `CATCH_UP_FRAMES` frames.
+ */
+const CATCH_UP_GAP_MS = 100;
+const CATCH_UP_FRAMES = 6;
+
+/**
+ * S-15-6 (U9): draw an arrow from the held card to the hovered place's price pill. Tried at the
+ * owner's 891x296 and switched off (DECISIONS 2026-11-20, ui-dev): the strong highlight alone marks
+ * the place. `arrowFor` and the drawing stay so it can be switched back on.
+ */
+export const ARROW = false;
+
+/** S-15-6: the tip a quick tap on the hand view's big card shows. */
+const HOLD_TIP = 'Hold to play';
 
 /** QA-S4-1 pre-draw: no bake from this long before the hold opens the zoom until it has opened (ms). */
 const PREDRAW_QUIET_MS = 60;
@@ -353,8 +375,6 @@ export class Board {
   /** Sprint 12: the look-at sheet (hand strip) or the Archives sheet (over the table), what it was drawn for, its page. */
   private sheet: { kind: 'look' | 'archives'; ui: CardSheet; key: string } | null = null;
   private sheetPage = 0;
-  /** Sprint 12 (S-12-4): Infiltration's "Expose 1 card" picked: the face-down Corp cards are lit. */
-  private exposePicking = false;
   /** Sprint 12 (S-12-4): the exposed card, shown over its place until tapped away (or the next move). */
   private exposed: { uid: string; cardId: string; root: Container; box: Box; detach: () => void } | null = null;
   private hint: { text: string; root: Container; box: Box; kind: 'hint' | 'notice'; slot: string; wide: boolean; area: Box } | null = null;
@@ -408,9 +428,35 @@ export class Board {
     start: number;
     swiped: boolean;
     timer: ReturnType<typeof setTimeout> | null;
+    /**
+     * QA-S15-2: the hold timer lifted the card and no move or release has yet shown, by its own
+     * event time, that the finger really stayed still for HOLD_MS (a busy page can hand over a
+     * quick flick's moves only after the timer ran). Such a lift is undone by a sideways move made
+     * before HOLD_MS (it was a swipe) or a release before HOLD_MS (a tap or a flick).
+     */
+    timerLift: boolean;
   } | null = null;
-  /** S-07-6: the card lifted out of the hand view, following the finger; `hover`: the place under it. */
-  private lift: { index: number; cardId: string; hover: number; boxes: Box[] } | null = null;
+  /**
+   * S-07-6 / S-15-6: the card held up (out of the hand view or straight from the strip), following
+   * the finger; `hover`: the place under it. `dimmed`: it can't be played now (`reason` says why;
+   * nothing is lit). Local UI state only: nothing is sent until the drop's one action.
+   */
+  private lift: {
+    index: number;
+    cardId: string;
+    hover: number;
+    boxes: Box[];
+    lastX: number;
+    lastAt: number;
+    from: 'view' | 'strip';
+    dimmed: boolean;
+    reason: string;
+    arrow: Segment | null;
+  } | null = null;
+  /** S-15-6: the arrow from the held card to the hovered place (drawn only while `ARROW`). */
+  private readonly arrowG = new Graphics();
+  /** S-15-6: the "Hold to play" tip on the hand view's big card, while it shows. */
+  private tip: { root: Container; box: Box; text: string } | null = null;
   /** Reused for the dragged card's position (no allocation per move). */
   private readonly ghostAt = { x: 0, y: 0 };
   /** S-07-6: a dropped card is waiting on its place for the game's answer (online). */
@@ -428,8 +474,6 @@ export class Board {
   private predraw: { ids: string[]; total: number; frame: number; at: number } | null = null;
   /** Hand indices picked in the discard picker (UI state only). */
   private readonly marked = new Set<number>();
-  /** Hand index picked to play (UI state only). */
-  private selected: number | null = null;
   private activeTargets: ActiveTarget[] = [];
   /** The banner's text on one line (the rail may wrap it). */
   private bannerFull = '';
@@ -443,7 +487,17 @@ export class Board {
    * the bottom row then only skips ahead to the flip: it must not spend a
    * click of the player whose board is not on screen yet.
    */
-  private flipPending = false;
+  private _flipPending = false;
+  /** True while the actor's discards fly out before the turn's flip (a tap then only skips ahead). */
+  get flipPending(): boolean {
+    return this._flipPending;
+  }
+  /** Sprint 15: bumped by every applyView; a landing from an older batch no longer moves the counters. */
+  private holdGen = 0;
+  /** Sprint 15 (S-15-2): the other player's installs and plays while this seat was away (pass-the-phone), flown once the board shows. */
+  private missed: { events: GameEvent[]; viewer: Side } | null = null;
+  /** Sprint 15: cards in the air now (for the test hook's `layout().motion`). */
+  private readonly flying = new Set<{ kind: FlightKind; cardId: string | null; root: Container; w: number; h: number }>();
 
   constructor(
     private readonly fx: Tweens,
@@ -462,8 +516,14 @@ export class Board {
       onLongPressEnd: () => {
         if (!this.zoom?.view) this.closeZoom();
       },
+      changed: () => this.callbacks.redraw?.() ?? this.callbacks.changed(),
       onZoomSlide: (id: string, box: Box, at: number, i: number) => this.swapZoom(id, box, at, i),
+      // S-15-6: a card pulled up out of the strip is held; its finger's moves and release drive it.
+      onPull: (i: number, x: number, y: number, at: number) => this.onStripPull(side, i, x, y, at),
+      onDrag: (x: number, y: number, at: number) => this.dragMove(x, y, at),
+      onDrop: (x: number, y: number, cancelled: boolean) => this.dropLift(x, y, cancelled),
       log: (r: Omit<AnimRecord, 'startedAt'>) => callbacks.log(r),
+      flight: (kind: 'draw' | 'discard', cardId: string | null, root: Container, w: number, h: number) => this.track(kind, cardId, root, w, h),
     });
     this.hands = { corp: new Hand('corp', fx, ui, handCallbacks('corp')), runner: new Hand('runner', fx, ui, handCallbacks('runner')) };
     this.handLayer.addChild(this.hands.corp.container, this.hands.runner.container);
@@ -475,6 +535,8 @@ export class Board {
     attachPress(this.catcher, { onTap: () => this.cancelSelection() });
     this.catcher.cursor = 'default';
     this.runLayer.eventMode = 'none';
+    this.arrowG.label = 'drag-arrow';
+    this.arrowG.eventMode = 'none';
     this.buildText = new Text({
       text: '',
       style: { fontFamily: theme.fontFamily, fontSize: 9, fill: theme.textDim, align: 'center', lineHeight: BUILD_LINE },
@@ -482,10 +544,15 @@ export class Board {
     this.buildText.label = 'build-time';
     this.buildText.eventMode = 'none';
     this.buildText.alpha = 0.85;
-    this.table.addChild(this.catcher, this.bgLayer, this.boardLayer, this.installedLayer, this.runLayer, this.centerLayer, this.accessLayer, this.targetLayer, this.handLayer, this.gripLayer, this.sheetLayer, this.buildText);
+    this.table.addChild(this.catcher, this.bgLayer, this.boardLayer, this.installedLayer, this.runLayer, this.centerLayer, this.accessLayer, this.targetLayer, this.arrowG, this.handLayer, this.gripLayer, this.sheetLayer, this.buildText);
     this.stage.addChild(this.table, this.fxLayer, this.hintLayer, this.statusLayer, this.panelLayer, this.zoomLayer, this.coverLayer, this.dialogLayer);
     this.statusLayer.eventMode = 'none';
     // S-05-1: a tap anywhere outside the Last run strip (and its button) closes it; the tap still acts.
+    // S-15-6: Pixi never passes on a cancelled touch: a press in the hand view (or a card held from
+    // it) ends as cancelled, so nothing stays lifted or pressed.
+    if (typeof globalThis.addEventListener === 'function') {
+      globalThis.addEventListener('pointercancel', (e) => this.cancelViewPress((e as PointerEvent).pointerId), true);
+    }
     this.stage.eventMode = 'static';
     this.stage.on('pointerdown', (e) => {
       const strip = this.lastRunStrip;
@@ -579,6 +646,7 @@ export class Board {
           this.setCover(null);
           this.callbacks.log({ kind: 'cover_lifted', scheduledMs: 0 });
           this.flushNotices();
+          this.playMissed();
         });
         this.coverLayer.addChild(this.cover.root);
       }
@@ -592,6 +660,12 @@ export class Board {
    * "Leave the game?" (Leave calls `exit`). Returns what it did.
    */
   back(exit: () => void): BackAction {
+    // S-15-6: a card held straight from the strip (no view open) goes home; nothing is played.
+    if (this.lift && !this.zoom && !this.leave) {
+      this.cancelLift(RETURN_MS);
+      this.callbacks.changed();
+      return 'close_zoom';
+    }
     // Under the "Pass the phone" cover nothing of the board is on screen: Back asks to leave.
     const covered = this.cover !== null;
     const panelOpen = !covered && (this.report !== null || this.lastRunStrip !== null);
@@ -673,8 +747,10 @@ export class Board {
     this.endDropWait();
     // Any new view while a card is lifted cancels the lift (hand indices may have moved). An open
     // hand view closes when the hand changed, or a run or the discard picker starts.
-    if (this.lift) this.closeZoom(true);
-    else if (this.zoom?.view) {
+    if (this.lift) {
+      this.cancelLift(0);
+      this.closeZoom(true);
+    } else if (this.zoom?.view) {
       const z = this.zoom;
       const ids = z.pile ? view.players[z.pile.side].scored : (view.players[view.viewer].hand ?? []);
       const was = z.pile ? z.pile.ids : this.hands[view.viewer].ids;
@@ -698,20 +774,15 @@ export class Board {
     const viewer = view.viewer;
     const hand = this.hands[viewer];
     const rejected = events.some((e) => e.type === 'action_rejected');
-    // Hand cards leaving for the table or a pile are taken out before the hand resyncs.
-    const leaving: { e: Extract<GameEvent, { type: 'card_installed' | 'card_played' }>; card: HandCard; box: Box }[] = [];
-    for (const e of events) {
-      if ((e.type === 'card_installed' || e.type === 'card_played') && e.player === viewer && e.handIndex !== undefined) {
-        const taken = hand.takeOut(e.handIndex);
-        if (taken) leaving.push({ e, ...taken });
-      }
-    }
+    // Sprint 15: where cards fly, from this seat's own events only (S-15-2/3; no hidden card is shown).
+    const flights = rejected ? [] : planMotion(viewer, events);
+    // Hand cards leaving for the table or a pile are taken out before the hand resyncs: each flies
+    // from where it is (a dropped card from the finger). Keyed `event:card` like the flights.
+    const sprites = rejected ? new Map<string, HandCard>() : this.takeLeaving(hand, viewer, events);
     // A refused tap on a lit target keeps the card picked; anything else that changed the game drops it.
     // An agenda stays picked after an Advance (advance again with one tap).
     if (!rejected) {
-      this.selected = null;
       this.runPicking = false;
-      this.exposePicking = false;
       this.lookPick = null;
       // Sprint 12 (S-12-4): an exposed card shows until tapped away or the next move.
       if (events.length > 0) this.clearExposed();
@@ -727,22 +798,19 @@ export class Board {
     const before = this.boxesBefore(events);
     const prevRun = prevDecision?.run ?? prev.run;
     const ids = view.players[viewer].hand ?? [];
-    if (this.selected !== null && this.selected >= ids.length) this.selected = null;
     const layout = this.sync(view, true);
     if (!layout) return;
     const drawn = events.filter((e) => e.type === 'card_drawn' && e.player === viewer).length;
-    this.syncHand(hand, layout, ids, drawn);
+    this.syncHand(hand, layout, ids, drawn, flights.filter((f) => f.kind === 'draw' && f.side === viewer).map((f) => f.delayMs));
     if (view.pendingDiscard === 0 || ids.length !== (prev.players[viewer].hand ?? []).length) this.marked.clear();
     hand.setMarked(this.marked);
-    hand.setSelected(this.selected);
     this.showTargets();
     // S-05-2: what the ICE did stays on screen until the next tap; a game over shows after it.
     const reportText = rejected ? null : iceReport(events);
     if (reportText) this.openReport(reportText, layout);
     const newStep = this.applyView(view, true);
-    // S-10-5: a card trashed from the table fills Archives when it lands there, not before.
-    if (events.some((e) => e.type === 'card_trashed' || e.type === 'corp_card_trashed')) this.gen?.discards.corp.set(prev.players.corp.discardCount, prev.players.corp.discard);
-    for (const l of leaving) this.flyFromHand(l.e, l.card, layout);
+    // S-10-5 / S-15-3: piles and scores show their old counts until the cards land on them.
+    this.runFlights(flights, sprites, prev, view, layout, before);
     const notices: string[] = [];
     for (const e of events) {
       if (e.type === 'server_created') this.serverOpen(e.server, layout);
@@ -878,8 +946,10 @@ export class Board {
         ...(t.marker.note ? { note: t.marker.note } : {}),
         lit: t.option.reject === null,
         reject: t.option.reject,
+        hover: t.marker.hovered,
       })),
-      selected: this.selected,
+      // S-15-6: the held card is the one picked to play (no tap-to-pick any more).
+      selected: this.lift && !this.lift.dimmed ? this.lift.index : null,
       labels: [...visibleTexts(this.boardLayer), ...visibleTexts(this.centerLayer), ...visibleTexts(this.accessLayer), ...visibleTexts(this.targetLayer)],
       text: {
         banner: gen?.banner.visible ? this.bannerFull : '',
@@ -956,7 +1026,17 @@ export class Board {
         layout && this.buildText.visible && this.buildText.text
           ? { text: this.buildText.text, box: this.buildTextBox() }
           : null,
-      handView: this.zoom?.view && this.zoom.mode !== 'pile' && this.zoom.cardId && layout ? { index: this.zoom.index, cardId: this.zoom.cardId, lifted: this.lift !== null, centre: { ...layout.zoom } } : null,
+      handView:
+        this.zoom?.view && this.zoom.mode !== 'pile' && this.zoom.cardId && layout
+          ? {
+              index: this.zoom.index,
+              cardId: this.zoom.cardId,
+              lifted: this.lift !== null,
+              centre: { ...layout.zoom },
+              tip: this.tip && !this.tip.root.destroyed && this.tip.root.alpha > 0.05 ? { text: this.tip.text, box: { ...this.tip.box } } : null,
+            }
+          : null,
+      handMinimized: view ? this.hands[view.viewer].isMinimized : false,
       pileView:
         this.zoom?.view && this.zoom.pile && this.zoom.cardId && layout
           ? { side: this.zoom.pile.side, index: this.zoom.index, cardId: this.zoom.cardId, count: this.zoom.pile.ids.length, centre: { ...layout.zoom } }
@@ -984,6 +1064,10 @@ export class Board {
           }
         : null,
       animating: this.fx.active,
+      motion: {
+        active: [...this.flying].filter((f) => !f.root.destroyed).length,
+        flights: [...this.flying].filter((f) => !f.root.destroyed).map((f) => ({ kind: f.kind, cardId: f.cardId, box: centeredBox(f.root, f.w, f.h) })),
+      },
     };
   }
 
@@ -1015,7 +1099,10 @@ export class Board {
     if (layout) {
       for (const e of p.actorEvents) {
         if (e.type === 'cards_discarded' && e.player === p.actor && e.handIndices) {
-          discardMs = actorHand.discardOut(e.handIndices, layout.bottom.discard);
+          // Sprint 15: the planner's ripple (S-15-3: the batch ends within 0.5 s), with the tighter
+          // turn-change gap: the flip waits for these cards, so this ripple delays the next turn.
+          const delays = planMotion(p.actor, [e], { stagger: MOTION.turnStagger }).map((f) => f.delayMs);
+          discardMs = actorHand.discardOut(e.handIndices, layout.bottom.discard, delays);
           discarded = true;
           this.callbacks.log({ kind: 'discard_flight', scheduledMs: discardMs, box: layout.bottom.discard });
         }
@@ -1026,23 +1113,25 @@ export class Board {
     this.flipDueAt = now + discardMs;
     // Set now, not at the flip: the guard counts from this tap.
     this.endTurnArmedAt = tappedAt + timing.endTurnGuard;
+    // S-15-2: what the other player put on the table while this seat was away flies in once the board shows.
+    this.missed = p.missedEvents && p.missedEvents.length > 0 ? { events: p.missedEvents, viewer: p.next } : null;
     const flip = () => {
-      this.flipPending = false;
+      this._flipPending = false;
       this.switchSeat(p.nextView, p.nextEvents);
       // The actor's pile is now in the top row: pop it so the new count is noticed.
       if (discarded) this.gen?.discards[p.actor].pop(this.ui);
     };
     if (discardMs > 0) {
-      this.flipPending = true;
+      this._flipPending = true;
       this.fx.after(discardMs, flip);
     } else flip();
   }
 
   /** Turns the board over to `view`'s seat: same widgets, new places, then the fade-in. */
   private switchSeat(view: PlayerView, events: readonly GameEvent[]): void {
+    this.cancelLift(0);
     this.closeZoom(true);
     this.view = view;
-    this.selected = null;
     const layout = this.sync(view, false);
     if (!layout) return;
     const viewer = view.viewer;
@@ -1055,7 +1144,6 @@ export class Board {
     hand.sync(ids, drawn, layout.bottom.deck, drawn > 0 ? timing.drawAfterFlip : 0);
     if (view.pendingDiscard === 0) this.marked.clear();
     hand.setMarked(this.marked);
-    hand.setSelected(null);
     this.showTargets();
     this.applyView(view, true);
     for (const e of events) {
@@ -1066,6 +1154,10 @@ export class Board {
     }
     // S-07-2: "PAD Campaign: +1 credit" at the new turn's start, once the board is in view.
     this.queueNotices(turnStartNotices(events));
+    // Sprint 15: with no "Pass the phone" cover coming, the other player's cards fly in now (else when it lifts).
+    queueMicrotask(() => {
+      if (!this.cover) this.playMissed();
+    });
 
     this.table.alpha = 0.15;
     this.fx.add({ target: this.table, to: { alpha: 1 }, duration: timing.flip, ease: ease.outCubic });
@@ -1103,8 +1195,8 @@ export class Board {
   private fullRender(): void {
     const view = this.view;
     if (!view) return;
+    this.cancelLift(0);
     this.closeZoom(true);
-    this.selected = null;
     const layout = this.sync(view, false);
     if (!layout) return;
     const viewer = view.viewer;
@@ -1113,7 +1205,6 @@ export class Board {
     this.syncHand(hand, layout, view.players[viewer].hand ?? [], 0);
     if (view.pendingDiscard === 0) this.marked.clear();
     hand.setMarked(this.marked);
-    hand.setSelected(null);
     this.showTargets();
     this.applyView(view, false);
     this.table.alpha = 1;
@@ -1123,11 +1214,11 @@ export class Board {
     for (const s of SIDES) this.hands[s].container.visible = s === viewer;
   }
 
-  private syncHand(hand: Hand, layout: BoardLayout, ids: readonly string[], drawn: number): void {
+  private syncHand(hand: Hand, layout: BoardLayout, ids: readonly string[], drawn: number, delays?: readonly number[]): void {
     if (hand.sizeKey !== layout.sizeKey) hand.setLayout(layout, ids);
     else {
       hand.useLayout(layout);
-      hand.sync(ids, drawn, layout.bottom.deck);
+      hand.sync(ids, drawn, layout.bottom.deck, 0, delays);
     }
   }
 
@@ -1750,9 +1841,9 @@ export class Board {
     return !!view?.lastRun && !view.run && !view.choice && !view.result && view.pendingDiscard === 0 && this.picking === null && this.pickedInstalled === null;
   }
 
-  /** The hand card whose places are lit: picked with a tap, or lifted out of the hand view (S-07-6). */
+  /** S-15-6: the hand card whose places are lit: the one held up (a dimmed one lights nothing). */
   private get picking(): number | null {
-    return this.selected ?? this.lift?.index ?? null;
+    return this.lift && !this.lift.dimmed ? this.lift.index : null;
   }
 
   /** Where the help text goes: below the Play button (sideways) or left of it (column). */
@@ -1785,6 +1876,8 @@ export class Board {
     const layout = this.layout;
     const gen = this.gen;
     if (!layout || !gen) return false;
+    // Sprint 15: this view's counts are final; cards still landing from an older batch leave them alone.
+    this.holdGen++;
     const viewer = view.viewer;
     for (const s of SIDES) {
       const w = this.seatOf(s);
@@ -1861,8 +1954,6 @@ export class Board {
       helpText = `${SIDE_NAME[view.activePlayer]}'s turn.\nTheir moves show up here.`;
     } else if (this.runPicking) {
       helpText = `Tap a lit server to run on it.\nTap ${TERMS.run} again to cancel.`;
-    } else if (this.exposePicking && this.selected !== null) {
-      helpText = EXPOSE_HELP;
     } else if (this.pickedInstalled !== null) {
       // Sprint 9: the tag marker / score pill picked: "Tap it again".
       helpText = this.pickedInstalled === TAGS_PICK || isScoredUid(this.pickedInstalled) ? 'Tap a lit button.\nTap it again to cancel.' : 'Tap a lit button.\nTap the card again to cancel.';
@@ -1882,23 +1973,24 @@ export class Board {
       // The hand limit comes from the view (hand - pending), not a client constant.
       const keep = view.players[viewer].handCount - pending;
       helpText = `You can keep ${keep} cards. Tap cards to pick them.\nHold a card to read it.`;
+    } else if (this.lift?.dimmed) {
+      // S-15-6: a card that can't be played now: why, and how to put it back.
+      helpText = `${this.lift.reason || "Can't play it now"}.\nLet go to put it back.`;
+    } else if (this.lift && this.activeTargets.some((t) => t.kind === 'grip')) {
+      // Sprint 12 (S-12-3): Modded.
+      helpText = `Let go on a lit card in your ${TERMS.grip} to install it.\nLet go anywhere else to put it back.`;
     } else if (this.lift) {
       helpText = 'Let go on a lit spot to play it.\nLet go anywhere else to put it back.';
-    } else if (this.selected !== null && this.activeTargets.some((t) => t.kind === 'grip')) {
-      // Sprint 12 (S-12-3): Modded.
-      helpText = `Tap a lit card in your ${TERMS.grip} to install it.\nTap the card again to cancel.`;
-    } else if (this.selected !== null) {
-      helpText = 'Tap a lit spot to play it.\nTap the card again to cancel.';
     } else if (view.activePlayer === viewer && view.phase === 'action' && view.players[viewer].clicks === 0) {
       helpText = "No clicks left. Tap End turn when you're ready.";
     } else if (viewer === 'runner' && view.runOptions.length > 0 && view.activePlayer === viewer) {
       const use = this.usableOnTable(view) ? ' Tap a card on the table to use it.' : '';
-      helpText = `Tap your ${TERMS.stack} to draw, your credits for +1, ${TERMS.run} to attack a server, or your hand to play a card.${use}`;
+      helpText = `Tap your ${TERMS.stack} to draw, your credits for +1 or ${TERMS.run} to attack a server. Hold a card in your hand and drag it up to play it.${use}`;
     } else {
       const deck = viewer === 'corp' ? TERMS.rd : `your ${TERMS.stack}`;
       // Any card on the table with a move the engine would take now (advance, rez, an ability).
       const use = this.usableOnTable(view) ? ' Tap a card on the table to use it.' : '';
-      helpText = `Tap ${deck} to draw, your credits for +1, or your hand to play a card.${use}\nIn the hand, hold a card and drag it to play it.`;
+      helpText = `Tap ${deck} to draw or your credits for +1.${use}\nHold a card in your hand and drag it up to play it.`;
     }
     if (help.text !== helpText) help.text = helpText;
     const hb = this.helpBox(layout);
@@ -1977,12 +2069,6 @@ export class Board {
     return newStep;
   }
 
-  /** S-10-5: Archives shows the view's pile again (a trashed card has landed on it). */
-  private syncArchives(): void {
-    const v = this.view;
-    if (v) this.gen?.discards.corp.set(v.players.corp.discardCount, v.players.corp.discard);
-  }
-
   /** "+3" / "-5" floating up from the viewer's credits. */
   private creditFloat(amount: number): void {
     const layout = this.layout;
@@ -2008,66 +2094,372 @@ export class Board {
     });
   }
 
-  /** A hand card flies to its installed spot (turning face down for the Corp) or to its owner's pile. */
-  private flyFromHand(e: Extract<GameEvent, { type: 'card_installed' | 'card_played' }>, card: HandCard, layout: BoardLayout): void {
+  /** Sprint 15: a sprite starts flying (test hook `layout().motion`); call the result when it lands. */
+  private track(kind: FlightKind, cardId: string | null, root: Container, w: number, h: number): () => void {
+    const f = { kind, cardId, root, w, h };
+    this.flying.add(f);
+    return () => this.flying.delete(f);
+  }
+
+  /**
+   * Sprint 15: takes the viewer's hand cards that `events` move out of the hand (installs, plays,
+   * discards, damage) before the hand resyncs, keyed `event:card` like the planner's flights.
+   */
+  private takeLeaving(hand: Hand, viewer: Side, events: readonly GameEvent[]): Map<string, HandCard> {
+    const out = new Map<string, HandCard>();
+    events.forEach((e, i) => {
+      if ((e.type === 'card_installed' || e.type === 'card_played') && e.player === viewer && e.handIndex !== undefined) {
+        const t = hand.takeOut(e.handIndex);
+        if (t) out.set(`${i}:0`, t.card);
+      } else if (e.type === 'cards_discarded' && e.player === viewer && e.handIndices) {
+        // Ascending indices into the hand before discarding: take the highest first.
+        const order = e.handIndices.map((h, k) => [h, k] as const).sort((a, b) => b[0] - a[0]);
+        for (const [h, k] of order) {
+          const t = hand.takeOut(h);
+          if (t) out.set(`${i}:${k}`, t.card);
+        }
+      } else if ((e.type === 'net_damage' || e.type === 'meat_damage' || e.type === 'brain_damage') && viewer === 'runner') {
+        e.cardIds.forEach((id, k) => {
+          const t = hand.takeOutId(id);
+          if (t) out.set(`${i}:${k}`, t.card);
+        });
+      }
+    });
+    return out;
+  }
+
+  /**
+   * S-15-2: the cards the other player installed or played while this seat was away fly in from
+   * their side, as one ripple (pass-the-phone, after the cover lifts). From this seat's own
+   * projection of their turn: a Corp card the Runner never saw flies face down.
+   */
+  private playMissed(): void {
+    const m = this.missed;
+    this.missed = null;
+    const view = this.view;
+    const layout = this.layout;
+    if (!m || !view || !layout || view.viewer !== m.viewer || view.result) return;
+    const actor = other(view.viewer);
+    const events = m.events.filter((e) => (e.type === 'card_installed' || e.type === 'card_played') && e.player === actor);
+    const flights = planMotion(view.viewer, events);
+    if (flights.length > 0) this.runFlights(flights, new Map(), null, view, layout, new Map(), { missed: true });
+    this.callbacks.changed();
+  }
+
+  /** A card-sized box centred on `b`. */
+  private cardAt(b: Box, w: number, h: number): Box {
+    return { x: b.x + b.width / 2 - w / 2, y: b.y + b.height / 2 - h / 2, width: w, height: h };
+  }
+
+  /** Where an anchor is on screen now (`before`: places of cards the events moved away). */
+  private anchorBox(a: Anchor, viewer: Side, layout: BoardLayout, before: Map<string, Box>): Box | null {
     const gen = this.gen;
-    const root = card.root;
+    if (!gen) return null;
+    const card = layout.card;
+    switch (a.at) {
+      case 'hand':
+        if (a.side === viewer) return this.cardAt(layout.handArea, card.width, card.height);
+        {
+          // The other player's hand: their name row at the top edge (kept on screen).
+          const b = this.cardAt(layout.top.label, layout.unit.width, layout.unit.height);
+          return { ...b, y: Math.max(layout.insets.top, b.y) };
+        }
+      case 'deck':
+        return gen.decks[a.side].box();
+      case 'discard':
+        return gen.discards[a.side].box();
+      case 'score':
+        return gen.scoredPiles[a.side].box();
+      case 'installed':
+        return before.get(`uid:${a.uid}`) ?? gen.installed.get(a.uid)?.box ?? null;
+      case 'access':
+        return before.get(`access:${a.cardId}`) ?? this.cardAt(layout.access, layout.unit.width, layout.unit.height);
+      case 'center': {
+        const b = layout.board;
+        const h = Math.min(card.height * 1.5, b.height * 0.6);
+        const w = (h * card.width) / card.height;
+        return this.cardAt(b, w, h);
+      }
+      case 'drop':
+        return null;
+    }
+  }
+
+  /**
+   * Sprint 15 (S-15-2, S-15-3): flies the planned cards. Piles and scores show their pre-batch
+   * counts until their cards land (`finishAll` lands everything, so a skipped batch ends exact).
+   * `sprites`: the viewer's own hand cards taken out for this batch (they fly from where they are).
+   */
+  private runFlights(flights: readonly Flight[], sprites: Map<string, HandCard>, prev: PlayerView | null, view: PlayerView, layout: BoardLayout, before: Map<string, Box>, opts: { missed?: boolean } = {}): void {
+    const gen = this.gen;
     if (!gen) {
-      root.destroy({ children: true });
+      for (const c of sprites.values()) c.root.destroy({ children: true });
       return;
     }
-    this.fxLayer.addChild(root);
-    const hw = layout.card.width;
-    if (e.type === 'card_installed') {
-      const target = gen.installed.get(e.uid);
-      if (!target) {
-        root.destroy({ children: true });
-        return;
+    const viewer = view.viewer;
+    const hold = this.holdGen;
+    // Counters that change on landing: held at the old values (only when they grow).
+    const due = { discard: { corp: 0, runner: 0 }, score: { corp: 0, runner: 0 } };
+    if (prev && !opts.missed) {
+      for (const f of flights) {
+        if (f.land?.counter === 'discard') due.discard[f.land.side]++;
+        if (f.land?.counter === 'score') due.score[f.land.side]++;
       }
-      const dest = target.box;
-      target.root.alpha = 0;
-      const faceDown = e.player === 'corp';
-      const scale = layout.unit.width / hw;
-      this.callbacks.log({ kind: 'install_flight', scheduledMs: timing.installFlight, box: { ...dest } });
-      this.fx.add({
-        target: root,
-        to: { x: dest.x + dest.width / 2, y: dest.y + dest.height / 2, rotation: e.zone === 'ice' ? Math.PI / 2 : 0 },
-        duration: timing.installFlight,
-        ease: ease.inOutCubic,
-        owner: root,
-        onUpdate: (t) => {
-          root.scale.set(1 + (scale - 1) * ease.inOutCubic(t));
-          if (faceDown) {
-            const back = t >= 0.5;
-            card.back.visible = back;
-            card.face.visible = !back;
-            card.flip.scale.x = t >= 1 ? 1 : Math.max(0.02, Math.abs(1 - 2 * t));
-          }
-        },
-        onComplete: () => {
-          root.destroy({ children: true });
-          if (!target.root.destroyed) target.root.alpha = 1;
-        },
+      for (const sd of SIDES) {
+        const was = prev.players[sd];
+        const now = view.players[sd];
+        if (due.discard[sd] > 0 && now.discardCount > was.discardCount) gen.discards[sd].set(was.discardCount, was.discard);
+        else due.discard[sd] = 0;
+        if (due.score[sd] > 0 && now.points >= was.points && now.scored.length > was.scored.length) {
+          gen.scoredPiles[sd].set(was.scored, was.points);
+          gen.scores[sd].set(layout.scores[sd], pointsText(sd, was.points), was.points);
+        } else due.score[sd] = 0;
+      }
+    }
+    const landed = { discard: { corp: 0, runner: 0 }, score: { corp: 0, runner: 0 } };
+    const land = (f: Flight) => {
+      const l = f.land;
+      if (!l || this.holdGen !== hold || !prev) return;
+      if (l.counter === 'discard' && due.discard[l.side] > 0) {
+        const n = ++landed.discard[l.side];
+        const was = prev.players[l.side].discardCount;
+        const now = view.players[l.side];
+        const pile = gen.discards[l.side];
+        if (n >= due.discard[l.side]) pile.set(now.discardCount, now.discard);
+        else pile.set(Math.min(now.discardCount, was + n), now.discard.slice(0, Math.min(now.discard.length, was + n)));
+        pile.pop(this.ui);
+      }
+      if (l.counter === 'score' && due.score[l.side] > 0 && ++landed.score[l.side] >= due.score[l.side]) this.scoreTick(l.side, prev.players[l.side].points, view, layout);
+    };
+    for (const f of flights) {
+      const sprite = sprites.get(`${f.source}:${f.item}`);
+      // The viewer's own draws fly in the hand (Hand.sync); a card back to their hand lands as the hand syncs.
+      if (f.kind === 'draw' && f.side === viewer) continue;
+      if (f.kind === 'return' && f.to.at === 'hand' && f.to.side === viewer) continue;
+      if (f.kind === 'showcase') continue;
+      if (f.durationMs === 0) {
+        // Past the in-air cap: lands at once (S-15-3).
+        sprite?.root.destroy({ children: true });
+        if (f.kind === 'play') {
+          const out = flights.find((x) => x.kind === 'showcase' && x.source === f.source);
+          if (out) land(out);
+        } else land(f);
+        continue;
+      }
+      if (f.kind === 'install') this.flyInstall(f, sprite, viewer, layout, before);
+      else if (f.kind === 'play') this.flyShowcase(f, flights.find((x) => x.kind === 'showcase' && x.source === f.source) ?? null, sprite, viewer, layout, before, land);
+      else if (sprite && f.kind === 'discard') this.flySprite(f, sprite, this.anchorBox(f.to, viewer, layout, before), () => land(f));
+      else if (sprite) this.flySprite(f, sprite, this.anchorBox(f.to, viewer, layout, before), () => land(f));
+      else {
+        const from = this.anchorBox(f.from, viewer, layout, before);
+        const to = this.anchorBox(f.to, viewer, layout, before);
+        if (from && to) this.flyCard(f.cardId, f.side, from, to, f.delayMs, () => land(f), { kind: f.kind, duration: f.durationMs });
+        else land(f);
+      }
+    }
+    // Sprites the plan did not use (should not happen): never left floating.
+    const used = new Set(flights.map((f) => `${f.source}:${f.item}`));
+    for (const [k, c] of sprites) if (!used.has(k)) c.root.destroy({ children: true });
+  }
+
+  /** S-15-3: the score pill ticks up to its new points with a short glow (the pile shows its new top card). */
+  private scoreTick(side: Side, from: number, view: PlayerView, layout: BoardLayout): void {
+    const gen = this.gen;
+    if (!gen) return;
+    const p = view.players[side];
+    const pile = gen.scoredPiles[side];
+    const pill = gen.scores[side];
+    pile.set(p.scored, p.points);
+    pile.pop(this.ui);
+    const box = layout.scores[side];
+    const counter = { v: from };
+    const text = pointsText(side, p.points);
+    this.callbacks.log({ kind: 'score_tick', text, scheduledMs: MOTION_TICK + MOTION_GLOW, box: { ...box } });
+    pill.set(box, pointsText(side, from), Math.max(from, p.points > 0 ? 1 : 0));
+    this.fx.add({
+      target: counter,
+      to: { v: p.points },
+      duration: MOTION_TICK,
+      ease: ease.linear,
+      onUpdate: () => {
+        if (pill.root.destroyed) return;
+        pill.set(box, pointsText(side, Math.round(counter.v)), p.points);
+      },
+      onComplete: () => {
+        if (!pill.root.destroyed) pill.set(box, text, p.points);
+      },
+    });
+    pill.pop(this.ui);
+    this.flash(box, sideColor(side), MOTION_GLOW);
+  }
+
+  /** S-15-2: an install flies to its place (from the finger / hand / the other side) and lands with a small settle. */
+  private flyInstall(f: Flight, sprite: HandCard | undefined, viewer: Side, layout: BoardLayout, before: Map<string, Box>): void {
+    const gen = this.gen;
+    const target = f.to.at === 'installed' ? gen?.installed.get(f.to.uid) : undefined;
+    if (!gen || !target) {
+      sprite?.root.destroy({ children: true });
+      return;
+    }
+    const dest = target.box;
+    const ice = target.zone === 'ice';
+    const flightMs = Math.max(0, f.durationMs - MOTION.settle);
+    target.root.alpha = 0;
+    const settle = () => {
+      if (target.root.destroyed) return;
+      target.root.alpha = 1;
+      this.callbacks.log({ kind: 'land_settle', text: target.uid, scheduledMs: MOTION.settle, box: { ...dest } });
+      const v = target.visual;
+      if (framesAreSlow()) return;
+      this.fx.cancel(v.scale);
+      v.scale.set(0.92);
+      this.fx.add({ target: v.scale, to: { x: 1, y: 1 }, duration: MOTION.settle, ease: ease.outBack, owner: v });
+    };
+    this.callbacks.log({ kind: 'install_flight', scheduledMs: f.delayMs + f.durationMs, box: { ...dest } });
+    if (f.side !== viewer) this.callbacks.log({ kind: 'opponent_flight', text: f.cardId ?? '', scheduledMs: f.delayMs + f.durationMs, box: { ...dest } });
+    if (!sprite) {
+      const from = this.anchorBox(f.from, viewer, layout, before);
+      if (!from) return settle();
+      this.flyCard(f.cardId, f.side, from, ice ? { x: dest.x + dest.width / 2 - dest.height / 2, y: dest.y + dest.height / 2 - dest.width / 2, width: dest.height, height: dest.width } : dest, f.delayMs, settle, {
+        kind: f.kind,
+        duration: flightMs,
+        rotate: ice ? Math.PI / 2 : 0,
       });
       return;
     }
-    const pile = gen.discards[e.player];
-    const dest = pile.box();
-    const scale = dest.width / hw;
-    this.callbacks.log({ kind: 'play_flight', scheduledMs: timing.playFlight, box: { ...dest } });
+    const card = sprite;
+    const root = card.root;
+    this.fxLayer.addChild(root);
+    const scale = layout.unit.width / layout.card.width;
+    // The Corp's own install turns face down on the way (the Runner's view never had its face).
+    const faceDown = f.side === 'corp';
+    const done = this.track(f.kind, f.cardId, root, layout.card.width, layout.card.height);
+    const startScale = root.scale.x;
     this.fx.add({
       target: root,
-      to: { x: dest.x + dest.width / 2, y: dest.y + dest.height / 2 },
-      duration: timing.playFlight,
+      to: { x: dest.x + dest.width / 2, y: dest.y + dest.height / 2, rotation: ice ? Math.PI / 2 : 0 },
+      delay: f.delayMs,
+      duration: flightMs,
       ease: ease.inOutCubic,
       owner: root,
       onUpdate: (t) => {
-        root.scale.set(1 + (scale - 1) * ease.inOutCubic(t));
-        root.rotation = Math.sin(t * Math.PI) * -0.2;
+        root.scale.set(startScale + (scale - startScale) * ease.inOutCubic(t));
+        card.flip.scale.y = 1;
+        if (faceDown) {
+          const back = t >= 0.5;
+          card.back.visible = back;
+          card.face.visible = !back;
+          card.flip.scale.x = t >= 1 ? 1 : Math.max(0.02, Math.abs(1 - 2 * t));
+        } else card.flip.scale.x = 1;
       },
       onComplete: () => {
+        done();
         root.destroy({ children: true });
-        pile.pop(this.ui);
+        settle();
+      },
+    });
+  }
+
+  /** S-15-2: a one-shot card flies to the middle, shows for a moment, then flies to its discard pile. */
+  private flyShowcase(f: Flight, out: Flight | null, sprite: HandCard | undefined, viewer: Side, layout: BoardLayout, before: Map<string, Box>, land: (f: Flight) => void): void {
+    const gen = this.gen;
+    const center = this.anchorBox({ at: 'center' }, viewer, layout, before);
+    const pile = gen?.discards[f.side].box();
+    if (!gen || !center || !pile) {
+      sprite?.root.destroy({ children: true });
+      if (out) land(out);
+      return;
+    }
+    const total = (out ? out.delayMs + out.durationMs : f.delayMs + f.durationMs);
+    this.callbacks.log({ kind: 'play_flight', scheduledMs: total, box: { ...pile } });
+    this.callbacks.log({ kind: 'showcase', text: f.cardId ?? '', scheduledMs: total, box: { ...center } });
+    if (f.side !== viewer) this.callbacks.log({ kind: 'opponent_flight', text: f.cardId ?? '', scheduledMs: total, box: { ...center } });
+    const w = layout.card.width;
+    let root: Container;
+    if (sprite) {
+      root = sprite.root;
+      sprite.flip.scale.set(1);
+    } else {
+      const from = this.anchorBox(f.from, viewer, layout, before);
+      const def = f.cardId ? getCard(f.cardId) : undefined;
+      root = def ? createCardFace(def, w, layout.card.height, 'small') : createCardBack(f.side, w, layout.card.height);
+      if (from) {
+        root.position.set(from.x + from.width / 2, from.y + from.height / 2);
+        root.scale.set(from.width / w);
+      }
+      root.visible = f.delayMs === 0;
+    }
+    this.fxLayer.addChild(root);
+    const done = this.track(f.kind, f.cardId, root, w, layout.card.height);
+    const big = center.width / w;
+    const small = pile.width / w;
+    const s0 = root.scale.x;
+    this.fx.add({
+      target: root,
+      to: { x: center.x + center.width / 2, y: center.y + center.height / 2, rotation: 0 },
+      delay: f.delayMs,
+      duration: f.durationMs,
+      ease: ease.outCubic,
+      owner: root,
+      onUpdate: (t) => {
+        root.visible = true;
+        root.scale.set(s0 + (big - s0) * ease.outCubic(t));
+      },
+      onComplete: () => {
+        if (!out) {
+          done();
+          root.destroy({ children: true });
+          return;
+        }
+        this.fx.add({
+          target: root,
+          to: { x: pile.x + pile.width / 2, y: pile.y + pile.height / 2 },
+          delay: Math.max(0, out.delayMs - f.delayMs - f.durationMs),
+          duration: out.durationMs,
+          ease: ease.inCubic,
+          owner: root,
+          onUpdate: (t) => {
+            root.scale.set(big + (small - big) * ease.inOutCubic(t));
+            root.rotation = Math.sin(t * Math.PI) * -0.2;
+          },
+          onComplete: () => {
+            done();
+            root.destroy({ children: true });
+            land(out);
+          },
+        });
+      },
+    });
+  }
+
+  /** A taken-out hand card (discard, damage) flies from where it is to `to`. */
+  private flySprite(f: Flight, card: HandCard, to: Box | null, landed: () => void): void {
+    const layout = this.layout;
+    const root = card.root;
+    if (!to || !layout) {
+      root.destroy({ children: true });
+      landed();
+      return;
+    }
+    this.fxLayer.addChild(root);
+    const done = this.track(f.kind, f.cardId, root, layout.card.width, layout.card.height);
+    const scale = to.width / layout.card.width;
+    const s0 = root.scale.x;
+    this.fx.add({
+      target: root,
+      to: { x: to.x + to.width / 2, y: to.y + to.height / 2 },
+      delay: f.delayMs,
+      duration: f.durationMs,
+      ease: ease.inOutCubic,
+      owner: root,
+      onUpdate: (t) => {
+        root.scale.set(s0 + (scale - s0) * ease.inOutCubic(t));
+        root.rotation = Math.sin(t * Math.PI) * 0.25;
+      },
+      onComplete: () => {
+        done();
+        root.destroy({ children: true });
+        landed();
       },
     });
   }
@@ -2149,7 +2541,7 @@ export class Board {
   }
 
   /** One run / advance / score event on screen (all on the skippable fx queue, <= 300ms). */
-  private animateRunEvent(e: GameEvent, layout: BoardLayout, before: Map<string, Box>, prevRun: PlayerView['run'], notices: string[], batch: readonly GameEvent[]): void {
+  private animateRunEvent(e: GameEvent, _layout: BoardLayout, before: Map<string, Box>, prevRun: PlayerView['run'], notices: string[], batch: readonly GameEvent[]): void {
     const gen = this.gen;
     const view = this.view;
     if (!gen || !view) return;
@@ -2187,9 +2579,8 @@ export class Board {
         if (e.cause === 'tagged') notices.push(taggedTrashText(e.cardId));
         const from = before.get(`uid:${e.uid}`);
         const pile = gen.discards.runner;
-        this.callbacks.log({ kind: 'rig_trash_flight', scheduledMs: timing.runFlight, box: pile.box() });
-        if (from) this.flyCard(e.cardId, 'runner', from, pile.box(), 0, () => pile.pop(this.ui));
-        else pile.pop(this.ui);
+        // Sprint 15: the card itself flies with the planned flights (runFlights).
+        this.callbacks.log({ kind: 'rig_trash_flight', scheduledMs: timing.runFlight, box: pile.box(), ...(from ? {} : { text: 'no-source' }) });
         return;
       }
       case 'subroutine_broken': {
@@ -2229,13 +2620,7 @@ export class Board {
         // S-08-2: an emptied Adonis Campaign goes to Archives face up.
         const from = before.get(`uid:${e.uid}`);
         const pile = gen.discards.corp;
-        this.callbacks.log({ kind: 'corp_trash_flight', scheduledMs: timing.runFlight, box: pile.box() });
-        const land = () => {
-          this.syncArchives();
-          pile.pop(this.ui);
-        };
-        if (from) this.flyCard(e.cardId, 'corp', from, pile.box(), 0, land);
-        else land();
+        this.callbacks.log({ kind: 'corp_trash_flight', scheduledMs: timing.runFlight, box: pile.box(), ...(from ? {} : { text: 'no-source' }) });
         return;
       }
       case 'clicks_gained': {
@@ -2281,52 +2666,21 @@ export class Board {
           const tag = this.seatOf('runner')?.tag;
           if (tag?.text) tag.pop(this.fx, timing.tagPop);
         }
-        const pos: Pos = view.viewer === 'runner' ? 'bottom' : 'top';
-        const from = pos === 'bottom' ? layout.handArea : layout.top.label;
         const heap = gen.discards.runner.box();
-        this.callbacks.log({ kind: e.type, scheduledMs: timing.runFlight + 20 * Math.max(0, e.cardIds.length - 1), box: { ...heap } });
-        const w = Math.min(layout.card.width, from.height / CARD_RATIO);
-        e.cardIds.forEach((id, i) => {
-          const start = { x: from.x + from.width / 2 - w / 2 + (i - (e.cardIds.length - 1) / 2) * w * 0.6, y: from.y + from.height / 2 - (w * CARD_RATIO) / 2, width: w, height: w * CARD_RATIO };
-          this.flyCard(id, 'runner', start, heap, i * 20, () => gen.discards.runner.pop(this.ui));
-        });
+        this.callbacks.log({ kind: e.type, scheduledMs: MOTION.batchMs, box: { ...heap } });
         return;
       }
       case 'agenda_stolen': {
-        const from = before.get(`access:${e.cardId}`) ?? layout.access;
-        // S-10-1: it lands on the Runner's scored pile; the score label pops too.
-        const pill = gen.scores.runner;
-        const pile = gen.scoredPiles.runner;
-        this.callbacks.log({ kind: 'score_flight', scheduledMs: timing.runFlight, box: pile.box() });
-        this.flyCard(e.cardId, 'corp', from, pile.box(), 0, () => {
-          pile.pop(this.ui);
-          pill.pop(this.ui);
-        });
+        // S-10-1: it lands on the Runner's scored pile; S-15-3: the score ticks up as it lands (runFlights).
+        this.callbacks.log({ kind: 'score_flight', scheduledMs: timing.runFlight, box: gen.scoredPiles.runner.box() });
         return;
       }
       case 'agenda_scored': {
-        const from = before.get(`uid:${e.uid}`);
-        const pill = gen.scores.corp;
-        const pile = gen.scoredPiles.corp;
-        this.callbacks.log({ kind: 'score_flight', scheduledMs: timing.runFlight, box: pile.box() });
-        const land = () => {
-          pile.pop(this.ui);
-          pill.pop(this.ui);
-        };
-        if (from) this.flyCard(e.cardId, 'corp', from, pile.box(), 0, land);
-        else land();
+        this.callbacks.log({ kind: 'score_flight', scheduledMs: timing.runFlight, box: gen.scoredPiles.corp.box() });
         return;
       }
       case 'card_trashed': {
-        const from = before.get(`access:${e.cardId}`) ?? (e.uid ? before.get(`uid:${e.uid}`) : undefined);
-        const pile = gen.discards.corp;
-        this.callbacks.log({ kind: 'trash_flight', scheduledMs: timing.runFlight, box: pile.box() });
-        const land = () => {
-          this.syncArchives();
-          pile.pop(this.ui);
-        };
-        if (from) this.flyCard(e.cardId, 'corp', from, pile.box(), 0, land);
-        else this.syncArchives();
+        this.callbacks.log({ kind: 'trash_flight', scheduledMs: timing.runFlight, box: gen.discards.corp.box() });
         return;
       }
       case 'card_advanced': {
@@ -2434,22 +2788,44 @@ export class Board {
     this.fx.add({ target: t, to: { y: t.y - 18 * s, alpha: 0.3 }, duration: ms, ease: ease.outCubic, owner: t, onComplete: () => t.destroy() });
   }
 
-  /** A card (face, or a back when unknown) flies from `from` to `to`, shrinking to fit. */
-  private flyCard(cardId: string | null, side: Side, from: Box, to: Box, delay: number, done: () => void): void {
+  /**
+   * A card (face, or a back when unknown) flies from `from` to `to`, shrinking to fit. Sprint 15:
+   * drawn from the hand's baked card picture (scaled), hidden until its ripple delay is up, and
+   * listed in `layout().motion` while it flies. `cardId` null always flies a back.
+   */
+  private flyCard(
+    cardId: string | null,
+    side: Side,
+    from: Box,
+    to: Box,
+    delay: number,
+    done: () => void,
+    opts: { kind?: FlightKind; duration?: number; rotate?: number } = {},
+  ): void {
     const def = cardId ? getCard(cardId) : undefined;
-    const card = def ? createCardFace(def, from.width, from.height, 'small') : createCardBack(side, from.width, from.height);
+    const cw = this.layout?.card.width ?? from.width;
+    const ch = this.layout?.card.height ?? from.height;
+    const card = def ? createCardFace(def, cw, ch, 'small') : createCardBack(side, cw, ch);
+    const k0 = from.width / cw;
+    card.scale.set(k0);
     card.position.set(from.x + from.width / 2, from.y + from.height / 2);
+    card.visible = delay <= 0;
     this.fxLayer.addChild(card);
-    const k = Math.max(0.15, Math.min(to.width / from.width, to.height / from.height));
+    const k1 = Math.max(0.15 * k0, Math.min(to.width / cw, to.height / ch));
+    const landed = this.track(opts.kind ?? 'trash', def ? cardId : null, card, cw, ch);
     this.fx.add({
       target: card,
-      to: { x: to.x + to.width / 2, y: to.y + to.height / 2 },
+      to: { x: to.x + to.width / 2, y: to.y + to.height / 2, rotation: opts.rotate ?? 0 },
       delay,
-      duration: timing.runFlight,
+      duration: opts.duration ?? timing.runFlight,
       ease: ease.inOutCubic,
       owner: card,
-      onUpdate: (t) => card.scale.set(1 + (k - 1) * ease.inOutCubic(t)),
+      onUpdate: (t) => {
+        card.visible = true;
+        card.scale.set(k0 + (k1 - k0) * ease.inOutCubic(t));
+      },
       onComplete: () => {
+        landed();
         card.destroy({ children: true });
         done();
       },
@@ -2459,9 +2835,8 @@ export class Board {
   // ---- picking a card and its targets --------------------------------------
 
   /**
-   * A tap on the hand strip. The discard picker marks the card (Sprint 1); a
-   * tap on the picked card drops the pick; otherwise the hand view opens on
-   * the card (S-07-6).
+   * A tap on the hand strip. The discard step opens its view (S-10-5); otherwise the hand view
+   * opens on the card (S-07-6; S-15-6: to read it; playing is hold and drag).
    */
   private onStripTap(index: number): void {
     const view = this.view;
@@ -2475,10 +2850,7 @@ export class Board {
       this.openHandView(index, undefined, true);
       return;
     }
-    if (this.selected === index) {
-      this.cancelSelection();
-      return;
-    }
+    this.cancelSelection();
     this.openHandView(index);
   }
 
@@ -2552,8 +2924,9 @@ export class Board {
   }
 
   /**
-   * Why hand card `index` can't be picked or lifted now (a hint, shown), or
-   * null if it can: its places light up (some may be dimmed with their reason).
+   * Why hand card `index` can't be played now (a hint), or null if it can: its places light up
+   * (some may be dimmed with their reason). S-15-6: a card refused here still lifts, dimmed, with
+   * this reason and nothing lit. Every word comes from the view (`handOptions`' reasons, the choice).
    */
   private refusePick(index: number): string | null {
     const view = this.view;
@@ -2569,44 +2942,19 @@ export class Board {
       if (first === 'no_clicks') this.seatAt('bottom')?.clicks.shake();
       return hintFor(first, view);
     }
+    // S-15-6 (AC 9): no way to play it at all (e.g. too few credits everywhere): dimmed, with the first reason.
+    const head = options[0];
+    if (head && options.every((o) => o.reject !== null)) return this.rejectHint(head) || hintFor(head.reject!, view);
     return null;
   }
 
-  /** Picks hand card `index` to play: outlined in the strip, its places lit (tap one to play it). */
-  private pickCard(index: number): void {
-    const view = this.view;
-    if (!view) return;
-    const hand = this.hands[view.viewer];
-    if (this.selected === index) {
-      this.cancelSelection();
-      return;
-    }
-    const refused = this.refusePick(index);
-    if (refused !== null) {
-      this.cancelSelection();
-      if (refused) this.showHint(refused);
-      return;
-    }
-    this.runPicking = false;
-    this.pickedInstalled = null;
-    this.exposePicking = false;
-    this.selected = index;
-    hand.setSelected(index);
-    this.showTargets();
-    this.applyView(view, false);
-    this.callbacks.changed();
-  }
-
-  /** Drops whatever is picked: a hand card, the Run choice, an installed card. */
+  /** Drops whatever is picked: the Run choice, an installed card. */
   private cancelSelection(): void {
-    if (this.selected === null && !this.runPicking && this.pickedInstalled === null) return;
-    this.exposePicking = false;
-    this.selected = null;
+    if (!this.runPicking && this.pickedInstalled === null) return;
     this.runPicking = false;
     this.pickedInstalled = null;
     const view = this.view;
     if (!view) return;
-    this.hands[view.viewer].setSelected(null);
     this.showTargets();
     this.applyView(view, false);
     this.callbacks.changed();
@@ -2622,7 +2970,6 @@ export class Board {
     if (!gen || !layout || !view || view.result) {
       // QA-S9-2: once the game is over no buttons stay up behind the game-over box.
       if (view?.result) {
-        this.selected = null;
         this.pickedInstalled = null;
         this.runPicking = false;
       }
@@ -2704,8 +3051,11 @@ export class Board {
       return;
     }
     const pickedId = view.players[view.viewer].hand?.[picking] ?? null;
-    let exposeShown = false;
-    for (const option of view.handOptions[picking] ?? []) {
+    const pickedOptions = view.handOptions[picking] ?? [];
+    // S-15-6: a one-shot card with one way to play is dropped anywhere on the table (the play zone).
+    const plain = (o: CardOption) => o.action.type === 'play' && o.action.mode === undefined && o.action.server === undefined && o.action.installIndex === undefined && o.action.uid === undefined;
+    const zone = pickedOptions.filter(plain).length === 1 && pickedOptions.length === 1;
+    for (const option of pickedOptions) {
       const a = option.action;
       let kind: TargetSnapshot['kind'];
       let server: string | undefined;
@@ -2740,14 +3090,9 @@ export class Board {
           this.addTarget(gen, layout, 'play', option, layout.action, `${label}${price}`, 'center', {}, option.reject ? this.rejectHint(option) : '');
           continue;
         }
-        if (!exposeShown) {
-          exposeShown = true;
-          this.addTarget(gen, layout, 'expose_open', option, layout.action2, `${label}${price}`, 'center', {}, option.reject ? this.rejectHint(option) : '');
-        }
-        if (this.exposePicking) {
-          const c = gen.installed.get(a.uid);
-          if (c) this.addTarget(gen, layout, 'expose', option, c.box, label.split(' ')[0] ?? label, 'center', { uid: a.uid });
-        }
+        // S-15-6: while Infiltration is held, every card it can expose lights at once (drop on one = expose it).
+        const c = gen.installed.get(a.uid);
+        if (c) this.addTarget(gen, layout, 'expose', option, c.box, label.split(' ')[0] ?? label, 'center', { uid: a.uid }, option.reject ? this.rejectHint(option) : '');
         continue;
       }
       if (a.type === 'play' && a.server !== undefined) {
@@ -2771,7 +3116,8 @@ export class Board {
         b = layout.rig.install;
       } else if (a.type === 'play') {
         kind = 'play';
-        b = layout.action;
+        // S-15-6: the table above the hand (AC 3's "middle of the table"); the price sits in its middle.
+        b = zone ? layout.playZone : layout.action;
       } else continue;
       const verb = a.type === 'play' ? TERMS.play : TERMS.install;
       // S-08-1: Kate's discount is already in the engine's price; say it was lowered ("1 credit (−1)").
@@ -3216,15 +3562,8 @@ export class Board {
   private onTargetTap(key: string): void {
     const t = this.activeTargets.find((x) => targetKey(x.kind, x) === key);
     if (!t || this.flipPending) return;
-    if (t.kind === 'expose_open' && t.option.reject === null) {
-      // Sprint 12 (S-12-4): Expose lights the face-down Corp cards (tap it again to put them out).
-      this.exposePicking = !this.exposePicking;
-      const view = this.view;
-      this.showTargets();
-      if (view) this.applyView(view, false);
-      this.callbacks.changed();
-      return;
-    }
+    // S-15-6: a hand card's places are played by letting the held card go on them, never by a tap.
+    if (this.lift) return;
     // QA-S8-1: a refusal's hint can name this button's click price.
     this.tappedOption = t.option;
     // The engine judges it; a refusal comes back as action_rejected and shows its hint.
@@ -3815,6 +4154,13 @@ export class Board {
     card.position.set(z.x + z.width / 2, z.y + z.height / 2);
     zoom.root.addChildAt(card, at);
     const prev = zoom.index;
+    // S-15-1 (owner's Sprint 9 wish): in the hand view the new big card slides in from its side
+    // with the cards behind it, instead of jumping (decorative: off where frames are slow).
+    if (zoom.view && zoom.carousel && !framesAreSlow()) {
+      card.x += Math.sign(index - prev) * Math.round(z.width * 0.35);
+      card.alpha = 0.5;
+      this.ui.add({ target: card, to: { x: z.x + z.width / 2, alpha: 1 }, duration: CAROUSEL_SLIDE_MS, ease: ease.outCubic, owner: card });
+    }
     zoom.card = card;
     zoom.cardId = cardId;
     zoom.texts = next.texts;
@@ -3926,20 +4272,62 @@ export class Board {
     const now = performance.now();
     const stamp = native instanceof Event ? native.timeStamp : now;
     const at = stamp > 0 && stamp <= now && now - stamp < 10_000 ? stamp : now;
-    const press = { id: e.pointerId, x, y, lastX: x, lastY: y, at, hit, start: zoom.index, swiped: false, timer: null as ReturnType<typeof setTimeout> | null };
-    // Long-press the big card to lift it (judged by when the finger went down). A timer that runs
-    // late (the page stalled) waits one frame, so a release queued meanwhile is handled first (QA-S3-7).
+    const press = { id: e.pointerId, x, y, lastX: x, lastY: y, at, hit, start: zoom.index, swiped: false, timer: null as ReturnType<typeof setTimeout> | null, timerLift: false };
+    // S-15-6: hold the big card still for HOLD_MS to lift it (judged by when the finger went down).
+    // A timer that runs late (the page stalled) waits until the page has caught up (two frames in a
+    // row that come on time), so moves and a release queued meanwhile are handled first and judged by
+    // their own times (QA-S3-7, QA-S15-2).
     if (hit.kind === 'centre' && zoom.mode === 'hand') {
+      const lift = () => {
+        if (this.viewPress !== press || this.lift || press.swiped) return;
+        this.liftCentre();
+        if (this.lift) press.timerLift = true;
+      };
       press.timer = setTimeout(() => {
         press.timer = null;
         if (this.viewPress !== press) return;
-        if (performance.now() - press.at < LIFT_MS + LATE_LIFT_MS) this.liftCentre();
-        else requestAnimationFrame(() => {
-          if (this.viewPress === press) this.liftCentre();
-        });
-      }, Math.max(0, LIFT_MS - (performance.now() - at)));
+        const fired = performance.now();
+        if (fired - press.at < HOLD_MS + LATE_LIFT_MS) {
+          lift();
+          return;
+        }
+        let prev = fired;
+        let frames = 0;
+        let quick = 0;
+        const frame = () => {
+          if (this.viewPress !== press) return;
+          // When this frame's callbacks got to run (the frame's own time can be from before the stall).
+          const t = performance.now();
+          quick = t - prev < CATCH_UP_GAP_MS ? quick + 1 : 0;
+          const caughtUp = quick >= 2 || ++frames >= CATCH_UP_FRAMES;
+          prev = t;
+          if (caughtUp) lift();
+          else requestAnimationFrame(frame);
+        };
+        requestAnimationFrame(frame);
+      }, Math.max(0, HOLD_MS - (performance.now() - at)));
     }
     this.viewPress = press;
+    // S-15-1: the big card rises and grows under the finger at once (input feedback: never skipped).
+    if (hit.kind === 'centre' && zoom.mode === 'hand') this.pressLift(true, now);
+  }
+
+  /** S-15-1: the hand view's big card rises and grows a little while pressed (`on` false: settles back). */
+  private pressLift(on: boolean, at?: number): void {
+    const zoom = this.zoom;
+    const layout = this.layout;
+    if (!zoom?.view || !layout || zoom.card.destroyed) return;
+    const z = layout.zoom;
+    const card = zoom.card;
+    if (!on && card.scale.x === 1 && card.y === z.y + z.height / 2) return;
+    this.ui.cancel(card);
+    this.ui.cancel(card.scale);
+    const s = on ? PRESS_SCALE : 1;
+    const rise = on ? Math.round(layout.card.height * PRESS_RISE) : 0;
+    this.ui.add({ target: card.scale, to: { x: s, y: s }, duration: PRESS_MS, ease: ease.outCubic, owner: card });
+    this.ui.add({ target: card, to: { x: z.x + z.width / 2, y: z.y + z.height / 2 - rise }, duration: PRESS_MS, ease: ease.outCubic, owner: card });
+    if (on) this.callbacks.log({ kind: 'hand_press', text: zoom.cardId ?? '', scheduledMs: PRESS_MS, ...(at !== undefined ? { inputAt: at } : {}) });
+    this.callbacks.changed();
   }
 
   private onViewMove(e: FederatedPointerEvent): void {
@@ -3949,26 +4337,65 @@ export class Board {
     const y = e.global.y;
     p.lastX = x;
     p.lastY = y;
+    if (this.lift && p.timerLift) {
+      // QA-S15-2: a timer lift is judged by this move's own time: a sideways move made before
+      // HOLD_MS was a swipe (the lift is undone and the view browses); a move at or after HOLD_MS,
+      // or leaving the circle upward, confirms the hold.
+      const native: unknown = e.nativeEvent;
+      const at = native instanceof Event && native.timeStamp > 0 ? native.timeStamp : performance.now();
+      const kind = classifyPress(x - p.x, y - p.y, at - p.at, false);
+      if (kind === 'swipe' && at - p.at < HOLD_MS) {
+        this.undoTimerLift();
+        p.swiped = true;
+      } else if (kind !== 'pending') p.timerLift = false;
+    }
     if (this.lift) {
-      this.dragMove(x, y);
+      const native: unknown = e.nativeEvent;
+      this.dragMove(x, y, native instanceof Event && native.timeStamp > 0 ? native.timeStamp : performance.now());
       return;
     }
     const zoom = this.zoom;
     const view = this.view;
     if (!zoom?.view || !view) return;
     if (!p.swiped && Math.hypot(x - p.x, y - p.y) > SWIPE_TOLERANCE) {
-      p.swiped = true;
       if (p.timer !== null) clearTimeout(p.timer);
       p.timer = null;
+      // S-15-6: sideways = browse; leaving the circle (nearly) straight up picks the big card up at once.
+      const native: unknown = e.nativeEvent;
+      const at = native instanceof Event && native.timeStamp > 0 ? native.timeStamp : performance.now();
+      if (p.hit.kind === 'centre' && zoom.mode === 'hand' && classifyPress(x - p.x, y - p.y, at - p.at, false) === 'lift') {
+        this.liftCentre();
+        return;
+      }
+      p.swiped = true;
+      this.pressLift(false);
     }
     if (!p.swiped) return;
     // Swipe: the cards follow the finger sideways, one card per step.
+    const native: unknown = e.nativeEvent;
+    this.swipeTo(x - p.x, native instanceof Event ? native.timeStamp : performance.now(), p.start);
+  }
+
+  /** A swipe in the hand view `dx` px from where it started (card `start`): the card that far along comes to the middle. */
+  private swipeTo(dx: number, at: number, start = this.zoom?.index ?? 0): void {
+    const zoom = this.zoom;
+    if (!zoom?.view) return;
     const ids = this.viewIds();
-    const i = swipeIndex(p.start, x - p.x, Math.max(40, Math.round(zoom.width * 0.32)), ids.length);
+    const i = swipeIndex(start, dx, Math.max(40, Math.round(zoom.width * 0.32)), ids.length);
     const id = ids[i];
     if (id === undefined || i === zoom.index) return;
-    const native: unknown = e.nativeEvent;
-    this.swapZoom(id, this.viewStripBox(i), native instanceof Event ? native.timeStamp : performance.now(), i);
+    this.swapZoom(id, this.viewStripBox(i), at, i);
+  }
+
+  /** QA-S15-2 / QA-S3-7: a lift the late hold timer made is undone at once; the view stays as it was. */
+  private undoTimerLift(): void {
+    this.cancelLift(0);
+    const zoom = this.zoom;
+    if (zoom?.view) {
+      this.ui.cancel(zoom.root);
+      zoom.root.alpha = 1;
+    }
+    this.pressLift(false);
   }
 
   private onViewUp(e: FederatedPointerEvent, cancelled: boolean): void {
@@ -3979,16 +4406,26 @@ export class Board {
     const p = this.viewPress;
     if (!p || p.id !== e.pointerId) return;
     this.endViewPress();
+    // S-15-1: let go without lifting: the big card settles back.
+    if (!this.lift) this.pressLift(false);
     const native: unknown = e.nativeEvent;
     const upAt = native instanceof Event ? native.timeStamp : performance.now();
     if (this.lift) {
       // The page stalled and lifted the card, but the finger was down for less than the hold time
-      // and never moved away: it was a tap on the big card (QA-S3-7: a tap is judged by its own times).
-      if (!cancelled && !p.swiped && upAt - p.at < LIFT_MS && Math.hypot(e.global.x - p.x, e.global.y - p.y) <= SWIPE_TOLERANCE) {
-        const index = this.lift.index;
-        this.cancelLift(0);
-        this.closeZoom(true);
-        this.pickCard(index);
+      // and never moved away: it was a tap on the big card (QA-S3-7: a tap is judged by its own
+      // times). The lift is undone at once and the view stays, with the tip.
+      const kind = classifyPress(e.global.x - p.x, e.global.y - p.y, upAt - p.at, true);
+      if (!cancelled && !p.swiped && kind === 'tap') {
+        this.undoTimerLift();
+        this.showTip(upAt);
+        this.callbacks.changed();
+        return;
+      }
+      // QA-S15-2: lifted by the timer, let go before HOLD_MS after leaving the circle sideways (its
+      // moves came with the release): a quick flick. The lift is undone and the view browses.
+      if (!cancelled && p.timerLift && kind === 'swipe' && upAt - p.at < HOLD_MS) {
+        this.undoTimerLift();
+        this.swipeTo(e.global.x - p.x, upAt, p.start);
         this.callbacks.changed();
         return;
       }
@@ -3997,7 +4434,7 @@ export class Board {
     }
     if (cancelled || p.swiped) return;
     // Held long enough to lift but the page was too busy to show it: a hold is never a tap.
-    if (p.hit.kind === 'centre' && upAt - p.at >= LIFT_MS) return;
+    if (p.hit.kind === 'centre' && upAt - p.at >= HOLD_MS) return;
     const zoom = this.zoom;
     const view = this.view;
     if (!zoom?.view || !view) return;
@@ -4016,10 +4453,8 @@ export class Board {
         this.onPileCentreTap();
         return;
       }
-      // Today's pick: the view closes, the card is outlined and its places light up.
-      const index = zoom.index;
-      this.closeZoom();
-      this.pickCard(index);
+      // S-15-6: a tap never plays: the card stays big to read, and a short tip says how to play it.
+      this.showTip(upAt);
       this.callbacks.changed();
       return;
     }
@@ -4094,85 +4529,216 @@ export class Board {
     this.callbacks.changed();
   }
 
+  /** S-15-6: the system cancelled the hand view's press (pointer `id`): a held card goes back, nothing is played. */
+  private cancelViewPress(id: number): void {
+    const p = this.viewPress;
+    if (!p || p.id !== id) return;
+    this.endViewPress();
+    if (this.lift) this.dropLift(p.lastX, p.lastY, true);
+    else this.pressLift(false);
+    this.callbacks.changed();
+  }
+
   private endViewPress(): void {
     const p = this.viewPress;
     if (p?.timer != null) clearTimeout(p.timer);
     this.viewPress = null;
   }
 
-  /** The big card was held: it lifts out, follows the finger, and its places light up. */
+  /** The big card was held (or pulled up): it lifts out, follows the finger, and its places light up. */
   private liftCentre(): void {
     const p = this.viewPress;
     const zoom = this.zoom;
-    const view = this.view;
-    if (!p || !zoom?.view || !view || this.lift || p.swiped) return;
+    if (!p || !zoom?.view || this.lift || p.swiped) return;
     p.timer = null;
-    const index = zoom.index;
+    this.beginLift(zoom.index, p.lastX, p.lastY, 'view');
+  }
+
+  /**
+   * S-15-6: a finger pulled hand card `index` up out of the strip (an upward drag, or out of the
+   * strip during the hold-to-read). Not in the discard step, a run, a sheet or during a turn's flip.
+   */
+  private onStripPull(side: Side, index: number, x: number, y: number, at: number): boolean {
+    const view = this.view;
+    // After the game is over a card still lifts (dimmed: "The game is over").
+    if (!view || side !== view.viewer || this.lift || this.flipPending) return false;
+    if (view.pendingDiscard > 0 || panelUp(view) || this.sheet || this.cover || this.leave) return false;
+    if (this.viewPress) return false;
+    this.beginLift(index, x, y, 'strip', at);
+    return this.lift !== null;
+  }
+
+  /**
+   * S-15-6: hand card `index` is picked up and follows the finger (x/y). Every place it can go lights
+   * at once (from `view.handOptions`); the hand view fades and the strip drops below the screen (not
+   * for Modded, whose places are Grip cards). A card that can't be played now lifts dimmed: nothing
+   * lights and a short line says why. Nothing is sent until it is let go on a lit place.
+   */
+  private beginLift(index: number, x: number, y: number, from: 'view' | 'strip', at?: number): void {
+    const view = this.view;
+    const layout = this.layout;
+    if (!view || !layout || this.lift) return;
     const hand = this.hands[view.viewer];
     const cardId = hand.ids[index];
-    const layout = this.layout;
-    if (cardId === undefined || !layout) return;
+    if (cardId === undefined) return;
     const refused = this.refusePick(index);
-    if (refused !== null) {
-      // Nothing to light: say why, with the board in view.
-      this.closeZoom();
-      if (refused) this.showHint(refused);
-      this.callbacks.changed();
-      return;
-    }
+    const dimmed = refused !== null;
     this.cancelSelection();
-    if (!hand.lift(index)) return;
-    this.lift = { index, cardId, hover: -1, boxes: [] };
+    this.hideTip();
+    // Pulled out of the strip while its hold-to-read view was open: the view goes at once (the card
+    // is in the hand, not in the view; a let-go off a place goes back to the board).
+    if (from === 'strip' && this.zoom) this.closeZoom(true);
+    if (!hand.lift(index, dimmed)) return;
+    this.lift = { index, cardId, hover: -1, boxes: [], lastX: x, lastAt: NaN, from, dimmed, reason: refused ?? '', arrow: null };
     this.showTargets();
-    // Sprint 12: Infiltration's Expose button only opens the pick (a drop there plays nothing).
-    this.lift.boxes = this.activeTargets.map((t) => (t.kind === 'expose_open' ? { x: -1, y: -1, width: 0, height: 0 } : t.marker.box));
+    this.lift.boxes = this.activeTargets.map((t) => t.marker.box);
+    // The strip drops away so the whole table shows; Modded's places are cards in the strip: it stays.
+    if (!this.activeTargets.some((t) => t.kind === 'grip')) hand.minimize(true, MINIMIZE_MS);
     this.applyView(view, false);
-    this.dragMove(p.lastX, p.lastY);
-    // The view fades out (it keeps taking the finger's moves and its release).
-    this.ui.cancel(zoom.root);
-    this.ui.add({ target: zoom.root, to: { alpha: 0 }, duration: VIEW_FADE_MS, ease: ease.linear, owner: zoom.root });
-    this.callbacks.log({ kind: 'card_lift', text: cardId, scheduledMs: VIEW_FADE_MS });
+    this.dragMove(x, y);
+    const zoom = this.zoom;
+    if (zoom?.view) {
+      // The view fades out (a view lift: it keeps taking the finger's moves and its release).
+      this.ui.cancel(zoom.root);
+      this.ui.add({ target: zoom.root, to: { alpha: 0 }, duration: VIEW_FADE_MS, ease: ease.linear, owner: zoom.root });
+    }
+    if (dimmed && refused) this.showHint(refused);
+    this.callbacks.log({ kind: 'card_lift', text: cardId, scheduledMs: VIEW_FADE_MS, ...(at !== undefined ? { inputAt: at } : {}) });
     this.callbacks.changed();
   }
 
-  /** The lifted card follows the finger; the place under it is outlined. */
-  private dragMove(x: number, y: number): void {
+  /** S-15-6: the "Hold to play" tip on the big card (a quick tap there never plays); it fades by itself. */
+  private showTip(inputAt?: number): void {
+    const zoom = this.zoom;
+    const layout = this.layout;
+    if (!zoom?.view || zoom.mode !== 'hand' || !layout) return;
+    this.hideTip();
+    const s = Math.min(Math.max(layout.scale, 0.8), 1.2);
+    const root = new Container();
+    root.label = 'hold-tip';
+    root.eventMode = 'none';
+    const t = new Text({ text: HOLD_TIP, style: { fontFamily: theme.fontFamily, fontSize: Math.max(13, Math.round(15 * s)), fontWeight: '800', fill: 0x140a00 } });
+    t.anchor.set(0.5);
+    const w = Math.round(t.width + 24 * s);
+    const h = Math.max(28, Math.round(t.height + 10 * s));
+    const g = new Graphics();
+    g.roundRect(-w / 2, -h / 2, w, h, h / 2).fill({ color: theme.credit, alpha: 0.96 });
+    glowRoundRect(g, -w / 2, -h / 2, w, h, h / 2, theme.credit, 2, 1);
+    root.addChild(g, t);
+    // Over the lower part of the big card (its art), clear of its name and text box edges.
+    const z = layout.zoom;
+    const cx = Math.round(z.x + z.width / 2);
+    const cy = Math.round(z.y + z.height * 0.42);
+    root.position.set(cx, cy);
+    zoom.root.addChild(root);
+    root.alpha = 0;
+    this.tip = { root, text: HOLD_TIP, box: { x: cx - w / 2, y: cy - h / 2, width: w, height: h } };
+    this.ui.add({ target: root, to: { alpha: 1 }, duration: 80, owner: root });
+    this.ui.add({ target: root, to: { alpha: 0 }, delay: TIP_MS, duration: 200, owner: root, onComplete: () => this.hideTip(root) });
+    this.callbacks.log({ kind: 'hold_tip', text: HOLD_TIP, scheduledMs: 80, ...(inputAt !== undefined ? { inputAt } : {}) });
+  }
+
+  /** Takes the tip away (`only`: just that one, if it is still the tip showing). */
+  private hideTip(only?: Container): void {
+    const tip = this.tip;
+    if (!tip || (only && tip.root !== only)) return;
+    this.tip = null;
+    this.ui.cancel(tip.root);
+    if (!tip.root.destroyed) tip.root.destroy({ children: true });
+  }
+
+  /**
+   * The lifted card follows the finger; the place under it is highlighted strongly. S-15-1: it leans
+   * the way the finger moves (more when faster) and straightens when it stops (`at`: the move's time).
+   */
+  private dragMove(x: number, y: number, at?: number): void {
     const lift = this.lift;
     const layout = this.layout;
     const view = this.view;
     if (!lift || !layout || !view) return;
     const c = layout.card;
     ghostCenter(x, y, c.width, c.height, layout.viewport.width, layout.viewport.height, this.ghostAt);
-    this.hands[view.viewer].dragTo(this.ghostAt.x, this.ghostAt.y);
+    const hand = this.hands[view.viewer];
+    hand.dragTo(this.ghostAt.x, this.ghostAt.y);
+    if (at !== undefined) {
+      const dt = at - lift.lastAt;
+      // Decorative: off where drawing frames is slow (S-05-3 rule).
+      if (dt > 0 && !framesAreSlow()) hand.lean(leanAngle((x - lift.lastX) / dt, hand.liftedRotation(), dt));
+      lift.lastX = x;
+      lift.lastAt = at;
+    }
     const hover = targetAt(x, y, lift.boxes);
     if (hover !== lift.hover) {
       this.activeTargets[lift.hover]?.marker.setHover(false);
       this.activeTargets[hover]?.marker.setHover(true);
       lift.hover = hover;
     }
+    this.updateArrow();
     if (this.callbacks.redraw) this.callbacks.redraw();
     else this.callbacks.changed();
   }
 
+  /** S-15-6 (U9): the arrow from the held card to the hovered lit place's price pill, when it helps (`ARROW`). */
+  private updateArrow(): void {
+    const lift = this.lift;
+    const layout = this.layout;
+    const view = this.view;
+    const g = this.arrowG;
+    const t = lift ? this.activeTargets[lift.hover] : undefined;
+    const card = view && lift ? this.hands[view.viewer].liftedBox() : null;
+    let seg: Segment | null = null;
+    if (lift && layout && card && t && t.option.reject === null && !framesAreSlow()) {
+      const m = t.marker;
+      const pill = { x: m.box.x + m.box.width / 2 + m.pillBox.x + m.pillBox.width / 2, y: m.box.y + m.box.height / 2 + m.pillBox.y + m.pillBox.height / 2 };
+      const others = this.activeTargets.filter((o, i) => i !== lift.hover && o.option.reject === null).map((o) => o.marker.box);
+      seg = arrowFor(card, pill, layout.card.height, others, layout.viewport);
+    }
+    if (lift) lift.arrow = seg;
+    const draw = ARROW && seg !== null;
+    if (!draw) {
+      if (g.visible) {
+        g.clear();
+        g.visible = false;
+      }
+      return;
+    }
+    const { x1, y1, x2, y2 } = seg!;
+    const ang = Math.atan2(y2 - y1, x2 - x1);
+    const head = Math.max(8, Math.round((layout?.card.width ?? 40) * 0.25));
+    const bx = x2 - Math.cos(ang) * head;
+    const by = y2 - Math.sin(ang) * head;
+    g.clear();
+    g.moveTo(x1, y1).lineTo(bx, by).stroke({ width: 6, color: 0x000000, alpha: 0.35 });
+    g.moveTo(x1, y1).lineTo(bx, by).stroke({ width: 3, color: theme.credit, alpha: 0.95 });
+    g.poly([x2, y2, bx + Math.cos(ang + Math.PI / 2) * head * 0.55, by + Math.sin(ang + Math.PI / 2) * head * 0.55, bx - Math.cos(ang + Math.PI / 2) * head * 0.55, by - Math.sin(ang + Math.PI / 2) * head * 0.55]).fill({ color: theme.credit, alpha: 0.95 });
+    g.visible = true;
+  }
+
   /**
-   * The finger let go of a lifted card at x/y. On a lit place: that option's
-   * action (the card waits there for the answer). On a dimmed one: its hint.
-   * Anywhere else (or the touch was cancelled): it flies home and the hand view returns.
+   * The finger let go of a lifted card at x/y. On a lit place: that option's action (the card waits
+   * there for the answer) and the hand comes back up. On a dimmed place, or a dimmed card: its
+   * reason. Anywhere else (or the touch was cancelled): it glides home, the hand comes back up and,
+   * if it was lifted from the hand view, the view returns.
    */
   private dropLift(x: number, y: number, cancelled: boolean): void {
     const lift = this.lift;
     const view = this.view;
     if (!lift || !view) return;
-    const i = cancelled ? -1 : targetAt(x, y, lift.boxes);
+    const i = cancelled || lift.dimmed ? -1 : targetAt(x, y, lift.boxes);
     const target = this.activeTargets[i];
     const hand = this.hands[view.viewer];
     if (target && target.option.reject === null) {
+      this.activeTargets[lift.hover]?.marker.setHover(false);
       this.lift = null;
+      this.updateArrow();
+      hand.park();
+      hand.minimize(false, MINIMIZE_MS);
       this.closeZoom(true);
       this.showTargets();
       this.applyView(view, false);
       // The engine judges it; the play's flight starts where the card was let go.
       this.dropping = true;
+      this.tappedOption = target.option;
       try {
         this.callbacks.onAction(target.option.action);
       } finally {
@@ -4184,6 +4750,7 @@ export class Board {
           this.dropWait = null;
           hand.settle(RETURN_MS);
           this.callbacks.log({ kind: 'card_return', scheduledMs: RETURN_MS });
+          this.callbacks.log({ kind: 'hand_return', scheduledMs: RETURN_MS });
           this.callbacks.changed();
         }, DROP_WAIT_MS);
       }
@@ -4191,12 +4758,14 @@ export class Board {
       return;
     }
     const zoom = this.zoom;
+    const reason = lift.dimmed ? lift.reason : target && target.option.reject !== null ? rejectText(target.option.reject, view, target.option) : '';
     this.cancelLift(RETURN_MS);
-    if (target && target.option.reject !== null) {
-      // A dimmed place: say why, with the board in view.
+    if (reason || lift.from === 'strip' || !zoom?.view) {
+      // A dimmed card or place: say why, with the board in view. From the strip: back to the board.
       this.closeZoom(true);
-      this.showHint(rejectText(target.option.reject, view, target.option));
-    } else if (zoom?.view) {
+      // A dimmed card said why when it lifted (and the help text said it while held): not again.
+      if (reason && !lift.dimmed) this.showHint(reason);
+    } else {
       // Let go elsewhere: the hand view comes back.
       this.ui.cancel(zoom.root);
       this.ui.add({ target: zoom.root, to: { alpha: 1 }, duration: timing.zoomIn, ease: ease.outCubic, owner: zoom.root });
@@ -4204,15 +4773,23 @@ export class Board {
     this.callbacks.changed();
   }
 
-  /** The lifted card goes home over `ms`; its places go dark. */
+  /** The lifted card goes home over `ms`; its places go dark and the hand comes back up. */
   private cancelLift(ms: number): void {
     const lift = this.lift;
     const view = this.view;
     if (!lift) return;
     this.activeTargets[lift.hover]?.marker.setHover(false);
     this.lift = null;
-    if (view) this.hands[view.viewer].settle(ms);
-    if (ms > 0) this.callbacks.log({ kind: 'card_return', scheduledMs: ms });
+    this.updateArrow();
+    if (view) {
+      this.hands[view.viewer].settle(ms);
+      this.hands[view.viewer].minimize(false, ms > 0 ? MINIMIZE_MS : 0);
+    }
+    if (ms > 0) {
+      this.callbacks.log({ kind: 'card_return', scheduledMs: ms });
+      // S-15-1: it glides home (and straightens) instead of jumping.
+      this.callbacks.log({ kind: 'hand_return', scheduledMs: ms });
+    }
     this.showTargets();
     if (view) this.applyView(view, false);
   }
@@ -4236,7 +4813,13 @@ export class Board {
       index: lift.index,
       cardId: lift.cardId,
       box,
+      rotation: this.hands[view.viewer].liftedRotation(),
+      lean: this.hands[view.viewer].lastLean,
       hover: t ? { kind: t.kind, ...(t.server !== undefined ? { server: t.server } : {}), lit: t.option.reject === null } : null,
+      from: lift.from,
+      dimmed: lift.dimmed,
+      reason: lift.reason,
+      arrow: ARROW && lift.arrow ? { ...lift.arrow } : null,
     };
   }
 
@@ -4338,7 +4921,10 @@ export class Board {
     // device a bake in that frame would make the zoom itself late (the held card's
     // own face, first in the list, is already drawn by then). Resumes once it opens.
     const drawnOne = p.ids.length < p.total;
-    if (!this.zoom && drawnOne && performance.now() - p.at > timing.longPress - PREDRAW_QUIET_MS) {
+    // S-15-6: the same while the hand view's big card is pressed, around the moment it lifts.
+    const vp = this.viewPress;
+    const lifting = vp !== null && vp.hit.kind === 'centre' && !vp.swiped && !this.lift && performance.now() - vp.at > HOLD_MS - PREDRAW_QUIET_MS;
+    if ((!this.zoom && drawnOne && performance.now() - p.at > timing.longPress - PREDRAW_QUIET_MS) || lifting) {
       p.frame = requestAnimationFrame(() => this.predrawStep());
       return;
     }

@@ -10,6 +10,7 @@ export type Ease = (t: number) => number;
 export const ease = {
   linear: (t: number) => t,
   outCubic: (t: number) => 1 - Math.pow(1 - t, 3),
+  inCubic: (t: number) => t * t * t,
   inOutCubic: (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2),
   outBack: (t: number) => {
     const c1 = 1.70158;

@@ -1,9 +1,24 @@
 name: ci
 
+# Sprint 15 CI-minutes plan (private repo: 2,000 free minutes a month; a full
+# run bills ~85; DECISIONS 2026-11-20). Nothing a test checks changed; only
+# *when* the slow parts run:
+#  - push to main / sprint-NN: `checks` (lint, typecheck, unit tests, test:dev,
+#    Android bundle — the Definition of Done) on every code change.
+#  - pull_request and manual runs (`gh workflow run ci.yml --ref sprint-NN`):
+#    `checks` + the full e2e suite (4 shards) + guard-mutation.
+#  - docs-only changes run neither (scripts/ci-changes.mjs decides; a docs-only
+#    push is skipped only if the commit before it already passed).
+# Other branches (helpers like sprint-15-ui, and `play`, the play site) start no
+# push run; their pull requests do.
+# `checks` and `e2e` always report (skipped work = success) because branch
+# protection requires them; both fail if `changes` failed.
+
 on:
   pull_request:
   push:
-    branches: ['**']
+    branches: [main, 'sprint-[0-9][0-9]']
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -13,34 +28,83 @@ permissions:
   contents: read
 
 jobs:
+  # What this run must test (code / e2e). Runs before `npm ci`: no dependencies.
+  changes:
+    name: changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      code: ${{ steps.decide.outputs.code }}
+      e2e: ${{ steps.decide.outputs.e2e }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Whole history without file contents: enough for `git diff --name-only`.
+          fetch-depth: 0
+          filter: blob:none
+      - id: decide
+        run: node scripts/ci-changes.mjs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          PR_ACTION: ${{ github.event.action }}
+          BEFORE_SHA: ${{ github.event.before }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+
   # Job ids/names are stable: branch protection requires `checks` and `e2e`.
   checks:
     name: checks
     runs-on: ubuntu-latest
+    needs: changes
+    if: always()
+    env:
+      CODE: ${{ needs.changes.outputs.code }}
     steps:
+      - name: changes job passed
+        run: test "${{ needs.changes.result }}" = "success"
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           # Sprint 6: wrangler 4 (the online service, run by test:dev and the e2e) needs Node >= 22.12.
           node-version: 22
           cache: npm
+      # Sprint 15 (S-15-5): no GitHub Pages, no links needing a GitHub sign-in, every
+      # test step and the e2e plan still here. Runs even for docs-only changes.
+      - run: node scripts/check-workflows.mjs
       - run: npm ci
+        if: env.CODE == 'true'
       - run: npm run lint
+        if: env.CODE == 'true'
       - run: npm run typecheck
+        if: env.CODE == 'true'
       - run: npm test
+        if: env.CODE == 'true'
       # Sprint 6: the real Worker + Durable Object under wrangler dev (offline, no account):
       # two phones play, a third is refused, the game survives a restart.
       - run: npm run test:dev --workspace apps/server
+        if: env.CODE == 'true'
       # S-04-1/S-04-2: the Android app's web bundle builds and has no test hook,
       # no rotate prompt and no internet URLs (scripts/check-android-bundle.mjs).
       - run: npm run build:android --workspace apps/client
+        if: env.CODE == 'true'
       - run: npm run check:android --workspace apps/client
+        if: env.CODE == 'true'
+      - name: Docs-only change
+        if: env.CODE != 'true'
+        run: echo "::notice title=checks skipped::Docs-only change; the commit before it already passed. Only check-workflows ran."
 
   # The screen tests are split into 4 pieces that run at the same time
   # (one full pass took ~22 min on one machine). DECISIONS 2026-11-13.
+  # Sprint 15: on pull requests and manual runs only (see the top).
   e2e-shard:
     name: e2e shard ${{ matrix.shard }}/4
     runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.e2e == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -53,8 +117,15 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      # Sprint 15: the browser download is cached (key = the lockfile, which pins Playwright).
+      - name: Playwright browser cache
+        id: pw-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
       - name: Install Playwright browser
-        if: hashFiles('apps/client/package.json') != ''
+        if: steps.pw-cache.outputs.cache-hit != 'true'
         # Ubuntu mirrors are sometimes unreachable from runners; the runner image
         # already has Chromium's system libraries, so fall back to browser-only.
         run: npx playwright install --with-deps chromium || npx playwright install chromium
@@ -68,17 +139,23 @@ jobs:
           path: apps/client/playwright-report
           retention-days: 7
 
-  # Keeps the required check named `e2e`: green only if every shard is green.
+  # Keeps the required check named `e2e`: when e2e was due, green only if every
+  # shard is green; otherwise green with a note (pushes and docs-only changes).
   e2e:
     name: e2e
     runs-on: ubuntu-latest
-    needs: e2e-shard
+    needs: [changes, e2e-shard]
     if: always()
     steps:
       - name: All e2e shards passed
         run: |
-          echo "shards: ${{ needs.e2e-shard.result }}"
-          test "${{ needs.e2e-shard.result }}" = "success"
+          echo "changes: ${{ needs.changes.result }}, e2e due: ${{ needs.changes.outputs.e2e }}, shards: ${{ needs.e2e-shard.result }}"
+          test "${{ needs.changes.result }}" = "success"
+          if [ "${{ needs.changes.outputs.e2e }}" = "true" ]; then
+            test "${{ needs.e2e-shard.result }}" = "success"
+          else
+            echo "::notice title=e2e not run::The full e2e suite runs on pull requests and manual runs (gh workflow run ci.yml --ref <branch>), not on pushes or docs-only changes."
+          fi
 
   # S-03-6: the End turn double-tap-guard e2e must still fail when the guard is
   # broken (guard 0ms, judged by handling time, check removed). Builds each
@@ -86,6 +163,8 @@ jobs:
   guard-mutation:
     name: guard-mutation
     runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.e2e == 'true'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -94,6 +173,13 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - name: Playwright browser cache
+        id: pw-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
       - name: Install Playwright browser
+        if: steps.pw-cache.outputs.cache-hit != 'true'
         run: npx playwright install --with-deps chromium || npx playwright install chromium
       - run: npm run test:guard-mutation

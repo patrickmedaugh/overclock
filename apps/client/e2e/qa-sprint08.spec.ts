@@ -521,7 +521,7 @@ test.describe('QA S-08-4 Kate cards', () => {
     await shot(page, '22-sure-gamble-9');
   });
 
-  test('four memory used: the next program is dimmed "Not enough memory" and a tap says so', async ({ page }) => {
+  test('four memory used: the next program lifts dimmed and says "Not enough memory"', async ({ page }) => {
     // QA planner: the Runner installs programs (never Akamatsu), plays money, draws; the Corp takes credits.
     const seed = 3;
     const runner = (v: PlayerView): Action => {
@@ -543,12 +543,12 @@ test.describe('QA S-08-4 Kate cards', () => {
     const v = await getView(page);
     expect(v.memory).toMatchObject({ limit: 4 });
     const idx = v.handOptions.findIndex((os) => os.some((o) => o.action.type === 'install' && o.reject === 'no_memory'));
+    // S-15-6: its only place is refused: held up it lifts dimmed, nothing lit, and says why.
+    await page.evaluate(() => window.__overclock!.clearAnims());
     let l = await pickHand(page, idx);
-    const t = l.targets.find((x) => x.kind === 'install')!;
-    expect(t).toMatchObject({ lit: false, reject: 'no_memory' });
-    await tap(page, t.box);
+    expect(l.targets).toEqual([]);
+    expect((await page.evaluate(() => window.__overclock!.anims())).filter((a) => a.kind === 'hint').map((a) => a.text)).toContain('Not enough memory');
     l = await waitIdle(page);
-    expect(l.hint?.text).toBe('Not enough memory');
     expect(JSON.stringify((await getView(page)).rig)).toBe(JSON.stringify(v.rig));
     test.info().annotations.push({ type: 'memory', description: `${l.memory.text}; refused ${getCard(v.players.runner.hand![idx]!)!.name}` });
     await shot(page, '23-not-enough-memory');

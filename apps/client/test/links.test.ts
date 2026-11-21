@@ -15,3 +15,14 @@ describe('join links', () => {
     expect(shareLink('K7QF', { native: true, page: 'https://localhost/', webUrl: '' })).toBeNull();
   });
 });
+
+describe('Sprint 15: the Netlify play link', () => {
+  it('the app shares the new play link (https://overcloc.netlify.app), never the old GitHub one', () => {
+    const url = shareLink('K7QF', { native: true, page: 'https://localhost/', webUrl: 'https://overcloc.netlify.app/' });
+    expect(url).toBe('https://overcloc.netlify.app/?join=K7QF');
+    expect(url).not.toContain('github.io');
+  });
+  it('the play site shares its own address', () => {
+    expect(shareLink('K7QF', { native: false, page: 'https://overcloc.netlify.app/?seed=3', webUrl: 'https://overcloc.netlify.app/' })).toBe('https://overcloc.netlify.app/?join=K7QF');
+  });
+});

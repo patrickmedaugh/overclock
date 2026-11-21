@@ -1,7 +1,7 @@
 import type { Side } from '@overclock/engine';
 import { describe, expect, it } from 'vitest';
 import type { Box, Insets } from '../src/hook-types';
-import { type BoardLayout, type BoardShape, COMPACT_PILL, EMPTY_SHAPE, MIN_TOUCH, computeLayout, handSlots, nearestSlot } from '../src/layout';
+import { type BoardLayout, type BoardShape, COMPACT_PILL, EMPTY_SHAPE, MIN_TOUCH, computeLayout, handSlots, nearestSlot, playZoneOf } from '../src/layout';
 
 /** S-02-5: 3 remotes with 2 ICE each (plus an asset/agenda), ICE on the centrals too, 4 Runner installs. */
 const BUSY: BoardShape = {
@@ -604,5 +604,27 @@ describe('nearestSlot (S-04-3 hold and slide)', () => {
     const two: Box[] = [...row, ...[0, 50].map((x) => ({ x, y: 400, width: 60, height: 84 }))];
     expect(nearestSlot(two, 30, 440)).toBe(4);
     expect(nearestSlot(two, 30, 330)).toBe(0);
+  });
+});
+
+describe('playZone (S-15-6: where a held one-shot card is dropped)', () => {
+  it.each([
+    [891, 296],
+    [844, 390],
+    [640, 360],
+    [1280, 800],
+  ])('%ix%i: the table above the hand, left of the rail, inside the safe area', (w, h) => {
+    for (const viewer of ['corp', 'runner'] as const) {
+      const l = computeLayout(w, h, {}, { viewer });
+      const z = l.playZone;
+      expect(z).toEqual(playZoneOf(l));
+      expect(z.x).toBe(l.board.x);
+      expect(z.width).toBe(l.board.width - 10);
+      expect(z.y).toBe(l.board.y);
+      expect(z.y + z.height).toBeLessThanOrEqual(l.handArea.y + 0.5);
+      expect(z.height).toBeGreaterThan(l.card.height);
+      expect(z.x + z.width).toBeLessThanOrEqual(l.safe.x + l.safe.width + 0.5);
+      if (l.mode === 'landscape') expect(z.x + z.width).toBeLessThanOrEqual(l.banner.x + 0.5);
+    }
   });
 });

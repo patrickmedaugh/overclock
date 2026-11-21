@@ -20,8 +20,8 @@ import {
   targetOf,
   toStep,
   waitIdle,
-  outsideHandView,
   pickHand,
+  emptySpot,
 } from './helpers';
 import { pixelStats } from './pixels';
 
@@ -77,7 +77,7 @@ async function bigHand(page: Page, n: number): Promise<void> {
 }
 
 test.describe('QA S-04-3 hold and slide', () => {
-  test('crowded hand (9 cards): every card can be reached by sliding; outline and zoom match; y does not matter', async ({ page }) => {
+  test('crowded hand (9 cards): every card can be reached by sliding; outline and zoom match; y within the hand does not matter', async ({ page }) => {
     await openBoard(page, 3);
     await bigHand(page, 9);
     const l = await layout(page);
@@ -86,11 +86,10 @@ test.describe('QA S-04-3 hold and slide', () => {
     const h = await hold(page, hand[0]!.box);
     await waitZoom(page, hand[0]!.cardId);
     // Distinct card ids only identify a slot when unique; check outline index (slot) every time.
-    const vh = page.viewportSize()!.height;
     for (let k = 1; k < hand.length; k++) {
       const c = center(hand[k]!.box);
-      // Finger far above the hand (middle of the board): only x counts.
-      await h.move(c.x, k % 2 ? vh / 2 : c.y);
+      // Finger high or low on the hand cards: only x counts. (S-15-6: leaving the hand upward picks the card up.)
+      await h.move(c.x, k % 2 ? hand[k]!.box.y + 2 : c.y);
       await page.waitForFunction((n) => window.__overclock!.layout().hand.findIndex((x) => x.outlined) === n, k);
       expect(await zoomId(page)).toBe(hand[k]!.cardId);
       if (k === 4) await shot(page, '01-slide-crowded-hand');
@@ -105,7 +104,7 @@ test.describe('QA S-04-3 hold and slide', () => {
     await page.waitForFunction(() => window.__overclock!.layout().zoom === null);
   });
 
-  test('lifting over a server or End turn after sliding plays, picks and spends nothing', async ({ page }) => {
+  test('S-15-6: after sliding, leaving the hand upward picks up the card read; let go off every place plays, picks and spends nothing', async ({ page }) => {
     await openBoard(page, 1);
     const l = await layout(page);
     const before = await getView(page);
@@ -113,24 +112,23 @@ test.describe('QA S-04-3 hold and slide', () => {
     await waitZoom(page, l.hand[1]!.cardId);
     await h.move(center(l.hand[3]!.box).x, center(l.hand[3]!.box).y);
     await waitZoom(page, l.hand[3]!.cardId);
-    // Drag up over the HQ column, then over End turn, and lift there.
+    // Drag up over the HQ column (out of the hand: the card read lifts), then away from every place, and let go there.
     const hq = l.servers.find((s) => s.id === 'hq')!;
     await h.move(center(hq.box).x, center(hq.box).y);
-    if (l.endTurn) await h.move(center(l.endTurn.box).x, center(l.endTurn.box).y);
+    await page.waitForFunction(() => window.__overclock!.layout().drag !== null);
+    expect((await layout(page)).drag).toMatchObject({ index: 3, cardId: l.hand[3]!.cardId, from: 'strip' });
+    // Let go off every lit place (on desktop the End turn spot can sit inside a lit server column).
+    const away = center(emptySpot(await layout(page)));
+    await h.move(away.x, away.y);
     await h.release();
-    // S-07-6: the hold opened the hand view, which stays open after lifting (nothing lifted out of it),
-    // on the card the slide reached last (the finger kept sliding over HQ and End turn).
-    await page.waitForFunction(() => window.__overclock!.layout().handView?.lifted === false);
+    await page.waitForFunction(() => window.__overclock!.layout().drag === null && !window.__overclock!.layout().handMinimized);
     await page.waitForTimeout(400);
     const after = await layout(page);
     expect(after.selected).toBeNull();
     expect(after.targets).toEqual([]);
-    expect(after.drag).toBeNull();
+    expect(after.handView).toBeNull();
     expect(await getView(page)).toEqual(before);
-    // A tap outside the cards closes the view and does nothing else; a pick right after still works.
-    await tap(page, outsideHandView(after));
-    await page.waitForFunction(() => window.__overclock!.layout().handView === null);
-    expect(await getView(page)).toEqual(before);
+    // A pick right after still works.
     const v = await getView(page);
     const i = v.handOptions.findIndex((o) => o.some((x) => x.reject === null));
     await pickHand(page, i);

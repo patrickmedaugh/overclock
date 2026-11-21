@@ -42,6 +42,11 @@ export type Presentation =
       next: Side;
       nextView: PlayerView;
       nextEvents: GameEvent[];
+      /**
+       * Sprint 15 (S-15-2): the next seat's own projection of the actor's whole turn (pass-the-phone;
+       * not saved), so the cards the other player installed or played fly in once the board shows.
+       */
+      missedEvents?: GameEvent[];
     };
 
 /** How the game is connected. A pass-the-phone game is always `local`. */

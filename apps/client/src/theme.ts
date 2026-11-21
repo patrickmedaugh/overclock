@@ -35,7 +35,7 @@ export function sideDeep(side: Side): number {
 
 /** Timing budget (ms). Nothing here may block input; see CLAUDE.md snappiness budget. */
 export const timing = {
-  drawFlight: 250,
+  drawFlight: 240,
   handShift: 180,
   pressFeedback: 60,
   zoomIn: 120,
@@ -46,8 +46,12 @@ export const timing = {
   hintFade: 200,
   creditPop: 200,
   creditFloat: 300,
-  /** Hand-limit discards fly to the pile; each extra card starts this much later. */
-  discardFlight: 180,
+  /**
+   * Hand-limit discards fly to the pile (the ripple gap is `MOTION.turnStagger`). The board turns
+   * over only once they land, so this flight stands between Confirm and the next turn: 4 cards
+   * land by 3 x 15 + 130 = 175 ms (Sprint 14: 210). DECISIONS 2026-11-20 (ui-dev, turn-change ripple).
+   */
+  discardFlight: 130,
   discardStagger: 10,
   /** The board fades in for the new seat after a turn change. */
   flip: 200,

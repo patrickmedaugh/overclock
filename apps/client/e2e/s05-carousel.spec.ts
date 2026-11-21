@@ -157,7 +157,7 @@ test.describe('S-05-3 hand carousel', () => {
     expect(await getView(page)).toEqual(before);
   });
 
-  test('a quick tap on a hand card opens the hand view with its carousel; a tap on the big card picks it', async ({ page }) => {
+  test('a quick tap on a hand card opens the hand view with its carousel; holding the big card picks it up', async ({ page }) => {
     await openBoard(page, 1);
     const l = await layout(page);
     const n = l.hand.length;
@@ -168,8 +168,10 @@ test.describe('S-05-3 hand carousel', () => {
     await page.waitForFunction((k) => window.__overclock!.layout().handView?.index === k, i);
     expect(slots(await zoomNow(page))).toEqual(expected(i, n));
     expect((await layout(page)).selected).toBeNull();
-    await tap(page, (await layout(page)).handView!.centre);
+    // S-15-6: a tap there only reads ("Hold to play"); a hold picks it up and the view fades away.
+    const h = await holdAt(page, (await layout(page)).handView!.centre);
     await page.waitForFunction((k) => window.__overclock!.layout().selected === k, i);
-    expect((await layout(page)).zoom).toBeNull();
+    await page.waitForFunction(() => window.__overclock!.layout().zoom === null);
+    await h.cancel!();
   });
 });

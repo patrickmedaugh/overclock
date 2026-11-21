@@ -10,11 +10,16 @@ import {
   layout,
   openBoard,
   passTurn,
+  handIndexByName,
+  center,
+  dragTo,
+  holdAt,
   pickCard,
   tap,
   targetOf,
   toRunnerTurn,
   waitIdle,
+  liftRefused,
 } from './helpers';
 
 /** Readable hint text on a phone (CSS px). */
@@ -44,8 +49,8 @@ test.describe('QA-S2-1 hints are readable and clear of the board', () => {
     // Sprint 3: no card says "Needs runs" any more; Neural EMP's refusal is the long hint now (seed 14).
     await openBoard(page, 14);
     await page.evaluate(() => window.__overclock!.clearAnims());
-    let l = await pickCard(page, 'Neural EMP');
-    await tap(page, targetOf(l, 'play').box);
+    // S-15-6: a card that can't be played lifts dimmed and says why.
+    await liftRefused(page, 'Neural EMP');
     await check();
 
     await openBoard(page, 5); // Runner: Ninja, Corroder (seed re-picked for the 17-card Corp deck)
@@ -53,13 +58,11 @@ test.describe('QA-S2-1 hints are readable and clear of the board', () => {
     await page.evaluate(() => window.__overclock!.clearAnims());
     await dispatch(page, { type: 'draw', player: 'corp' });
     await check();
-    l = await pickCard(page, 'Ninja');
+    const l = await pickCard(page, 'Ninja');
     await tap(page, targetOf(l, 'install').box);
     await waitIdle(page);
-    l = await pickCard(page, 'Corroder');
-    await tap(page, targetOf(l, 'install').box);
+    await liftRefused(page, 'Corroder');
     await check();
-    await tap(page, l.hand[l.selected!]!.box);
     for (let i = 0; i < 4; i++) await dispatch(page, { type: 'gain_credit', player: 'runner' });
     await check();
     expect(seen).toEqual(['Only after the Runner made a run', 'Not your turn', 'Not enough credits', 'No clicks left']);
@@ -87,14 +90,20 @@ test.describe('QA-S2-1 hints are readable and clear of the board', () => {
     await openBoard(page, 14);
     const l0 = await layout(page);
     test.skip(l0.viewport.height > 500, 'sideways phones only (the column layout has its own hint slot)');
-    const help = 'Tap a lit spot to play it.\nTap the card again to cancel.';
-    const picked = await pickCard(page, 'Neural EMP');
-    await tap(page, targetOf(picked, 'play').box);
+    const help = l0.text.help;
+    expect(help).not.toBe('');
+    // S-15-6: Neural EMP can't be played yet: held up, it lifts dimmed and says why; let go, it goes back.
+    const box = l0.hand[handIndexByName(l0, 'Neural EMP')]!.box;
+    const start = center(box);
+    const h = await holdAt(page, box);
+    await dragTo(h, start, { x: start.x, y: box.y - box.height * 0.3 }, 3);
+    await page.waitForFunction(() => window.__overclock!.layout().drag?.dimmed === true);
     const l = await layout(page);
     expect((await anims(page)).find((a) => a.kind === 'hint')?.text).toBe('Only after the Runner made a run');
+    expect(l.hint?.text).toBe('Only after the Runner made a run');
     expect(l.labels).not.toContain(help);
-    await page.waitForFunction(() => window.__overclock!.layout().hint !== null, undefined, { timeout: 3000 });
-    expect((await layout(page)).labels).not.toContain(help);
+    await dragTo(h, { x: start.x, y: box.y - box.height * 0.3 }, start, 2);
+    await h.release();
     // Back once the hint has faded (about 1.4s).
     await page.waitForFunction((t) => window.__overclock!.layout().hint === null && window.__overclock!.layout().labels.includes(t), help, { timeout: 3000 });
   });
