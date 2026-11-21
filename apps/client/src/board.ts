@@ -4694,9 +4694,8 @@ export class Board {
     if (reason || lift.from === 'strip' || !zoom?.view) {
       // A dimmed card or place: say why, with the board in view. From the strip: back to the board.
       this.closeZoom(true);
-      // A dimmed card already says why since it lifted: said again only if that line has faded.
-      const showing = lift.dimmed && this.hint?.text === reason && !this.hint.root.destroyed;
-      if (reason && !showing) this.showHint(reason);
+      // A dimmed card said why when it lifted (and the help text said it while held): not again.
+      if (reason && !lift.dimmed) this.showHint(reason);
     } else {
       // Let go elsewhere: the hand view comes back.
       this.ui.cancel(zoom.root);

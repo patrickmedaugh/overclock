@@ -22,6 +22,7 @@ import {
   liftHand,
   openBoard,
   openHand,
+  outsideHandView,
   pickHand,
   tap,
   toRunnerTurn,
@@ -231,9 +232,9 @@ test.describe('S-07-6 hand: tap to open, long-press to light places, drag to pla
     expect(lifted.targets).toEqual([]);
     await dragTo(hold, center(lifted.handView!.centre), awaySpot(lifted), 6);
     await hold.release();
-    await page.waitForFunction(() => window.__overclock!.layout().hint !== null);
+    await page.waitForFunction(() => window.__overclock!.layout().drag === null);
     const l = await layout(page);
-    expect(l.hint!.text).toBe('Not enough credits');
+    expect((await anims(page)).filter((a) => a.kind === 'hint').map((a) => a.text)).toEqual(['Not enough credits']);
     expect(l.drag).toBeNull();
     expect(l.handView).toBeNull();
     expect(await getView(page)).toEqual(v);
@@ -260,8 +261,12 @@ test.describe('S-07-6 hand: tap to open, long-press to light places, drag to pla
     await openBoard(page, 1);
     const before = await getView(page);
     const open = await openHand(page, 0);
-    // R&D (a tap there would draw a card) is outside the cards.
-    await tap(page, open.corp.deck);
+    // R&D (a tap there would draw a card) is outside the cards on phones; on desktop the big card
+    // covers it (S-15-6: a tap there is the "Hold to play" tip), so a corner outside the cards is used.
+    const c = open.handView!.centre;
+    const d = open.corp.deck;
+    const covered = d.x < c.x + c.width && c.x < d.x + d.width && d.y < c.y + c.height && c.y < d.y + d.height;
+    await tap(page, covered ? outsideHandView(open) : d);
     await page.waitForFunction(() => window.__overclock!.layout().handView === null);
     await page.waitForTimeout(200);
     expect(await getView(page)).toEqual(before);

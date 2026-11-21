@@ -90,9 +90,12 @@ test.describe('S-15-4 never slower than today', () => {
       w.__gap = 0;
       window.addEventListener('pointerdown', (e) => (w.__down = e.timeStamp), { capture: true, once: true });
       let last = performance.now();
+      const f = window as unknown as { __frames: number[] };
+      f.__frames = [];
       const loop = (t: number) => {
         w.__gap = Math.max(w.__gap, t - last);
         last = t;
+        f.__frames.push(t);
         requestAnimationFrame(loop);
       };
       requestAnimationFrame(loop);
@@ -113,7 +116,11 @@ test.describe('S-15-4 never slower than today', () => {
     expect(press.scheduledMs).toBeLessThanOrEqual(100);
     // Lifts at 0.25 s after the finger went down (never before; late only by a frame the runner was drawing).
     expect(lift.startedAt - down).toBeGreaterThanOrEqual(245);
-    expect(lift.startedAt - down).toBeLessThan(250 + 100 + gap);
+    // On time: within a tenth of a second of 0.25 s, or, where the page draws slowly, on the first or
+    // second frame after it (a late timer waits one frame on purpose, QA-S3-7).
+    const frames = await page.evaluate(() => (window as unknown as { __frames: number[] }).__frames);
+    const after = frames.filter((t) => t >= down + 250);
+    expect(lift.startedAt, 'lifted on time').toBeLessThanOrEqual(Math.max(down + 350, (after[1] ?? Infinity) + 100));
     // Drop it on a lit place: the hand comes back and the next tap is answered at once.
     const l = await layout(page);
     const t = l.targets.find((x) => x.lit)!;

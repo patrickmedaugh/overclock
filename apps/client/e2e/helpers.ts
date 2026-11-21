@@ -685,8 +685,7 @@ export async function liftRefused(page: Page, name: string): Promise<{ l: Layout
   const hints = recs.filter((a) => a.kind === 'hint');
   expect(hints.length, `${name} says why`).toBeGreaterThan(0);
   expect(hints[0]!.startedAt - lift!.startedAt, 'at once').toBeLessThan(100);
-  // Once each (said again on letting go only if a slow page let it fade meanwhile).
-  return { l, hints: [...new Set(hints.map((h) => h.text!))] };
+  return { l, hints: hints.map((h) => h.text!) };
 }
 
 /** S-07-6: a spot outside the open hand view's cards (its top-left corner): a tap there closes the view. */

@@ -73,6 +73,31 @@ function offPlaces(l: LayoutSnapshot): { x: number; y: number } {
   return { x: Math.min(p.x, l.viewport.width - 4), y: p.y };
 }
 
+/**
+ * A quick press-move-release from `a` to `b` in `steps` moves, all sent at once and stamped 30 ms
+ * apart (the page judges a press by its events' times, so a busy page sees the flick that was made).
+ */
+async function flick(page: Page, a: { x: number; y: number }, b: { x: number; y: number }, steps: number): Promise<void> {
+  const cdp = await page.context().newCDPSession(page);
+  const t0 = Date.now() / 1000;
+  const touch = test.info().project.use.hasTouch === true;
+  const at = (k: number) => ({ x: a.x + ((b.x - a.x) * k) / steps, y: a.y + ((b.y - a.y) * k) / steps });
+  const sent: Promise<unknown>[] = [];
+  for (let k = 0; k <= steps + 1; k++) {
+    const p = at(Math.min(k, steps));
+    const timestamp = t0 + k * 0.03;
+    if (touch) {
+      const type = k === 0 ? 'touchStart' : k <= steps ? 'touchMove' : 'touchEnd';
+      sent.push(cdp.send('Input.dispatchTouchEvent', { type, touchPoints: type === 'touchEnd' ? [] : [p], timestamp }));
+    } else {
+      const type = k === 0 ? 'mousePressed' : k <= steps ? 'mouseMoved' : 'mouseReleased';
+      sent.push(cdp.send('Input.dispatchMouseEvent', { type, x: p.x, y: p.y, button: 'left', buttons: type === 'mouseReleased' ? 0 : 1, clickCount: 1, timestamp }));
+    }
+  }
+  await Promise.all(sent);
+  await cdp.detach();
+}
+
 /** Pointer down event times on the page (for "lifted 0.25 s after the finger went down"). */
 async function watchDowns(page: Page): Promise<void> {
   await page.evaluate(() => {
@@ -86,9 +111,12 @@ async function watchDowns(page: Page): Promise<void> {
     const g = window as unknown as { __gap: number };
     g.__gap = 0;
     let last = performance.now();
+    const f = window as unknown as { __frames: number[] };
+    f.__frames = [];
     const loop = (t: number) => {
       g.__gap = Math.max(g.__gap, t - last);
       last = t;
+      f.__frames.push(t);
       requestAnimationFrame(loop);
     };
     requestAnimationFrame(loop);
@@ -121,11 +149,11 @@ test.describe('S-15-6 hold a card to play it', () => {
     const open = await openHand(page, 1);
     await page.evaluate(() => window.__overclock!.clearAnims());
     const c = center(open.handView!.centre);
-    const h = await holdAt(page, open.handView!.centre);
-    // A slightly rising sideways flick (well outside the 40° cone) is still a browse.
-    await dragTo(h, c, { x: c.x - open.handView!.centre.width * 0.7, y: c.y - 14 }, 6);
+    // A slightly rising sideways flick (well outside the 40° cone) is still a browse. Sent as one
+    // quick gesture stamped 30 ms apart (a slowed-down page must not see a pause the finger never made).
+    const to = { x: c.x - open.handView!.centre.width * 0.7, y: c.y - 14 };
+    await flick(page, c, to, 6);
     await page.waitForFunction(() => (window.__overclock!.layout().handView?.index ?? 0) >= 2);
-    await h.release();
     const l = await layout(page);
     expect(l.drag).toBeNull();
     expect(l.targets).toEqual([]);
@@ -151,7 +179,14 @@ test.describe('S-15-6 hold a card to play it', () => {
     const gap = await frameGap(page);
     test.info().annotations.push({ type: 'lift-ms', description: `${(lift.startedAt - down).toFixed(1)} (longest frame ${gap.toFixed(1)})` });
     expect(lift.startedAt - down).toBeGreaterThanOrEqual(250 - 5);
-    expect(lift.startedAt - down).toBeLessThan(250 + 100 + gap);
+    // On time: within a tenth of a second of 0.25 s, or, where the page draws slowly, on the first or
+    // second frame after it (a late timer waits one frame on purpose so a quick release queued
+    // meanwhile stays a tap, QA-S3-7). On a phone a frame is ~16 ms; a GPU-less 6x-slowed runner
+    // draws one in up to ~400 ms.
+    const frames = await page.evaluate(() => (window as unknown as { __frames: number[] }).__frames);
+    const after = frames.filter((t) => t >= down + 250);
+    const due = Math.max(down + 350, (after[1] ?? Infinity) + 100);
+    expect(lift.startedAt, 'lifted on time').toBeLessThanOrEqual(due);
     await page.waitForTimeout(200);
     const l = await layout(page);
     expect(l.drag).toMatchObject({ index: i, from: 'view', dimmed: false });
@@ -380,7 +415,7 @@ test.describe('S-15-6 hold a card to play it', () => {
     expect(l.drag).toMatchObject({ index: 0, dimmed: true, reason: 'No clicks left' });
     expect(l.targets).toEqual([]);
     expect(l.selected).toBeNull();
-    expect(l.hint?.text).toBe('No clicks left');
+    expect((await anims(page)).find((a) => a.kind === 'hint')?.text, 'says why at the lift').toBe('No clicks left');
     await dragTo(hold, at, { x: at.x, y: at.y - 60 }, 3);
     await hold.release();
     await waitHandBack(page);
