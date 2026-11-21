@@ -12,6 +12,14 @@ import { GlLimitsSystem } from 'pixi.js';
  */
 export const MAX_BATCH_TEXTURES = 4;
 
+/**
+ * The Pixi version this cap was checked against (DECISIONS 2026-11-21): the wrapper relies on
+ * `GlLimitsSystem.contextChange` setting `maxBatchableTextures`, which a Pixi update could move
+ * without any type error. A unit test fails when the installed Pixi differs, so an upgrade
+ * re-checks the cap (unit test + the e2e shader check in s15-snappy) and then bumps this.
+ */
+export const VERIFIED_PIXI = '8.23.0';
+
 let capped = false;
 
 /** Call once before the renderer is created; also holds after a lost GPU context is restored. */
@@ -19,8 +27,8 @@ export function capBatchTextures(): void {
   if (capped) return;
   capped = true;
   const contextChange = GlLimitsSystem.prototype.contextChange;
-  GlLimitsSystem.prototype.contextChange = function (this: GlLimitsSystem): void {
-    contextChange.call(this);
+  GlLimitsSystem.prototype.contextChange = function (this: GlLimitsSystem, ...args: unknown[]): void {
+    (contextChange as (...a: unknown[]) => void).apply(this, args);
     this.maxBatchableTextures = Math.min(this.maxBatchableTextures, MAX_BATCH_TEXTURES);
   };
 }

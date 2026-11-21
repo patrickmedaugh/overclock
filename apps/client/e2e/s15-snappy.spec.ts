@@ -135,6 +135,33 @@ test.describe('S-15-4 never slower than today', () => {
   });
 });
 
+// QA S-15-6 AC12 / QA-S15-3 (DECISIONS 2026-11-21): Pixi's batch shader is built with at most
+// MAX_BATCH_TEXTURES (src/gpuLimits.ts) texture slots in the real browser. Read from the shader
+// source the page hands to WebGL (no test hook): a Pixi update that moves where the limit is set
+// would silently drop the cap; this fails instead.
+const BATCH_CAP = 4; // = MAX_BATCH_TEXTURES
+test('the batch shader uses at most the capped number of texture slots', async ({ page }) => {
+  await page.addInitScript(() => {
+    const w = window as unknown as { __slots: number[] };
+    w.__slots = [];
+    for (const C of [WebGL2RenderingContext, WebGLRenderingContext]) {
+      const p = C.prototype;
+      const orig = p.shaderSource;
+      p.shaderSource = function (this: WebGLRenderingContext, shader: WebGLShader, src: string) {
+        const m = /uniform\s+sampler2D\s+uTextures\[(\d+)\]/.exec(src);
+        if (m) w.__slots.push(Number(m[1]));
+        return orig.call(this, shader, src);
+      };
+    }
+  });
+  await openBoard(page, 1);
+  await waitIdle(page);
+  const slots = await page.evaluate(() => (window as unknown as { __slots: number[] }).__slots);
+  test.info().annotations.push({ type: 'batch-slots', description: JSON.stringify(slots) });
+  expect(slots.length, 'a batch shader was built').toBeGreaterThan(0);
+  expect(slots.every((n) => n === BATCH_CAP), `every batch shader has ${BATCH_CAP} slots`).toBe(true);
+});
+
 /** The Runner plays what the view offers first (install or play), then draws. */
 async function toRunnerOptions(page: Page): Promise<void> {
   const v = await getView(page);
