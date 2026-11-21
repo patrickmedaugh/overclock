@@ -135,3 +135,92 @@ Scope: verify the fix for QA-S15-1 and record the owner's report on the live sit
 | S-15-5 Play link and app download with a private repo | **PASSED QA** for everything checkable here (no failing check, play branch contents and download, app share link). **Live play link: owner confirmed after switching Netlify to `play` (owner-reported).** Still owner demo checks: installing the app over the old one with decks/saves kept, **Play online** on the live link, and the Sprint 15 demo-note links without GitHub sign-in (the demo notes do not exist yet) |
 
 **Bugs open: none.** QA-S15-1 is fixed (975075d). The observations from round 1 still stand.
+
+## Round 3 (2026-11-21, S-15-6 "Hold a card to play it"; product code at e6c4266, branch head fc13c14 adds only DECISIONS/STATE)
+
+QA did not write the S-15-6 code. Every S-15-6 criterion was checked with QA's own tests (new section "QA S-15-6" in `apps/client/e2e/qa-sprint15.spec.ts`), which deliberately do **not** use the developers' `pickHand`/`pickCard` helpers: QA drives its own touch / mouse gestures through the browser (CDP), works out the lit places from the **card type and the board** (not from the game's own option list), compares every drop with the engine applying the same option directly, records every frame inside the page (held card, lit places, hand strip position, frame length) and times everything from the browser's own input stamps.
+
+**Result: S-15-6 does NOT fully pass QA: 11 of 12 criteria pass (AC9 on intent, with a wording question for the PM); AC1 fails in one case (bug QA-S15-2: on a busy page a quick sideways flick can pick the card up and even play it). S-15-1..S-15-5 still pass where hold-to-play touched them.**
+
+### QA's tests (new in this round, 22 tests x 4 sizes; in `SHORT_SPECS` so 891x296 runs too)
+| Test (qa-sprint15.spec.ts › "QA S-15-6 …") | What it checks |
+|---|---|
+| AC1: sideways flicks in the hand view … | 5 flicks (flat left/right, rising 30° and 45°, falling 30°), stamped 25 ms apart: each browses (index moves), no frame ever shows a held card, lit place or dropped hand, no `card_lift`, game unchanged |
+| QA-S15-2 repro (gated: `QA_REPRO=1`) | the bug below; skipped in CI until the fix |
+| AC1/2: a sideways slide along the small hand … | no pick-up, nothing lit |
+| AC2: held still … lifts at 0.25 s … | lift ≥ 245 ms after the browser's down stamp and on time (architect's frame rule); no frame held before 0.25 s; card stays under the finger at 3 spots; big view gone; every other hand card below the screen; `hand_minimize` ≤ 120 ms |
+| AC2: an upward drag on the big card … | 25° off vertical, made 40 ms after the down: lifted on that move (< 100 ms after the page handled it) |
+| AC2: straight up out of the small hand … | a still hold on the strip reads big and never picks up; straight up picks up, the hand view never opens, the rest of the hand drops off screen |
+| AC3: every place … lights in the same frame … | 9 card types, Corp and Runner (upgrade, ICE, operation, asset, agenda, event, resource, hardware, program): the lit set equals QA's expectation from the type (ICE/upgrade: HQ, R&D, Archives, remotes, new server; asset/agenda: remotes + new server; programs/hardware/resources: the rig; events/operations: the table); all lit in the lift's first frame; all on screen; no two lit places overlap |
+| AC4/5: over each lit place in turn … | Ice Wall with a remote on the board: over each of the 5 places only that one is strongly highlighted, off it none; `drag.arrow` null at every hover |
+| AC6 (6 tests) | drop on a lit place = the engine applying the same option to the same deal (whole game view equal): Corp ICE onto R&D that already has ICE (−1 credit), asset to a new server, upgrade into HQ (dragged up in the hand view), Hedge Fund on the table (+4), Runner Gordian Blade on the rig (−4), Easy Mark on the table (+3); picked up 3 ways (strip, still hold, drag up); it flies and lands; hand back (`hand_restore` 120 ms); every record ≤ 600 ms |
+| AC7 | let go on empty table, at the bottom edge where the hand was, on a dimmed place (R&D at 3 credits with 2), and a cancelled touch: game unchanged, glide home (`card_return`/`hand_return` 140 ms), hand back; the dimmed place says "Not enough credits" on release |
+| AC8 | three real 80 ms taps on the big card: view stays on the card, "Hold to play" on screen, game unchanged; then a tap on the strip opens the view |
+| AC9 (3 tests) + online | no clicks: "No clicks left"; Hedge Fund (5) with 4 credits: "Not enough credits"; Neural EMP before a run: "Only after the Runner made a run"; online Runner phone on the Corp's turn: "Not your turn". Each: lifts dimmed, nothing lit in any frame (also dragged over the table), the line shows < 100 ms after the lift, let go → game unchanged |
+| AC10 (desktop) | mouse click on the big card = tip only; mouse press-and-hold lifts, drag to R&D, release installs; mouse drag-up from the strip, Hedge Fund on the table, +4 |
+| AC11 pass-the-phone with the real cover | Corp holds and plays (Enigma on R&D), turn ends, cover comes up, real tap lifts it, Runner holds and plays (Armitage Codebusting on the rig) |
+| AC11/AC9 online | Runner's phone: on the Corp's turn a held card is dimmed "Not your turn" and nothing is sent; on his turn he holds a card over the rig for 1 s: his phone sends no game frame and the Corp's phone receives none, the Corp's view is unchanged; on release exactly one action is sent and the Corp sees the card in the rig |
+| AC12 timing | press reaction (< 100 ms after the page handled the press; drawn on the next frame), lift ≥ 245 ms and on time, card home and strip fully up ≤ 600 ms after letting go, picked up again at once (lift < 100 ms after the move), every record ≤ 600 ms, next tap answered < 100 ms, all long tasks < 600 ms |
+
+### Runs
+- `qa-sprint15.spec.ts` (whole file, rounds 1+3), `--retries=0`: **891x296 first: 39 passed, 2 skipped**; then 844x390 **39 passed, 2 skipped**, 640x360 **39 passed, 2 skipped**, desktop **37 passed, 4 skipped** (skips: the gated repro; AC10 runs on desktop only; round 1's touch-only tests on desktop).
+- Developers' `s15-hold.spec.ts` at 891x296: 13/13 passed.
+- **6x CPU throttle, hold timing only** (TESTING §3): QA's AC12 and AC2 still-hold, the developers' s15-hold still-hold and s15-snappy S-15-6 test, at all 4 sizes: **16/16 passed**. Raw lift after the down at 6x: 560–900 ms, with frames of 300–530 ms on this GPU-less machine; long tasks max 532 ms (desktop), all < 600 ms.
+- Unthrottled raw numbers (this machine draws a frame in 200–300 ms while the card rises): press reaction 0.4–0.6 ms after the page handled it, drawn 17–31 ms after the finger (phones); lift 364–543 ms after the down; card home + strip up 148–219 ms after letting go; pick-up again 1 ms after the move; next tap state 2 ms. **Timer accuracy check** (scratch, not committed): with fast frames (844x390 at 1x pixels) 5 holds lifted at 250, 256, 268, 289, 369 ms — the game's 0.25 s is accurate; the extra on the test machine is frame time. The feel on the owner's phone is an owner check.
+- `npm run lint` (eslint on the spec) and `npm run typecheck` (`tsc -b`) pass.
+
+### S-15-6 per-criterion results
+| AC | Result | Evidence |
+|---|---|---|
+| 1 Flick left/right in the hand view browses, nothing picked up | **FAIL (QA-S15-2)** | Normal case PASS: "AC1: sideways flicks…" and "AC1/2: a sideways slide…" at 4 sizes (flicks flat, rising to 45°, falling all browse; no held/lit frame). **Fails when the page is busy for a moment:** a quick flat flick made before 0.25 s but handled after the hold timer ran is picked up, and if let go over a lit place the card is **played and paid for** (repro test, 2/2 sizes; 3/3 in scratch runs). The sprint's own rule (S-15-6 risks: "a press is judged by its own start and end times") is not kept for sideways moves |
+| 2 Still hold 0.25 s / drag up (hand view and straight up from the strip) lifts; under the finger; view fades; hand drops away | PASS | "AC2: held still…", "AC2: an upward drag…", "AC2: straight up out of the small hand…" at 4 sizes; dev s15-hold (strip hold-read then up); `r3-891x296-s15-6-held-ice-from-view.png`, `r3-{891x296,844x390,640x360,1280x800}-s15-6-held-from-strip.png` |
+| 3 Every legal place lights at once; Corp servers + new server, Runner rig, events/operations the middle; can't-go places unlit/dimmed with reason | PASS | "AC3: every place…" (9 types, both sides, QA's own expectation, same frame, on screen, no overlaps; smallest lit place 56 px at 891x296 (rig 40 px tall), 69–83 px elsewhere); dimmed place with reason: AC7; `r3-891x296-s15-6-lit-{asset,event,program}.png` |
+| 4 Over a lit place: strong highlight; off: plain lit | PASS | "AC4/5…" at 4 sizes; `r3-*-s15-6-hover-rd-no-arrow.png` |
+| 5 Arrow only if it doesn't crowd 891x296, else highlight only | PASS (fallback chosen) | Decision: **no arrow, strong highlight only** (`ARROW = false`, DECISIONS 2026-11-21 U9: drawable at only 38.5 % of 270 hover points at 891x296, crossed faces/pills). QA: `drag.arrow` null at every hover over every lit place, 4 sizes; dev arrow on/off shots `docs/sprints/sprint-15-screens/s15-6-arrow-{on,off}-*.png`. The demo notes must say so with a screenshot (demo notes not written yet) |
+| 6 Release on a lit place plays/installs there, same cost, flies and lands, hand comes back | PASS | 6 "AC6…" tests at 4 sizes: whole game view equal to the engine applying the same option (costs −1, 0, 0, +4, −4, +3 credits, −1 click); `install_flight`/`play_flight`+`showcase`, `land_settle`; `hand_restore` 120 ms |
+| 7 Release elsewhere / on a dimmed place: nothing played or paid, glides back, hand up, dimmed place shows its reason | PASS | "AC7…" at 4 sizes (4 ways to let go, incl. a cancelled touch); `r3-891x296-s15-6-over-dimmed-place.png` |
+| 8 Quick tap on the big card: not played, nothing lit, stays big, "Hold to play"; tap on the closed hand opens the view | PASS (see note) | "AC8…" at 4 sizes; `r3-891x296-s15-6-hold-to-play-tip.png`. Note: on this slow machine, when the page handled the tap's release only 0.4–0.85 s after the finger, a tap twice showed the held card and lit places for 1–2 frames before turning back into the tip (desktop); never played. Same cause as QA-S15-2 (timer runs before queued input); not seen when the release is handled in time |
+| 9 Unplayable card lifts dimmed, nothing lit, short line says why, let go sends it back | PASS on intent; **wording flagged for PM** | 3 "AC9…" tests + online at 4 sizes (no clicks, not enough credits, needs a run, not your turn). **Wording:** the AC example says "Needs 5 credits"; the build says **"Not enough credits"** (Hedge Fund costing 5 with 4 credits; the architect's verdict notes this). It says *why* (the intent), not *how many*; the card's cost (5) is printed on the dimmed card. PM: accept, or ask for "Needs N credits". `r3-891x296-s15-6-dimmed-{c05,c01,c12}.png`, `r3-891x296-s15-6-online-not-your-turn.png` |
+| 10 Mouse: press, hold and drag works like a finger; no tap-to-play | PASS | "AC10…" (desktop); AC2–AC9 tests also run with the mouse on desktop; `r3-1280x800-s15-6-mouse-hover-rd.png` |
+| 11 Corp and Runner, pass-the-phone and online (and app); online the other phone sees nothing while held, only the played card | PASS (app: CI + owner) | "AC11 pass-the-phone with the real cover…", "AC11/AC9 online…" (Runner holding, frames counted both ways); dev s15-online (Corp holding: face-down card only); app bundle: dev `android.spec` "S-15-6 in the app bundle…" in CI's `android` project; `r3-891x296-s15-6-pass-cover.png` |
+| 12 Reacts < 0.1 s, lifts at 0.25 s, nothing blocks > 0.6 s (891x296, 844x390, 640x360, computer) | PASS (by the agreed frame rule) | "AC12…" at 4 sizes + 6x throttle run (above). Raw lift times on this machine are 0.36–0.54 s because a frame takes 0.2–0.3 s here; with fast frames the lift is at 0.25 s. Phone feel = owner check |
+
+### S-15-1..S-15-5 re-checked where hold-to-play changed things
+- **S-15-1** AC1 (press rises < 0.1 s; quick tap leaves nothing enlarged, now with the "Hold to play" tip) and AC3 (glide home) — QA round-1 tests (updated by ui-dev for the tip; QA reviewed the diff: the checks were kept, only "a tap picks" became "a tap shows the tip") pass at 4 sizes. AC2/AC4/AC5 dev specs unchanged in behaviour: PASS.
+- **S-15-2** AC1 (drop flies from where it was let go and settles) — QA round-1 test (now "a held install…") and QA AC6 pass. **AC4 ("from a button, e.g. on a computer") is now met by mouse hold-and-drag**: QA AC10 + AC6 on desktop (fly + land). AC2/3/5 round-1 tests pass: PASS.
+- **S-15-3, S-15-4**: round-1 tests pass at 4 sizes; S-15-4 AC1 (tap during movement < 0.1 s) still passes; hold timing in AC12 above.
+- **S-15-5**: no change in this round (client hold code only).
+
+### Bugs
+**QA-S15-2 (ui-dev; blocks S-15-6 AC1): a quick sideways flick on a busy page picks the card up — and can play it.**
+- Repro (automated): `QA_REPRO=1 npx playwright test e2e/qa-sprint15.spec.ts --project=phone -g "QA-S15-2"` (from `apps/client`). Fails at 844x390 and 891x296 every time.
+- Repro (by hand, what the test does): seed 4 board, tap Hedge Fund in the hand (hand view opens on it). Put a finger on the big card; while the page is busy (the test makes 4 frames of 350 ms), flick flat to the left (125 px) 70–110 ms after the finger went down and let go at 120 ms.
+- Expected: by its own times this is a quick sideways flick: the view browses, nothing is lifted or played.
+- Actual: `card_lift`, `hand_minimize`, then `play_flight`, `showcase`, `credit_pop`: **Hedge Fund is played (credits 5 → 9, one click spent)**. With Ice Wall the same flick installs it (`install_flight`).
+- Cause (from reading `board.ts`): the 250 ms hold timer runs before the queued moves are handled and lifts the card; `onViewMove` then sees `this.lift` and treats the move as a drag (the swipe check by event time is skipped), and `onViewUp` only undoes a stalled lift when the press was a **tap**, not a swipe, so it calls `dropLift` at the release point. Suggested fix (dev's call): when a lift came from the timer, a move or release whose own time is before `HOLD_MS` and that left the 12 px circle sideways undoes the lift (as for the tap) and becomes the swipe. Remove the `QA_REPRO` skip with the fix.
+- How likely on a phone: needs the page to be busy for ~0.15–0.25 s while the finger flicks (rare on a fast phone, more likely on a slow one). Its harm is high: credits and a click spent on a card the player only wanted to browse past.
+- Related, minor (same cause, no fix needed if the above is fixed generally): on a very slow page a quick tap can flash the lit places for 1–2 frames before showing "Hold to play" (seen twice on desktop on this machine); never plays.
+
+### Observations (not bugs)
+1. The held card at 891x296 sits over part of the place under it (R&D's count is hidden while hovering), see `r3-891x296-s15-6-hover-rd-no-arrow.png`; the place's strong highlight and price pill stay visible. Owner feel check.
+2. Flicks in the hand view sometimes move two cards at once (fast flick) — as before S-15-6, not part of this story.
+
+### Manual owner checks (not faked)
+- On the phone (891x296, browser and app): flick left/right through the hand quickly — it must never pick a card up; hold still and drag up from the hand view and from the small hand; arrow-or-no-arrow question; the "Not enough credits" wording.
+- Smoothness of the lift, the hand dropping away and coming back on the phone.
+
+### CI result (round 3)
+- e6c4266 (developers' last code): PR run 44863759529 — `checks`, `guard-mutation`, `e2e shard 1/4`…`4/4` all success, 0 flaky (from the architect's review; confirmed by QA with `gh api …/commits/e6c4266/check-runs`).
+- QA's commit: see below.
+
+### Final per-story result (Sprint 15, round 3)
+| Story | Result |
+|---|---|
+| S-15-1 Cards lift and lean in your hand | **PASSED QA** (5/5, re-checked with hold-to-play) |
+| S-15-2 Played cards fly to the board and land | **PASSED QA** (5/5; AC4 now by mouse hold-and-drag) |
+| S-15-3 Cards fly to and from the piles | **PASSED QA** (4/4) |
+| S-15-4 Never slower than today | **PASSED QA** for AC1, AC2, AC4, AC5; AC3 phone smoothness = owner check |
+| S-15-5 Play link and app download with a private repo | unchanged from round 2 (owner checks listed there) |
+| S-15-6 Hold a card to play it | **NOT PASSED: 11/12 PASS (AC9 on intent, wording question for the PM), AC1 FAIL (QA-S15-2)** |
+
+**Bugs open: QA-S15-2.**
