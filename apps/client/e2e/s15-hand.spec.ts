@@ -9,7 +9,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { type Page, expect, test } from '@playwright/test';
 import type { CardOption, PlayerView } from '@overclock/engine';
-import { type LayoutSnapshot, anims, center, emptySpot, getView, holdAt, layout, liftHand, openBoard, openHand, waitIdle } from './helpers';
+import { type Hold, type LayoutSnapshot, anims, center, emptySpot, getView, holdAt, layout, liftHand, openBoard, openHand, waitIdle } from './helpers';
 
 const SHOTS = join(dirname(fileURLToPath(import.meta.url)), '../../../docs/sprints/sprint-15-screens');
 
@@ -31,6 +31,31 @@ function cardWith(v: PlayerView, kind: string): number {
   const i = v.handOptions.findIndex((os) => os.some((o) => o.reject === null && kindOf(o) === kind));
   if (i < 0) throw new Error(`no hand card with a lit ${kind} place`);
   return i;
+}
+
+/**
+ * A quick flick on `b`: touch events carry the times they were made (down at once, each move 20 ms
+ * after the one before), as a phone's touch screen stamps them, so a busy test machine that delivers
+ * them late still sends a quick flick (QA-S15-2: a press is judged by its own times). Mouse: a plain
+ * press and moves (no stamps to give).
+ */
+async function flickAt(page: Page, b: { x: number; y: number; width: number; height: number }): Promise<Hold> {
+  if (test.info().project.use.hasTouch !== true) return holdAt(page, b);
+  const { x, y } = center(b);
+  const cdp = await page.context().newCDPSession(page);
+  const t0 = Date.now();
+  let k = 0;
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }], timestamp: t0 / 1000 });
+  return {
+    move: async (mx, my) => {
+      k++;
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: mx, y: my }], timestamp: Math.min(Date.now(), t0 + 20 * k) / 1000 });
+    },
+    release: async () => {
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+      await cdp.detach();
+    },
+  };
 }
 
 /** Decorative movement is pinned on (a busy test machine would otherwise count as a slow phone). */
@@ -92,7 +117,7 @@ test.describe('S-15-1 cards lift and lean in your hand', () => {
     await waitIdle(page);
     const centre = open.handView!.centre;
     const c = center(centre);
-    const hold = await holdAt(page, centre);
+    const hold = await flickAt(page, centre);
     await hold.move(c.x - 30, c.y);
     await hold.move(c.x - 60, c.y);
     await hold.release();
@@ -166,7 +191,7 @@ test.describe('S-15-1 cards lift and lean in your hand', () => {
     await waitIdle(page);
     await page.evaluate(() => window.__overclock!.clearAnims());
     const c = center(open.handView!.centre);
-    const hold = await holdAt(page, open.handView!.centre);
+    const hold = await flickAt(page, open.handView!.centre);
     const step = Math.max(40, Math.round(open.zoom!.box.width * 0.32));
     for (let k = 1; k <= 4; k++) await hold.move(c.x - (step * 1.2 * k) / 4, c.y);
     await page.waitForFunction(() => window.__overclock!.layout().handView?.index === 2);
