@@ -489,6 +489,28 @@ export function createCardFace(card: CardDef, w: number, h: number, detail: 'sma
   return c;
 }
 
+/**
+ * S-15-6 (owner round 3): the held card's small face drawn at the held size (~1.5 MB of GPU memory
+ * each on a 3x phone). Unlike `createCardFace` it is **not** shared or kept: the texture belongs to
+ * the returned container, and `destroyHeldFace` frees it (architect 2026-11-22: kept in the shared
+ * cache, every card ever pressed at one size stayed in GPU memory for the whole session).
+ */
+export function createHeldFace(card: CardDef, w: number, h: number): Container {
+  const c = buildCardFace(card, w, h, 'small');
+  const renderer = bakeRenderer;
+  if (!renderer) {
+    c.cacheAsTexture(true);
+    return c;
+  }
+  return spriteOf(bakeEntry(renderer, c));
+}
+
+/** Frees a face made by `createHeldFace` (its texture too). */
+export function destroyHeldFace(c: Container): void {
+  if (c.destroyed) return;
+  c.destroy({ children: true, texture: true, textureSource: true });
+}
+
 function buildCardFace(card: CardDef, w: number, h: number, detail: 'small' | 'full'): Container {
   if (detail === 'full') {
     // Long rules text (e.g. Bank Job) must fit: shrink the art window first, then the text.

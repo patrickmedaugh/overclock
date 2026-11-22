@@ -4,7 +4,7 @@ import { getCard } from '@overclock/cards';
 import type { Side } from '@overclock/engine';
 import { Container, Graphics, Rectangle, Text } from 'pixi.js';
 import { centeredBox } from './geometry';
-import { createCardBack, createCardFace, glowRoundRect } from './cardFace';
+import { createCardBack, createCardFace, createHeldFace, destroyHeldFace, glowRoundRect } from './cardFace';
 import type { AnimRecord, Box } from './hook-types';
 import { attachPress } from './input';
 import { type BoardLayout, handSlots, nearestSlot } from './layout';
@@ -87,7 +87,8 @@ export class Hand {
   private minimized = false;
   /**
    * S-15-6 owner round 3: draws `card`'s face at `scale` times the hand card's size (once per card
-   * and size: baked and shared), counter-scaled so it matches the small face until the card grows.
+   * and size, owned by the card: freed by `dropHeld` when it leaves the hand or is destroyed),
+   * counter-scaled so it matches the small face until the card grows.
    */
   private prepareHeld(card: HandCard, scale: number): void {
     const layout = this.layout;
@@ -95,8 +96,8 @@ export class Hand {
     if (card.held && card.heldScale === scale) return;
     const def = getCard(card.cardId);
     if (!def) return;
-    card.held?.destroy({ children: true });
-    const f = createCardFace(def, Math.round(layout.card.width * scale), Math.round(layout.card.height * scale), 'small');
+    this.dropHeld(card);
+    const f = createHeldFace(def, Math.round(layout.card.width * scale), Math.round(layout.card.height * scale));
     f.scale.set(1 / scale);
     f.visible = false;
     card.flip.addChildAt(f, card.flip.getChildIndex(card.face) + 1);
@@ -109,6 +110,16 @@ export class Hand {
     if (!card.held || card.root.destroyed) return;
     card.held.visible = false;
     card.face.visible = !card.back.visible;
+  }
+
+  /** S-15-6: frees the held-size face (its GPU texture too) and shows the small face. */
+  private dropHeld(card: HandCard): void {
+    const f = card.held;
+    if (!f) return;
+    if (!card.root.destroyed) card.face.visible = !card.back.visible;
+    card.held = null;
+    card.heldScale = 0;
+    destroyHeldFace(f);
   }
 
   /** S-15-6: the held card is dimmed (it can't be played now). */
@@ -581,7 +592,8 @@ export class Hand {
     // Leaving the hand: drawn where it is on screen (the strip may be dropped below it).
     this.unhome(card);
     if (this.lifted === card) this.lifted = null;
-    this.smallFace(card);
+    // The caller owns (and later destroys) the sprite: the held-size face's texture is freed here.
+    this.dropHeld(card);
     this.undim(card);
     card.detach();
     this.fx.cancel(card.root);
@@ -899,6 +911,7 @@ export class Hand {
     this.fx.cancel(card.root);
     this.ui.cancel(card.root);
     this.ui.cancel(card.flip.scale);
+    this.dropHeld(card);
     card.root.destroy({ children: true });
   }
 }
