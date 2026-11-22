@@ -287,3 +287,137 @@ describe('attachPress: hold and slide (S-04-3)', () => {
     expect(log).toEqual(['down', 'zoom', 'unzoom', 'release']);
   });
 });
+
+describe('attachPress: hold to lift (S-15-6 owner round 3: anything longer than a quick tap grabs)', () => {
+  const LIFT = 120;
+  function liftSetup(accept = true, extra: PressHandlers = {}) {
+    const target = new FakeTarget();
+    const log: string[] = [];
+    attachPress(
+      target as unknown as Container,
+      {
+        onDown: () => log.push('down'),
+        onTap: () => log.push('tap'),
+        onLongPress: () => log.push('zoom'),
+        onLongPressEnd: () => log.push('unzoom'),
+        onRelease: () => log.push('release'),
+        onHoldLift: () => {
+          log.push(accept ? 'lift' : 'no-lift');
+          return accept;
+        },
+        onLiftUndo: () => log.push('undo'),
+        onPull: (_x, _y, dx, dy) => !(dy > 0 && dy >= Math.abs(dx)),
+        onDrag: () => log.push('drag'),
+        onDrop: (_x, _y, cancelled) => log.push(cancelled ? 'cancel' : 'drop'),
+        ...extra,
+      },
+      { liftMs: LIFT, moveTolerance: 7 },
+    );
+    return { target, log };
+  }
+
+  it('a quick tap (under 0.12 s) is a tap: nothing lifts', () => {
+    const { target, log } = liftSetup();
+    target.emit('pointerdown', { timeStamp: now });
+    pass(90);
+    target.emit('pointerup', { timeStamp: now });
+    pass(50);
+    runFrame();
+    expect(log).toEqual(['down', 'tap', 'release']);
+  });
+
+  it('held still 0.12 s: lifts on the next frame (no long-press), and the release drops it', () => {
+    const { target, log } = liftSetup();
+    target.emit('pointerdown', { timeStamp: now });
+    pass(LIFT - 1);
+    runFrame();
+    expect(log).toEqual(['down']);
+    pass(1);
+    runFrame();
+    expect(log).toEqual(['down', 'lift', 'drag']);
+    pass(HOLD);
+    target.emit('globalpointermove', { timeStamp: now, x: 40, y: -60 });
+    target.emit('pointerupoutside', { timeStamp: now, x: 40, y: -60 });
+    expect(log).toEqual(['down', 'lift', 'drag', 'drag', 'drop', 'release']);
+  });
+
+  it('held still and let go where it was pressed (a slow click, a hold to read): put back at once, then a tap', () => {
+    const { target, log } = liftSetup();
+    target.emit('pointerdown', { timeStamp: now, x: 100, y: 300 });
+    pass(LIFT);
+    runFrame();
+    pass(600);
+    target.emit('globalpointermove', { timeStamp: now, x: 103, y: 297 });
+    target.emit('pointerup', { timeStamp: now, x: 103, y: 297 });
+    expect(log).toEqual(['down', 'lift', 'drag', 'drag', 'undo', 'tap', 'release']);
+  });
+
+  it('the same when the release lands on the big held card (outside the small one): a tap, never a drop', () => {
+    const { target, log } = liftSetup();
+    target.emit('pointerdown', { timeStamp: now, x: 100, y: 300 });
+    pass(LIFT);
+    runFrame();
+    pass(200);
+    target.emit('pointerupoutside', { timeStamp: now, x: 101, y: 300 });
+    expect(log).toEqual(['down', 'lift', 'drag', 'undo', 'tap', 'release']);
+  });
+
+  it('a release already queued when the lift timer runs is handled first: a tap, no lift', () => {
+    const { target, log } = liftSetup();
+    const down = now;
+    target.emit('pointerdown', { timeStamp: down });
+    pass(LIFT + 5); // the timer ran; the lift waits one frame
+    target.emit('pointerup', { timeStamp: down + 100 });
+    runFrame();
+    expect(log).toEqual(['down', 'tap', 'release']);
+  });
+
+  it('a late lift (page stalled) undone by a quick release, judged by its own times: a tap', () => {
+    const { target, log } = liftSetup();
+    const down = now;
+    target.emit('pointerdown', { timeStamp: down });
+    stall(500);
+    wakeTimers();
+    runFrame(); // lifted before the queued release came in
+    target.emit('pointerup', { timeStamp: down + 60 });
+    expect(log).toEqual(['down', 'lift', 'drag', 'undo', 'tap', 'release']);
+  });
+
+  it('a late lift whose first move (made before 0.12 s) goes down is undone; nothing is dropped', () => {
+    const { target, log } = liftSetup();
+    const down = now;
+    target.emit('pointerdown', { timeStamp: down, x: 100, y: 300 });
+    stall(500);
+    wakeTimers();
+    runFrame();
+    target.emit('globalpointermove', { timeStamp: down + 50, x: 101, y: 320 });
+    target.emit('pointerupoutside', { timeStamp: down + 80, x: 101, y: 330 });
+    expect(log).toEqual(['down', 'lift', 'drag', 'undo', 'release']);
+  });
+
+  it('a move out of the circle before 0.12 s picks up at once (no timer)', () => {
+    const { target, log } = liftSetup();
+    target.emit('pointerdown', { timeStamp: now, x: 100, y: 300 });
+    pass(30);
+    target.emit('globalpointermove', { timeStamp: now, x: 103, y: 297 });
+    expect(log, 'inside the 7 px circle: nothing yet').toEqual(['down']);
+    target.emit('globalpointermove', { timeStamp: now, x: 106, y: 293 }); // out, diagonally: picked up
+    target.emit('globalpointermove', { timeStamp: now, x: 108, y: 280 });
+    expect(log).toEqual(['down', 'drag']);
+    pass(400);
+    runFrame();
+    expect(log, 'no hold timer after the pick-up').toEqual(['down', 'drag']);
+  });
+
+  it('where the card cannot be lifted (onHoldLift says no), the still hold goes on to the long-press', () => {
+    const { target, log } = liftSetup(false);
+    target.emit('pointerdown', { timeStamp: now });
+    pass(LIFT);
+    runFrame();
+    expect(log).toEqual(['down', 'no-lift']);
+    pass(HOLD - LIFT);
+    expect(log).toEqual(['down', 'no-lift', 'zoom']);
+    target.emit('pointerup', { timeStamp: now });
+    expect(log).toEqual(['down', 'no-lift', 'zoom', 'unzoom', 'release']);
+  });
+});

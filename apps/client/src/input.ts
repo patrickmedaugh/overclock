@@ -72,6 +72,18 @@ export interface PressHandlers {
    * that the page handled only after a late hold opened (QA-S15-2: judged strictly).
    */
   onPull?: (x: number, y: number, dx: number, dy: number, at: number, held: boolean, late?: boolean) => boolean;
+  /**
+   * S-15-6 (owner round 3, 2026-11-22): held still for `liftMs` (shorter than the long-press): return
+   * true to pick the card up there and then (`x`/`y`: the finger; `at`: now). From then on it is a
+   * drag (onDrag / onDrop), as after `onPull`. False: the press goes on (a long-press may follow).
+   */
+  onHoldLift?: (x: number, y: number, at: number) => boolean;
+  /**
+   * S-15-6: a card `onHoldLift` picked up turned out, by the press's own event times, to be a quick
+   * tap (let go before `liftMs`, the page ran the timer late) or a move made before `liftMs` that
+   * `onPull` turns down: put it back at once, as if never lifted (a tap then follows, if it was one).
+   */
+  onLiftUndo?: () => void;
   /** S-15-6: the picked-up card's finger moved to global x/y (`at`: the move's event time). */
   onDrag?: (x: number, y: number, at: number) => void;
   /** S-15-6: the picked-up card's finger let go at global x/y (`cancelled`: the touch was cancelled). */
@@ -82,6 +94,8 @@ export interface PressOptions {
   longPressMs?: number;
   /** Movement (CSS px) that cancels a pending long-press. */
   moveTolerance?: number;
+  /** S-15-6: how long a still press takes before `onHoldLift` is asked (ms; only with that handler). */
+  liftMs?: number;
 }
 
 /** The DOM timestamp of a Pixi pointer event (performance.now() clock). */
@@ -114,6 +128,7 @@ function afterNextFrame(fn: () => void): () => void {
 export function attachPress(target: Container, handlers: PressHandlers, opts: PressOptions = {}): () => void {
   const longPressMs = opts.longPressMs ?? timing.longPress;
   const tolerance = opts.moveTolerance ?? 12;
+  const liftMs = handlers.onHoldLift && opts.liftMs !== undefined ? opts.liftMs : Infinity;
   target.eventMode = 'static';
   target.cursor = 'pointer';
 
@@ -136,6 +151,16 @@ export function attachPress(target: Container, handlers: PressHandlers, opts: Pr
    * slanted start): every later move still asks `onPull`, so a drag that rises later picks it up.
    */
   let watchPull = false;
+  /** S-15-6: the press can still be picked up by holding still (`onHoldLift`, not moved away). */
+  let liftable = false;
+  /**
+   * S-15-6: the drag began by the hold-lift timer and no move or release has yet shown, by its own
+   * event time, that the finger really stayed still for `liftMs` (QA-S3-7 / QA-S15-2 style).
+   */
+  let timerDrag = false;
+  /** S-15-6: the drag began by the still hold (`onHoldLift`), and whether its finger has left the circle since. */
+  let holdDrag = false;
+  let leftCircle = false;
   /** Where the finger was last seen (a cancelled touch is let go there). */
   let lastX = 0;
   let lastY = 0;
@@ -150,6 +175,37 @@ export function attachPress(target: Container, handlers: PressHandlers, opts: Pr
     timer = null;
     cancelFrame?.();
     cancelFrame = null;
+  };
+
+  const longTimer = () => {
+    timer = null;
+    if (pointerId === null) return;
+    // On time: zoom now. Late (the page stalled): a release made during the
+    // stall may be queued; let the browser deliver it first.
+    if (performance.now() - downAt < longPressMs + LATE_MS) fireLong();
+    else cancelFrame = afterNextFrame(fireLong);
+  };
+
+  /**
+   * S-15-6 (owner round 3): the still hold picks the card up. Always one frame later, so a release
+   * the browser already has (a quick tap handed over behind a busy frame) is handled first: a tap
+   * never shows a lifted card, not even for a frame. (≤ 1 frame: well inside the 100 ms budget.)
+   */
+  const fireLift = () => {
+    cancelFrame = null;
+    if (pointerId === null || !liftable) return;
+    liftable = false;
+    const now = performance.now();
+    if (handlers.onHoldLift?.(lastX, lastY, now)) {
+      dragging = true;
+      timerDrag = true;
+      holdDrag = true;
+      leftCircle = false;
+      holdable = false;
+      handlers.onDrag?.(lastX, lastY, now);
+      return;
+    }
+    if (holdable) timer = setTimeout(longTimer, Math.max(0, longPressMs - (now - downAt)));
   };
 
   const fireLong = () => {
@@ -168,6 +224,19 @@ export function attachPress(target: Container, handlers: PressHandlers, opts: Pr
     offCancel?.();
     offCancel = null;
     const held = upAt === null ? null : upAt - downAt;
+    // S-15-6: picked up by the still hold and let go where it was pressed, never having left the
+    // circle: a quick tap the page lifted late (QA-S3-7: judged by its own times), or a slow click /
+    // a hold to read the card. Nothing was dragged: the card goes back at once and it acts as a tap
+    // (on the strip: the hand view opens on it). Never a drop, so never a play.
+    if (dragging && holdDrag && fireTap && !leftCircle && Math.hypot(x - startX, y - startY) <= tolerance) {
+      dragging = false;
+      timerDrag = false;
+      handlers.onLiftUndo?.();
+    }
+    timerDrag = false;
+    holdDrag = false;
+    leftCircle = false;
+    liftable = false;
     if (dragging) {
       dragging = false;
       longFired = false;
@@ -210,17 +279,18 @@ export function attachPress(target: Container, handlers: PressHandlers, opts: Pr
     dragging = false;
     watchPull = false;
     holdable = !!handlers.onLongPress;
+    liftable = liftMs < longPressMs || (!holdable && liftMs < Infinity);
+    timerDrag = false;
+    holdDrag = false;
+    leftCircle = false;
     handlers.onDown?.();
-    if (holdable) {
+    if (liftable) {
       timer = setTimeout(() => {
         timer = null;
-        if (pointerId === null) return;
-        // On time: zoom now. Late (the page stalled): a release made during the
-        // stall may be queued; let the browser deliver it first.
-        if (performance.now() - downAt < longPressMs + LATE_MS) fireLong();
-        else cancelFrame = afterNextFrame(fireLong);
-      }, longPressMs);
-    }
+        if (pointerId === null || !liftable) return;
+        cancelFrame = afterNextFrame(fireLift);
+      }, Math.max(0, liftMs - (performance.now() - downAt)));
+    } else if (holdable) timer = setTimeout(longTimer, longPressMs);
   };
   const onMove = (e: FederatedPointerEvent) => {
     if (pointerId !== e.pointerId) return;
@@ -229,7 +299,24 @@ export function attachPress(target: Container, handlers: PressHandlers, opts: Pr
     lastX = x;
     lastY = y;
     if (dragging) {
-      handlers.onDrag?.(x, y, madeAt(stampOf(e), performance.now()));
+      const at = madeAt(stampOf(e), performance.now());
+      if (Math.hypot(x - startX, y - startY) > tolerance) leftCircle = true;
+      if (timerDrag) {
+        // S-15-6: a hold-lift is judged by this move's own time: leaving the circle before `liftMs`
+        // the way a pick-up never goes (onPull says no) undoes it; any move at or after it confirms it.
+        if (at - downAt >= liftMs) timerDrag = false;
+        else if (Math.hypot(x - startX, y - startY) > tolerance) {
+          timerDrag = false;
+          if (!handlers.onPull?.(x, y, x - startX, y - startY, at, false)) {
+            dragging = false;
+            handlers.onLiftUndo?.();
+            watchPull = !!handlers.onPull;
+            return;
+          }
+          return;
+        }
+      }
+      handlers.onDrag?.(x, y, at);
       return;
     }
     if (watchPull) {
@@ -241,7 +328,7 @@ export function attachPress(target: Container, handlers: PressHandlers, opts: Pr
       }
       return;
     }
-    if (!holdable) return;
+    if (!holdable && !liftable) return;
     if (longFired) {
       const out = Math.hypot(x - startX, y - startY) > tolerance;
       const at = madeAt(stampOf(e), performance.now());
@@ -273,6 +360,7 @@ export function attachPress(target: Container, handlers: PressHandlers, opts: Pr
     }
     if (Math.hypot(x - startX, y - startY) > tolerance) {
       holdable = false;
+      liftable = false;
       clearTimer();
       if (handlers.onPull?.(x, y, x - startX, y - startY, madeAt(stampOf(e), performance.now()), false)) dragging = true;
       else if (handlers.onPull) watchPull = true;
@@ -298,13 +386,16 @@ export function attachPress(target: Container, handlers: PressHandlers, opts: Pr
       return;
     }
     // S-15-6: a held card let go away from where it was picked up: that release plays it (or not).
+    // One picked up by the still hold and let go where it was pressed is a tap (see `end`): the big
+    // held card was under the finger, so the release landed "outside" the small card.
     const handledAt = performance.now();
     const eventAt = stampOf(e);
-    last = { eventAt, handledAt, target: 'drop' };
+    const inPlace = holdDrag && !leftCircle && Math.hypot(e.global.x - startX, e.global.y - startY) <= tolerance;
+    last = { eventAt, handledAt, target: inPlace ? target.label : 'drop' };
     const outer = current;
     current = madeAt(eventAt, handledAt);
     try {
-      end(false, current, e.global.x, e.global.y);
+      end(inPlace, current, e.global.x, e.global.y);
     } finally {
       current = outer;
     }

@@ -4,16 +4,27 @@
 import type { Box } from './hook-types';
 
 /**
- * S-15-6: how long the big card is held still before it lifts out of the hand view (ms). A
- * release before this (inside the 12 px circle) is a tap: it only shows "Hold to play".
+ * S-15-6: how long a hand card is held still before it lifts (ms), in the hand view and in the small
+ * hand strip. A release before this (inside the `SWIPE_TOLERANCE` circle) is a tap: in the hand view
+ * it only shows "Hold to play"; on the strip it opens the hand view. Owner round 3 (2026-11-22: "anything
+ * longer than a quick tap should grab the card"): 250 → 120 (a quick tap is ~50-100 ms).
  */
-export const HOLD_MS = 250;
+export const HOLD_MS = 120;
 /** The S-07-6 name of the same hold. */
 export const LIFT_MS = HOLD_MS;
-/** Movement (CSS px) that turns a press in the hand view into a swipe or an upward pick-up (no tap). */
-export const SWIPE_TOLERANCE = 12;
-/** S-15-6: leaving the 12 px circle this close to straight up picks the card up (−dy ≥ UP_RATIO·|dx|: within ~40°). */
-export const UP_RATIO = 1.2;
+/**
+ * Movement (CSS px) that turns a press on a hand card into a move: a pick-up (up or diagonal; on the
+ * strip any way but down) or, in the hand view only, a sideways browse. Owner round 3: 12 → 7.
+ */
+export const SWIPE_TOLERANCE = 7;
+/** The same circle, by what it does since owner round 3: a move out of it grabs the card. */
+export const MOVE_TOLERANCE = SWIPE_TOLERANCE;
+/**
+ * S-15-6: in the hand view, leaving the circle this close to straight up picks the card up
+ * (−dy ≥ UP_RATIO·|dx|: within ~51° of straight up, so a 45° diagonal grabs too; owner round 3:
+ * 1.2 → 0.8). Flatter moves browse sideways.
+ */
+export const UP_RATIO = 0.8;
 /** S-15-6: during the strip's hold-to-read, a finger this share of a hand card above the strip lifts the card being read. */
 export const STRIP_PULL = 0.15;
 /** S-15-6: the hand strip drops below the screen while a card is held, and comes back up (ms). */
@@ -27,21 +38,20 @@ export function isUpward(dx: number, dy: number, ratio = UP_RATIO): boolean {
 }
 
 /**
- * S-15-6 (owner review 2026-11-21: "dragging a card straight up out of the small hand does not
- * work"): the small hand has no sideways gesture of its own, so any move that rises more than half
- * as much as it goes sideways (within ~63° of straight up) picks a card up there; a thumb's
- * "straight up" often starts at a slant.
+ * S-15-6 (owner review 2026-11-21): the small hand's own slant rule (within ~63° of straight up). Kept
+ * for the strip's hold-to-read (a read card is lifted by leaving the strip upward).
  */
 export const STRIP_UP_RATIO = 0.5;
 
 /**
- * S-15-6 (owner review): should a press on the small hand that has left its 12 px circle pick the
- * card up now? `dx`/`dy`: from the press point; `y`: the finger; `stripTop`: the top of the hand
- * area. Yes if the move rises steeply enough (`STRIP_UP_RATIO`), or the finger is above the strip
- * however it got there.
+ * S-15-6 (owner round 3, 2026-11-22: "directly dragging a card from a minimized hand did not work"):
+ * should a press on the small hand that has left its circle pick the card up now? The strip has no
+ * sideways gesture of its own (browsing is the hand view's), so any move picks it up (up, diagonal or
+ * sideways) except one that goes mostly down (toward the screen's edge: a tap that slipped).
+ * `dx`/`dy`: from the press point (+ = right / down).
  */
-export function stripPickUp(dx: number, dy: number, y: number, stripTop: number): boolean {
-  return isUpward(dx, dy, STRIP_UP_RATIO) || (dy < 0 && y < stripTop);
+export function stripPickUp(dx: number, dy: number): boolean {
+  return !(dy > 0 && dy >= Math.abs(dx));
 }
 
 /** What a press on a card is so far: still undecided, a tap, a pick-up (lift) or a sideways browse (swipe). */
@@ -51,8 +61,8 @@ export type PressKind = 'pending' | 'tap' | 'lift' | 'swipe';
  * S-15-6 (Hearthstone's gesture model): sideways = browse, still hold or upward = pick up. Judged
  * by the press's own event times (QA-S3-7), never by when a timer ran: `heldMs` is the time from
  * the down event to the move or release being judged; `dx`/`dy` the farthest the finger had got
- * when it first left the 12 px circle (or where it is, while inside). `released`: the finger is up.
- * - left the circle within 40° of straight up: lift (at once, no wait);
+ * when it first left the 7 px circle (or where it is, while inside). `released`: the finger is up.
+ * - left the circle within ~51° of straight up (diagonals too): lift (at once, no wait);
  * - left it any other way: swipe;
  * - inside the circle and released before `HOLD_MS`: tap (even if a late timer lifted it meanwhile);
  * - inside the circle for `HOLD_MS` or more: lift (a release then is a hold, never a tap).
@@ -129,12 +139,13 @@ export function contains(b: Box, x: number, y: number): boolean {
 }
 
 /** What a press in the open hand view is on. */
-export type ViewHit = { kind: 'centre' } | { kind: 'card'; index: number } | { kind: 'outside' };
+export type ViewHit = { kind: 'centre' } | { kind: 'card'; index: number; strip?: boolean } | { kind: 'outside' };
 
 /**
  * The centre (big) card first, then the neighbours nearest it first (they are
  * drawn over the further ones), then the hand strip under the dimmed board.
- * Anything else is outside (a tap there closes the view).
+ * Anything else is outside (a tap there closes the view). `strip`: the press is on the small hand
+ * under the view (S-15-6 owner round 3: a card there is picked up by a hold or a drag, as on the board).
  */
 export function viewHit(
   x: number,
@@ -146,7 +157,7 @@ export function viewHit(
   if (contains(centre, x, y)) return { kind: 'centre' };
   const near = [...neighbours].sort((a, b) => Math.abs(a.offset) - Math.abs(b.offset));
   for (const n of near) if (contains(n.box, x, y)) return { kind: 'card', index: n.index };
-  for (let i = strip.length - 1; i >= 0; i--) if (contains(strip[i]!, x, y)) return { kind: 'card', index: i };
+  for (let i = strip.length - 1; i >= 0; i--) if (contains(strip[i]!, x, y)) return { kind: 'card', index: i, strip: true };
   return { kind: 'outside' };
 }
 
@@ -192,12 +203,14 @@ export function ghostCenter(x: number, y: number, cardW: number, cardH: number, 
 }
 
 /**
- * S-15-6 (owner review 2026-11-21: "the card is too small when it's floating around"): the held
- * card is drawn this many times a hand card's size: close to the hand view's big card (`zoomH`: its
- * height), but never taller than `HELD_MAX_SHARE` of the screen, so the places stay in view.
+ * S-15-6 (owner review 2026-11-21: "the card is too small when it's floating around"; round 3,
+ * 2026-11-22: "the card should still be bigger"): the held card is drawn this many times a hand
+ * card's size: up to the hand view's big card (`zoomH`: its height), but never taller than
+ * `HELD_MAX_SHARE` of the screen, so it stays wholly on screen above the finger (it may cover the
+ * hand). Round 3: 0.75·zoomH / 0.42·vh → 1·zoomH / 0.63·vh (1.5× on every phone size).
  */
-export const HELD_ZOOM_SHARE = 0.75;
-export const HELD_MAX_SHARE = 0.42;
+export const HELD_ZOOM_SHARE = 1;
+export const HELD_MAX_SHARE = 0.63;
 export function heldScale(cardH: number, zoomH: number, vh: number): number {
   if (!(cardH > 0)) return 1.08;
   const h = Math.min(zoomH * HELD_ZOOM_SHARE, vh * HELD_MAX_SHARE);

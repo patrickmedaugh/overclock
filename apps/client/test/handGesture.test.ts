@@ -1,7 +1,7 @@
 // S-07-6: the hand view's gestures (what a press is on, swipe to browse,
 // which lit place a dragged card is over, where the lifted card is drawn).
 import { describe, expect, it } from 'vitest';
-import { HAND_BACK_DELAY_MS, HOLD_MS, LIFT_MS, MINIMIZE_MS, RETURN_MS, STRIP_UP_RATIO, VIEW_FADE_MS, arrowFor, classifyPress, ghostCenter, heldAside, heldCenter, heldScale, isUpward, segmentHitsBox, stripPickUp, swipeIndex, targetAt, viewHit } from '../src/handGesture';
+import { HAND_BACK_DELAY_MS, HELD_MAX_SHARE, HOLD_MS, LIFT_MS, MINIMIZE_MS, MOVE_TOLERANCE, RETURN_MS, STRIP_UP_RATIO, VIEW_FADE_MS, arrowFor, classifyPress, ghostCenter, heldAside, heldCenter, heldScale, isUpward, segmentHitsBox, stripPickUp, swipeIndex, targetAt, viewHit } from '../src/handGesture';
 
 const box = (x: number, y: number, width: number, height: number) => ({ x, y, width, height });
 
@@ -25,8 +25,8 @@ describe('viewHit', () => {
   });
 
   it('the hand strip under the view: the card drawn on top (later) wins', () => {
-    expect(viewHit(155, 350, centre, neighbours, strip)).toEqual({ kind: 'card', index: 1 });
-    expect(viewHit(105, 350, centre, neighbours, strip)).toEqual({ kind: 'card', index: 0 });
+    expect(viewHit(155, 350, centre, neighbours, strip)).toEqual({ kind: 'card', index: 1, strip: true });
+    expect(viewHit(105, 350, centre, neighbours, strip)).toEqual({ kind: 'card', index: 0, strip: true });
   });
 
   it('anything else is outside', () => {
@@ -84,9 +84,13 @@ describe('ghostCenter', () => {
 
 describe('timings', () => {
   it('stay inside the tech plan budgets', () => {
-    // S-15-6: the hold is a quarter of a second (was 0.35 s).
-    expect(LIFT_MS).toBe(250);
-    expect(HOLD_MS).toBe(250);
+    // S-15-6: the hold was a quarter of a second (was 0.35 s); owner round 3 (2026-11-22): "anything
+    // longer than a quick tap should grab the card" (a quick tap is ~50-100 ms).
+    expect(LIFT_MS).toBe(120);
+    expect(HOLD_MS).toBe(120);
+    expect(HOLD_MS).toBeGreaterThan(100);
+    expect(MOVE_TOLERANCE).toBeGreaterThanOrEqual(6);
+    expect(MOVE_TOLERANCE).toBeLessThanOrEqual(8);
     expect(MINIMIZE_MS).toBeLessThanOrEqual(120);
     expect(VIEW_FADE_MS).toBeLessThanOrEqual(120);
     // S-15-6 (owner review 2026-11-21): the glide is a little slower so it is seen, and the hand
@@ -99,13 +103,37 @@ describe('timings', () => {
   });
 });
 
-describe('heldScale (S-15-6 owner review: a bigger held card)', () => {
-  it('is close to the big card, capped at 42% of the screen height', () => {
-    // 891x296: hand card 60 tall, big card ~210: capped by the screen (124 px tall).
-    expect(60 * heldScale(60, 210, 296)).toBeCloseTo(296 * 0.42);
-    // A tall desktop: 0.75 of the big card.
-    expect(113 * heldScale(113, 400, 800)).toBeCloseTo(300);
-    expect(heldScale(60, 210, 296)).toBeGreaterThan(2);
+describe('heldScale (S-15-6 owner review: a bigger held card; round 3: bigger still)', () => {
+  // [viewport w, h, hand card h, big card h, held h before round 3] from computeLayout.
+  const sizes = [
+    [844, 390, 77, 358, 164],
+    [640, 360, 72, 332, 151],
+    [891, 296, 56, 273, 124],
+    [1280, 800, 113, 588, 336],
+  ] as const;
+  it('is 1.5x the held size before owner round 3 at every tested size, capped at 63% of the screen height', () => {
+    for (const [, vh, cardH, zoomH, before] of sizes) {
+      const h = cardH * heldScale(cardH, zoomH, vh);
+      expect(h / before, `${vh} tall`).toBeGreaterThan(1.45);
+      expect(h / before, `${vh} tall`).toBeLessThan(1.55);
+      expect(h).toBeLessThanOrEqual(vh * HELD_MAX_SHARE + 0.01);
+    }
+    // 844x390: 246 px tall (was 164); 640x360: 227 (was 151).
+    expect(77 * heldScale(77, 358, 390)).toBeCloseTo(390 * 0.63);
+    expect(72 * heldScale(72, 332, 360)).toBeCloseTo(360 * 0.63);
+  });
+  it('never taller than the hand view\'s big card', () => {
+    expect(100 * heldScale(100, 300, 1000)).toBeCloseTo(300);
+  });
+  it('still fits wholly on screen above a finger on the hand (640x360, 52x72 hand card)', () => {
+    const s = heldScale(72, 332, 360);
+    const w = 52 * s;
+    const h = 72 * s;
+    const c = heldCenter(320, 320, w, h, 640, 360);
+    expect(c.y - h / 2).toBeGreaterThanOrEqual(0);
+    expect(c.y + h / 2).toBeLessThanOrEqual(320);
+    expect(c.x - w / 2).toBeGreaterThanOrEqual(0);
+    expect(c.x + w / 2).toBeLessThanOrEqual(640);
   });
   it('never smaller than the old held size', () => {
     expect(heldScale(100, 90, 200)).toBe(1.08);
@@ -141,18 +169,15 @@ describe('heldCenter (S-15-6 owner review: the held card never hides the place u
   });
 });
 
-describe('stripPickUp (S-15-6 owner review: drag up out of the small hand)', () => {
-  it('a slanted start that rises picks up; a flat sideways one does not', () => {
-    expect(stripPickUp(0, -13, 250, 237)).toBe(true);
-    expect(stripPickUp(10, -8, 258, 237)).toBe(true); // ~51 degrees from straight up
-    expect(isUpward(10, -8)).toBe(false); // the hand view's stricter rule would not
-    expect(stripPickUp(13, -3, 262, 237)).toBe(false);
-    expect(stripPickUp(-13, 2, 268, 237)).toBe(false);
+describe('stripPickUp (S-15-6 owner round 3: any drag out of the small hand picks the card up)', () => {
+  it('up, diagonal and sideways pick up; mostly down does not', () => {
+    expect(stripPickUp(0, -8)).toBe(true);
+    expect(stripPickUp(6, -5)).toBe(true); // diagonal
+    expect(stripPickUp(-8, 0)).toBe(true); // sideways: the strip has no browse of its own
+    expect(stripPickUp(8, 3)).toBe(true); // sideways, a little down
+    expect(stripPickUp(0, 8)).toBe(false);
+    expect(stripPickUp(4, 7)).toBe(false);
     expect(STRIP_UP_RATIO).toBeLessThan(1);
-  });
-  it('a finger that ends up above the strip picks up however it got there', () => {
-    expect(stripPickUp(40, -20, 230, 237)).toBe(true);
-    expect(stripPickUp(40, 5, 230, 237)).toBe(false);
   });
 });
 
@@ -178,12 +203,12 @@ describe('leanAngle (S-15-1)', () => {
 });
 
 describe('classifyPress (S-15-6: sideways = browse, still hold or upward = pick up)', () => {
-  it('a quick still press is a tap; held still for 250 ms it lifts', () => {
+  it('a quick still press is a tap; held still for 120 ms it lifts', () => {
     expect(classifyPress(0, 0, 0, false)).toBe('pending');
-    expect(classifyPress(3, -4, 120, true)).toBe('tap');
-    expect(classifyPress(0, 0, 249, true)).toBe('tap');
-    expect(classifyPress(0, 0, 249, false)).toBe('pending');
-    expect(classifyPress(0, 0, 250, false)).toBe('lift');
+    expect(classifyPress(3, -4, 100, true)).toBe('tap');
+    expect(classifyPress(0, 0, 119, true)).toBe('tap');
+    expect(classifyPress(0, 0, 119, false)).toBe('pending');
+    expect(classifyPress(0, 0, 120, false)).toBe('lift');
     // Let go after the hold time: a hold, never a tap (no accidental plays).
     expect(classifyPress(0, 0, 400, true)).toBe('lift');
   });
@@ -193,22 +218,23 @@ describe('classifyPress (S-15-6: sideways = browse, still hold or upward = pick 
     expect(classifyPress(1, 1, 90, true)).toBe('tap');
   });
 
-  it('leaving the 12 px circle (nearly) straight up lifts at once; sideways or down browses', () => {
-    expect(classifyPress(0, -13, 20, false)).toBe('lift');
-    expect(classifyPress(9, -13, 20, false)).toBe('lift'); // ~35 degrees off vertical
-    expect(classifyPress(12, -13, 20, false)).toBe('swipe'); // ~43 degrees: a browse
-    expect(classifyPress(-20, 0, 20, false)).toBe('swipe');
-    expect(classifyPress(20, -5, 20, false)).toBe('swipe');
-    expect(classifyPress(0, 20, 20, false)).toBe('swipe');
-    // Diagonal flicks the way a thumb browses stay a browse.
-    for (const [dx, dy] of [[14, -10], [-16, -12], [20, -15], [-13, -3]] as const) expect(classifyPress(dx, dy, 30, false)).toBe('swipe');
+  it('leaving the 7 px circle up or diagonally lifts at once; sideways or down browses', () => {
+    expect(classifyPress(0, -8, 20, false)).toBe('lift');
+    expect(classifyPress(5, -6, 20, false)).toBe('lift'); // ~40 degrees off vertical
+    expect(classifyPress(6, -6, 20, false)).toBe('lift'); // 45 degrees: a diagonal grabs
+    expect(classifyPress(-7, -6, 20, false)).toBe('lift'); // ~49 degrees
+    expect(classifyPress(8, -5, 20, false)).toBe('swipe'); // ~58 degrees: a browse
+    expect(classifyPress(-8, 0, 20, false)).toBe('swipe');
+    expect(classifyPress(0, 8, 20, false)).toBe('swipe');
+    // Flat flicks with a little rise, the way a thumb browses, stay a browse.
+    for (const [dx, dy] of [[14, -10], [-16, -12], [20, -15], [-13, -3], [8, -3]] as const) expect(classifyPress(dx, dy, 30, false)).toBe('swipe');
   });
 
-  it('isUpward: within ~40 degrees of straight up', () => {
+  it('isUpward: within ~51 degrees of straight up', () => {
     expect(isUpward(0, -1)).toBe(true);
-    expect(isUpward(10, -12)).toBe(true);
-    expect(isUpward(-10, -12)).toBe(true);
-    expect(isUpward(11, -12)).toBe(false);
+    expect(isUpward(10, -10)).toBe(true);
+    expect(isUpward(-12, -10)).toBe(true);
+    expect(isUpward(13, -10)).toBe(false);
     expect(isUpward(0, 1)).toBe(false);
     expect(isUpward(0, 0)).toBe(false);
   });
