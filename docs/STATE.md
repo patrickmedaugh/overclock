@@ -1,5 +1,6 @@
 # Project state
 
+running_since: 2026-11-22 19:40 UTC
 phase: AWAITING_REVIEW
 sprint: 15
 open_pr: #34 Sprint 15 demo — ready for you to play (sprint-15 → main). Demo round 3 posted 2026-11-22 ~00:50 UTC (owner round-2 steps 2–9 fixed; QA round 8 all 6 stories passed). Full PR CI green on 90e3c3c (run 44968040841, 4 shards + guard-mutation). Play site built from 4f091d1 (2026-11-22 00:37 UTC). Waiting on owner accept/reject per story + 3 questions in the demo notes.
