@@ -409,6 +409,35 @@ describe('attachPress: hold to lift (S-15-6 owner round 3: anything longer than 
     expect(log, 'no hold timer after the pick-up').toEqual(['down', 'drag']);
   });
 
+  it('a late lift whose first move (made before 0.12 s) goes up is kept, and the card follows that move', () => {
+    const { target, log } = liftSetup();
+    const down = now;
+    target.emit('pointerdown', { timeStamp: down, x: 100, y: 300 });
+    stall(500);
+    wakeTimers();
+    runFrame();
+    target.emit('globalpointermove', { timeStamp: down + 50, x: 102, y: 280 });
+    expect(log).toEqual(['down', 'lift', 'drag', 'drag']);
+    target.emit('pointerupoutside', { timeStamp: down + 80, x: 104, y: 200 });
+    expect(log).toEqual(['down', 'lift', 'drag', 'drag', 'drop', 'release']);
+  });
+
+  it('a touch cancelled while held is a cancelled drop, and leaves nothing behind for the next press', () => {
+    const { target, log } = liftSetup();
+    target.emit('pointerdown', { timeStamp: now, x: 100, y: 300 });
+    pass(LIFT);
+    runFrame();
+    target.emit('pointercancel', { timeStamp: now, x: 100, y: 300 });
+    expect(log).toEqual(['down', 'lift', 'drag', 'cancel', 'release']);
+    log.length = 0;
+    target.emit('pointerdown', { timeStamp: now, x: 100, y: 300 });
+    pass(60);
+    target.emit('pointerup', { timeStamp: now, x: 100, y: 300 });
+    pass(200);
+    runFrame();
+    expect(log, 'the next quick tap is a plain tap').toEqual(['down', 'tap', 'release']);
+  });
+
   it('where the card cannot be lifted (onHoldLift says no), the still hold goes on to the long-press', () => {
     const { target, log } = liftSetup(false);
     target.emit('pointerdown', { timeStamp: now });

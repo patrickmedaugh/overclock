@@ -313,7 +313,7 @@ export function attachPress(target: Container, handlers: PressHandlers, opts: Pr
             watchPull = !!handlers.onPull;
             return;
           }
-          return;
+          // Confirmed: the card follows this move too (falls through to onDrag).
         }
       }
       handlers.onDrag?.(x, y, at);
