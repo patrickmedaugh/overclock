@@ -694,3 +694,116 @@ Input was real, as in round 7: finger and mouse events are sent as the finger mo
 - Should the hand view reopen after a play (step 5)?
 - Is it OK that the moved card covers part of the neighbouring place?
 - Does the move-aside feel smooth on your phone?
+
+## Round 9 (2026-11-22, product code f057834: S-15-6 owner round 3)
+
+QA did not write this change. The owner's round-3 feedback: grabbing a card still took too long ("anything longer than a quick tap should grab the card"); the held card should be bigger; dragging straight from the small hand did not work.
+
+ui-dev changed:
+- The hold is now 0.12 s (was 0.25 s), and the move circle is 7 px (was 12).
+- In the hand view, diagonal drags now grab the card.
+- The small hand grabs on a still hold, or on any move that is not mostly downward.
+- The held card is 1.5× bigger.
+- Drags from the small hand were fixed, with the hand view open and with it closed.
+
+How QA tested: real input only. Touch through CDP on phones, the mouse on desktop, no made-up timestamps. Sizes: 844x390, 640x360, 891x296 and desktop. The gesture specs were also run with the CPU slowed 4×.
+
+**Result: S-15-6 FAILS QA this round. The CI full suite on f057834 is RED.**
+- The owner's three changes work: a quick grab, a 1.5× bigger card, and one-motion drags from the small hand.
+- **QA-S15-7 (blocking):** 6 tests × 3 sizes still use the "hold to read" on the small hand, which the change removed.
+- **QA-S15-8 (blocking):** the QA-S15-2 busy-page fix was not applied to the small hand. QA's test that would catch this had been loosened (see below).
+
+### New QA tests (`qa-sprint15.spec.ts`, "round 9 check …", inside the round-7 real-input block; 19 tests per size)
+| # | Check | 1× (4 sizes) | 4× (4 sizes) | Result |
+|---|---|---|---|---|
+| 1 | A quick tap (40–100 ms) on the small hand or the big card never picks up or lights a place (Corp and Runner) | Last full run: every tap that reached the page normally had 0 bad frames. Over 4 repeat runs, 5 of about 380 measured taps flashed one frame (see QA-S15-9) | 0 bad frames (one round-7 run had too few quick taps to judge) | **PASS on a responsive page**; rare one-frame flash on a stalled page (QA-S15-9) |
+| 2 | A still press grabs at 0.12 s: small hand (view closed), small hand (view open), big card. Never before 115 ms, and on time (the 0.12 s mark + 0.1 s, or one frame after it). The card follows every move | All PASS. The card moves within 5–37 ms of each finger move (limit 100) | One move took 102 ms (844x390), the other 6 were ≤ 47 ms. Desktop passed on re-run 3/3 | **PASS** (one 102 ms move at 4× noted) |
+| 3 | In the hand view: straight up, 60° and 45° (both ways) grab with the first move out of the circle, no waiting. Flat, 25° and 30° drags browse | All PASS (the card is held by the frame after the move is handled) | PASS. On desktop at 4× the mouse moves get stamped late, so 1 run had too few cases to judge | **PASS** |
+| 4 | Held card ~1.5× the round-2 size and wholly on screen at 7 finger spots, never over the finger | Ratio **1.50** at every size: 246 px tall at 844x390 (round 2: 164), 0.63 of the screen height; desktop 504 (336). On screen and off the finger at all spots | same | **PASS** |
+| 5 | Drag from the small hand to a lit place in one motion: view closed and open, starting up-right or sideways. Corp install, Runner install, Runner event (12 cases) | 48/48 played. It is always the dragged card, grabbed by the move itself | 4× PASS | **PASS** |
+| 6 | QA-S15-2: a busy-page sideways flick on the big card (round-4 tests) | Never plays (all runs). Repeated ×4 at 2 sizes: 96/96. But "one 900 ms stall" ×12 at 2 sizes: **3/24 showed the held card with lit places for 0.2–1.4 s** (the flick's moves reached the page 0.25–1.4 s after the timer lifted). The **pre-round-3 build** (90e3c3c) shows the same thing **1/24**. CI flaky once (PR run, phone) | — | **PASS for "never plays"; the old visual flake is a bit more frequent** (QA-S15-9) |
+| 7 | Owner round-2 steps (round-7 block): tap does not select; the card flies back and the hand returns after a short delay; "No clicks left" only on letting go | Green in CI on f057834 (round-7/8 block: only round-8 move-aside flakes at 640x360, passed on retry) | Steps 1–4 at 4 sizes: PASS | **PASS** |
+
+- The small hand with the view open, at 640x360: the big card covers most of a small-hand card. QA's test presses the part that shows.
+  - Pressing the card's centre picks the big card, because it is drawn on top. That is correct, not a bug.
+- Test machine: this machine has no graphics chip. After a press, its first 2 frames take 50–120 ms each, in both the old and the new build, so a 0.12 s grab shows on screen at 0.15–0.4 s here.
+  - A move that grabs is handled only when those frames are done, at 0.13–0.43 s.
+  - With the hand view open, the small hand has no press animation, and the grab shows at 35–65 ms.
+  - Real phones draw these frames far faster. The owner should judge the feel on his phone.
+
+### ui-dev's edits to QA's tests (`git diff e8a7e83~1..f057834 -- apps/client/e2e/qa-sprint15.spec.ts`)
+- **OK, follows the new owner rules:**
+  - The quick tap is now 90 ms instead of 150.
+  - Time limits 245 → 115 ms and 350 → 220 ms (same margins at the shorter hold).
+  - AC1: the 45° browse case became 30° (45° now grabs; check 3 covers the 45° grab).
+  - The small hand: a sideways slide now grabs, and a downward slip still never does.
+  - A still hold on the small hand grabs.
+  - Round-7 step 2: taps of 40–100 ms are judged at < 110 ms. 4 lengths, at least 3 must be judged, so the check is not weaker.
+  - Round 5: the "late reading hold" flick tests were removed. Those tests were built on the hold-to-read, which is gone.
+- **Loosened beyond the new rules, now made strict again by QA:**
+  - Round 5's new "a quick tap / downward slip made before 0.12 s on a busy page is never a pick-up" had dropped every check of what the player sees. It only checked that nothing was played.
+  - QA added back the round-4 standard: no drawn frame shows a held card, lit places or a dropped hand.
+  - With that check it **fails at all 4 sizes** (QA-S15-8).
+
+### Bugs
+- **QA-S15-7 (ui-dev, blocking: CI red).** CI on f057834 failed: the manual run 45074684564 and the PR run 45074645441, e2e shards 1–3.
+  - The same 6 tests fail at 844x390, 640x360 and desktop (18 failures). All of them wait for a zoom that a hold on the small hand no longer opens.
+  - Reproduced locally: 6/6 time out at `waitForFunction(zoom…)`.
+  - The tests:
+    - `qa-sprint01.spec.ts:125` (both safe-area variants)
+    - `qa-sprint04.spec.ts:80`, `:107`, `:138`
+    - `s02-board.spec.ts:132`
+  - Fix: move them to the discard step (`toHoldToRead`), as was done for the other hold-to-read specs.
+  - `qa-sprint04:107` ("after sliding, leaving the hand upward picks up the card read") needs a decision: that path now exists only in the discard step, where nothing can be picked up.
+- **QA-S15-8 (ui-dev, blocking for S-15-6: the QA-S15-2 fix is missing on the small hand).**
+  - On a busy page, a quick tap or a downward slip on the small hand, made before 0.12 s, shows the card picked up with 4 places lit and the hand dropped for 1–2 frames. Then it is undone (nothing is played).
+  - Cause (code read):
+    - The hand view path (`board.ts`, view press timer) waits until the page has caught up (two quick frames in a row).
+    - The small hand's `attachPress` `fireLift` (`input.ts`) waits only one frame (`afterNextFrame`), even when the timer ran late. So queued input arrives after the lift has been drawn.
+  - Repro: `npx playwright test e2e/qa-sprint15.spec.ts -g "round 5: strip" --retries=0`.
+    - Example at 844x390: the page is busy for 700 ms; the release is stamped at 90 ms.
+    - Lift at 1006 ms; frames at 993 and 1110 ms show the card held, 4 places lit and the hand dropped.
+    - The move and release are handled at 1125 and 1131 ms.
+  - Fails at all 4 sizes (the quick-tap case 4/4; the downward-slip case at 844x390 and desktop).
+- **QA-S15-9 (ui-dev, minor, not blocking):** a rare flash on a stalled page when the release or the moves reach the page after the hold timer.
+  - (a) Normal input on this machine: 5 of about 380 quick taps (by event times) showed one frame with the card held and places lit. In all 5, the release was handled 238–512 ms after the down, on both the big card and the small hand.
+  - (b) The round-4 "900 ms stall" flick: 3/24 on f057834, against 1/24 on the old build. CI flaky once.
+  - The card is never played. The 0.12 s hold makes the window shorter, so this happens more often.
+- Flaky, known: `s15-owner` "round 3 … (hand view open)" timed out once at desktop 4× (1/4).
+  - A `page.mouse.click` on the small hand did not open the view (same as the `s07-hand:130` side finding).
+  - QA's 12-click probe at desktop 4× opened the view 12/12.
+
+### CI result (round 9)
+- **Manual run 45074684564 on f057834: FAILURE.**
+  - `checks` success, `guard-mutation` success.
+  - e2e shard 1/4 failure (6 failed, 630 passed).
+  - Shard 2/4 failure (6 failed, 2 flaky).
+  - Shard 3/4 failure (6 failed, 1 flaky).
+  - Shard 4/4 success.
+- PR run 45074645441 on the same commit: the same 18 failures (QA-S15-7).
+  - Flaky: round-4 "900 ms stall" (phone), round-8 move-aside (640x360), `qa-sprint07:471`, `s02-corp:62`, `actions:62`.
+- QA did not run the full suite locally (TESTING.md: CI covers this commit; it must be re-run after the fixes).
+
+### Other checks
+- **Empty timing windows auto-pass:** the engine did not change; the unit tests are green (`checks`).
+- **IP:** no new card names, text or art. The held face is drawn by the game itself.
+- **Snappiness:**
+  - A quick tap is answered < 100 ms.
+  - The card follows the finger in ≤ 37 ms at 1×, and ≤ 49 ms at 4× except one 102 ms move.
+  - No new animation blocks input.
+
+### Screenshots (for the demo notes)
+- `docs/sprints/sprint-15-qa/r9-844x390-held-from-small-hand.png`: held straight from the small hand, 0.63 of the screen tall, every place lit.
+- `docs/sprints/sprint-15-qa/r9-844x390-held-from-big-card.png`
+- `docs/sprints/sprint-15-qa/r9-844x390-played-from-small-hand.png`
+- `docs/sprints/sprint-15-qa/r9-640x360-held-from-small-hand.png`
+- `docs/sprints/sprint-15-qa/r9-640x360-held-from-big-card.png`
+- `docs/sprints/sprint-15-qa/r9-640x360-played-from-small-hand.png`
+
+### Final per-story result (Sprint 15, round 9)
+| Story | Result |
+|---|---|
+| S-15-1 … S-15-5 | Unchanged by this commit. Their own tests are green in CI (the 18 failures are hold-to-read tests, QA-S15-7) |
+| S-15-6 Hold a card to play it | **FAILS QA (round 9).** Checks 1–5 and 7 pass on real input at 4 sizes and at 4×. Check 6 (never plays) passes. Blocked by QA-S15-7 (CI red) and QA-S15-8 (busy-page flash on the small hand) |
+
+**Owner/PM note (from DECISIONS):** a still hold on the small hand now picks the card up, instead of the Sprint-4 "hold to read and slide" (which is kept only in the discard step). To read a card, tap it: the hand view opens. The owner should confirm this at the demo.
