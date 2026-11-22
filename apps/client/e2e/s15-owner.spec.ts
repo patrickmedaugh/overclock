@@ -10,6 +10,10 @@
 //  - step 7: dragging up out of the small hand works, also when the thumb starts at a slant;
 //  - step 3/4: the held card is big and never covers the place under the finger, which glows brightly;
 //  - step 8/9: holding a card that can't be played shows no reason; letting go shows it.
+// Owner round 3 (2026-11-22): "anything longer than a quick tap should grab the card", "the card should
+// still be bigger", "directly dragging a card from a minimized hand did not work": a finger's small,
+// paced steps (4 px, a frame apart) from the small hand to a lit place, in one motion, with the hand
+// view closed and open (it shows the small hand under it: a press there was taken as a browse).
 import { type CDPSession, type Page, expect, test } from '@playwright/test';
 import { type Box, type LayoutSnapshot, anims, center, dispatch, getView, layout, openBoard, toRunnerTurn, waitHandBack, waitIdle } from './helpers';
 import { pixelStats } from './pixels';
@@ -125,16 +129,16 @@ test.describe('S-15-6 owner review (real input)', () => {
       await waitIdle(page);
       await watch(page);
       if (touch()) await page.touchscreen.tap(c.x, c.y);
-      else await page.mouse.click(c.x, c.y, { delay: 100 });
+      else await page.mouse.click(c.x, c.y, { delay: 60 });
       await page.waitForTimeout(500);
       const w = await watched(page);
       const held = w.ups.at(-1)! - w.downs.at(-1)!;
       test.info().annotations.push({ type: 'tap', description: `down→up ${Math.round(held)} ms (event times)` });
-      // A busy test runner can stretch a tap past 0.25 s by the browser's own clock: then it was a
+      // A busy test runner can stretch a tap past 0.12 s by the browser's own clock: then it was a
       // hold, and that try does not count (it must still never play: checked below).
       expect(await getView(page), 'nothing played or paid').toEqual(before);
       await waitHandBack(page);
-      if (held < 230) {
+      if (held < 110) {
         checked++;
         expect(w.frames.filter((f) => f.held || f.lit > 0).length, 'no frame shows a lifted card or a lit place').toBe(0);
         const l = await layout(page);
@@ -358,5 +362,117 @@ test.describe('S-15-6 owner review (real input)', () => {
     expect(hint.startedAt - ret.startedAt, 'the reason shows as it is let go').toBeLessThan(100);
     await waitHandBack(page);
     expect(await getView(page)).toEqual(before);
+  });
+
+  /** A finger's path: small steps (4 px at the start, then up to 20), one frame apart, from `a` to `b`. */
+  async function glide(page: Page, p: Pointer, a: { x: number; y: number }, b: { x: number; y: number }): Promise<void> {
+    const d = Math.hypot(b.x - a.x, b.y - a.y);
+    // The first 12 px in 4 px steps (the start of the gesture is what is judged), then even steps.
+    for (const r of [4, 8, 12]) {
+      if (r >= d) break;
+      await p.move(a.x + ((b.x - a.x) * r) / d, a.y + ((b.y - a.y) * r) / d);
+      await page.waitForTimeout(16);
+    }
+    const n = Math.max(3, Math.min(16, Math.ceil(d / 20)));
+    for (let k = 1; k <= n; k++) {
+      await p.move(a.x + ((b.x - a.x) * k) / n, a.y + ((b.y - a.y) * k) / n);
+      await page.waitForTimeout(16);
+    }
+  }
+
+  for (const how of ['hand view closed', 'hand view open'] as const) {
+    test(`round 3: a card dragged from the small hand (${how}) to a lit place in one motion is played`, async ({ page }) => {
+      await openBoard(page, 6);
+      await waitIdle(page);
+      const before = await getView(page);
+      const i = before.handOptions.findIndex((os) => os.some((o) => o.reject === null && o.action.type === 'install'));
+      // With the view open, it shows another card big; the small hand stays at the bottom.
+      if (how === 'hand view open') await openView(page, (i + 2) % before.handOptions.length);
+      const l0 = await waitIdle(page);
+      expect(l0.hand[i]!.box.y + l0.hand[i]!.box.height, 'the small hand is on screen').toBeLessThanOrEqual(l0.viewport.height + 0.5);
+      const s = center(l0.hand[i]!.box);
+      const p = await pointer(page);
+      await page.evaluate(() => window.__overclock!.clearAnims());
+      await p.down(s.x, s.y);
+      // Up and to the right, the way a thumb drags a card onto the table.
+      const mid = { x: l0.viewport.width * 0.45, y: l0.viewport.height * 0.4 };
+      await glide(page, p, s, mid);
+      await page.waitForFunction(() => window.__overclock!.layout().drag !== null, undefined, { timeout: 2000 });
+      const held = await layout(page);
+      expect(held.drag).toMatchObject({ index: i, dimmed: false });
+      expect(held.targets.length, 'its places are lit').toBeGreaterThan(0);
+      const t = held.targets.find((x) => x.kind === 'new_server') ?? held.targets[0]!;
+      await glide(page, p, mid, center(t.box));
+      await page.waitForFunction(() => window.__overclock!.layout().drag?.hover !== null);
+      await p.up();
+      await waitHandBack(page);
+      const after = await getView(page);
+      expect(after.players.corp.hand!.length, 'the card left the hand: played').toBe(before.players.corp.hand!.length - 1);
+    });
+  }
+
+  test('round 3: a still press on the small hand picks the card up at 0.12 s (no hand view); in the same motion it is played', async ({ page }) => {
+    await openBoard(page, 6);
+    const l0 = await waitIdle(page);
+    const before = await getView(page);
+    const i = before.handOptions.findIndex((os) => os.some((o) => o.reject === null && o.action.type === 'install'));
+    const s = center(l0.hand[i]!.box);
+    const p = await pointer(page);
+    await watch(page);
+    await page.evaluate(() => window.__overclock!.clearAnims());
+    await p.down(s.x, s.y);
+    await page.waitForFunction(() => window.__overclock!.layout().drag !== null, undefined, { timeout: 1000 });
+    const w = await watched(page);
+    const down = w.downs.at(-1)!;
+    const first = w.frames.find((f) => f.held)!;
+    test.info().annotations.push({ type: 'lift', description: `first held frame ${Math.round(first.t - down)} ms after the down` });
+    expect(first.t - down, 'not before 0.12 s').toBeGreaterThanOrEqual(115);
+    const recs = await anims(page);
+    expect(recs.some((a) => a.kind === 'hand_open'), 'no hand view: the card itself is held').toBe(false);
+    const held = await layout(page);
+    // Round 3: bigger (0.63 of the screen's height; was 0.42), wholly on screen.
+    expect(held.drag!.box.height).toBeGreaterThanOrEqual(held.viewport.height * 0.62);
+    expect(held.drag!.box.y).toBeGreaterThanOrEqual(-0.5);
+    expect(held.drag!.box.y + held.drag!.box.height).toBeLessThanOrEqual(held.viewport.height + 0.5);
+    expect(held.drag!.box.x).toBeGreaterThanOrEqual(-0.5);
+    expect(held.drag!.box.x + held.drag!.box.width).toBeLessThanOrEqual(held.viewport.width + 0.5);
+    await shot(page, 's15-6-round3-held-from-strip');
+    const t = held.targets.find((x) => x.kind === 'new_server') ?? held.targets[0]!;
+    await glide(page, p, s, center(t.box));
+    await p.up();
+    await waitHandBack(page);
+    expect((await getView(page)).players.corp.hand!.length, 'played').toBe(before.players.corp.hand!.length - 1);
+  });
+
+  test('round 3: a quick tap on the small hand never lifts the card: it opens the hand view', async ({ page }) => {
+    await openBoard(page, 6);
+    const l0 = await waitIdle(page);
+    const c = center(l0.hand[1]!.box);
+    let checked = 0;
+    for (let attempt = 0; attempt < 4 && checked < 2; attempt++) {
+      await watch(page);
+      if (touch()) await page.touchscreen.tap(c.x, c.y);
+      else {
+        // A quick click: down and up sent together (the browser stamps each as it arrives; a busy
+        // desktop runner would otherwise stretch page.mouse.click past 0.12 s).
+        const cdp = await page.context().newCDPSession(page);
+        const ev = (type: 'mousePressed' | 'mouseReleased') => cdp.send('Input.dispatchMouseEvent', { type, x: c.x, y: c.y, button: 'left', buttons: type === 'mousePressed' ? 1 : 0, clickCount: 1 });
+        await page.mouse.move(c.x, c.y);
+        await Promise.all([ev('mousePressed'), ev('mouseReleased')]);
+        await cdp.detach();
+      }
+      await page.waitForFunction(() => window.__overclock!.layout().handView?.index === 1);
+      await page.waitForTimeout(300);
+      const w = await watched(page);
+      const held = w.ups.at(-1)! - w.downs.at(-1)!;
+      test.info().annotations.push({ type: 'tap', description: `down→up ${Math.round(held)} ms (event times)` });
+      if (held < 110) {
+        checked++;
+        expect(w.frames.filter((f) => f.held || f.lit > 0).length, 'no frame shows a lifted card or a lit place').toBe(0);
+      }
+      expect(await page.evaluate(() => window.__overclock!.back())).toBe('close_zoom');
+      await waitIdle(page);
+    }
+    expect(checked, 'at least two taps were quick enough to judge').toBeGreaterThanOrEqual(2);
   });
 });

@@ -1,6 +1,6 @@
 // S-15-6 (owner, after the Sprint 15 demo): hold a card to play it, Hearthstone-style. In the hand
-// view sideways = browse, a still hold (0.25 s) or an upward drag = pick up; straight up out of the
-// small hand strip picks up too. The hand drops away, every place the card can go lights at once
+// view sideways = browse, a still hold (0.12 s since owner round 3, 2026-11-22; was 0.25 s) or an upward
+// or diagonal drag = pick up; on the small hand strip a still hold or any drag but down picks up too. The hand drops away, every place the card can go lights at once
 // (from view.handOptions), the place under it is highlighted strongly, letting go there plays it;
 // anywhere else it glides back. A tap on the big card never plays ("Hold to play"). A card that
 // can't be played lifts dimmed with the reason. Runs at 891x296, 844x390, 640x360 and desktop
@@ -98,7 +98,10 @@ async function flick(page: Page, a: { x: number; y: number }, b: { x: number; y:
   await cdp.detach();
 }
 
-/** Pointer down event times on the page (for "lifted 0.25 s after the finger went down"). */
+/** S-15-6 owner round 3: the still hold that lifts a card (ms; `HOLD_MS`). */
+const HOLD = 120;
+
+/** Pointer down event times on the page (for "lifted 0.12 s after the finger went down"). */
 async function watchDowns(page: Page): Promise<void> {
   await page.evaluate(() => {
     const w = window as unknown as { __downs: number[]; __moves: { at: number; handled: number; y: number }[] };
@@ -185,7 +188,7 @@ test.describe('S-15-6 hold a card to play it', () => {
     expect((await anims(page)).some((a) => a.kind === 'play_flight' || a.kind === 'install_flight')).toBe(false);
   });
 
-  test('holding the big card still lifts it at 0.25 s: the view fades, the hand drops away, its places light', async ({ page }) => {
+  test('holding the big card still lifts it at 0.12 s: the view fades, the hand drops away, its places light', async ({ page }) => {
     await openBoard(page, 6);
     const v = await getView(page);
     const i = v.handOptions.findIndex((os) => os.some((o) => o.reject === null && o.action.type === 'install'));
@@ -199,17 +202,17 @@ test.describe('S-15-6 hold a card to play it', () => {
     await page.waitForFunction(() => window.__overclock!.layout().drag !== null);
     const down = await lastDown(page);
     const lift = (await anims(page)).find((a) => a.kind === 'card_lift')!;
-    // Judged from the press: not before 0.25 s, and on time (a tenth of a second of slack).
+    // Judged from the press: not before 0.12 s, and on time (a tenth of a second of slack).
     const gap = await frameGap(page);
     test.info().annotations.push({ type: 'lift-ms', description: `${(lift.startedAt - down).toFixed(1)} (longest frame ${gap.toFixed(1)})` });
-    expect(lift.startedAt - down).toBeGreaterThanOrEqual(250 - 5);
-    // On time: within a tenth of a second of 0.25 s, or, where the page draws slowly, on the first or
+    expect(lift.startedAt - down).toBeGreaterThanOrEqual(HOLD - 5);
+    // On time: within a tenth of a second of 0.12 s, or, where the page draws slowly, on the first or
     // second frame after it (a late timer waits one frame on purpose so a quick release queued
     // meanwhile stays a tap, QA-S3-7). On a phone a frame is ~16 ms; a GPU-less 6x-slowed runner
     // draws one in up to ~400 ms.
     const frames = await page.evaluate(() => (window as unknown as { __frames: number[] }).__frames);
-    const after = frames.filter((t) => t >= down + 250);
-    const due = Math.max(down + 350, (after[1] ?? Infinity) + 100);
+    const after = frames.filter((t) => t >= down + HOLD);
+    const due = Math.max(down + HOLD + 100, (after[1] ?? Infinity) + 100);
     expect(lift.startedAt, 'lifted on time').toBeLessThanOrEqual(due);
     await page.waitForTimeout(200);
     const l = await layout(page);
@@ -237,12 +240,12 @@ test.describe('S-15-6 hold a card to play it', () => {
     await h.move(c.x + 4, c.y - 40);
     await page.waitForFunction(() => window.__overclock!.layout().drag !== null);
     const lift = (await anims(page)).find((a) => a.kind === 'card_lift')!;
-    // Lifted by the move that left the 12 px circle upward, not by the hold timer.
-    const m = await page.evaluate((y0) => (window as unknown as { __moves: { at: number; handled: number; y: number }[] }).__moves.find((x) => y0 - x.y > 12)!, c.y);
+    // Lifted by the move that left the 7 px circle upward, not by the hold timer.
+    const m = await page.evaluate((y0) => (window as unknown as { __moves: { at: number; handled: number; y: number }[] }).__moves.find((x) => y0 - x.y > 7)!, c.y);
     // Budgets count from when the page handled the move (input queueing is annotated only, as for taps).
     test.info().annotations.push({ type: 'lift-ms', description: `${(lift.startedAt - m.handled).toFixed(1)} after handling, queued ${(m.handled - m.at).toFixed(1)}` });
     expect(lift.startedAt - m.handled, 'lifted on that move').toBeLessThan(100);
-    expect(m.at - (await lastDown(page)), 'the finger left the circle before the hold time').toBeLessThan(250);
+    expect(m.at - (await lastDown(page)), 'the finger left the circle before the hold time').toBeLessThan(HOLD);
     expect((await layout(page)).drag).toMatchObject({ index: 0, from: 'view' });
     await h.release();
     await page.waitForFunction(() => window.__overclock!.layout().drag === null);
@@ -260,25 +263,32 @@ test.describe('S-15-6 hold a card to play it', () => {
     await waitHandBack(page);
   });
 
-  test('holding a card in the small hand still shows it big to read; leaving the hand upward picks up the card read', async ({ page }) => {
+  test('owner round 3: holding a card still in the small hand picks it up at 0.12 s (no hand view), big; let go on a lit place plays it', async ({ page }) => {
     await openBoard(page, 6);
     const l0 = await waitIdle(page);
-    const box = l0.hand[1]!.box;
-    const start = center(box);
-    const h = await holdAt(page, box);
-    await page.waitForFunction(() => window.__overclock!.layout().handView !== null);
-    // Slide sideways to the next card (reading), then up out of the hand.
-    const next = center(l0.hand[2]!.box);
-    await dragTo(h, start, next, 4);
-    await page.waitForFunction(() => window.__overclock!.layout().handView?.index === 2);
-    expect((await layout(page)).drag).toBeNull();
-    await dragTo(h, next, { x: next.x, y: l0.handArea.y - l0.hand[2]!.box.height * 0.5 }, 4);
+    const v = await getView(page);
+    const i = v.handOptions.findIndex((os) => os.some((o) => o.reject === null && o.action.type === 'install'));
+    await watchDowns(page);
+    await page.evaluate(() => window.__overclock!.clearAnims());
+    const h = await holdAt(page, l0.hand[i]!.box);
     await page.waitForFunction(() => window.__overclock!.layout().drag !== null);
+    const down = await lastDown(page);
+    const lift = (await anims(page)).find((a) => a.kind === 'card_lift')!;
+    test.info().annotations.push({ type: 'lift-ms', description: (lift.startedAt - down).toFixed(1) });
+    expect(lift.startedAt - down, 'not before the hold time').toBeGreaterThanOrEqual(HOLD - 5);
     const l = await layout(page);
-    expect(l.drag).toMatchObject({ index: 2, cardId: l0.hand[2]!.cardId, from: 'strip' });
+    expect(l.drag).toMatchObject({ index: i, from: 'strip', dimmed: false });
+    expect(l.handView, 'no hand view: the card itself is held').toBeNull();
+    // Bigger than before round 3 (1.5x: 0.63 of the screen's height), wholly on screen.
+    expect(l.drag!.box.height).toBeGreaterThan(l.viewport.height * 0.6);
+    expect(l.drag!.box.y).toBeGreaterThanOrEqual(-0.5);
+    expect(l.drag!.box.y + l.drag!.box.height).toBeLessThanOrEqual(l.viewport.height + 0.5);
+    const t = l.targets[0]!;
+    await dragTo(h, center(l0.hand[i]!.box), center(t.box), 8);
     await h.release();
     await waitHandBack(page);
-    expect((await layout(page)).handView).toBeNull();
+    expect(await getView(page), 'played').not.toEqual(v);
+    expect((await getView(page)).players.corp.hand!.length).toBeLessThan(v.players.corp.hand!.length);
   });
 
   test('every place the card can go lights at once, by card type, for both sides (one-shot cards: the table)', async ({ page }) => {

@@ -67,7 +67,7 @@ test.describe('S-15-4 never slower than today', () => {
     expect(now.hand.map((h) => h.box), 'hand cards where an idle board puts them').toEqual(idle.hand.map((h) => h.box));
   });
 
-  test('S-15-6 hold to play: the card reacts at once, lifts at 0.25 s, and nothing stops play for more than 0.6 s', async ({ page }) => {
+  test('S-15-6 hold to play: the card reacts at once, lifts at 0.12 s (owner round 3), and nothing stops play for more than 0.6 s', async ({ page }) => {
     await openBoard(page, 6);
     const open = await openHand(page, 0);
     // The view's neighbour faces are drawn ahead one frame at a time: let that finish first.
@@ -114,13 +114,13 @@ test.describe('S-15-4 never slower than today', () => {
     // Reacts (rises) as soon as the press is handled, within a tenth of a second.
     expect(press.startedAt - press.inputAt!).toBeLessThan(100);
     expect(press.scheduledMs).toBeLessThanOrEqual(100);
-    // Lifts at 0.25 s after the finger went down (never before; late only by a frame the runner was drawing).
-    expect(lift.startedAt - down).toBeGreaterThanOrEqual(245);
-    // On time: within a tenth of a second of 0.25 s, or, where the page draws slowly, on the first or
+    // Lifts at 0.12 s after the finger went down (never before; late only by a frame the runner was drawing).
+    expect(lift.startedAt - down).toBeGreaterThanOrEqual(115);
+    // On time: within a tenth of a second of 0.12 s, or, where the page draws slowly, on the first or
     // second frame after it (a late timer waits one frame on purpose, QA-S3-7).
     const frames = await page.evaluate(() => (window as unknown as { __frames: number[] }).__frames);
-    const after = frames.filter((t) => t >= down + 250);
-    expect(lift.startedAt, 'lifted on time').toBeLessThanOrEqual(Math.max(down + 350, (after[1] ?? Infinity) + 100));
+    const after = frames.filter((t) => t >= down + 120);
+    expect(lift.startedAt, 'lifted on time').toBeLessThanOrEqual(Math.max(down + 220, (after[1] ?? Infinity) + 100));
     // Drop it on a lit place: the hand comes back and the next tap is answered at once.
     const l = await layout(page);
     const t = l.targets.find((x) => x.lit)!;
