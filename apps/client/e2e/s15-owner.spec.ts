@@ -421,7 +421,8 @@ test.describe('S-15-6 owner review (real input)', () => {
     await watch(page);
     await page.evaluate(() => window.__overclock!.clearAnims());
     await p.down(s.x, s.y);
-    await page.waitForFunction(() => window.__overclock!.layout().drag !== null, undefined, { timeout: 1000 });
+    // Wait for the watcher's own frame record (Playwright's rAF poll can see the drag first).
+    await page.waitForFunction(() => (window as unknown as { __w: Watched }).__w.frames.some((f) => f.held), undefined, { timeout: 1000 });
     const w = await watched(page);
     const down = w.downs.at(-1)!;
     const first = w.frames.find((f) => f.held)!;
