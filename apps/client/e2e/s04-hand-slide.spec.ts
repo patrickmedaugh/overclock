@@ -3,8 +3,11 @@
 // hand view on that card, sliding along the hand still browses it, and lifting
 // leaves the hand view open on the card read last; nothing is picked or played.
 // A quick tap opens the hand view; a tap on its big card picks the card.
+// S-15-6 owner round 3 (2026-11-22): on the board a still hold on a hand card now picks it up after
+// 0.12 s; the hold-to-read and slide stay where no card can be picked up (the discard step), so the
+// slide checks run there (`toHoldToRead`).
 import { type Page, expect, test } from '@playwright/test';
-import { type Box, center, getView, layout, openBoard, pickHand, tap } from './helpers';
+import { type Box, center, getView, layout, openBoard, pickHand, tap, toHoldToRead } from './helpers';
 
 function isTouch(): boolean {
   return test.info().project.use.hasTouch === true;
@@ -52,7 +55,7 @@ async function outlined(page: Page): Promise<number> {
 /** Opens the board and holds the first hand card until it zooms. */
 async function holdFirst(page: Page): Promise<{ h: Hold; hand: { cardId: string; box: Box }[] }> {
   await openBoard(page, 1);
-  const l = await layout(page);
+  const l = await toHoldToRead(page);
   expect(l.hand.length).toBeGreaterThanOrEqual(4);
   const h = await hold(page, l.hand[0]!.box);
   await waitZoom(page, l.hand[0]!.cardId);

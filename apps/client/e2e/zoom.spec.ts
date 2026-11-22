@@ -5,7 +5,7 @@
 import { type Page, expect, test } from '@playwright/test';
 import { getCard } from '@overclock/cards';
 import type { Box } from './helpers';
-import { dispatch, inside, layout, openBoard, pressAndHold, safeRect, tap, waitIdle } from './helpers';
+import { dispatch, inside, layout, openBoard, pressAndHold, safeRect, tap, waitIdle, toHoldToRead } from './helpers';
 
 /** The Corp installs its first hand card in a new server: returns that card (seen face up by the Corp). */
 async function toInstalled(page: Page): Promise<{ cardId: string; box: Box }> {
@@ -118,9 +118,10 @@ test.describe('S-00-4 zoom', () => {
     expect(await page.evaluate(() => window.__overclock!.getView())).toEqual(view);
   });
 
-  test('S-07-6: holding a hand card opens the hand view on it after the long-press delay, and it stays open after lifting', async ({ page }) => {
+  test('S-07-6: in the discard step holding a hand card opens the hand view on it after the long-press delay, and it stays open after lifting', async ({ page }) => {
     await openBoard(page);
-    const l = await layout(page);
+    // S-15-6 owner round 3: elsewhere a hold picks the card up after 0.12 s (s15-hold, s15-owner).
+    const l = await toHoldToRead(page);
     const view = await page.evaluate(() => window.__overclock!.getView());
     const release = await pressAndHold(page, l.hand[1]!.box);
     await page.waitForFunction((id) => window.__overclock!.layout().handView?.cardId === id, l.hand[1]!.cardId);

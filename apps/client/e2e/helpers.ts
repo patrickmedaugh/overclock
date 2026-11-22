@@ -390,6 +390,19 @@ export async function holdAt(page: Page, b: Box): Promise<Hold> {
   };
 }
 
+/**
+ * S-15-6 (owner round 3, 2026-11-22): on the board a still hold on a hand card picks it up after
+ * 0.12 s (no hold-to-read there any more). The S-04-3 hold-to-read and slide through the hand stays
+ * where no card can be picked up: the discard step. This ends the Corp's first turn with 6 cards
+ * (discard 1) so the specs of that hold run there. Returns the layout, idle.
+ */
+export async function toHoldToRead(page: Page): Promise<LayoutSnapshot> {
+  await dispatch(page, { type: 'end_turn', player: 'corp' });
+  const l = await waitIdle(page);
+  expect((await getView(page)).pendingDiscard, 'in the discard step').toBeGreaterThan(0);
+  return l;
+}
+
 /** Waits until the zoom shows `cardId`. */
 export async function waitZoom(page: Page, cardId: string): Promise<void> {
   await page.waitForFunction((id) => window.__overclock!.layout().zoom?.cardId === id, cardId);

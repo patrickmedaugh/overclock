@@ -190,12 +190,13 @@ test.describe('QA S-15-1 hand: press, tap, glide home', () => {
     });
     const cdp = await page.context().newCDPSession(page);
     const c = center(centre);
-    // The browser's own stamps make it a 150 ms tap: a busy CI page acks the press late, and the
-    // game judges a tap by the events' times (QA-S3-7), so the release is stamped 150 ms after it.
+    // The browser's own stamps make it a 90 ms tap: a busy CI page acks the press late, and the
+    // game judges a tap by the events' times (QA-S3-7), so the release is stamped 90 ms after it.
+    // (Owner round 3 (2026-11-22, updated by ui-dev; QA to re-verify): the hold is 0.12 s, so a tap is under it.)
     const t0 = Date.now();
     await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: c.x, y: c.y }], timestamp: t0 / 1000 });
-    await page.waitForTimeout(150); // < 250 ms hold: a tap, not a lift
-    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [], timestamp: (t0 + 150) / 1000 });
+    await page.waitForTimeout(90); // < 120 ms hold: a tap, not a lift
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [], timestamp: (t0 + 90) / 1000 });
     await page.waitForTimeout(250);
     const qa = await page.evaluate(() => {
       const w = window as unknown as {
@@ -1175,7 +1176,8 @@ function overlapArea(a: { x: number; y: number; width: number; height: number },
 const sameGame = (v: PlayerView) => JSON.parse(JSON.stringify(v)) as PlayerView;
 
 test.describe('QA S-15-6 hold a card to play it', () => {
-  test('AC1: sideways flicks in the hand view (flat, rising up to 45°, falling) browse and never pick a card up', async ({ page }) => {
+  // Owner round 3 (2026-11-22, updated by ui-dev; QA to re-verify): a diagonal (45°) now picks the card up; flicks up to ~38° above flat browse.
+  test('AC1: sideways flicks in the hand view (flat, rising up to 30°, falling) browse and never pick a card up', async ({ page }) => {
     await openBoard(page, 4);
     const before = await getView(page);
     await qaWatch(page);
@@ -1186,7 +1188,7 @@ test.describe('QA S-15-6 hold a card to play it', () => {
       { name: 'flat left', dx: -1, dy: 0, wait: 0 },
       { name: 'flat right', dx: 1, dy: 0, wait: 0 },
       { name: 'rising 30° left', dx: -Math.cos(Math.PI / 6), dy: -Math.sin(Math.PI / 6), wait: 0 },
-      { name: 'rising 45° right', dx: Math.SQRT1_2, dy: -Math.SQRT1_2, wait: 0 },
+      { name: 'rising 30° right', dx: Math.cos(Math.PI / 6), dy: -Math.sin(Math.PI / 6), wait: 0 },
       { name: 'falling 30° left', dx: -Math.cos(Math.PI / 6), dy: Math.sin(Math.PI / 6), wait: 0 },
     ];
     const results: string[] = [];
@@ -1265,8 +1267,11 @@ test.describe('QA S-15-6 hold a card to play it', () => {
     await cdp.detach();
   });
 
-  test('AC1/2: a sideways slide along the small hand never picks a card up', async ({ page }) => {
+  // Owner round 3 (2026-11-22, updated by ui-dev; QA to re-verify): the small hand has no sideways browse of its own (that is the hand view's), so any
+  // drag out of it but a mostly downward one picks the pressed card up; let go back on the strip, it goes back.
+  test('AC1/2: a sideways slide along the small hand picks the pressed card up (nothing played); a downward slip never does', async ({ page }) => {
     await openBoard(page, 4);
+    const before = await getView(page);
     await qaWatch(page);
     const l = await waitIdle(page);
     const a = center(l.hand[0]!.box);
@@ -1275,14 +1280,26 @@ test.describe('QA S-15-6 hold a card to play it', () => {
     const t0 = Date.now();
     await f.down(a, t0);
     for (let k = 1; k <= 6; k++) await f.move({ x: a.x + ((b.x - a.x) * k) / 6, y: a.y - 4 * (k % 2) }, t0 + 30 * k);
-    await f.up(t0 + 30 * 7);
+    await page.waitForFunction(() => window.__overclock!.layout().drag !== null, undefined, { timeout: 3000 });
+    expect((await layout(page)).drag).toMatchObject({ index: 0, from: 'strip' });
+    await f.up(Date.now());
+    await waitBack(page);
+    expect(await getView(page), 'let go on the strip: nothing played').toEqual(before);
+    // A tap that slips straight down: never a pick-up.
+    await qaWatch(page);
+    const g = await qaFinger(page);
+    const t1 = Date.now();
+    await g.down(a, t1);
+    for (let k = 1; k <= 3; k++) await g.move({ x: a.x + k, y: a.y + 5 * k }, t1 + 20 * k);
+    await g.up(t1 + 80);
     await page.waitForTimeout(400);
     const log = await qaLog(page);
     expect(log.frames.some((fr) => fr.drag)).toBe(false);
     expect(log.frames.some((fr) => fr.targets > 0)).toBe(false);
   });
 
-  test('AC2: held still on the big card it lifts at 0.25 s (not before), follows the finger, the big view fades and the hand drops off the screen', async ({ page }) => {
+  // Owner round 3 (2026-11-22, updated by ui-dev; QA to re-verify): the still hold is 0.12 s (was 0.25 s).
+  test('AC2: held still on the big card it lifts at 0.12 s (not before), follows the finger, the big view fades and the hand drops off the screen', async ({ page }) => {
     await openBoard(page, 4);
     await tap(page, (await waitIdle(page)).hand[3]!.box); // Ice Wall
     await page.waitForFunction(() => window.__overclock!.layout().handView?.index === 3);
@@ -1297,25 +1314,25 @@ test.describe('QA S-15-6 hold a card to play it', () => {
     const lift = (await anims(page)).find((a) => a.kind === 'card_lift')!;
     const log0 = await qaLog(page);
     const down = log0.downs.at(-1)!;
-    // Not before 0.25 s; and in time (100 ms, or the frame the page was drawing plus one, per the architect's rule).
-    const after250 = log0.frames.filter((fr) => fr.t >= down + 250).map((fr) => fr.t);
-    const due = Math.max(down + 350, (after250[1] ?? Infinity) + 100);
+    // Not before 0.12 s; and in time (100 ms, or the frame the page was drawing plus one, per the architect's rule).
+    const after250 = log0.frames.filter((fr) => fr.t >= down + 120).map((fr) => fr.t);
+    const due = Math.max(down + 220, (after250[1] ?? Infinity) + 100);
     test.info().annotations.push({ type: 'lift-after-down-ms', description: (lift.startedAt - down).toFixed(1) });
-    expect(lift.startedAt - down).toBeGreaterThanOrEqual(245);
+    expect(lift.startedAt - down).toBeGreaterThanOrEqual(115);
     expect(lift.startedAt).toBeLessThanOrEqual(due);
     // Round 5: judged by when each frame's state was read, not by the frame's rAF stamp. The rAF stamp is
     // when the frame began; if the hold timer lifts the card just after that (in a task before the frame's
     // callbacks run), the frame shows the card held yet carries a stamp from before the lift (a test race
-    // seen once on [phone]). The 0.25 s rule itself is unchanged: the lift happens >= 245 ms after the down
+    // seen once on [phone]). The 0.12 s rule itself is unchanged: the lift happens >= 115 ms after the down
     // (above) and no frame read before then shows a held card.
     const heldFrames = log0.frames.filter((fr) => fr.drag);
-    const stampedEarly = heldFrames.filter((fr) => fr.t < down + 245);
+    const stampedEarly = heldFrames.filter((fr) => fr.t < down + 115);
     test.info().annotations.push({
       type: 'first-held-frame',
-      description: JSON.stringify({ stampMs: heldFrames[0] ? +(heldFrames[0].t - down).toFixed(1) : null, readMs: heldFrames[0] ? +(heldFrames[0].now - down).toFixed(1) : null, liftMs: +(lift.startedAt - down).toFixed(1), stampedBefore245: stampedEarly.length }),
+      description: JSON.stringify({ stampMs: heldFrames[0] ? +(heldFrames[0].t - down).toFixed(1) : null, readMs: heldFrames[0] ? +(heldFrames[0].now - down).toFixed(1) : null, liftMs: +(lift.startedAt - down).toFixed(1), stampedBefore115: stampedEarly.length }),
     });
     expect(heldFrames.every((fr) => fr.now >= lift.startedAt), 'every held frame was read after the lift').toBe(true);
-    expect(log0.frames.filter((fr) => fr.now < down + 245).some((fr) => fr.drag), 'nothing held before 0.25 s').toBe(false);
+    expect(log0.frames.filter((fr) => fr.now < down + 115).some((fr) => fr.drag), 'nothing held before 0.12 s').toBe(false);
     // Follows the finger: three spots on the table, the card is drawn by the finger each time (AC 2
     // changed after owner review 2026-11-21: big, just above the finger or beside it near the top,
     // never over it, so the place under the finger stays visible).
@@ -1343,7 +1360,7 @@ test.describe('QA S-15-6 hold a card to play it', () => {
     await waitBack(page);
   });
 
-  test('AC2: an upward drag on the big card picks it up at once, before 0.25 s', async ({ page }) => {
+  test('AC2: an upward drag on the big card picks it up at once, before 0.12 s', async ({ page }) => {
     await openBoard(page, 4);
     await tap(page, (await waitIdle(page)).hand[0]!.box);
     await page.waitForFunction(() => window.__overclock!.layout().handView?.index === 0);
@@ -1368,19 +1385,23 @@ test.describe('QA S-15-6 hold a card to play it', () => {
     await waitBack(page);
   });
 
-  test('AC2: straight up out of the small hand picks the card up without the hand view; a still hold there still reads it big (no pick-up)', async ({ page }) => {
+  // Owner round 3 (2026-11-22, updated by ui-dev; QA to re-verify): a still hold on the small hand picks the card up too (shown big as the held card);
+  // let go where it was pressed, it goes back and the hand view opens on it (as a tap).
+  test('AC2: straight up out of the small hand picks the card up without the hand view; a still hold there picks it up too', async ({ page }) => {
     await openBoard(page, 4);
     await qaWatch(page);
-    // A still hold on the strip: read big, nothing picked.
+    // A still hold on the strip: picked up (no hand view while held).
     let l = await waitIdle(page);
     const f0 = await qaFinger(page);
     await f0.down(center(l.hand[1]!.box));
-    await page.waitForFunction(() => window.__overclock!.layout().handView !== null, undefined, { timeout: 3000 });
-    await page.waitForTimeout(500);
-    expect((await layout(page)).drag, 'still hold on the strip reads, never picks').toBeNull();
+    await page.waitForFunction(() => window.__overclock!.layout().drag !== null, undefined, { timeout: 3000 });
+    expect((await layout(page)).drag, 'still hold on the strip picks it up').toMatchObject({ index: 1, from: 'strip' });
+    expect((await layout(page)).handView).toBeNull();
     await f0.up();
+    await page.waitForFunction(() => window.__overclock!.layout().handView?.index === 1);
     await page.evaluate(() => window.__overclock!.back());
     await page.waitForFunction(() => window.__overclock!.layout().handView === null);
+    await waitIdle(page);
     // Straight up: picked up, the hand view never opened.
     await qaWatch(page);
     const { f, l: held } = await qaLiftStrip(page, 2);
@@ -1590,14 +1611,14 @@ test.describe('QA S-15-6 hold a card to play it', () => {
     const bad = log.frames.filter((fr) => fr.drag || fr.targets > 0 || fr.minimized);
     const d0 = log.downs[0]!;
     test.info().annotations.push({ type: 'taps', description: JSON.stringify({ downs: log.downs.map((d) => d - d0), ups: log.ups.map((d) => d - d0), upHandled: log.upsAt.map((d, k) => d - log.downs[k]!), flashFrames: bad.map((fr) => ({ t: fr.t - d0, drag: fr.drag, targets: fr.targets, min: fr.minimized })), longest: Math.max(...log.frames.map((fr, k, a) => (k ? fr.t - a[k - 1]!.t : 0))) }) });
-    // Each tap: if the page handled its release before 0.25 s, no frame between its down and release
+    // Each tap: if the page handled its release before 0.12 s, no frame between its down and release
     // showed a held card or lit places. (If the page was too busy to handle the release by then, the
     // stalled hold timer lifts first and the tap undoes it: a brief flash, recorded; QA-S15-2 note.)
     for (let k = 0; k < log.downs.length; k++) {
       const down = log.downs[k]!;
       const upAt = log.upsAt[k]!;
       const flash = bad.filter((fr) => fr.t >= down && fr.t <= upAt + 50);
-      if (upAt - down < 250) expect(flash.length, `tap ${k + 1}: released (handled) at ${(upAt - down).toFixed(0)} ms: never held, never lit`).toBe(0);
+      if (upAt - down < 120) expect(flash.length, `tap ${k + 1}: released (handled) at ${(upAt - down).toFixed(0)} ms: never held, never lit`).toBe(0);
     }
     expect(log.frames.at(-1)!.drag || log.frames.at(-1)!.targets > 0, 'in the end nothing held or lit').toBe(false);
     expect((await anims(page)).filter((a) => a.kind === 'hold_tip').length).toBeGreaterThanOrEqual(1);
@@ -1790,7 +1811,7 @@ test.describe('QA S-15-6 hold a card to play it', () => {
 });
 
 test.describe('QA S-15-6 timing (hold)', () => {
-  test('AC12: the card reacts within 0.1 s, lifts at 0.25 s, is back in the hand (strip up) within 0.6 s of letting go, can be picked up again at once, no long task over 0.6 s, next tap answered < 0.1 s', async ({ page }) => {
+  test('AC12: the card reacts within 0.1 s, lifts at 0.12 s, is back in the hand (strip up) within 0.6 s of letting go, can be picked up again at once, no long task over 0.6 s, next tap answered < 0.1 s', async ({ page }) => {
     await openBoard(page, 4);
     await lean(page);
     await tap(page, (await waitIdle(page)).hand[3]!.box);
@@ -1832,9 +1853,9 @@ test.describe('QA S-15-6 timing (hold)', () => {
     expect(grown.t, 'drawn risen on the next frame (or the one after) the page drew').toBeLessThanOrEqual(framesAfter[1] ?? framesAfter[0] ?? Infinity);
     // Where the page is not queueing input (this runner: 891x296 / 844x390 / 640x360), also from the finger itself.
     if (downHandled - down < 20 && longest < 120) expect(grown.t - down, 'grown within 0.1 s of the finger').toBeLessThan(100);
-    expect(liftRec.startedAt - down).toBeGreaterThanOrEqual(245);
-    const after250 = log.frames.filter((fr) => fr.t >= down + 250).map((fr) => fr.t);
-    expect(liftRec.startedAt, 'lifts as soon as 0.25 s are up').toBeLessThanOrEqual(Math.max(down + 350, (after250[1] ?? Infinity) + 100));
+    expect(liftRec.startedAt - down).toBeGreaterThanOrEqual(115);
+    const after250 = log.frames.filter((fr) => fr.t >= down + 120).map((fr) => fr.t);
+    expect(liftRec.startedAt, 'lifts as soon as 0.12 s are up').toBeLessThanOrEqual(Math.max(down + 220, (after250[1] ?? Infinity) + 100));
     // Let go away from every place: back in the hand view, strip up, within 0.6 s.
     const l = await layout(page);
     await slide(f, offPlace(l), 3);
@@ -2086,7 +2107,7 @@ test.describe('QA S-15-6 round 4: QA-S15-2 fix on busy pages', () => {
       const log = await qaLog(page);
       const lift = recs.find((a) => a.kind === 'card_lift')!;
       test.info().annotations.push({ type: 'r4-lift-after-down-ms', description: (lift.startedAt - log.downs.at(-1)!).toFixed(0) });
-      expect(lift.startedAt - log.downs.at(-1)!).toBeGreaterThanOrEqual(245);
+      expect(lift.startedAt - log.downs.at(-1)!).toBeGreaterThanOrEqual(115);
       await page.waitForTimeout(b.frames * b.ms);
       // Let go where nothing is lit (the held card follows the finger there first).
       const off = offPlace(await layout(page));
@@ -2120,79 +2141,55 @@ test.describe('QA S-15-6 round 4: QA-S15-2 fix on busy pages', () => {
   });
 });
 
-// QA round 5 (strip follow-up of QA-S15-2, written by QA): on the small hand strip, a reading hold
-// (hold-to-read, 0.35 s) that the busy page opens late, then a quick flick made before the hold time
-// that rises sideways out of the strip. The flick's moves reach the game only after the late hold
-// opened (as when the page runs the late timer before the queued moves), each stamped with when it
-// was made. By its own time it was a flick: it must never pick a card up and never play anything.
-// A genuine upward pull (late-opened hold or an on-time one) must still pick the card up.
+// QA round 5 (strip follow-up of QA-S15-2, written by QA). Owner round 3 (2026-11-22, updated by
+// ui-dev; QA to re-verify): the small hand no longer has a reading hold (a still hold picks the card
+// up at 0.12 s, any drag but a downward one picks it up), so the late-opened reading hold these tests
+// built on is gone. What stays from QA-S15-2 on the strip: a lift the busy page made late is judged
+// by the gesture's own times - a quick tap or a downward slip made before 0.12 s is never a pick-up
+// and never plays; and only the pressed card is ever picked up.
 test.describe('QA S-15-6 round 5: strip follow-up (QA-S15-2 on the small hand)', () => {
   const STRIP_CARD = 3; // Ice Wall (playable: a pick-up would light places)
-  /** Finger down on strip card `i` stamped now, the page stalls `ms`, and the hold-to-read opens late. */
-  async function lateReadHold(page: Page, i: number, ms: number): Promise<{ cdp: CDPSession; t0: number; c: Pt; l0: LayoutSnapshot; openedMs: number }> {
+  /** Finger down on strip card `i` stamped now; the page stalls `ms`, and lifts the card late (by its timer). */
+  async function lateLift(page: Page, i: number, ms: number): Promise<{ cdp: CDPSession; t0: number; c: Pt; l0: LayoutSnapshot }> {
     const l0 = await waitIdle(page);
     const c = center(l0.hand[i]!.box);
     await qaWatch(page);
     await page.evaluate(() => window.__overclock!.clearAnims());
     const { cdp, t0 } = await stampedDown(page, c);
     await busy(page, { frames: 1, ms });
-    await page.waitForFunction(() => window.__overclock!.layout().zoom !== null, undefined, { timeout: ms + 4000 });
-    const openedMs = Date.now() - t0;
-    return { cdp, t0, c, l0, openedMs };
+    return { cdp, t0, c, l0 };
   }
-  const flicks = [
-    { name: 'rising 30° left', sx: -1, deg: 30 },
-    { name: 'rising 30° right', sx: 1, deg: 30 },
-    { name: 'rising 45° left (just outside the 40° pick-up cone)', sx: -1, deg: 45 },
-  ];
-  for (const fl of flicks) {
-    test(`strip: a late-opened reading hold, then a quick flick ${fl.name} out of the strip (made before the hold time): no pick-up, nothing played`, async ({ page }) => {
+
+  for (const kind of ['quick tap', 'downward slip'] as const) {
+    test(`strip: a ${kind} made before 0.12 s on a busy page is never a pick-up and never plays`, async ({ page }) => {
       await openBoard(page, 4);
       const before = await getView(page);
-      const { cdp, t0, c, l0, openedMs } = await lateReadHold(page, STRIP_CARD, 700);
-      // Rise to well above the "pulled out while reading" line (STRIP_PULL = 0.15 of a card above the strip).
-      const h = l0.hand[STRIP_CARD]!.box.height;
-      const rise = c.y - (l0.handArea.y - 0.15 * h) + 0.3 * h;
-      const run = rise / Math.tan((fl.deg * Math.PI) / 180);
-      const moves = [1, 2, 3, 4, 5].map((k) => ({ p: { x: c.x + (fl.sx * run * k) / 5, y: c.y - (rise * k) / 5 }, t: t0 + 60 + 10 * k }));
-      await stampedGesture(page, c, moves, t0 + 120, cdp);
+      const { cdp, t0, c } = await lateLift(page, STRIP_CARD, 700);
+      const moves = kind === 'quick tap' ? [] : [1, 2, 3].map((k) => ({ p: { x: c.x + k, y: c.y + 6 * k }, t: t0 + 40 + 15 * k }));
+      await stampedGesture(page, c, moves, t0 + 90, cdp);
       await page.waitForTimeout(1200);
-      const recs = await anims(page);
-      const log = await qaLog(page);
-      const d0 = log.downs.at(-1)!;
-      const held = log.frames.filter((fr) => fr.drag || fr.targets > 0 || fr.minimized);
       const l = await waitIdle(page);
-      test.info().annotations.push({
-        type: 'r5-strip-flick',
-        description: JSON.stringify({ holdOpenedMs: openedMs, moves: log.moves.map((m) => [Math.round(m.at - d0), Math.round(m.handled - d0), Math.round(m.x), Math.round(m.y)]), stripTop: Math.round(l0.handArea.y), kinds: recs.map((a) => a.kind) }),
-      });
-      expect(openedMs, 'the reading hold opened late (after the flick was made)').toBeGreaterThan(400);
-      expect.soft(recs.some((a) => a.kind === 'card_lift'), 'never picked up').toBe(false);
-      expect.soft(held.length, 'no frame shows a held card, lit place or dropped hand').toBe(0);
+      const recs = await anims(page);
+      test.info().annotations.push({ type: 'r5-strip', description: recs.map((a) => a.kind).join(',') });
       expect.soft(await getView(page), 'nothing played or paid').toEqual(before);
       expect.soft(l.drag, 'nothing held at the end').toBeNull();
-      // (A strip hold opens the hand view, which stays open after the release by design: not checked here.)
-      expect.soft(l.hand.length).toBe(l0.hand.length);
-      if (fl === flicks[0]) await snap3(page, 's15-6-r5-strip-flick-no-pickup');
+      expect.soft(recs.some((a) => a.kind === 'install_flight' || a.kind === 'play_flight')).toBe(false);
       await cdp.detach();
     });
   }
 
-  test('strip: a late-opened reading hold whose first move out (made before the hold time) is straight up still picks the card up; let go off every place, nothing played', async ({ page }) => {
+  test('strip: a late lift followed by a drag up and out picks up the pressed card; let go off every place, nothing played', async ({ page }) => {
     await openBoard(page, 4);
     const before = await getView(page);
-    const { cdp, t0, c, l0, openedMs } = await lateReadHold(page, STRIP_CARD, 700);
+    const { cdp, t0, c, l0 } = await lateLift(page, STRIP_CARD, 700);
     const h = l0.hand[STRIP_CARD]!.box.height;
-    const moves = [1, 2, 3].map((k) => ({ p: { x: c.x + k, y: c.y - 0.3 * h * k }, t: t0 + 60 + 15 * k }));
+    const moves = [1, 2, 3].map((k) => ({ p: { x: c.x - 0.3 * h * k, y: c.y - 0.3 * h * k }, t: t0 + 60 + 15 * k }));
     await stampedGesture(page, c, moves, null, cdp);
     await waitDrag(page);
     const l = await layout(page);
-    test.info().annotations.push({ type: 'r5-strip-pull', description: JSON.stringify({ holdOpenedMs: openedMs, from: l.drag!.from, cardId: l.drag!.cardId }) });
-    expect(openedMs).toBeGreaterThan(400);
     expect(l.drag!.index, 'the pressed card is the one picked up').toBe(STRIP_CARD);
     expect(l.drag!.cardId).toBe(l0.hand[STRIP_CARD]!.cardId);
     expect(l.targets.some((t) => t.lit), 'its places light').toBe(true);
-    await snap3(page, 's15-6-r5-strip-late-pull-up');
     const off = offPlace(l);
     const f2: Finger = { at: moves.at(-1)!.p, down: async () => undefined, move: async (p) => void (await cdp.send(touchProject() ? 'Input.dispatchTouchEvent' : 'Input.dispatchMouseEvent', touchProject() ? { type: 'touchMove', touchPoints: [p] } : { type: 'mouseMoved', x: p.x, y: p.y, button: 'left', buttons: 1 })), up: async () => undefined, cancel: async () => undefined };
     await slide(f2, off, 3);
@@ -2201,27 +2198,6 @@ test.describe('QA S-15-6 round 5: strip follow-up (QA-S15-2 on the small hand)',
     await waitBack(page);
     expect(await getView(page), 'nothing played or paid').toEqual(before);
     await cdp.detach();
-  });
-
-  test('strip: an on-time reading hold, then pulled up out of the strip, picks up the card being read (unchanged)', async ({ page }) => {
-    await openBoard(page, 4);
-    const before = await getView(page);
-    const l0 = await waitIdle(page);
-    const c = center(l0.hand[STRIP_CARD]!.box);
-    const f = await qaFinger(page);
-    await f.down(c);
-    await page.waitForFunction(() => window.__overclock!.layout().zoom !== null);
-    await page.waitForTimeout(150);
-    const h = l0.hand[STRIP_CARD]!.box.height;
-    await slide(f, { x: c.x + 0.6 * h, y: l0.handArea.y - 0.6 * h }, 4);
-    await waitDrag(page);
-    const l = await layout(page);
-    expect(l.drag!.cardId, 'the card being read is picked up').toBe(l0.hand[l.drag!.index]!.cardId);
-    expect(l.targets.some((t) => t.lit)).toBe(true);
-    await slide(f, offPlace(l), 3);
-    await f.up();
-    await waitBack(page);
-    expect(await getView(page), 'nothing played or paid').toEqual(before);
   });
 });
 
@@ -2499,7 +2475,8 @@ test.describe('QA S-15-6 round 7: owner steps 1-9 on real input', () => {
   }
 
   for (const side of ['corp', 'runner'] as const) {
-    test(`step 2 (${side}): taps of 40-200 ms (a click held 100-200 ms) on the big card never lift it or light anything; "Hold to play" shows`, async ({ page }) => {
+    // Owner round 3 (2026-11-22, updated by ui-dev; QA to re-verify): the hold is 0.12 s; taps of 40-100 ms are judged (longer presses lift, by design).
+    test(`step 2 (${side}): taps of 40-100 ms (a click held 60-100 ms) on the big card never lift it or light anything; "Hold to play" shows`, async ({ page }) => {
       await openBoard(page, side === 'corp' ? 6 : 3);
       if (side === 'runner') await toRunnerTurn(page);
       const before = await getView(page);
@@ -2507,7 +2484,7 @@ test.describe('QA S-15-6 round 7: owner steps 1-9 on real input', () => {
       const h = await human(page);
       const open = await open7(page, h, i);
       const c = center(open.handView!.centre);
-      const lengths = isTouch() ? [40, 80, 120, 160, 200] : [100, 150, 200];
+      const lengths = isTouch() ? [40, 60, 80, 100] : [60, 80, 100];
       const rows: string[] = [];
       let judged = 0;
       for (const ms of lengths) {
@@ -2521,13 +2498,13 @@ test.describe('QA S-15-6 round 7: owner steps 1-9 on real input', () => {
         const l = await layout(page);
         rows.push(`${ms} ms sent -> ${Math.round(held)} ms by event times: held/lit frames ${bad}, tip "${l.handView?.tip?.text ?? ''}"`);
         expect(await getView(page), 'nothing played or paid').toEqual(before);
-        if (held < 235) {
+        if (held < 110) {
           judged++;
           expect.soft(bad, `${ms} ms tap: no frame shows a held card or lit place`).toBe(0);
           expect.soft(l.handView?.index, 'the big card stays').toBe(i);
           expect.soft(l.handView?.tip?.text).toBe('Hold to play');
         }
-        if (ms === 120 || (!isTouch() && ms === 150)) await shot7(page, `s15-6-step2-tap-${side}`);
+        if (ms === 80) await shot7(page, `s15-6-step2-tap-${side}`);
         await waitHandBack(page);
       }
       test.info().annotations.push({ type: 'r7-taps', description: rows.join(' | ') });
@@ -2568,7 +2545,7 @@ test.describe('QA S-15-6 round 7: owner steps 1-9 on real input', () => {
   });
 
   for (const side of ['corp', 'runner'] as const) {
-    test(`steps 3/4 (${side}): hold still (finger wobbling) - reacts, lifts at ~0.25 s with every place lit in that frame; slide over each lit place on a curve - it glows strongly, the big held card never covers the finger`, async ({
+    test(`steps 3/4 (${side}): hold still (finger wobbling) - reacts, lifts at ~0.12 s with every place lit in that frame; slide over each lit place on a curve - it glows strongly, the big held card never covers the finger`, async ({
       page,
     }) => {
       await openBoard(page, side === 'corp' ? 6 : 3);
@@ -2598,12 +2575,13 @@ test.describe('QA S-15-6 round 7: owner steps 1-9 on real input', () => {
       });
       expect(pressRec, 'the big card reacts to the press').toBeTruthy();
       expect(pressRec!.startedAt - down, 'it reacts within 0.1 s').toBeLessThan(100);
-      expect(lift, 'lifts at about 0.25 s, not before').toBeGreaterThanOrEqual(240);
+      // Owner round 3 (2026-11-22, updated by ui-dev; QA to re-verify): the hold is 0.12 s; the held card is 0.63 of the screen's height.
+      expect(lift, 'lifts at about 0.12 s, not before').toBeGreaterThanOrEqual(115);
       // Same rule as QA's AC12 check: by 0.35 s, or within 0.1 s of the second frame after 0.25 s (this runner draws with a
       // software GPU: 100-250 ms frames right after a press are the machine, not game code - see the round-7 notes).
-      const after250 = w.frames.filter((f) => f.t >= down + 250).map((f) => f.t);
+      const after250 = w.frames.filter((f) => f.t >= down + 120).map((f) => f.t);
       test.info().annotations.push({ type: 'r7-lift-frames', description: `frames from the down: ${w.frames.filter((f) => f.t >= down && f.t <= firstHeld.t).map((f) => Math.round(f.t - down)).join(' ')}` });
-      expect(firstHeld.t, 'lifts as soon as 0.25 s is up').toBeLessThanOrEqual(Math.max(down + 350, (after250[1] ?? Infinity) + 100));
+      expect(firstHeld.t, 'lifts as soon as 0.12 s is up').toBeLessThanOrEqual(Math.max(down + 220, (after250[1] ?? Infinity) + 100));
       expect(firstHeld.lit, 'every place lit in the lift frame').toBeGreaterThan(0);
       let l = await layout(page);
       expect(l.handMinimized, 'the hand dropped away').toBe(true);

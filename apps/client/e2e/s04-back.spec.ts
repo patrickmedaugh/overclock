@@ -3,7 +3,7 @@
 // The web build drives Back through the test hook (`back()`), which runs the
 // same handler the app's Back button does.
 import { type Page, expect, test } from '@playwright/test';
-import { type Box, expectCleanLayout, getView, inside, layout, openBoard, playUntilGameOver, pressAndHold, safeRect, tap, waitIdle } from './helpers';
+import { type Box, expectCleanLayout, getView, inside, layout, openBoard, playUntilGameOver, pressAndHold, safeRect, tap, waitIdle, toHoldToRead } from './helpers';
 import { pixelStats } from './pixels';
 
 const back = (page: Page) => page.evaluate(() => window.__overclock!.back());
@@ -77,7 +77,8 @@ test.describe('S-04-2 Back button', () => {
 
   test('with a card zoomed, Back closes the zoom (no question)', async ({ page }) => {
     await openBoard(page, 1);
-    const l = await layout(page);
+    // S-15-6 owner round 3: a hold zooms (reads) a hand card in the discard step; elsewhere it picks it up.
+    const l = await toHoldToRead(page);
     const release = await pressAndHold(page, l.hand[0]!.box);
     await page.waitForFunction(() => window.__overclock!.layout().zoom !== null);
     expect(await back(page)).toBe('close_zoom');

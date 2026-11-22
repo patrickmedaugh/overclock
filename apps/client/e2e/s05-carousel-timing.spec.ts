@@ -3,12 +3,14 @@
 // face was drawn ahead of time (no drawing on the spot), and the carousel
 // slide never holds up the next move. Timing story: run it repeated and at 6x
 // CPU slow-down (E2E_CPU_THROTTLE=6), per docs/TESTING.md.
+// S-15-6 owner round 3 (2026-11-22): on the board a still hold now picks a hand card up after 0.12 s;
+// the hold-to-read runs in the discard step, where it stays (`toHoldToRead`).
 import { expect, test } from '@playwright/test';
-import { center, holdAt, layout, openBoard, waitZoom } from './helpers';
+import { center, holdAt, openBoard, waitZoom, toHoldToRead } from './helpers';
 
 test('slide to the next card: new face on screen < 100 ms after the move, drawn ahead', async ({ page }) => {
   await openBoard(page, 1);
-  const hand = (await layout(page)).hand;
+  const hand = (await toHoldToRead(page)).hand;
   expect(hand.length).toBeGreaterThanOrEqual(5);
   const h = await holdAt(page, hand[0]!.box);
   await waitZoom(page, hand[0]!.cardId);

@@ -4,8 +4,10 @@
 // ahead while the finger is down, so a slide never waits for one.
 // S-07-6: the hold opens the hand view (this carousel made permanent): lifting
 // leaves it open; a tap outside closes it; a tap on the big card picks the card.
+// S-15-6 owner round 3 (2026-11-22): on the board a still hold now picks a hand card up after 0.12 s;
+// the hold-to-read runs in the discard step, where it stays (`toHoldToRead`).
 import { type Page, expect, test } from '@playwright/test';
-import { type Box, center, getView, holdAt, layout, openBoard, outsideHandView, tap, waitZoom } from './helpers';
+import { type Box, center, getView, holdAt, layout, openBoard, outsideHandView, tap, waitZoom, toHoldToRead } from './helpers';
 import { pixelStats } from './pixels';
 
 type Zoom = NonNullable<Awaited<ReturnType<typeof layout>>['zoom']>;
@@ -31,7 +33,7 @@ function expected(i: number, n: number): number[][] {
 test.describe('S-05-3 hand carousel', () => {
   test('holding a hand card shows its neighbours smaller behind the zoom, drawn ahead of time', async ({ page }) => {
     await openBoard(page, 1);
-    const l = await layout(page);
+    const l = await toHoldToRead(page);
     const n = l.hand.length;
     expect(n).toBeGreaterThanOrEqual(5);
     const h = await holdAt(page, l.hand[2]!.box);
@@ -69,7 +71,7 @@ test.describe('S-05-3 hand carousel', () => {
 
   test('sliding moves the zoom on and the cards behind slide past with it', async ({ page }) => {
     await openBoard(page, 1);
-    const l = await layout(page);
+    const l = await toHoldToRead(page);
     const n = l.hand.length;
     // CI draws on a software GPU, where frames are always slow and the carousel would jump: pin
     // "fast" so the slide itself (tween, leaving card dropped at its end) is what is checked.
@@ -107,7 +109,7 @@ test.describe('S-05-3 hand carousel', () => {
 
   test('at the first or last card the zoom stays on it and only the cards that exist show', async ({ page }) => {
     await openBoard(page, 1);
-    const l = await layout(page);
+    const l = await toHoldToRead(page);
     const n = l.hand.length;
     const h = await holdAt(page, l.hand[0]!.box);
     await waitZoom(page, l.hand[0]!.cardId);
@@ -131,7 +133,7 @@ test.describe('S-05-3 hand carousel', () => {
 
   test('lifting the finger keeps the hand view and its carousel, with nothing played or spent; a tap outside closes both', async ({ page }) => {
     await openBoard(page, 1);
-    const l = await layout(page);
+    const l = await toHoldToRead(page);
     const n = l.hand.length;
     const before = await getView(page);
     const h = await holdAt(page, l.hand[1]!.box);

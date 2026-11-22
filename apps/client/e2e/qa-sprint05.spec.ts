@@ -25,6 +25,7 @@ import {
   toStep,
   waitIdle,
   waitZoom,
+  toHoldToRead,
 } from './helpers';
 
 const SHOTS = join(dirname(fileURLToPath(import.meta.url)), '../../../docs/sprints/sprint-05-qa');
@@ -251,7 +252,7 @@ test.describe('QA S-05-2 the ICE says what it does', () => {
 test.describe('QA S-05-3 carousel', () => {
   test('carousel screenshots: neighbours behind the zoom, mid-slide and after (frames pinned fast)', async ({ page }) => {
     await openBoard(page, 1);
-    const l = await layout(page);
+    const l = await toHoldToRead(page); // owner round 3: the hold-to-read is the discard step's
     await page.evaluate(() => window.__overclock!.frameSpeed('fast'));
     const h = await holdAt(page, l.hand[1]!.box);
     await waitZoom(page, l.hand[1]!.cardId);
@@ -311,7 +312,7 @@ async function slideTo(page: Page, h: { move(x: number, y: number): Promise<void
 test.describe('QA timing S-05-3', () => {
   test('QA timing: slide the moment the zoom opens (no waiting for the pre-draw), across the hand: every new face on screen < 100 ms', async ({ page }) => {
     await openBoard(page, 1);
-    const hand = (await layout(page)).hand;
+    const hand = (await toHoldToRead(page)).hand; // owner round 3: the hold-to-read is the discard step's
     expect(hand.length).toBeGreaterThanOrEqual(5);
     const last = hand.length - 1;
     await watchSwaps(page);
@@ -333,7 +334,7 @@ test.describe('QA timing S-05-3', () => {
 
   test('QA timing: with the slide animation on (frames pinned fast), quick back-and-forth moves: every new face on screen < 100 ms', async ({ page }) => {
     await openBoard(page, 1);
-    const hand = (await layout(page)).hand;
+    const hand = (await toHoldToRead(page)).hand; // owner round 3: the hold-to-read is the discard step's
     await page.evaluate(() => window.__overclock!.frameSpeed('fast'));
     await watchSwaps(page);
     const h = await holdAt(page, hand[0]!.box);
