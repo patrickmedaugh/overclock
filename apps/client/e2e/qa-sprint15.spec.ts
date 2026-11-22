@@ -3199,4 +3199,152 @@ test.describe('QA S-15-6 round 7: owner steps 1-9 on real input', () => {
     expect(miss, 'every click opened the hand view').toBe(0);
     expect(miss2, 'every CDP click opened the hand view').toBe(0);
   });
+  // ---- Round 8 (QA, 2026-11-21): the held card steps aside off the hovered place (ui-dev `heldAside`). ----
+  interface AF {
+    t: number;
+    box: Box | null;
+    aside: number;
+    hover: string | null;
+    fx: number;
+    fy: number;
+  }
+  async function watchAside(page: Page): Promise<void> {
+    await page.evaluate(() => {
+      const w = window as unknown as { __r8: AF[]; __r8On?: boolean; __r8f: { x: number; y: number } };
+      w.__r8 = [];
+      w.__r8f = w.__r8f ?? { x: -1, y: -1 };
+      if (w.__r8On) return;
+      w.__r8On = true;
+      const at = (e: PointerEvent) => {
+        w.__r8f = { x: e.clientX, y: e.clientY };
+      };
+      window.addEventListener('pointerdown', at, { capture: true });
+      window.addEventListener('pointermove', at, { capture: true });
+      const loop = (t: number) => {
+        const d = window.__overclock!.layout().drag;
+        w.__r8.push({
+          t,
+          box: d ? d.box : null,
+          aside: d ? d.aside : 0,
+          hover: d?.hover ? d.hover.kind + (d.hover.server ? ':' + d.hover.server : '') : null,
+          fx: w.__r8f.x,
+          fy: w.__r8f.y,
+        });
+        requestAnimationFrame(loop);
+      };
+      requestAnimationFrame(loop);
+    });
+  }
+  const inB = (b: Box, x: number, y: number) => x >= b.x && x <= b.x + b.width && y >= b.y && y <= b.y + b.height;
+  const meet = (a: Box, b: Box) => a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
+
+  const asideCases = [
+    { name: 'corp ICE (each server, new server)', side: 'corp' as const, pred: (o: CardOption, id: string) => o.action.type === 'install' && getCard(id)?.type === 'ice' },
+    { name: 'corp asset/agenda (new server, remotes)', side: 'corp' as const, pred: (o: CardOption, id: string) => o.action.type === 'install' && getCard(id)?.type !== 'ice' },
+    { name: 'runner install (rig)', side: 'runner' as const, pred: (o: CardOption) => o.action.type === 'install' },
+    { name: 'runner event (table, exempt)', side: 'runner' as const, pred: (o: CardOption, id: string) => o.action.type === 'play' && getCard(id)?.type === 'event' },
+  ];
+  for (const c of asideCases) {
+    test(`round 8: held card steps aside off the hovered place - ${c.name}: name/price visible, glow visible, no jump, never covers the finger`, async ({ page }) => {
+      test.setTimeout(90_000);
+      const { i } = await boardWith(page, c.side, c.pred);
+      const h = await human(page);
+      const open = await open7(page, h, i);
+      await h.down(center(open.handView!.centre));
+      await page.waitForFunction(() => window.__overclock!.layout().drag !== null, undefined, { timeout: 2500 });
+      let l = await layout(page);
+      const lit = l.targets.filter((t) => t.lit);
+      expect(lit.length, 'places lit').toBeGreaterThan(0);
+      const vw = l.viewport.width;
+      const rows: string[] = [];
+      for (const [k, t] of lit.entries()) {
+        const table = t.kind === 'play' && t.server === undefined;
+        const f = table ? { x: vw * 0.42, y: l.viewport.height * 0.4 } : { x: t.box.x + t.box.width / 2, y: t.box.y + t.box.height * 0.6 };
+        const rings: Box[] = [
+          { x: t.box.x + t.box.width + 2, y: f.y - 6, width: 5, height: 12 },
+          { x: t.box.x - 7, y: f.y - 6, width: 5, height: 12 },
+          { x: f.x - 6, y: t.box.y - 7, width: 12, height: 5 },
+        ];
+        const plain = await pixelStats(page, rings);
+        await watchAside(page);
+        await drag(page, h, f, 200 + 60 * (k % 3), k % 2 ? 25 : -25);
+        await page.waitForFunction(() => window.__overclock!.layout().drag?.hover != null, undefined, { timeout: 2000 });
+        await page.waitForTimeout(250);
+        l = await layout(page);
+        const d = l.drag!;
+        const frames = (await page.evaluate(() => (window as unknown as { __r8: AF[] }).__r8)).filter((x) => x.box !== null);
+        // 1. Never covers the finger (any frame, using the last finger point the page had).
+        const coverFrames = frames.filter((x) => x.fx >= 0 && inB(x.box!, x.fx, x.fy)).length;
+        expect.soft(coverFrames, `${t.kind}${t.server ?? ''}: frames where the held card covers the finger`).toBe(0);
+        // 2. Name and price visible (settled).
+        const pillHidden = !table && meet(d.box, t.pill);
+        const srv = t.kind === 'server' ? l.servers.find((s) => s.id === t.server) : undefined;
+        const nameHidden = srv ? meet(d.box, srv.labelBox) : false;
+        if (!table) {
+          expect.soft(pillHidden, `${t.kind}${t.server ?? ''}: the price pill is not under the held card`).toBe(false);
+          expect.soft(nameHidden, `${t.kind}${t.server ?? ''}: the server name is not under the held card`).toBe(false);
+        } else expect.soft(d.aside, 'table: the card does not step aside').toBe(0);
+        // On screen.
+        expect.soft(d.box.x, 'on screen (left)').toBeGreaterThanOrEqual(-0.5);
+        expect.soft(d.box.x + d.box.width, 'on screen (right)').toBeLessThanOrEqual(vw + 0.5);
+        // 3. Glow visible: a ring outside the place's edge, not under the card, on screen, brighter than plain lit.
+        const strong = await pixelStats(page, rings);
+        let gain = -999;
+        for (let r = 0; r < rings.length; r++) {
+          const b = rings[r]!;
+          if (b.x < 0 || b.y < 0 || b.x + b.width > vw || meet(b, d.box)) continue;
+          gain = Math.max(gain, strong[r]!.mean - plain[r]!.mean);
+        }
+        if (!table) expect.soft(gain, `${t.kind}${t.server ?? ''}: strong glow visible beside the card`).toBeGreaterThan(40);
+        // 4. No confusing jump: while over this one place the step-aside goes one way only (no back-and-forth),
+        // and where frames are quick a large step takes more than one frame.
+        const over = frames.filter((x) => x.hover !== null);
+        let flips = 0;
+        let maxStep = 0;
+        for (let q = 1; q < over.length; q++) {
+          const a = over[q - 1]!.aside;
+          const b = over[q]!.aside;
+          maxStep = Math.max(maxStep, Math.abs(b - a));
+          if (q >= 2) {
+            const a0 = over[q - 2]!.aside;
+            if ((a - a0) * (b - a) < -0.01) flips++;
+          }
+        }
+        // The `aside` number is relative to the finger rule, so it can tick back while the finger still moves inside
+        // the place; what the player sees is the drawn card: it must head for its spot beside the place and not
+        // swing back toward the place by more than a few px on the way (no back-and-forth).
+        const finalX = d.box.x + d.box.width / 2;
+        let best = Infinity;
+        let backtrack = 0;
+        for (const x of over) {
+          const dist = Math.abs(x.box!.x + x.box!.width / 2 - finalX);
+          if (best !== Infinity) backtrack = Math.max(backtrack, dist - best);
+          best = Math.min(best, dist);
+        }
+        test.info().annotations.push({ type: 'r8-path', description: `${t.kind}${t.server ?? ''}: drawn x ${over.map((x) => Math.round(x.box!.x)).join(' ')} (finger ${over.map((x) => Math.round(x.fx)).join(' ')})` });
+        expect.soft(backtrack, `${t.kind}${t.server ?? ''}: the drawn card never swings back toward the place by more than 8 px`).toBeLessThanOrEqual(8);
+        const settle = over.find((x) => Math.abs(x.aside - d.aside) < 0.5);
+        const glide = over.length && settle ? settle.t - over[0]!.t : -1;
+        if (k === 0 || t.kind === 'new_server' || t.kind === 'install') await shot8(page, `aside-${c.side}-${t.kind}${t.server ? '-' + t.server : ''}`);
+        rows.push(
+          `${t.kind}${t.server ? ':' + t.server : ''} aside ${Math.round(d.aside)} px (aside reversals ${flips}, drawn backtrack ${Math.round(backtrack)} px, biggest frame step ${Math.round(maxStep)}, settled ${Math.round(glide)} ms), pill hidden ${pillHidden}, name hidden ${nameHidden}, glow +${Math.round(gain)}, finger-covered frames ${coverFrames}, card ${Math.round(d.box.width)}x${Math.round(d.box.height)}`,
+        );
+        // Off again: the step-aside goes back.
+        await drag(page, h, { x: vw - 4, y: Math.round(l.viewport.height * 0.35) }, 150);
+        await page.waitForFunction(() => window.__overclock!.layout().drag?.hover == null, undefined, { timeout: 2000 });
+        await page.waitForTimeout(200);
+        expect.soft((await layout(page)).drag!.aside, 'off a place: back to no step-aside').toBe(0);
+      }
+      test.info().annotations.push({ type: 'r8-aside', description: rows.join(' | ') });
+      await h.up();
+      await waitHandBack(page);
+    });
+  }
+  async function shot8(page: Page, name: string): Promise<void> {
+    const p = test.info().project.name;
+    const save = process.env.QA_SCREENS === '1' && p === 'phone-short';
+    if (save) mkdirSync(SHOTS, { recursive: true });
+    const body = await page.screenshot(save ? { path: join(SHOTS, `r8-${SIZE[p] ?? p}-${name}.png`) } : {});
+    await test.info().attach(name, { body, contentType: 'image/png' });
+  }
 });

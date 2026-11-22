@@ -576,3 +576,121 @@ One thing to ask the owner: **after a play, the big hand view does not reopen** 
 **Owner questions to carry:**
 - Should the hand view reopen after a play (step 5)?
 - How much of a place may the big held card cover?
+
+## Round 8 (2026-11-22, product code 75b4ee8: ui-dev's "QA round 7 fixes")
+
+QA did not write this change. It is a short re-check of three things:
+- **QA-S15-5:** a developer test was updated to let go of the card before checking the reason.
+- **QA-S15-4:** a slow still press on the big card now always answers.
+- **New:** over a place, the held card moves sideways off it (`heldAside`). This keeps the place's name and price in view.
+
+Input was real, as in round 7: finger and mouse events are sent as the finger moves, without waiting for the page. Order: 891x296 first, then 844x390, 640x360, desktop and the Android bundle. Then 891x296, 640x360 and desktop again with the CPU slowed 4×.
+
+**Result: every fix works. The owner steps 1–9 still pass at every size and at 4×. CI on 75b4ee8 (the PR run, the full suite) is green. All 6 stories pass QA.**
+
+### New QA test: the held card moves aside
+- Where: `qa-sprint15.spec.ts`, tests "round 8: held card steps aside off the hovered place …".
+- 4 cases, using real input. QA holds the card from the hand view, slides it on a curve onto each lit place, waits for it to settle, then slides it off again:
+  - Corp ICE: HQ, R&D, Archives, new server.
+  - Corp upgrade/asset: same places.
+  - Runner install: the rig.
+  - Runner event: the one-shot "table" place, which is meant to be left out.
+- The test checks every frame the page draws.
+
+| Check | 891x296 | 844x390 | 640x360 | desktop | 4× (891x296, 640x360, desktop) |
+|---|---|---|---|---|---|
+| The place's price is not under the held card (settled) | PASS, every place | PASS | PASS | PASS | PASS |
+| The server's name is not under it | PASS | PASS | PASS | PASS | PASS |
+| Strong glow visible beside the card (brightness gain just outside the place's edge, on a side the card does not cover) | +102 to +163 | +100 to +178 | +119 to +180 | +144 to +199 | same |
+| The card never covers the finger (every frame) | 0 frames | 0 | 0 | 0 | 0 |
+| The card stays fully on screen | PASS | PASS | PASS | PASS | PASS |
+| No back-and-forth: the drawn card never swings back toward the place by more than 8 px | max 1 px | 0 | 0 | 0 | 0 |
+| Off the place again, the card stops moving aside | PASS | PASS | PASS | PASS | PASS |
+| "Table" place: the card does not move aside (as designed) | PASS (0 px) | PASS | PASS | PASS | PASS |
+
+- How far it moves: 63–76 px at 891x296, 84–101 px at 844x390, 77–93 px at 640x360, 154–166 px on desktop.
+- Where frames draw quickly, it glides over 67–183 ms; the time stretches while the finger is still moving inside the place. Its largest step in one frame is 9–76 px.
+- Where frames draw slowly, it moves in one frame, as designed. On this machine that is often the case, because it draws with a software graphics chip.
+- Run 1× at all 4 sizes ×3 (48/48), plus once at 4× (passed).
+- QA's first version of the "no jump" check failed at 640x360 and on desktop. That check counted the `aside` number reversing direction. The number is measured from where the finger would put the card, so it ticks back while the finger still moves inside the place, but the drawn card does not move back. QA changed the check to measure the drawn card. That is what the player sees, and it shows no back-and-forth.
+- Screenshots (891x296): `docs/sprints/sprint-15-qa/r8-891x296-aside-corp-server-hq.png`, `…-corp-new_server-new.png`, `…-runner-install.png`, `…-runner-play.png`.
+  - Over HQ the card sits to the right of the column. "HQ", "Install · free" and the glow are all visible.
+  - Over the rig, "Install · 1 credit" is visible beside the card.
+
+### QA-S15-4: fixed and verified
+- QA's round-7 test "step 2: clicks / presses held 300 and 400 ms …" now **fails** if a still press gets no answer. Before, it only recorded the case.
+- At 4× on desktop, where round 7 saw nothing at all: **8 of 12 presses** never lifted the card, and every one of them now shows "Drag it to a lit place".
+  - Event log: `hand_press, hold_tip(Drag it to a lit place)`.
+- The others lifted and let go, then showed the same tip. Nothing was played.
+- It passes at all 4 sizes at 1× and at 4×.
+- Code read: if the card can't be played, it closes the view and shows the reason (`board.ts` `onViewUp`). It never plays, toggles or opens anything.
+
+### QA-S15-5: fixed and verified
+- `s02-qa-fixes.spec.ts` "sideways, the help text steps aside…" now lets go first, then checks the reason "Only after the Runner made a run" and that the help text moves aside.
+- It passes locally (844x390, 640x360) and in CI.
+
+### ui-dev's test edits (`git diff f61c25b..75b4ee8 -- apps/client/e2e`): none made a check weaker
+- **`qa-sprint07` drag latency:** it subtracts `aside` from the card's drawn centre before matching the finger rule. `aside` and the box come from the same snapshot, and the snapshot's `box` includes `aside`, so the match is still exact (±1.5 px). The 100 ms limit is unchanged.
+- **`qa-sprint15` AC2 follow:** the "covers the finger" check still uses the real drawn box. Only the distance-to-finger check subtracts `aside`.
+- **`s07-hand` path:** the same subtraction. The on-screen checks still use the real box.
+- **`s15-flights`:** it waits 200 ms before measuring where the card was dropped, so the move-aside has settled. The landing checks themselves are unchanged.
+- **`qa-sprint15` round-7 step 2:** made stricter (see QA-S15-4). Its timeout went from 30 s to 90 s, because 10 presses take 25–30 s at 4×. A longer limit does not weaken any check.
+
+### Owner steps (round-7 block) and the other specs
+| Run | Result |
+|---|---|
+| Round-7 owner steps 1–9 + round 8, 1× at 891x296 / 844x390 / 640x360 / desktop | 131 passed, 3 skipped (the mouse-only test on phones). The 2 failures were QA's first "no jump" check (see above); they pass after the fix |
+| Same at 4× (891x296, 640x360, desktop) | **100 passed**, 2 skipped, 0 failed |
+| Android bundle (`qa-sprint15-android`) + `s02-qa-fixes`, `s07-hand`, `s15-flights`, `qa-sprint07` at 3 sizes | 115 passed, 1 failed once (see below) |
+
+- **Drag latency** (QA measure; finger move to drawn, limit 100 ms):
+  - Local 1×: max 38.6 ms (844x390), 36.0 ms (640x360), 18.0 ms (desktop).
+  - Then ×10 at 844x390 and 640x360: max 37.1 ms.
+  - ×10 at 4× (844x390): max 52.2 ms.
+  - Moves over a place, where the card moves aside, are no slower (≤ 52 ms at 4×).
+- **One local failure, not reproduced:** `s07-hand.spec.ts:130` at 844x390. The tap on the small hand did not open the hand view (`openHand` waited 30 s). Re-run ×8: 8/8 passed, and it is green in CI. It looks like ui-dev's earlier side finding (a click on the small hand that sometimes does not open the view). It is logged as flaky for ui-dev, not a sprint blocker.
+
+### CI result (round 8)
+- **The PR #34 run on 75b4ee8 (run 44963176780, event `pull_request`) is a SUCCESS.** It is the full suite, so QA did not run it again locally.
+  - `checks` success, `guard-mutation` success.
+  - **e2e shard 1/4: success** (628 passed, 2 flaky, 3 skipped).
+  - **e2e shard 2/4: success** (624 passed, 8 skipped).
+  - **e2e shard 3/4: success** (611 passed, 2 flaky, 19 skipped).
+  - **e2e shard 4/4: success** (617 passed, 15 skipped).
+- Flaky tests: each failed on its first try and passed on retry.
+  - **`qa-sprint07:471` drag latency at 844x390: one move took 145.8 ms** (limit 100). This is the snappiness budget, so QA checked it.
+    - Not reproduced in 30 local runs (1× and 4×, 2 sizes): max 52 ms.
+    - The CI run uploads no traces, so QA could not see which move was slow. The cause is not known.
+    - It is close to the 147 ms ui-dev measured for the move-aside glide on the GPU-less runner, before the glide was turned off where frames are slow. The first move over a place, before slow frames are detected, is a possible cause.
+    - It passed on retry. QA does not count it as a sprint failure, but asks ui-dev to watch this test in the next CI runs. If it fails again, add trace upload or log which move was slow.
+  - `qa-sprint15:2571` steps 3/4 (runner) on desktop: the press reaction took 152 ms on the first try. This is the CI machine's slow frames right after a press; it passed on retry and locally ≤ 27 ms.
+  - `s02-corp:62` (pick on a phone) and `qa-sprint06:168` (desktop) are known older flaky tests.
+
+### Other checks
+- **Empty timing windows auto-pass:** unchanged code. The engine and auto-pass tests are green in CI (`checks`, all shards).
+- **IP:** no new card names, text or art. Card art is still drawn by the game itself (CLAUDE.md rule 3).
+
+### Observations (for the owner/PM, not bugs)
+- When the card moves aside, it covers part of the **neighbouring** place. For example, over HQ it sits on R&D's price pill (screenshot `r8-891x296-aside-corp-server-hq.png`). The place under the finger is fully readable. Moving the finger onto R&D moves the card again, so R&D's price shows then.
+- Where the phone draws slowly, the card moves aside in one frame (63–166 px) instead of gliding. It always moves in the same direction, toward the middle of the screen. Whether that feels like a jump on the owner's phone is for the owner to judge at the demo.
+
+### Final per-story result (Sprint 15, round 8)
+| Story | Result |
+|---|---|
+| S-15-1 Cards lift and lean in your hand | **PASSED QA** (unchanged; green in CI on 75b4ee8) |
+| S-15-2 Played cards fly to the board and land | **PASSED QA** (green in CI; `s15-flights` passes locally with the move-aside) |
+| S-15-3 Cards fly to and from the piles | **PASSED QA** (unchanged; green in CI) |
+| S-15-4 Never slower than today | **PASSED QA** for AC1, AC2, AC4, AC5. Drag ≤ 39 ms at 1× and ≤ 52 ms at 4× locally. One 145.8 ms move in CI that passed on retry; it is being watched (see CI). AC3, smoothness on the owner's phone, is still an owner check. |
+| S-15-5 Play link and app download with a private repo | **PASSED QA** for everything checkable here (unchanged since round 2). The owner demo checks listed in round 2 remain. |
+| S-15-6 Hold a card to play it | **PASSED QA: 12/12** on real input at 4 sizes, at 4×, and in the Android bundle. QA-S15-4 and QA-S15-5 are fixed. The new move-aside keeps the hovered place's name, price and glow visible and never covers the finger. |
+
+**Bugs open:** none blocking.
+- Watch: the `qa-sprint07:471` CI flake (145.8 ms, once).
+- Flaky, for ui-dev later: `s07-hand:130` (1 in 9 locally).
+
+**Fixed and verified:** QA-S15-4, QA-S15-5.
+
+**Owner questions to carry:**
+- Should the hand view reopen after a play (step 5)?
+- Is it OK that the moved card covers part of the neighbouring place?
+- Does the move-aside feel smooth on your phone?
