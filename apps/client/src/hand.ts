@@ -10,7 +10,7 @@ import { attachPress } from './input';
 import { type BoardLayout, handSlots, nearestSlot } from './layout';
 import { theme, timing } from './theme';
 import { ease, type Tweens } from './tween';
-import { STRIP_PULL, isUpward, stripPickUp } from './handGesture';
+import { HOLD_MS, STRIP_PULL, SWIPE_TOLERANCE, heldScale, isUpward, stripPickUp } from './handGesture';
 
 export interface HandCard {
   cardId: string;
@@ -30,6 +30,12 @@ export interface HandCard {
   selected: boolean;
   detach: () => void;
   pressed: boolean;
+  /**
+   * S-15-6 owner round 3: the face drawn at the held size (sharp at 3x; the small face scaled up
+   * would blur its name), shown instead of `face` while the card is held. Made on the press.
+   */
+  held: Container | null;
+  heldScale: number;
 }
 
 export interface HandCallbacks {
@@ -50,6 +56,8 @@ export interface HandCallbacks {
   onPull?(index: number, x: number, y: number, at: number): boolean;
   onDrag?(x: number, y: number, at: number): void;
   onDrop?(x: number, y: number, cancelled: boolean): void;
+  /** S-15-6: a hold-lift was a quick tap after all (judged by its event times): put it back at once. */
+  onLiftUndo?(): void;
   log(rec: Omit<AnimRecord, 'startedAt'>): void;
   /** Sprint 15: a card sprite starts flying (draw / discard); call the returned function when it lands. */
   flight?(kind: 'draw' | 'discard', cardId: string | null, root: Container, w: number, h: number): () => void;
@@ -77,6 +85,32 @@ export class Hand {
   private cards: HandCard[] = [];
   /** S-15-6: the strip is dropped (or dropping) below the screen. */
   private minimized = false;
+  /**
+   * S-15-6 owner round 3: draws `card`'s face at `scale` times the hand card's size (once per card
+   * and size: baked and shared), counter-scaled so it matches the small face until the card grows.
+   */
+  private prepareHeld(card: HandCard, scale: number): void {
+    const layout = this.layout;
+    if (!layout || card.root.destroyed || !(scale > 1)) return;
+    if (card.held && card.heldScale === scale) return;
+    const def = getCard(card.cardId);
+    if (!def) return;
+    card.held?.destroy({ children: true });
+    const f = createCardFace(def, Math.round(layout.card.width * scale), Math.round(layout.card.height * scale), 'small');
+    f.scale.set(1 / scale);
+    f.visible = false;
+    card.flip.addChildAt(f, card.flip.getChildIndex(card.face) + 1);
+    card.held = f;
+    card.heldScale = scale;
+  }
+
+  /** S-15-6: the card is no longer held: its small face again. */
+  private smallFace(card: HandCard): void {
+    if (!card.held || card.root.destroyed) return;
+    card.held.visible = false;
+    card.face.visible = !card.back.visible;
+  }
+
   /** S-15-6: the held card is dimmed (it can't be played now). */
   private liftDimmed = false;
   /** S-15-6: where the held card's centre is on screen (the strip may be offset under it). */
@@ -290,6 +324,12 @@ export class Hand {
     this.ui.add({ target: card.flip.scale, to: { x: scale, y: scale }, duration: HELD_GROW_MS, ease: ease.outCubic, owner: card.flip });
     card.back.visible = false;
     card.face.visible = true;
+    this.prepareHeld(card, scale);
+    if (card.held) {
+      card.held.visible = true;
+      card.face.visible = false;
+      card.held.alpha = dimmed ? 0.5 : 1;
+    }
     // S-15-6: a card that can't be played now lifts dimmed (nothing lights).
     this.liftDimmed = dimmed;
     card.face.alpha = dimmed ? 0.5 : 1;
@@ -362,6 +402,7 @@ export class Hand {
     this.lifted = null;
     const layout = this.layout;
     if (!card || card.root.destroyed || !layout) return;
+    this.smallFace(card);
     this.undim(card);
     const i = this.cards.indexOf(card);
     const slot = handSlots(layout, this.cards.length)[i];
@@ -540,6 +581,7 @@ export class Hand {
     // Leaving the hand: drawn where it is on screen (the strip may be dropped below it).
     this.unhome(card);
     if (this.lifted === card) this.lifted = null;
+    this.smallFace(card);
     this.undim(card);
     card.detach();
     this.fx.cancel(card.root);
@@ -705,7 +747,7 @@ export class Hand {
     root.hitArea = new Rectangle(-w / 2, -h / 2, w, h);
     this.strip.addChild(root);
 
-    const card: HandCard = { cardId, root, flip, back, face, mark: null, marked: false, glow: null, outline: null, selected: false, detach: () => {}, pressed: false };
+    const card: HandCard = { cardId, root, flip, back, face, mark: null, marked: false, glow: null, outline: null, selected: false, detach: () => {}, pressed: false, held: null, heldScale: 0 };
     // S-15-1: a mouse pointing at a hand card lifts it a little (touch has the press feedback instead).
     const pointing = (e: { pointerType: string; global: { x: number } }) => {
       if (e.pointerType !== 'mouse' || root.eventMode !== 'static' || card === this.lifted) return;
@@ -720,6 +762,9 @@ export class Hand {
       onDown: () => {
         const i = this.cards.indexOf(card);
         if (i >= 0) this.callbacks.onPress(i);
+        // The held-size face, ready before the hold lifts it (drawn once per card and size).
+        const l = this.layout;
+        if (l) this.prepareHeld(card, heldScale(l.card.height, l.zoom.height, l.viewport.height));
         card.pressed = true;
         root.zIndex = 1000;
         this.ui.cancel(card.flip.scale);
@@ -741,6 +786,17 @@ export class Hand {
         this.callbacks.onLongPress(cardId, this.cardBox(card), this.cards.indexOf(card));
       },
       onHoldMove: (x, y, at) => this.slide(x, y, at),
+      // S-15-6 (owner round 3, 2026-11-22: "anything longer than a quick tap should grab the card"):
+      // held still for HOLD_MS the card is picked up, as in the hand view. Where it can't be (the
+      // discard step, a run, a sheet) the press goes on to the hold-to-read.
+      onHoldLift: (x, y, at) => {
+        const pull = this.callbacks.onPull;
+        const i = this.cards.indexOf(card);
+        if (!pull || i < 0 || !pull(i, x, y, at)) return false;
+        this.setBrowsing(null);
+        return true;
+      },
+      onLiftUndo: () => this.callbacks.onLiftUndo?.(),
       // S-15-6: pulled up out of the strip: before a hold, an upward drag picks this card up; during
       // the hold-to-read, leaving the strip upward picks up the card being read.
       onPull: (x, y, dx, dy, at, held, late) => {
@@ -748,10 +804,13 @@ export class Hand {
         const pull = this.callbacks.onPull;
         if (!layout || !pull) return false;
         let target = card;
+        // A card the hold already picked up: only the direction is asked (a quick hold-lift's first
+        // move, judged by its own time).
+        if (this.lifted === card) return late ? isUpward(dx, dy) : stripPickUp(dx, dy);
         if (held) {
           if (y > layout.handArea.y - STRIP_PULL * layout.card.height) return false;
           target = this.browsing ?? card;
-        } else if (late ? !isUpward(dx, dy) : !stripPickUp(dx, dy, y, layout.handArea.y)) return false;
+        } else if (late ? !isUpward(dx, dy) : !stripPickUp(dx, dy)) return false;
         // (QA-S15-2: a flick made before a late-opened reading hold keeps the strict 40° cone.)
         const i = this.cards.indexOf(target);
         if (i < 0) return false;
@@ -765,7 +824,7 @@ export class Hand {
         this.setBrowsing(null);
         this.callbacks.onLongPressEnd();
       },
-    });
+    }, { liftMs: HOLD_MS, moveTolerance: SWIPE_TOLERANCE });
     return card;
   }
 

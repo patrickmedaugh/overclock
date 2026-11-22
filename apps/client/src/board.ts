@@ -18,7 +18,7 @@ import { framesAreSlow } from './frameClock';
 import { Cover } from './cover';
 import { centeredBox, clearOf, freeRect } from './geometry';
 import { Hand, type HandCard } from './hand';
-import { DROP_WAIT_MS, HAND_BACK_DELAY_MS, HOLD_MS, MINIMIZE_MS, PRESS_MS, PRESS_RISE, PRESS_SCALE, RETURN_MS, SWIPE_TOLERANCE, type Segment, TIP_MS, VIEW_FADE_MS, type ViewHit, ASIDE_MS, arrowFor, classifyPress, heldAside, heldCenter, heldScale, leanAngle, swipeIndex, targetAt, viewHit } from './handGesture';
+import { DROP_WAIT_MS, HAND_BACK_DELAY_MS, HOLD_MS, MINIMIZE_MS, PRESS_MS, PRESS_RISE, PRESS_SCALE, RETURN_MS, SWIPE_TOLERANCE, type Segment, TIP_MS, VIEW_FADE_MS, type ViewHit, type PressKind, ASIDE_MS, arrowFor, classifyPress, stripPickUp, heldAside, heldCenter, heldScale, leanAngle, swipeIndex, targetAt, viewHit } from './handGesture';
 import type { AnimRecord, Box, EndTurnClock, InstalledSnapshot, Insets, LayoutSnapshot, SideLayout, TargetSnapshot } from './hook-types';
 import { type Anchor, type Flight, type FlightKind, MOTION, planMotion } from './motion';
 /** S-15-3: the score counter ticks up, then a short glow (ms). */
@@ -439,6 +439,14 @@ export class Board {
      * before HOLD_MS (it was a swipe) or a release before HOLD_MS (a tap or a flick).
      */
     timerLift: boolean;
+    /**
+     * S-15-6 (owner round 3, 2026-11-22): the hand card this press can pick up (a hold or a drag): the
+     * big card, or a card in the small hand under the view (`strip`); null for anything else.
+     */
+    grab: number | null;
+    strip: boolean;
+    /** QA-S15-2: when (event time) the finger first left the circle, if it has. */
+    leftAt: number | null;
   } | null = null;
   /**
    * S-07-6 / S-15-6: the card held up (out of the hand view or straight from the strip), following
@@ -535,6 +543,7 @@ export class Board {
       onPull: (i: number, x: number, y: number, at: number) => this.onStripPull(side, i, x, y, at),
       onDrag: (x: number, y: number, at: number) => this.dragMove(x, y, at),
       onDrop: (x: number, y: number, cancelled: boolean) => this.dropLift(x, y, cancelled),
+      onLiftUndo: () => this.cancelLift(0),
       log: (r: Omit<AnimRecord, 'startedAt'>) => callbacks.log(r),
       flight: (kind: 'draw' | 'discard', cardId: string | null, root: Container, w: number, h: number) => this.track(kind, cardId, root, w, h),
     });
@@ -4286,15 +4295,18 @@ export class Board {
     const now = performance.now();
     const stamp = native instanceof Event ? native.timeStamp : now;
     const at = stamp > 0 && stamp <= now && now - stamp < 10_000 ? stamp : now;
-    const press = { id: e.pointerId, x, y, lastX: x, lastY: y, at, hit, start: zoom.index, swiped: false, left: false, timer: null as ReturnType<typeof setTimeout> | null, timerLift: false };
+    const strip_ = hit.kind === 'card' && hit.strip === true;
+    const grab = zoom.mode !== 'hand' ? null : hit.kind === 'centre' ? zoom.index : strip_ && hit.kind === 'card' ? hit.index : null;
+    const press = { id: e.pointerId, x, y, lastX: x, lastY: y, at, hit, start: zoom.index, swiped: false, left: false, timer: null as ReturnType<typeof setTimeout> | null, timerLift: false, grab, strip: strip_ && grab !== null, leftAt: null as number | null };
     // S-15-6: hold the big card still for HOLD_MS to lift it (judged by when the finger went down).
     // A timer that runs late (the page stalled) waits until the page has caught up (two frames in a
     // row that come on time), so moves and a release queued meanwhile are handled first and judged by
-    // their own times (QA-S3-7, QA-S15-2).
-    if (hit.kind === 'centre' && zoom.mode === 'hand') {
+    // their own times (QA-S3-7, QA-S15-2). Owner round 3: the same for a card in the small hand under
+    // the view (it lifts as from the board's strip).
+    if (grab !== null) {
       const lift = () => {
         if (this.viewPress !== press || this.lift || press.swiped) return;
-        this.liftCentre();
+        this.liftPressed();
         if (this.lift) press.timerLift = true;
       };
       press.timer = setTimeout(() => {
@@ -4355,14 +4367,18 @@ export class Board {
     const y = e.global.y;
     p.lastX = x;
     p.lastY = y;
-    if (Math.hypot(x - p.x, y - p.y) > SWIPE_TOLERANCE) p.left = true;
+    if (Math.hypot(x - p.x, y - p.y) > SWIPE_TOLERANCE && !p.left) {
+      p.left = true;
+      const ne: unknown = e.nativeEvent;
+      p.leftAt = ne instanceof Event && ne.timeStamp > 0 ? ne.timeStamp : performance.now();
+    }
     if (this.lift && p.timerLift) {
       // QA-S15-2: a timer lift is judged by this move's own time: a sideways move made before
       // HOLD_MS was a swipe (the lift is undone and the view browses); a move at or after HOLD_MS,
       // or leaving the circle upward, confirms the hold.
       const native: unknown = e.nativeEvent;
       const at = native instanceof Event && native.timeStamp > 0 ? native.timeStamp : performance.now();
-      const kind = classifyPress(x - p.x, y - p.y, at - p.at, false);
+      const kind = this.judgePress(p, x - p.x, y - p.y, at - p.at, false);
       if (kind === 'swipe' && at - p.at < HOLD_MS) {
         this.undoTimerLift();
         p.swiped = true;
@@ -4382,8 +4398,8 @@ export class Board {
       // S-15-6: sideways = browse; leaving the circle (nearly) straight up picks the big card up at once.
       const native: unknown = e.nativeEvent;
       const at = native instanceof Event && native.timeStamp > 0 ? native.timeStamp : performance.now();
-      if (p.hit.kind === 'centre' && zoom.mode === 'hand' && classifyPress(x - p.x, y - p.y, at - p.at, false) === 'lift') {
-        this.liftCentre();
+      if (p.grab !== null && this.judgePress(p, x - p.x, y - p.y, at - p.at, false) === 'lift') {
+        this.liftPressed();
         return;
       }
       p.swiped = true;
@@ -4433,16 +4449,19 @@ export class Board {
       // The page stalled and lifted the card, but the finger was down for less than the hold time
       // and never moved away: it was a tap on the big card (QA-S3-7: a tap is judged by its own
       // times). The lift is undone at once and the view stays, with the tip.
-      const kind = classifyPress(e.global.x - p.x, e.global.y - p.y, upAt - p.at, true);
+      const kind = this.judgePress(p, e.global.x - p.x, e.global.y - p.y, upAt - p.at, true);
       if (!cancelled && !p.swiped && kind === 'tap') {
         this.undoTimerLift();
-        this.showTip(upAt);
+        // A quick tap on a card in the small hand shows it in the middle (as a tap there always did).
+        const id = p.strip && p.hit.kind === 'card' ? this.viewIds()[p.hit.index] : undefined;
+        if (id !== undefined && p.hit.kind === 'card' && p.hit.index !== this.zoom?.index) this.swapZoom(id, this.viewStripBox(p.hit.index), upAt, p.hit.index);
+        else this.showTip(upAt);
         this.callbacks.changed();
         return;
       }
       // QA-S15-2: lifted by the timer, let go before HOLD_MS after leaving the circle sideways (its
       // moves came with the release): a quick flick. The lift is undone and the view browses.
-      if (!cancelled && p.timerLift && kind === 'swipe' && upAt - p.at < HOLD_MS) {
+      if (!cancelled && p.timerLift && kind === 'swipe' && (p.leftAt ?? upAt) - p.at < HOLD_MS) {
         this.undoTimerLift();
         this.swipeTo(e.global.x - p.x, upAt, p.start);
         this.callbacks.changed();
@@ -4452,6 +4471,15 @@ export class Board {
       // click): never a play, even if the big card sat over a lit place. It goes back (a dimmed
       // card says why); the view returns with a tip on how to play it.
       if (!cancelled && !p.left && Math.hypot(e.global.x - p.x, e.global.y - p.y) <= SWIPE_TOLERANCE) {
+        // Owner round 3: a card of the small hand under the view, held and let go in place: it goes
+        // back at once and shows in the middle (as a tap there does).
+        const id = p.strip && p.hit.kind === 'card' ? this.viewIds()[p.hit.index] : undefined;
+        if (id !== undefined && p.hit.kind === 'card') {
+          this.undoTimerLift();
+          if (p.hit.index !== this.zoom?.index) this.swapZoom(id, this.viewStripBox(p.hit.index), upAt, p.hit.index);
+          this.callbacks.changed();
+          return;
+        }
         const dimmed = this.lift.dimmed;
         this.dropLift(e.global.x, e.global.y, true);
         if (!dimmed) this.showTip(upAt, DRAG_TIP);
@@ -4588,13 +4616,27 @@ export class Board {
     this.viewPress = null;
   }
 
-  /** The big card was held (or pulled up): it lifts out, follows the finger, and its places light up. */
-  private liftCentre(): void {
+  /**
+   * The pressed card was held (or pulled up): it lifts out, follows the finger, and its places light
+   * up. The big card, or (owner round 3) a card in the small hand under the view.
+   */
+  private liftPressed(): void {
     const p = this.viewPress;
     const zoom = this.zoom;
-    if (!p || !zoom?.view || this.lift || p.swiped) return;
+    if (!p || !zoom?.view || this.lift || p.swiped || p.grab === null) return;
     p.timer = null;
-    this.beginLift(zoom.index, p.lastX, p.lastY, 'view');
+    if (p.strip) this.pressLift(false);
+    this.beginLift(p.grab, p.lastX, p.lastY, 'view');
+  }
+
+  /**
+   * S-15-6: what a press in the hand view is so far (`classifyPress`). A press on a card in the small
+   * hand under the view follows the strip's rule (owner round 3): any move out of the circle but a
+   * mostly downward one picks it up (the view's sideways browse is for the big cards).
+   */
+  private judgePress(p: { strip: boolean }, dx: number, dy: number, heldMs: number, released: boolean): PressKind {
+    if (p.strip && Math.hypot(dx, dy) > SWIPE_TOLERANCE) return stripPickUp(dx, dy) ? 'lift' : 'swipe';
+    return classifyPress(dx, dy, heldMs, released);
   }
 
   /**
@@ -5026,8 +5068,10 @@ export class Board {
     const drawnOne = p.ids.length < p.total;
     // S-15-6: the same while the hand view's big card is pressed, around the moment it lifts.
     const vp = this.viewPress;
-    const lifting = vp !== null && vp.hit.kind === 'centre' && !vp.swiped && !this.lift && performance.now() - vp.at > HOLD_MS - PREDRAW_QUIET_MS;
-    if ((!this.zoom && drawnOne && performance.now() - p.at > timing.longPress - PREDRAW_QUIET_MS) || lifting) {
+    const lifting = vp !== null && vp.grab !== null && !vp.swiped && !this.lift && performance.now() - vp.at > HOLD_MS - PREDRAW_QUIET_MS;
+    // (A press on the board's strip lifts its card at HOLD_MS, owner round 3; a still hold the board
+    // can't lift there opens the zoom at the long-press.)
+    if ((!this.zoom && drawnOne && performance.now() - p.at > Math.min(HOLD_MS, timing.longPress) - PREDRAW_QUIET_MS) || lifting) {
       p.frame = requestAnimationFrame(() => this.predrawStep());
       return;
     }
