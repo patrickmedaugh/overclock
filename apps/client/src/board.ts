@@ -4846,7 +4846,6 @@ export class Board {
     this.callbacks.changed();
   }
 
-  /** The lifted card goes home over `ms`; its places go dark and the hand comes back up. */
   /** The held card's spot: above the finger (`ghostAt`), moved aside off the hovered place. */
   private placeHeld(): void {
     const lift = this.lift;
@@ -4855,6 +4854,7 @@ export class Board {
     this.hands[view.viewer].dragTo(this.ghostAt.x + lift.aside.x, this.ghostAt.y);
   }
 
+  /** The lifted card goes home over `ms`; its places go dark and the hand comes back up. */
   private cancelLift(ms: number): void {
     const lift = this.lift;
     const view = this.view;
