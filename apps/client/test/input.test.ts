@@ -549,6 +549,19 @@ describe('attachPress: hold to lift (S-15-6 owner round 3: anything longer than 
     expect(log, 'lifted on the next on-time frame, no 0.3 s settle').toEqual(['down', 'lift', 'drag']);
   });
 
+  it('QA-S15-10: nested own work is counted once, so a real stall beside it is still seen', () => {
+    const { target, log } = liftSetup();
+    target.emit('pointerdown', { timeStamp: now });
+    pass(LIFT);
+    // 150 ms of own work (an inner bake inside an outer one), then a 260 ms real stall (over the 250 ms
+    // line). Counted twice, the own work (300 ms) would hide the stall.
+    ownWork(() => ownWork(() => stall(150)));
+    stall(260);
+    runFrame();
+    quickFrames(1);
+    expect(log, 'the real stall still makes it wait').toEqual(['down']);
+  });
+
   it('QA-S15-10: the same gap from something else (a real stall) still waits for the page to settle', () => {
     const { target, log } = liftSetup();
     target.emit('pointerdown', { timeStamp: now });

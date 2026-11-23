@@ -160,13 +160,18 @@ let ownMs = 0;
  * the hold-lift wait for the page to settle: on a slow phone every press paid that).
  */
 export function ownWork<T>(fn: () => T): T {
+  // Nested calls are counted once (by the outermost), so the total never exceeds the time that passed.
+  if (ownDepth > 0) return fn();
   const t = performance.now();
+  ownDepth++;
   try {
     return fn();
   } finally {
+    ownDepth--;
     ownMs += Math.max(0, performance.now() - t);
   }
 }
+let ownDepth = 0;
 
 /** How much later than its own work explains `t` is, since `from` (ms, the game's work since `ownFrom` taken off). */
 function lateBy(from: number, ownFrom: number, t = performance.now()): number {
