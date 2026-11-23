@@ -116,6 +116,72 @@ function afterNextFrame(fn: () => void): () => void {
 }
 
 /**
+ * QA-S15-8: a frame that runs within this long of the one before means the page is keeping up (ms).
+ * Longer is a stall. (A slow device's ordinary frames, 100-250 ms on a GPU-less runner, still count
+ * as keeping up, so a hold there lifts on time.)
+ */
+const CATCH_UP_GAP_MS = 250;
+/** QA-S15-8: the most frames a lift waits for the page to catch up (on a page that has not stalled). */
+const CATCH_UP_FRAMES = 6;
+/**
+ * QA-S15-8: after a stall (a frame later than `CATCH_UP_GAP_MS`), the page must keep up this long
+ * before a hold lifts: input the browser held back during the stall can reach the page well after it
+ * (100-200 ms measured on the test runner), and it must be judged first. A hold on a stalled page
+ * then lifts this much after the page recovers (it was late already); on a responsive page, no wait.
+ */
+const STALL_QUIET_MS = 300;
+/** QA-S15-8: on a page that stalled, a lift waits for the page at most this long (ms), then lifts. */
+const CATCH_UP_MAX_MS = 1500;
+
+/**
+ * QA-S15-8 / QA-S15-9 (the hand view's QA-S15-2 rule, `board.ts`): runs `fn` once the page has
+ * caught up, so moves and a release the browser held back during a stall are handled (and judged by
+ * their own times) first: after 2 frames in a row that each run within `CATCH_UP_GAP_MS` of the one
+ * before, or after `CATCH_UP_FRAMES` frames at most. Also when the timer itself ran on time: a stall
+ * that starts right after it (a busy frame) then delays the lift until the page has caught up, and
+ * the input it held back comes first (QA-S15-9). On a responsive page: 2 frames (≤ 33 ms).
+ */
+/** True if the browser says input is waiting for the page (Chrome's `isInputPending`; false where missing). */
+function inputPending(): boolean {
+  const sch = (globalThis.navigator as { scheduling?: { isInputPending?: (o?: { includeContinuous?: boolean }) => boolean } } | undefined)?.scheduling;
+  try {
+    return sch?.isInputPending?.() === true;
+  } catch {
+    return false;
+  }
+}
+
+function afterCatchUp(fn: () => void, stalledBefore = false): () => void {
+  const raf = globalThis.requestAnimationFrame as typeof requestAnimationFrame | undefined;
+  if (typeof raf !== 'function') return afterNextFrame(fn);
+  const need = 2;
+  const start = performance.now();
+  let prev = start;
+  let quick = 0;
+  let frames = 0;
+  let stalled = stalledBefore;
+  let lastSlow = stalledBefore ? start : -Infinity;
+  let id = 0;
+  const frame = () => {
+    const t = performance.now();
+    if (t - prev < CATCH_UP_GAP_MS) quick++;
+    else {
+      quick = 0;
+      stalled = true;
+      lastSlow = t;
+    }
+    prev = t;
+    frames++;
+    const ready = quick >= need && !inputPending() && (!stalled || t - lastSlow >= STALL_QUIET_MS);
+    const give = stalled ? t - start >= CATCH_UP_MAX_MS : frames >= CATCH_UP_FRAMES;
+    if (ready || give) fn();
+    else id = raf(frame);
+  };
+  id = raf(frame);
+  return () => globalThis.cancelAnimationFrame(id);
+}
+
+/**
  * Tap vs hold is judged by when the finger went down and came up (the events'
  * timestamps), not by when our timer callback got to run (QA-S3-7). If the page
  * stalls longer than `longPressMs` between a quick tap's down and up, the timer
@@ -187,9 +253,10 @@ export function attachPress(target: Container, handlers: PressHandlers, opts: Pr
   };
 
   /**
-   * S-15-6 (owner round 3): the still hold picks the card up. Always one frame later, so a release
-   * the browser already has (a quick tap handed over behind a busy frame) is handled first: a tap
-   * never shows a lifted card, not even for a frame. (≤ 1 frame: well inside the 100 ms budget.)
+   * S-15-6 (owner round 3): the still hold picks the card up. Never in the timer itself: once the
+   * page has caught up (`afterCatchUp`: two frames on a responsive page, ≤ 33 ms), so a release
+   * or moves the browser already has (a quick tap or slip handed over behind a busy frame) are
+   * handled first: a tap never shows a lifted card, not even for a frame (QA-S15-8).
    */
   const fireLift = () => {
     cancelFrame = null;
@@ -203,9 +270,34 @@ export function attachPress(target: Container, handlers: PressHandlers, opts: Pr
       leftCircle = false;
       holdable = false;
       handlers.onDrag?.(lastX, lastY, now);
+      watchFirstFrame(now);
       return;
     }
     if (holdable) timer = setTimeout(longTimer, Math.max(0, longPressMs - (now - downAt)));
+  };
+
+  /**
+   * QA-S15-8: a stall that starts right after the hold lifted the card (before a frame showed it)
+   * may hold back a quick release: if the next frame comes late and nothing has confirmed the hold
+   * since, the lift is put back at once and waits for the page to catch up again.
+   */
+  const watchFirstFrame = (liftAt: number) => {
+    const raf = globalThis.requestAnimationFrame as typeof requestAnimationFrame | undefined;
+    if (typeof raf !== 'function') return;
+    cancelFrame = (() => {
+      const id = raf(() => {
+        cancelFrame = null;
+        if (pointerId === null || !dragging || !timerDrag || leftCircle) return;
+        if (performance.now() - liftAt < CATCH_UP_GAP_MS) return;
+        dragging = false;
+        timerDrag = false;
+        holdDrag = false;
+        handlers.onLiftUndo?.();
+        liftable = true;
+        cancelFrame = afterCatchUp(fireLift, true);
+      });
+      return () => globalThis.cancelAnimationFrame(id);
+    })();
   };
 
   const fireLong = () => {
@@ -288,7 +380,7 @@ export function attachPress(target: Container, handlers: PressHandlers, opts: Pr
       timer = setTimeout(() => {
         timer = null;
         if (pointerId === null || !liftable) return;
-        cancelFrame = afterNextFrame(fireLift);
+        cancelFrame = afterCatchUp(fireLift, performance.now() - downAt >= liftMs + CATCH_UP_GAP_MS);
       }, Math.max(0, liftMs - (performance.now() - downAt)));
     } else if (holdable) timer = setTimeout(longTimer, longPressMs);
   };

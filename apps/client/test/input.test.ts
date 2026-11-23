@@ -62,6 +62,14 @@ function wakeTimers(): void {
   vi.runOnlyPendingTimers();
 }
 
+/** `n` frames, `ms` apart, on a page that keeps up. */
+function quickFrames(n: number, ms = 16): void {
+  for (let k = 0; k < n; k++) {
+    now += ms;
+    runFrame();
+  }
+}
+
 function runFrame(): void {
   const f = frames;
   frames = [];
@@ -326,13 +334,15 @@ describe('attachPress: hold to lift (S-15-6 owner round 3: anything longer than 
     expect(log).toEqual(['down', 'tap', 'release']);
   });
 
-  it('held still 0.12 s: lifts on the next frame (no long-press), and the release drops it', () => {
+  it('held still 0.12 s: lifts two quick frames later (≤ 33 ms; no long-press), and the release drops it', () => {
     const { target, log } = liftSetup();
     target.emit('pointerdown', { timeStamp: now });
     pass(LIFT - 1);
     runFrame();
     expect(log).toEqual(['down']);
     pass(1);
+    runFrame();
+    expect(log, 'one frame: not yet (the page may be about to stall)').toEqual(['down']);
     runFrame();
     expect(log).toEqual(['down', 'lift', 'drag']);
     pass(HOLD);
@@ -346,6 +356,7 @@ describe('attachPress: hold to lift (S-15-6 owner round 3: anything longer than 
     target.emit('pointerdown', { timeStamp: now, x: 100, y: 300 });
     pass(LIFT);
     runFrame();
+    runFrame();
     pass(600);
     target.emit('globalpointermove', { timeStamp: now, x: 103, y: 297 });
     target.emit('pointerup', { timeStamp: now, x: 103, y: 297 });
@@ -356,6 +367,7 @@ describe('attachPress: hold to lift (S-15-6 owner round 3: anything longer than 
     const { target, log } = liftSetup();
     target.emit('pointerdown', { timeStamp: now, x: 100, y: 300 });
     pass(LIFT);
+    runFrame();
     runFrame();
     pass(200);
     target.emit('pointerupoutside', { timeStamp: now, x: 101, y: 300 });
@@ -378,9 +390,64 @@ describe('attachPress: hold to lift (S-15-6 owner round 3: anything longer than 
     target.emit('pointerdown', { timeStamp: down });
     stall(500);
     wakeTimers();
-    runFrame(); // lifted before the queued release came in
+    quickFrames(22); // lifted once the page kept up for 0.3 s, yet before the queued release came in (a laggy browser)
     target.emit('pointerup', { timeStamp: down + 60 });
     expect(log).toEqual(['down', 'lift', 'drag', 'undo', 'tap', 'release']);
+  });
+
+  it('QA-S15-8: a late timer waits for the page to catch up (two quick frames): a release handed over meanwhile is a tap, never a lift', () => {
+    const { target, log } = liftSetup();
+    const down = now;
+    target.emit('pointerdown', { timeStamp: down });
+    stall(700);
+    wakeTimers();
+    runFrame(); // one frame after the stall: not caught up yet, no lift
+    expect(log).toEqual(['down']);
+    target.emit('pointerup', { timeStamp: down + 90 });
+    runFrame();
+    runFrame();
+    expect(log).toEqual(['down', 'tap', 'release']);
+  });
+
+  it('QA-S15-8: the same for a downward slip made before 0.12 s: no lift, nothing dropped', () => {
+    const { target, log } = liftSetup();
+    const down = now;
+    target.emit('pointerdown', { timeStamp: down, x: 100, y: 300 });
+    stall(700);
+    wakeTimers();
+    runFrame();
+    target.emit('globalpointermove', { timeStamp: down + 50, x: 101, y: 320 });
+    target.emit('pointerupoutside', { timeStamp: down + 90, x: 101, y: 330 });
+    for (let k = 0; k < 6; k++) runFrame();
+    expect(log).toEqual(['down', 'release']);
+  });
+
+  it('QA-S15-9: an on-time timer followed by a stalled frame waits for a frame that comes on time', () => {
+    const { target, log } = liftSetup();
+    const down = now;
+    target.emit('pointerdown', { timeStamp: down });
+    pass(LIFT); // the timer runs on time
+    stall(300); // the next frame comes 300 ms later: the page is busy, input may be held back
+    runFrame();
+    expect(log, 'not lifted on a late frame').toEqual(['down']);
+    quickFrames(5);
+    expect(log, 'nor while the page has kept up for less than 0.3 s since').toEqual(['down']);
+    target.emit('pointerup', { timeStamp: down + 100 });
+    quickFrames(30);
+    expect(log).toEqual(['down', 'tap', 'release']);
+  });
+
+  it('QA-S15-8: a stall right after the lift (before a frame showed it) puts it back; it lifts again once the page keeps up', () => {
+    const { target, log } = liftSetup();
+    target.emit('pointerdown', { timeStamp: now });
+    pass(LIFT);
+    quickFrames(2);
+    expect(log).toEqual(['down', 'lift', 'drag']);
+    stall(700);
+    runFrame();
+    expect(log).toEqual(['down', 'lift', 'drag', 'undo']);
+    quickFrames(22);
+    expect(log, 'still held: lifted again').toEqual(['down', 'lift', 'drag', 'undo', 'lift', 'drag']);
   });
 
   it('a late lift whose first move (made before 0.12 s) goes down is undone; nothing is dropped', () => {
@@ -389,7 +456,7 @@ describe('attachPress: hold to lift (S-15-6 owner round 3: anything longer than 
     target.emit('pointerdown', { timeStamp: down, x: 100, y: 300 });
     stall(500);
     wakeTimers();
-    runFrame();
+    quickFrames(22); // caught up: lifted (the move comes later)
     target.emit('globalpointermove', { timeStamp: down + 50, x: 101, y: 320 });
     target.emit('pointerupoutside', { timeStamp: down + 80, x: 101, y: 330 });
     expect(log).toEqual(['down', 'lift', 'drag', 'undo', 'release']);
@@ -415,7 +482,7 @@ describe('attachPress: hold to lift (S-15-6 owner round 3: anything longer than 
     target.emit('pointerdown', { timeStamp: down, x: 100, y: 300 });
     stall(500);
     wakeTimers();
-    runFrame();
+    quickFrames(22); // caught up: lifted (the move comes later)
     target.emit('globalpointermove', { timeStamp: down + 50, x: 102, y: 280 });
     expect(log).toEqual(['down', 'lift', 'drag', 'drag']);
     target.emit('pointerupoutside', { timeStamp: down + 80, x: 104, y: 200 });
@@ -426,6 +493,7 @@ describe('attachPress: hold to lift (S-15-6 owner round 3: anything longer than 
     const { target, log } = liftSetup();
     target.emit('pointerdown', { timeStamp: now, x: 100, y: 300 });
     pass(LIFT);
+    runFrame();
     runFrame();
     target.emit('pointercancel', { timeStamp: now, x: 100, y: 300 });
     expect(log).toEqual(['down', 'lift', 'drag', 'cancel', 'release']);
@@ -442,6 +510,7 @@ describe('attachPress: hold to lift (S-15-6 owner round 3: anything longer than 
     const { target, log } = liftSetup(false);
     target.emit('pointerdown', { timeStamp: now });
     pass(LIFT);
+    runFrame();
     runFrame();
     expect(log).toEqual(['down', 'no-lift']);
     pass(HOLD - LIFT);
