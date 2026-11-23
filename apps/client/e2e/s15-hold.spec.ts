@@ -64,6 +64,34 @@ async function liftFromStrip(page: Page, i: number): Promise<{ hold: Hold; at: {
   return { hold, at, l: await layout(page) };
 }
 
+/**
+ * QA-S15-11: a press at `a` and a move to `b`, sent at once without waiting for the page to handle the
+ * press (touch on the phone projects, mouse on desktop; the browser stamps each as it arrives, as a
+ * finger's events are). Returns the release (at `b`).
+ */
+async function pressAndMove(page: Page, a: { x: number; y: number }, b: { x: number; y: number }): Promise<() => Promise<void>> {
+  const cdp = await page.context().newCDPSession(page);
+  const touch = test.info().project.use.hasTouch === true;
+  if (touch) {
+    await Promise.all([
+      cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [a] }),
+      cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [b] }),
+    ]);
+  } else {
+    // The pointer is over the card first (no button: hover only), then press + move go together.
+    await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: a.x, y: a.y, button: 'none', buttons: 0 });
+    await Promise.all([
+      cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: a.x, y: a.y, button: 'left', buttons: 1, clickCount: 1 }),
+      cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: b.x, y: b.y, button: 'left', buttons: 1 }),
+    ]);
+  }
+  return async () => {
+    if (touch) await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    else await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: b.x, y: b.y, button: 'left', buttons: 0, clickCount: 1 });
+    await cdp.detach();
+  };
+}
+
 /** A point on the table off every lit place. */
 function offPlaces(l: LayoutSnapshot): { x: number; y: number } {
   const p = center(emptySpot(l));
@@ -236,8 +264,9 @@ test.describe('S-15-6 hold a card to play it', () => {
     await resetGap(page);
     await page.evaluate(() => window.__overclock!.clearAnims());
     const c = center(open.handView!.centre);
-    const h = await holdAt(page, open.handView!.centre);
-    await h.move(c.x + 4, c.y - 40);
+    // QA-S15-11: the press and the move are sent together, as a finger makes them (none waits for the
+    // page to finish the press: `page.mouse.down()` alone took 80-215 ms on desktop, past the hold time).
+    const release = await pressAndMove(page, c, { x: c.x + 4, y: c.y - 40 });
     await page.waitForFunction(() => window.__overclock!.layout().drag !== null);
     const lift = (await anims(page)).find((a) => a.kind === 'card_lift')!;
     // Lifted by the move that left the 7 px circle upward, not by the hold timer.
@@ -247,7 +276,7 @@ test.describe('S-15-6 hold a card to play it', () => {
     expect(lift.startedAt - m.handled, 'lifted on that move').toBeLessThan(100);
     expect(m.at - (await lastDown(page)), 'the finger left the circle before the hold time').toBeLessThan(HOLD);
     expect((await layout(page)).drag).toMatchObject({ index: 0, from: 'view' });
-    await h.release();
+    await release();
     await page.waitForFunction(() => window.__overclock!.layout().drag === null);
   });
 
