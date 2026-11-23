@@ -929,3 +929,80 @@ Suggestion for ui-dev, not a requirement: don't count the frame gap caused by th
 - Flaky: a tap on the small hand does not open the hand view (at 4× under load).
 
 **Fixed and verified:** QA-S15-7, QA-S15-8.
+
+## Round 11 (2026-11-23, product code f295978: the QA-S15-10 fix)
+
+QA did not write this change:
+- eb522f8: the game's own card-face drawing (`ownWork`) is no longer counted as a page freeze by the small hand's catch-up rule.
+- 096663f: architect fix (nested `ownWork` counted once).
+- c2b021f, f295978: docs only.
+
+No test files changed since round 10. Build: fresh, served on QA's own port (`E2E_PORT=4273`, `--strictPort`). The bundle served (`index-CHXQTOK1.js`) matches the build.
+
+**Result:**
+- The CI full suite on f295978 is **green**.
+- QA-S15-8 stays fixed at 1× and 4×.
+- Round-9 checks 1, 2/4 and 5 do not regress at 1×.
+- **QA-S15-10 is NOT fixed.** At 4×, the grab from the small hand (hand view closed) is still late in **5 of 12** runs at 844x390 and desktop.
+
+### QA-S15-10 re-check (repro at 4×, `--repeat-each=5`, desktop + 844x390, plus the 4× sweep)
+| Run | Late (first held frame after the allowed time) | First held frame in the late runs |
+|---|---|---|
+| Repro, 844x390 ×5 | 1/5 (another run failed one follow move instead, see below) | 768 ms (allowed 502) |
+| Repro, desktop ×5 | 3/5 | 886 (allowed 636), 745 (495), 742 (492) |
+| 4× sweep, desktop ×1 | 1/1 | 893 (allowed 643) |
+| 4× sweep, 891x296 / 640x360 / 844x390 | 0 | — |
+
+**The frame pattern is the same as round 10.**
+- One frame gap of **216–317 ms** follows the press, for example 176→392, 128→395, 219→536 and 260→543 ms.
+- Then frames arrive every ~17 ms, yet the card lifts only about 250–350 ms later.
+- The runs that pass have no gap over ~250 ms.
+
+So the gap that triggers the 300 ms wait after a freeze is still not all counted as the game's own work.
+- QA's reading: the time is spent drawing the press frame, not in the bake that `ownWork` wraps. Drawing the larger card on this machine's software graphics, and uploading the new held-size picture, are not in `ownWork`. QA could not confirm this from the page.
+- Suggestion: wrap the first draw after a press in `ownWork` too, or start the freeze clock at the timer's due time.
+
+Also at 4× (844x390): in one run, one finger move took more than 100 ms to be drawn; the other 6 moves were in time. Round 10 also saw one 102 ms move at 4×. This is noted, not a new bug.
+
+### QA-S15-8 re-check
+- 1×, 4 sizes: round-5 small-hand tests (2 stamped-late + 2 physical-input) all pass.
+- 4×, 4 sizes: all pass.
+- No frame drawn after the input was sent showed a picked-up card.
+- **Still FIXED.**
+
+### Round-9 checks 1, 2/4, 5
+| Check | 1× (4 sizes) | 4× (4 sizes) |
+|---|---|---|
+| 1 Quick taps never pick up or light | Small hand: PASS. Big card: **1 flash frame** at 640x360 (an 80 ms tap; release handled at 374 ms) = QA-S15-9, the hand-view path, which was not changed | PASS |
+| 2/4 A still press grabs at ~0.12 s, follows the finger; held card 1.5× and on screen | PASS (all 12 cases) | small hand with view open and big card: PASS. **Small hand with view closed: late on desktop (QA-S15-10)** |
+| 5 One-motion drag from the small hand plays the card | 48/48 | PASS |
+
+- Totals: 1× **87 passed, 1 failed** (the QA-S15-9 flash). 4× **87 passed, 1 failed** (QA-S15-10).
+
+### CI result (round 11)
+- **Manual run 45105064520 on f295978: SUCCESS.** It is the full suite, so QA did not run it again locally (TESTING.md).
+  - `checks` success, `guard-mutation` success.
+  - **e2e shard 1/4: success** (657 passed, 3 skipped).
+  - **Shard 2/4: success** (651 passed, 8 skipped).
+  - **Shard 3/4: success** (639 passed, 1 flaky, 19 skipped).
+  - **Shard 4/4: success** (644 passed, 15 skipped).
+- Flaky: `s15-hand.spec.ts:187` at 640x360, "swiping in the hand view slides the cards into place" (passed on retry).
+- CI runs at 1× only, so it does not cover QA-S15-10.
+
+### Other checks
+- The engine did not change (empty timing windows still auto-pass; `checks` green).
+- No IP changes.
+- At 1× the grab and follow numbers are as in round 10.
+
+### Final per-story result (Sprint 15, round 11)
+| Story | Result |
+|---|---|
+| S-15-1 … S-15-5 | **PASSED QA**: unchanged; green in CI on f295978 |
+| S-15-6 Hold a card to play it | **Not passed QA: QA-S15-10 is still open.** Every check passes at 1× at 4 sizes, and QA-S15-8 stays fixed. At 4×, a still press on the small hand (view closed) can grab up to ~0.9 s after the down instead of ~0.12 s plus a frame. This only shows on a slow device (4× slow-down); the lead/owner may choose to accept it |
+
+**Open:**
+- QA-S15-10 (timing at 4×; not fixed by eb522f8/096663f).
+- QA-S15-9 (big-card one-frame flash, minor; seen again at 640x360).
+- Flaky: a tap on the small hand does not open the hand view (at 4× under load), and `s15-hand:187`.
+
+**Fixed and verified:** QA-S15-7, QA-S15-8.
