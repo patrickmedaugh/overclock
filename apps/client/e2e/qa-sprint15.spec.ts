@@ -2166,6 +2166,11 @@ test.describe('QA S-15-6 round 5: strip follow-up (QA-S15-2 on the small hand)',
       const before = await getView(page);
       const { cdp, t0, c } = await lateLift(page, STRIP_CARD, 700);
       const moves = kind === 'quick tap' ? [] : [1, 2, 3].map((k) => ({ p: { x: c.x + k, y: c.y + 6 * k }, t: t0 + 40 + 15 * k }));
+      // QA round 10: when (wall clock, after the down) the stamped moves and release were actually sent. A real
+      // screen hands them over when made; if the page took longer than 0.12 s to start its stall, they are sent
+      // after the hold time and the page could not have known about them when its timer ran.
+      const sentMs = Date.now() - t0;
+      test.info().annotations.push({ type: 'r5-sent-ms', description: String(sentMs) });
       await stampedGesture(page, c, moves, t0 + 90, cdp);
       await page.waitForTimeout(1200);
       const l = await waitIdle(page);
@@ -2177,10 +2182,76 @@ test.describe('QA S-15-6 round 5: strip follow-up (QA-S15-2 on the small hand)',
       const flash = q5.frames.filter((fr) => fr.drag || fr.targets > 0 || fr.minimized);
       const d5 = q5.downs.at(-1)!;
       test.info().annotations.push({ type: 'r5-times', description: JSON.stringify({ downHandled: Math.round(q5.downsAt.at(-1)! - d5), up: q5.ups.length ? [Math.round(q5.ups.at(-1)! - d5), Math.round(q5.upsAt.at(-1)! - d5)] : null, moves: q5.moves.map((m) => [Math.round(m.at - d5), Math.round(m.handled - d5)]), lift: recs.filter((a) => a.kind === 'card_lift').map((a) => Math.round(a.startedAt - d5)), flash: flash.map((fr) => [Math.round(fr.t - d5), Math.round(fr.now - d5), fr.drag ? 'H' : '', fr.targets, fr.minimized ? 'M' : '']) }) });
-      expect.soft(flash.length, 'no frame shows a held card, lit place or dropped hand').toBe(0);
+      // QA round 10: a frame the page drew before the test runner had even sent the tap/slip (it was stalled
+      // too long to let the runner send it in time: stamped in the past) cannot be blamed on the game; every
+      // frame drawn after it was sent must show nothing held, lit or dropped.
+      const origin = await page.evaluate(() => performance.timeOrigin);
+      const sentWall = t0 + sentMs;
+      // (50 ms grace: an event sent cannot be on screen in the very frame being drawn as it is sent.)
+      const blamed = flash.filter((fr) => origin + fr.now >= sentWall + 50);
+      test.info().annotations.push({ type: 'r5-flash-after-sent', description: `${blamed.length} of ${flash.length} flash frames drawn after the gesture was sent (sent ${sentMs} ms after the down)` });
+      expect.soft(blamed.length, 'no frame drawn after the gesture was sent shows a held card, lit place or dropped hand').toBe(0);
       expect.soft(await getView(page), 'nothing played or paid').toEqual(before);
       expect.soft(l.drag, 'nothing held at the end').toBeNull();
       expect.soft(recs.some((a) => a.kind === 'install_flight' || a.kind === 'play_flight')).toBe(false);
+      await cdp.detach();
+    });
+  }
+
+  // QA round 10: the same, but physical: the page handles the down, then stalls; the slip and the release are
+  // each sent at the moment they are made (none waits for the page), as a touch screen queues them. (In the
+  // tests above the runner often gets to send them only after the stall: stamped in the past.)
+  for (const kind of ['quick tap', 'downward slip'] as const) {
+    test(`strip (round 10): a ${kind} made just before the page stalls (queued during the stall) is never a pick-up, never shows one, never plays`, async ({ page }) => {
+      await openBoard(page, 4);
+      const before = await getView(page);
+      const l0 = await waitIdle(page);
+      const c = center(l0.hand[STRIP_CARD]!.box);
+      await qaWatch(page);
+      await page.evaluate(() => window.__overclock!.clearAnims());
+      const cdp = await page.context().newCDPSession(page);
+      const touch = touchProject();
+      if (!touch) await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: c.x, y: c.y, buttons: 0 });
+      // The page stalls 700 ms starting 20 ms after it handled the down (a struggling phone): the hold timer
+      // falls due during the stall, and the slip / release made meanwhile wait in the queue.
+      await page.evaluate(() =>
+        window.addEventListener(
+          'pointerdown',
+          () =>
+            setTimeout(() => {
+              const t = performance.now();
+              while (performance.now() - t < 700) {
+                /* busy */
+              }
+            }, 20),
+          { capture: true, once: true },
+        ),
+      );
+      const t0 = Date.now();
+      const sent: Promise<unknown>[] = [touch ? cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [c], timestamp: t0 / 1000 }) : cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: c.x, y: c.y, button: 'left', buttons: 1, clickCount: 1, timestamp: t0 / 1000 })];
+      let last = c;
+      if (kind === 'downward slip') {
+        for (let k = 1; k <= 3; k++) {
+          await sleep(t0 + 40 + 15 * k - Date.now());
+          last = { x: c.x + k, y: c.y + 6 * k };
+          const t = Date.now();
+          sent.push(touch ? cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [last], timestamp: t / 1000 }) : cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: last.x, y: last.y, button: 'left', buttons: 1, timestamp: t / 1000 }));
+        }
+      }
+      await sleep(t0 + 90 - Date.now());
+      const tu = Date.now();
+      sent.push(touch ? cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [], timestamp: tu / 1000 }) : cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: last.x, y: last.y, button: 'left', buttons: 0, clickCount: 1, timestamp: tu / 1000 }));
+      await Promise.all(sent);
+      await page.waitForTimeout(1500);
+      const q = await qaLog(page);
+      const recs = await anims(page);
+      const d = q.downs.at(-1)!;
+      const flash = q.frames.filter((fr) => fr.drag || fr.targets > 0 || fr.minimized);
+      test.info().annotations.push({ type: 'r10-strip', description: JSON.stringify({ sentUpMs: tu - t0, downHandled: Math.round(q.downsAt.at(-1)! - d), up: [Math.round(q.ups.at(-1)! - d), Math.round(q.upsAt.at(-1)! - d)], lift: recs.filter((a) => a.kind === 'card_lift').map((a) => Math.round(a.startedAt - d)), kinds: recs.map((a) => a.kind).join(','), flash: flash.map((fr) => Math.round(fr.t - d)), longTasks: q.long.map((x) => Math.round(x)), frames: q.frames.filter((fr) => fr.t >= d && fr.t < d + 1000).map((fr) => Math.round(fr.t - d)) }) });
+      expect(Math.max(0, ...q.long), 'the page really stalled (>= 650 ms task)').toBeGreaterThanOrEqual(650);
+      expect.soft(flash.length, 'no frame shows a held card, lit place or dropped hand').toBe(0);
+      expect.soft(await getView(page), 'nothing played or paid').toEqual(before);
+      expect.soft((await waitIdle(page)).drag, 'nothing held at the end').toBeNull();
       await cdp.detach();
     });
   }
@@ -3540,6 +3611,7 @@ test.describe('QA S-15-6 round 7: owner steps 1-9 on real input', () => {
       const due = Math.max(down + 220, (after120[1] ?? Infinity) + 100);
       l = await layout(page);
       const d = l.drag!;
+      test.info().annotations.push({ type: 'r9-lift-frames', description: `first held frame ${Math.round(first!.t - down)} ms (read ${Math.round(first!.now - down)}), due ${Math.round(due - down)} ms; frames from the down: ${w.frames.filter((f) => f.t >= down && f.t <= first!.t).map((f) => Math.round(f.t - down)).join(' ')}` });
       expect(d.index, 'the pressed card is the one held').toBe(i);
       expect(first!.now - down, 'not grabbed before 0.12 s').toBeGreaterThanOrEqual(115);
       expect(first!.t, 'grabbed as soon as 0.12 s is up (or the frame after a slow one)').toBeLessThanOrEqual(due);
