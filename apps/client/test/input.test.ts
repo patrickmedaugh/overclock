@@ -422,12 +422,12 @@ describe('attachPress: hold to lift (S-15-6 owner round 3: anything longer than 
     expect(log).toEqual(['down', 'release']);
   });
 
-  it('QA-S15-9: an on-time timer followed by a stalled frame waits for a frame that comes on time', () => {
+  it('QA-S15-9: an on-time timer followed by a frozen frame waits for the page to settle', () => {
     const { target, log } = liftSetup();
     const down = now;
     target.emit('pointerdown', { timeStamp: down });
     pass(LIFT); // the timer runs on time
-    stall(300); // the next frame comes 300 ms later: the page is busy, input may be held back
+    stall(700); // the next frame comes 700 ms later: the page froze, input may be held back
     runFrame();
     expect(log, 'not lifted on a late frame').toEqual(['down']);
     quickFrames(5);
@@ -562,14 +562,37 @@ describe('attachPress: hold to lift (S-15-6 owner round 3: anything longer than 
     expect(log, 'the real stall still makes it wait').toEqual(['down']);
   });
 
-  it('QA-S15-10: the same gap from something else (a real stall) still waits for the page to settle', () => {
+  it('QA-S15-10: a freeze from something else still waits for the page to settle', () => {
+    const { target, log } = liftSetup();
+    target.emit('pointerdown', { timeStamp: now });
+    pass(LIFT);
+    stall(700);
+    runFrame();
+    quickFrames(5);
+    expect(log).toEqual(['down']);
+    quickFrames(20);
+    expect(log).toEqual(['down', 'lift', 'drag']);
+  });
+
+  it('QA-S15-10: a moderately late frame (300 ms, a slow phone drawing the press) only needs two on-time frames after it', () => {
     const { target, log } = liftSetup();
     target.emit('pointerdown', { timeStamp: now });
     pass(LIFT);
     stall(300);
     runFrame();
     quickFrames(1);
-    expect(log).toEqual(['down']);
+    expect(log, 'one on-time frame: not yet').toEqual(['down']);
+    quickFrames(1);
+    expect(log, 'two: lifted, no 0.3 s settle').toEqual(['down', 'lift', 'drag']);
+  });
+
+  it('QA-S15-10: a hold timer running moderately late (the press work) does not count as a freeze', () => {
+    const { target, log } = liftSetup();
+    target.emit('pointerdown', { timeStamp: now });
+    stall(LIFT + 300); // the timer runs 300 ms late
+    wakeTimers();
+    quickFrames(2);
+    expect(log).toEqual(['down', 'lift', 'drag']);
   });
 });
 

@@ -130,6 +130,14 @@ const CATCH_UP_FRAMES = 6;
  * then lifts this much after the page recovers (it was late already); on a responsive page, no wait.
  */
 const STALL_QUIET_MS = 300;
+/**
+ * QA-S15-10: only a freeze this long (a frame or the hold timer this late, ms) needs the settle above.
+ * A moderate late frame (250 ms up to this) only needs two on-time frames after it: a browser hands
+ * over input queued during an ordinary long task right after it. Measured at 4x CPU slow-down: the
+ * frames right after a press come up to ~330 ms late (the press frame's draw and its new textures,
+ * outside the game's own measured work); QA's freezes are 700-900 ms.
+ */
+const FREEZE_MS = 450;
 /** QA-S15-8: on a page that stalled, a lift waits for the page at most this long (ms), then lifts. */
 const CATCH_UP_MAX_MS = 1500;
 
@@ -193,11 +201,14 @@ function afterCatchUp(fn: () => void, stalledBefore = false): () => void {
   const frame = () => {
     const t = performance.now();
     // A frame late only because of the game's own work (a face bake) is on time for this rule.
-    if (lateBy(prev, ownPrev, t) < CATCH_UP_GAP_MS) quick++;
+    const late = lateBy(prev, ownPrev, t);
+    if (late < CATCH_UP_GAP_MS) quick++;
     else {
       quick = 0;
-      stalled = true;
-      lastSlow = t;
+      if (late >= FREEZE_MS) {
+        stalled = true;
+        lastSlow = t;
+      }
     }
     prev = t;
     ownPrev = ownMs;
@@ -326,14 +337,15 @@ export function attachPress(target: Container, handlers: PressHandlers, opts: Pr
       const id = raf(() => {
         cancelFrame = null;
         if (pointerId === null || !dragging || !timerDrag || leftCircle) return;
-        if (lateBy(liftAt, ownAt) < CATCH_UP_GAP_MS) return;
+        const late = lateBy(liftAt, ownAt);
+        if (late < CATCH_UP_GAP_MS) return;
         dragging = false;
         timerDrag = false;
         holdDrag = false;
         handlers.onLiftUndo?.();
         firstFrameUndone = true;
         liftable = true;
-        cancelFrame = afterCatchUp(fireLift, true);
+        cancelFrame = afterCatchUp(fireLift, late >= FREEZE_MS);
       });
       return () => globalThis.cancelAnimationFrame(id);
     })();
@@ -421,7 +433,7 @@ export function attachPress(target: Container, handlers: PressHandlers, opts: Pr
       timer = setTimeout(() => {
         timer = null;
         if (pointerId === null || !liftable) return;
-        cancelFrame = afterCatchUp(fireLift, lateBy(downAt, ownAtDown) >= liftMs + CATCH_UP_GAP_MS);
+        cancelFrame = afterCatchUp(fireLift, lateBy(downAt, ownAtDown) >= liftMs + FREEZE_MS);
       }, Math.max(0, liftMs - (performance.now() - downAt)));
     } else if (holdable) timer = setTimeout(longTimer, longPressMs);
   };
