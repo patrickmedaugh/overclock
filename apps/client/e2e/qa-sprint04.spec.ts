@@ -141,10 +141,9 @@ test.describe('QA S-04-3 hold and slide', () => {
     // A pick right after still works.
     const v = await getView(page);
     const j = v.handOptions.findIndex((o) => o.some((x) => x.reject === null));
-    if (j >= 0) {
-      await pickHand(page, j);
-      await page.waitForFunction((n) => window.__overclock!.layout().selected === n, j);
-    }
+    expect(j, 'a card can still be played (two clicks left)').toBeGreaterThanOrEqual(0);
+    await pickHand(page, j);
+    await page.waitForFunction((n) => window.__overclock!.layout().selected === n, j);
   });
 
   test('the zoom face is on screen within 0.1 s of the move (input time to the drawn frame), and the picture changes', async ({ page }) => {
