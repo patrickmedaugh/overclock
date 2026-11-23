@@ -1100,3 +1100,61 @@ No test files changed except QA's own. Build: fresh, served on QA's own port (`E
 - Flaky: `s07-hand:130`.
 
 **Fixed and verified:** QA-S15-7, QA-S15-8.
+
+## Round 13 (2026-11-23, head fbe61da: QA-S15-11 test fix; lead accepts the QA-S15-10 residual)
+
+Changes since round 12:
+- 8e06b4c changes a test only. `s15-hold` "dragging the big card upward" now sends the press and the move together (`pressAndMove` helper, CDP). It no longer waits for `page.mouse.down()` to return first.
+- fbe61da is the lead's decision in DECISIONS. The remaining QA-S15-10 lateness at 4× on this runner (≥ 450 ms of blocking after the press) is accepted for the demo. The owner judges the feel on his phone. QA-S15-9 stays minor.
+
+No product code changed. Build: fresh, served on QA's own port (`E2E_PORT=4273`, `--strictPort`). The bundle served matches the build.
+
+### QA-S15-11: fixed, and the test is no weaker
+- Diff review: the test only changed how input is sent.
+  - The press and the 40 px upward move go out together, without waiting for the page, as a finger's events do.
+  - Every check is unchanged:
+    - lifted within 100 ms of that move being handled;
+    - the move made before the 0.12 s hold time;
+    - `drag` = `{ index: 0, from: 'view' }`;
+    - released afterwards.
+- The test now passes **20/20** (×5 at 844x390, 640x360, 891x296 and desktop). The card lifts 4.6–26.7 ms after the move is handled.
+- The whole `s15-hold.spec.ts` at the 4 sizes: **55 passed, 1 skipped** (the skip is by design).
+
+### CI result (round 13)
+- **Manual run 45121222221 on fbe61da: SUCCESS.**
+  - `checks` success, `guard-mutation` success.
+  - **e2e shard 1/4: success** (662 passed, 1 flaky).
+  - **Shard 2/4: success** (654 passed, 3 flaky).
+  - **Shard 3/4: success** (646 passed).
+  - **Shard 4/4: success** (649 passed, 1 flaky).
+  - It is the full suite, so QA did not run it again locally (TESTING.md).
+- Flaky tests (each passed on retry), checked one by one:
+  - `s15-hold.spec.ts:295` [desktop] "owner round 3: holding a card still in the small hand…": the held card measured 126.6 px tall (the check wants more than 480).
+    - **A race in the test, not a game fault: QA-S15-12 (ui-dev, test only).**
+    - QA traced 10 desktop lifts frame by frame. The card grows from press size to 504 px over 2–3 frames (≤ 67 ms): the first drawn frame is ~300 px, then 497–504.
+    - The test reads the size in the same moment the lift appears, and in 5 of 10 traces that read still saw the press size (127 px).
+    - Reproduced locally 1/8. Fix: wait for the grow to finish (~90 ms) before measuring.
+  - `qa-sprint15` round-7 steps 3/4 (Runner) [844x390]: `TypeError … reading 't'`.
+    - **A race in QA's own test.** Playwright saw the lift before QA's frame watcher had recorded a held frame. This is the same race ui-dev fixed in `s15-owner` in round 3.
+    - **Fixed by QA in this commit:** the test now also waits for the watcher's own held frame. All checks are unchanged.
+    - Steps 3/4 at 4 sizes ×2: **16/16**.
+  - `qa-sprint15` round-7 step 2 (Runner) [640x360]: one frame showing a held card on a 60 ms tap on the big card. This is **QA-S15-9** (minor, accepted).
+  - `s14-sync:43`, `s02-corp:62`: older known flaky tests, not about this story.
+
+### Final per-story verdict (Sprint 15, after the lead decision of fbe61da)
+| Story | Verdict |
+|---|---|
+| S-15-1 Cards lift and lean in your hand | **PASSED QA** |
+| S-15-2 Played cards fly to the board and land | **PASSED QA** |
+| S-15-3 Cards fly to and from the piles | **PASSED QA** |
+| S-15-4 Never slower than today | **PASSED QA** for every criterion checkable here. AC3 (smoothness on the owner's phone) is an owner check |
+| S-15-5 Play link and app download with a private repo | **PASSED QA** for everything checkable here. The live link and phone download are owner checks (round 2) |
+| S-15-6 Hold a card to play it | **PASSED QA.** At 1× on real input at all 4 sizes:<br>• a quick tap never grabs;<br>• a still press grabs at ~0.12 s;<br>• up and diagonal drags grab at once, and sideways drags browse;<br>• the held card is 1.5× and on screen;<br>• a one-motion drag from the small hand plays the card;<br>• QA-S15-2/-8 hold, including moderate freezes.<br>Accepted by the lead: QA-S15-10 (4× only) and QA-S15-9 (rare one-frame flash, never plays). The owner should judge the grab speed on his phone |
+
+**Open, not blocking:**
+- QA-S15-9 (accepted).
+- QA-S15-10 residual (accepted, 4× only).
+- QA-S15-12 (test race in `s15-hold:295`).
+- Flaky: `s07-hand:130`, `s14-sync:43`, `s02-corp:62`.
+
+**Fixed and verified:** QA-S15-7, QA-S15-8, QA-S15-11.

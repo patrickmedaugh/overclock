@@ -2718,6 +2718,9 @@ test.describe('QA S-15-6 round 7: owner steps 1-9 on real input', () => {
         await h.move({ x: c.x + (k % 2 ? 2 : -1), y: c.y + (k % 3) - 1 });
       }
       await page.waitForFunction(() => window.__overclock!.layout().drag !== null, undefined, { timeout: 2000 });
+      // QA round 13 (CI race on 4986bf2/fbe61da): Playwright's poll can see the drag before QA's own frame
+      // watcher has recorded a held frame; wait for the watcher's record (every check below unchanged).
+      await page.waitForFunction(() => (window as unknown as { __r7: W }).__r7.frames.some((f) => f.held), undefined, { timeout: 2000 });
       const w = await watched7(page);
       const down = w.downs.at(-1)!;
       const firstHeld = w.frames.find((f) => f.held)!;
