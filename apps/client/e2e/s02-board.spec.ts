@@ -23,6 +23,7 @@ import {
   tap,
   targetOf,
   toBusyBoard,
+  toHoldToRead,
   waitEndTurnArmed,
   waitIdle,
 } from './helpers';
@@ -132,7 +133,9 @@ test.describe('S-02-5 real words and real cards', () => {
   test('held cards show real core-set names and text; long text fits the zoomed card', async ({ page }) => {
     await openBoard(page, 32); // Runner: Easy Mark, Inside Job, Armitage Codebusting, Bank Job, Diesel
     await toRunnerTurn(page);
-    let l = await layout(page);
+    // Owner round 3 (QA-S15-7, updated by ui-dev; QA to re-verify): a hold on the small hand now picks the
+    // card up; the hold-to-read zoom runs in the discard step (`toHoldToRead`). Every check is kept.
+    let l = await toHoldToRead(page, 'runner');
     for (const h of l.hand) {
       const def = getCard(h.cardId)!;
       const release = await pressAndHold(page, h.box);
@@ -149,7 +152,9 @@ test.describe('S-02-5 real words and real cards', () => {
       expect(await page.evaluate(() => window.__overclock!.back())).toBe('close_zoom');
       await page.waitForFunction(() => window.__overclock!.layout().zoom === null);
     }
-    // Installed, too.
+    // Installed, too (a new game: the discard step above takes no plays).
+    await openBoard(page, 32);
+    await toRunnerTurn(page);
     l = await pickCard(page, 'Armitage Codebusting');
     await tap(page, targetOf(l, 'install').box);
     l = await waitIdle(page);

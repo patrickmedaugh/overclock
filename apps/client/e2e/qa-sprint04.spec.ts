@@ -21,7 +21,10 @@ import {
   toStep,
   waitIdle,
   pickHand,
-  emptySpot,
+  dragTo,
+  holdAt,
+  openHand,
+  toHoldToRead,
 } from './helpers';
 import { pixelStats } from './pixels';
 
@@ -80,7 +83,9 @@ test.describe('QA S-04-3 hold and slide', () => {
   test('crowded hand (9 cards): every card can be reached by sliding; outline and zoom match; y within the hand does not matter', async ({ page }) => {
     await openBoard(page, 3);
     await bigHand(page, 9);
-    const l = await layout(page);
+    // Owner round 3 (QA-S15-7, updated by ui-dev; QA to re-verify): a hold on the small hand now picks the
+    // card up; the hold-to-read zoom runs in the discard step (`toHoldToRead`). Every check is kept.
+    const l = await toHoldToRead(page);
     const hand = l.hand;
     expect(hand.length).toBeGreaterThanOrEqual(8);
     const h = await hold(page, hand[0]!.box);
@@ -104,40 +109,49 @@ test.describe('QA S-04-3 hold and slide', () => {
     await page.waitForFunction(() => window.__overclock!.layout().zoom === null);
   });
 
-  test('S-15-6: after sliding, leaving the hand upward picks up the card read; let go off every place plays, picks and spends nothing', async ({ page }) => {
+  // QA-S15-7, lead decision 2026-11-22 (updated by ui-dev; QA to re-verify): "pick up the card read after
+  // sliding" is retired by the owner's round-3 rule (a hold on the small hand picks the card up). Nearest
+  // new-rule equivalent: tap the small hand to read the card big, then hold the big card: it lifts, and
+  // dragged onto a lit place it is played.
+  test('S-15-6 (owner round 3): tap the small hand to read a card big, then hold the big card: it lifts and is played on a lit place', async ({ page }) => {
     await openBoard(page, 1);
-    const l = await layout(page);
     const before = await getView(page);
-    const h = await hold(page, l.hand[1]!.box);
-    await waitZoom(page, l.hand[1]!.cardId);
-    await h.move(center(l.hand[3]!.box).x, center(l.hand[3]!.box).y);
-    await waitZoom(page, l.hand[3]!.cardId);
-    // Drag up over the HQ column (out of the hand: the card read lifts), then away from every place, and let go there.
-    const hq = l.servers.find((s) => s.id === 'hq')!;
-    await h.move(center(hq.box).x, center(hq.box).y);
+    const i = before.handOptions.findIndex((o) => o.some((x) => x.reject === null && x.action.type === 'install'));
+    expect(i).toBeGreaterThanOrEqual(0);
+    const l = await openHand(page, i);
+    // Read: the card is shown big, nothing picked or lit.
+    expect(await zoomId(page)).toBe(l.hand[i]!.cardId);
+    expect(l.selected).toBeNull();
+    expect(l.targets).toEqual([]);
+    const c = center(l.handView!.centre);
+    const h = await holdAt(page, l.handView!.centre);
     await page.waitForFunction(() => window.__overclock!.layout().drag !== null);
-    expect((await layout(page)).drag).toMatchObject({ index: 3, cardId: l.hand[3]!.cardId, from: 'strip' });
-    // Let go off every lit place (on desktop the End turn spot can sit inside a lit server column).
-    const away = center(emptySpot(await layout(page)));
-    await h.move(away.x, away.y);
+    const held = await layout(page);
+    expect(held.drag).toMatchObject({ index: i, cardId: l.hand[i]!.cardId, from: 'view', dimmed: false });
+    const t = held.targets.find((x) => x.lit && x.kind === 'new_server') ?? held.targets.find((x) => x.lit)!;
+    await dragTo(h, c, center(t.box), 6);
+    await page.waitForFunction(() => window.__overclock!.layout().drag?.hover != null);
     await h.release();
     await page.waitForFunction(() => window.__overclock!.layout().drag === null && !window.__overclock!.layout().handMinimized);
-    await page.waitForTimeout(400);
-    const after = await layout(page);
-    expect(after.selected).toBeNull();
-    expect(after.targets).toEqual([]);
-    expect(after.handView).toBeNull();
-    expect(await getView(page)).toEqual(before);
+    await waitIdle(page);
+    const after = await getView(page);
+    expect(after.players.corp.hand!.length, 'played: it left the hand').toBe(before.players.corp.hand!.length - 1);
+    expect(after.players.corp.clicks, 'one click spent').toBe(before.players.corp.clicks - 1);
+    expect((await layout(page)).selected).toBeNull();
     // A pick right after still works.
     const v = await getView(page);
-    const i = v.handOptions.findIndex((o) => o.some((x) => x.reject === null));
-    await pickHand(page, i);
-    await page.waitForFunction((n) => window.__overclock!.layout().selected === n, i);
+    const j = v.handOptions.findIndex((o) => o.some((x) => x.reject === null));
+    if (j >= 0) {
+      await pickHand(page, j);
+      await page.waitForFunction((n) => window.__overclock!.layout().selected === n, j);
+    }
   });
 
   test('the zoom face is on screen within 0.1 s of the move (input time to the drawn frame), and the picture changes', async ({ page }) => {
     await openBoard(page, 1);
-    const l = await layout(page);
+    // Owner round 3 (QA-S15-7, updated by ui-dev; QA to re-verify): a hold on the small hand now picks the
+    // card up; the hold-to-read zoom runs in the discard step (`toHoldToRead`). Every check is kept.
+    const l = await toHoldToRead(page);
     const hand = l.hand;
     // Pick two neighbouring slots with different cards.
     let k = 1;

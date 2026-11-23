@@ -5,7 +5,7 @@
 // - Snappiness: the longest turn change (4 discards, then the Corp's free draw) never keeps input away > 600ms.
 import { expect, test, type Page } from '@playwright/test';
 import type { Box } from './helpers';
-import { center, closeDiscardView, dispatch, getView, layout, markDiscard, measureTap, openBoard, pressAndHold, safeRect, sendTap, toRunnerTurn, waitEndTurnArmed, waitIdle } from './helpers';
+import { center, closeDiscardView, dispatch, getView, layout, markDiscard, measureTap, openBoard, pressAndHold, safeRect, sendTap, toHoldToRead, toRunnerTurn, waitEndTurnArmed, waitIdle } from './helpers';
 
 interface Stats {
   mean: number;
@@ -124,7 +124,9 @@ for (const [name, insets] of SHAPES) {
 
     test('a long-press zoomed card stays inside the safe area', async ({ page }) => {
       await openBoard(page, { insets });
-      const l = await layout(page);
+      // Owner round 3 (QA-S15-7, updated by ui-dev; QA to re-verify): a hold on the small hand now picks the
+      // card up; the hold-to-read zoom runs in the discard step (`toHoldToRead`). Every check is kept.
+      const l = await toHoldToRead(page);
       const release = await pressAndHold(page, l.hand.at(-1)!.box);
       await page.waitForFunction(() => window.__overclock!.layout().zoom !== null);
       await waitIdle(page);

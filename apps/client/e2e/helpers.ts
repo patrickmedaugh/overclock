@@ -396,8 +396,10 @@ export async function holdAt(page: Page, b: Box): Promise<Hold> {
  * where no card can be picked up: the discard step. This ends the Corp's first turn with 6 cards
  * (discard 1) so the specs of that hold run there. Returns the layout, idle.
  */
-export async function toHoldToRead(page: Page): Promise<LayoutSnapshot> {
-  await dispatch(page, { type: 'end_turn', player: 'corp' });
+export async function toHoldToRead(page: Page, side: 'corp' | 'runner' = 'corp'): Promise<LayoutSnapshot> {
+  // The Runner (5 cards at the start of his turn) draws one first, so he has one too many.
+  if (side === 'runner') await dispatch(page, { type: 'draw', player: 'runner' });
+  await dispatch(page, { type: 'end_turn', player: side });
   const l = await waitIdle(page);
   expect((await getView(page)).pendingDiscard, 'in the discard step').toBeGreaterThan(0);
   return l;
