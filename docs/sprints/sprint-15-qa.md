@@ -1006,3 +1006,97 @@ Also at 4× (844x390): in one run, one finger move took more than 100 ms to be d
 - Flaky: a tap on the small hand does not open the hand view (at 4× under load), and `s15-hand:187`.
 
 **Fixed and verified:** QA-S15-7, QA-S15-8.
+
+## Round 12 (2026-11-23, product code 4986bf2: second fix for QA-S15-10 and the architect's guard)
+
+QA did not write these changes:
+- a79cdf3: only a page freeze of 450 ms or more makes the small-hand lift wait 0.3 s to settle.
+- 4986bf2: after a moderate freeze (250–450 ms) the lift waits for 3 on-time frames.
+
+No test files changed except QA's own. Build: fresh, served on QA's own port (`E2E_PORT=4273`, `--strictPort`; bundle `index-B7QLv-6V.js`). For comparison, the f295978 build was served from a worktree on port 4280.
+
+**Result:**
+- QA-S15-8 holds, including the new moderate-freeze probe.
+- Round-9 checks 1, 2/4 and 5 pass at 1× at all 4 sizes.
+- **QA-S15-10 is better, not fixed.**
+  - 844x390 at 4×: 1 of 5 runs is late, by 50 ms.
+  - Desktop at 4×: 2 of 5 runs are still late, by about 270 ms.
+- **CI on 4986bf2 is RED.** The cause is one developer test, `s15-hold.spec.ts:230` on desktop. It fails because of how the test drives the mouse, not because of a game fault (QA-S15-11 below).
+
+### QA-S15-10 re-check (repro at 4×, ×5 desktop, ×5 at 844x390)
+| Build | 844x390 late | desktop late |
+|---|---|---|
+| f295978 (round 11) | 1/5 (+266 ms) | 3/5 (+250 to +270 ms) |
+| **4986bf2** | **1/5, +50 ms** (held at 439 ms, allowed 389; it waits for the third on-time frame) | **2/5, +267 ms** (held at 993 ms, allowed 726; held at 941, allowed 675) |
+
+- The late desktop runs have **two** long frames back to back right after the press: 9→343→626 ms and 8→258→575 ms. That is 570–620 ms of blocking in total, although each frame on its own is under 450 ms.
+- Then frames arrive every 17 ms, and the card lifts about 350 ms after the page is smooth again.
+- So the 0.12 s hold timer itself ran 450 ms or more late, and the game took that for a real freeze.
+- The passing desktop runs have one long frame (about 200–330 ms) and lift 2–3 frames after it.
+- QA's reading: on this machine at 4× the game's own press work (the press frame drawn on software graphics, at 1280x800) can block the page for about 0.6 s. The game cannot tell that apart from a real freeze.
+- **The lead decides:** this only shows at 4× slow-down on the desktop size, plus a 50 ms margin on phones.
+
+### QA-S15-8: new moderate-freeze probe (QA, real input), plus the round-5/round-10 small-hand tests
+- **New tests, "strip (round 12)":**
+  - The page freezes for 300, 350 or 400 ms the moment the game has handled the press (a window listener that runs after the game's own handler).
+  - So the 0.12 s hold timer falls due during the freeze.
+  - The quick tap's release, or the downward slip's moves, are sent in real time and wait in the queue.
+  - The tests check the conditions first: the page really froze, the hold timer fell due inside the freeze, the release was made before 0.12 s, and it was handled after the freeze.
+  - Then: no frame may show a held card, lit places or the hand dropped, and nothing may be played.
+- **Round-5 blame rule refined:** if the page already showed the card lifted before the runner had even sent the gesture, the run is recorded as "not judged". No release existed yet, so the game was right to lift. This happened once, at 891x296.
+
+| Run | Result |
+|---|---|
+| 1×, 4 sizes ×2: moderate probe (48 runs) + round-5/round-10 small-hand tests | 87 passed, 1 failed. The failure was the test runner sending a release late (133 ms, not made before 0.12 s). **0 flash frames in every run** |
+| 4×, 4 sizes ×1 (same set) | 38 passed, 6 failed. All 6 failures are the runner being late to send its input (release at 121–232 ms, or the freeze starting late). **0 flash frames in every run**; one round-5 run not judged |
+
+**QA-S15-8: still FIXED, including moderate freezes.**
+
+### Round-9 checks (1×, 4 sizes)
+| Check | Result |
+|---|---|
+| 1 Quick taps never pick up or light | PASS |
+| 2/4 A still press grabs at ~0.12 s and follows; held card 1.5× and on screen | PASS. First held frame 138–406 ms, all on time |
+| 5 One-motion drag from the small hand plays the card | PASS |
+
+- Total: **68/68**.
+
+### New bug: QA-S15-11 (ui-dev, test only; makes CI red)
+`s15-hold.spec.ts:230` "dragging the big card upward picks it up at once (no wait)" fails on desktop: in CI on 4986bf2 (both tries), and locally 5/5.
+- It fails its own **check of the test setup**: "the finger left the circle before the hold time". The move it sends is timestamped 177–529 ms after the down.
+- Cause: `holdAt` on desktop does `await page.mouse.down()`, and only then moves. The press acknowledgement takes 80–215 ms on this machine, so the move is made after 0.12 s.
+- Where the move did count, the card lifted 4–8 ms after it was handled.
+- **Not a product regression:**
+  - The same test fails 2/5 locally on the f295978 build too.
+  - QA measured the press directly on both builds: acknowledgement 79–134 ms (4986bf2) against 89–215 ms (f295978); the game's handler takes 0–1 ms in both.
+- Fix: send the move without waiting for the press acknowledgement (as QA's `human()` helper does), or skip judging when the move was made after the hold time.
+
+### CI result (round 12)
+- **Manual run 45116770798 on 4986bf2: FAILURE.**
+  - `checks` success, `guard-mutation` success.
+  - e2e shard 1/4 success (656 passed, 1 flaky).
+  - Shard 2/4 success (649 passed, 2 flaky).
+  - Shard 3/4 success (640 passed).
+  - **Shard 4/4 failure: 1 failed** (`s15-hold.spec.ts:230` [desktop], QA-S15-11), 643 passed.
+- Flaky (each passed on retry):
+  - `s07-hand.spec.ts:130` (known);
+  - two big-card one-frame flashes at 640x360, `qa-sprint15` round-7 step 2 (Runner, 80 ms) and round 9 check 1 (Runner, 100 ms). Both are QA-S15-9.
+- QA-S15-9 was seen 1, 0 and now 2 times in the last three CI runs. The hand-view code did not change, so QA does not count it as worse. It is still minor and never plays a card.
+
+### Other checks
+- The engine did not change; `checks` is green.
+- No IP changes.
+
+### Final per-story result (Sprint 15, round 12)
+| Story | Result |
+|---|---|
+| S-15-1 … S-15-5 | **PASSED QA**: unchanged; their tests are green in CI |
+| S-15-6 Hold a card to play it | **Not passed QA yet.** Every check passes at 1× at 4 sizes, and QA-S15-8 is fixed, also for moderate freezes. Blocking: **CI red (QA-S15-11, a test problem)**. For the lead to decide: **QA-S15-10** remains only at 4× (desktop 2/5 late by ~0.27 s; phone 1/5 by 50 ms) |
+
+**Open:**
+- QA-S15-11 (CI-red developer test).
+- QA-S15-10 (4× only, smaller).
+- QA-S15-9 (minor).
+- Flaky: `s07-hand:130`.
+
+**Fixed and verified:** QA-S15-7, QA-S15-8.

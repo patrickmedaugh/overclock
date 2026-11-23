@@ -2188,8 +2188,11 @@ test.describe('QA S-15-6 round 5: strip follow-up (QA-S15-2 on the small hand)',
       const origin = await page.evaluate(() => performance.timeOrigin);
       const sentWall = t0 + sentMs;
       // (50 ms grace: an event sent cannot be on screen in the very frame being drawn as it is sent.)
-      const blamed = flash.filter((fr) => origin + fr.now >= sentWall + 50);
-      test.info().annotations.push({ type: 'r5-flash-after-sent', description: `${blamed.length} of ${flash.length} flash frames drawn after the gesture was sent (sent ${sentMs} ms after the down)` });
+      // (QA round 12: if the page already showed the card lifted before the gesture was even sent, it was right to:
+      // no release existed yet; it then keeps showing it until the late input is handled. Not judged.)
+      const shownBefore = flash.some((fr) => origin + fr.now < sentWall + 50);
+      const blamed = shownBefore ? [] : flash.filter((fr) => origin + fr.now >= sentWall + 50);
+      test.info().annotations.push({ type: 'r5-flash-after-sent', description: `${blamed.length} of ${flash.length} flash frames drawn after the gesture was sent (sent ${sentMs} ms after the down)${shownBefore ? "; not judged: lifted before the gesture existed" : ""}` });
       expect.soft(blamed.length, 'no frame drawn after the gesture was sent shows a held card, lit place or dropped hand').toBe(0);
       expect.soft(await getView(page), 'nothing played or paid').toEqual(before);
       expect.soft(l.drag, 'nothing held at the end').toBeNull();
@@ -2254,6 +2257,80 @@ test.describe('QA S-15-6 round 5: strip follow-up (QA-S15-2 on the small hand)',
       expect.soft((await waitIdle(page)).drag, 'nothing held at the end').toBeNull();
       await cdp.detach();
     });
+  }
+
+  // QA round 12: MODERATE freezes (300-400 ms, under the game's 450 ms "real freeze" line). The freeze starts the
+  // moment the game has handled the down (a window bubble listener runs after the canvas's own handler), so the
+  // 0.12 s hold timer falls due inside it; the tap's release or the slip's moves are sent in real time and wait
+  // in the queue. Nothing may show a picked-up card, light a place or drop the hand; nothing is played.
+  for (const ms of [300, 350, 400]) {
+    for (const kind of ['quick tap', 'downward slip'] as const) {
+      test(`strip (round 12): a ${kind} queued during a moderate ${ms} ms freeze right after the down is never a pick-up, never shows one, never plays`, async ({ page }) => {
+        await openBoard(page, 4);
+        const before = await getView(page);
+        const l0 = await waitIdle(page);
+        const c = center(l0.hand[STRIP_CARD]!.box);
+        await quietFrames(page);
+        await qaWatch(page);
+        await page.evaluate(() => window.__overclock!.clearAnims());
+        await page.evaluate((freeze) => {
+          const w = window as unknown as { __fz: { start: number; end: number } };
+          w.__fz = { start: 0, end: 0 };
+          window.addEventListener(
+            'pointerdown',
+            () => {
+              const t = performance.now();
+              w.__fz.start = t;
+              while (performance.now() - t < freeze) {
+                /* busy */
+              }
+              w.__fz.end = performance.now();
+            },
+            { once: true },
+          );
+        }, ms);
+        const cdp = await page.context().newCDPSession(page);
+        const touch = touchProject();
+        if (!touch) await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: c.x, y: c.y, buttons: 0 });
+        const t0 = Date.now();
+        const sent: Promise<unknown>[] = [touch ? cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [c] }) : cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: c.x, y: c.y, button: 'left', buttons: 1, clickCount: 1 })];
+        let last = c;
+        if (kind === 'downward slip') {
+          for (let k = 1; k <= 3; k++) {
+            await sleep(t0 + 40 + 15 * k - Date.now());
+            last = { x: c.x + k, y: c.y + 6 * k };
+            sent.push(touch ? cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [last] }) : cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: last.x, y: last.y, button: 'left', buttons: 1 }));
+          }
+        }
+        await sleep(t0 + 90 - Date.now());
+        const tu = Date.now();
+        sent.push(touch ? cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] }) : cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: last.x, y: last.y, button: 'left', buttons: 0, clickCount: 1 }));
+        await Promise.all(sent);
+        await page.waitForTimeout(1500);
+        const q = await qaLog(page);
+        const fz = await page.evaluate(() => (window as unknown as { __fz: { start: number; end: number } }).__fz);
+        const recs = await anims(page);
+        const d = q.downs.at(-1)!;
+        const flash = q.frames.filter((fr) => fr.drag || fr.targets > 0 || fr.minimized);
+        test.info().annotations.push({
+          type: 'r12-moderate',
+          description: JSON.stringify({ sentUpMs: tu - t0, up: [Math.round(q.ups.at(-1)! - d), Math.round(q.upsAt.at(-1)! - d)], freeze: [Math.round(fz.start - d), Math.round(fz.end - d)], lift: recs.filter((a) => a.kind === 'card_lift').map((a) => Math.round(a.startedAt - d)), kinds: recs.map((a) => a.kind).join(','), flash: flash.map((fr) => Math.round(fr.t - d)) }),
+        });
+        // Preconditions: the freeze really ran right after the down and the release was made during it (by its own
+        // stamp: before 0.12 s) and handled after it.
+        expect(fz.end - fz.start, 'the page froze').toBeGreaterThanOrEqual(ms - 5);
+        // (The desktop runner hands a CDP mouse press to the page ~0.1 s late; the freeze still starts right after
+        // the game handled it, so the hold timer falls due inside the freeze.)
+        expect(fz.start - d, 'the freeze began right after the down was handled').toBeLessThan(q.downsAt.at(-1)! - d + 60);
+        expect(fz.end - d, 'the 0.12 s hold timer fell due inside the freeze').toBeGreaterThan(120);
+        expect(q.ups.at(-1)! - d, 'the release was made before 0.12 s').toBeLessThan(120);
+        expect(q.upsAt.at(-1)!, 'the release waited in the queue during the freeze').toBeGreaterThanOrEqual(fz.end - 1);
+        expect.soft(flash.length, 'no frame shows a held card, lit place or dropped hand').toBe(0);
+        expect.soft(await getView(page), 'nothing played or paid').toEqual(before);
+        expect.soft((await waitIdle(page)).drag, 'nothing held at the end').toBeNull();
+        await cdp.detach();
+      });
+    }
   }
 
   test('strip: a late lift followed by a drag up and out picks up the pressed card; let go off every place, nothing played', async ({ page }) => {
