@@ -450,6 +450,25 @@ describe('attachPress: hold to lift (S-15-6 owner round 3: anything longer than 
     expect(log, 'still held: lifted again').toEqual(['down', 'lift', 'drag', 'undo', 'lift', 'drag']);
   });
 
+  it('QA-S15-8: on a page whose every frame is late, the lift is put back at most once, then the give-up lift stays (no loop)', () => {
+    const { target, log } = liftSetup();
+    target.emit('pointerdown', { timeStamp: now, x: 100, y: 300 });
+    pass(LIFT);
+    quickFrames(2);
+    stall(700);
+    runFrame();
+    expect(log).toEqual(['down', 'lift', 'drag', 'undo']);
+    // Every frame 300 ms late from here: the 1.5 s give-up lifts, and a late first frame no longer undoes it.
+    for (let k = 0; k < 12; k++) {
+      stall(300);
+      runFrame();
+    }
+    expect(log).toEqual(['down', 'lift', 'drag', 'undo', 'lift', 'drag']);
+    target.emit('globalpointermove', { timeStamp: now, x: 104, y: 200 });
+    target.emit('pointerupoutside', { timeStamp: now, x: 104, y: 200 });
+    expect(log).toEqual(['down', 'lift', 'drag', 'undo', 'lift', 'drag', 'drag', 'drop', 'release']);
+  });
+
   it('a late lift whose first move (made before 0.12 s) goes down is undone; nothing is dropped', () => {
     const { target, log } = liftSetup();
     const down = now;

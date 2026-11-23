@@ -227,6 +227,11 @@ export function attachPress(target: Container, handlers: PressHandlers, opts: Pr
   /** S-15-6: the drag began by the still hold (`onHoldLift`), and whether its finger has left the circle since. */
   let holdDrag = false;
   let leftCircle = false;
+  /**
+   * QA-S15-8: this press's lift was already put back once by `watchFirstFrame`. Only once per press:
+   * on a page whose every frame is late, the give-up lift then stays (no lift / put-back loop).
+   */
+  let firstFrameUndone = false;
   /** Where the finger was last seen (a cancelled touch is let go there). */
   let lastX = 0;
   let lastY = 0;
@@ -283,7 +288,7 @@ export function attachPress(target: Container, handlers: PressHandlers, opts: Pr
    */
   const watchFirstFrame = (liftAt: number) => {
     const raf = globalThis.requestAnimationFrame as typeof requestAnimationFrame | undefined;
-    if (typeof raf !== 'function') return;
+    if (typeof raf !== 'function' || firstFrameUndone) return;
     cancelFrame = (() => {
       const id = raf(() => {
         cancelFrame = null;
@@ -293,6 +298,7 @@ export function attachPress(target: Container, handlers: PressHandlers, opts: Pr
         timerDrag = false;
         holdDrag = false;
         handlers.onLiftUndo?.();
+        firstFrameUndone = true;
         liftable = true;
         cancelFrame = afterCatchUp(fireLift, true);
       });
@@ -375,6 +381,7 @@ export function attachPress(target: Container, handlers: PressHandlers, opts: Pr
     timerDrag = false;
     holdDrag = false;
     leftCircle = false;
+    firstFrameUndone = false;
     handlers.onDown?.();
     if (liftable) {
       timer = setTimeout(() => {
