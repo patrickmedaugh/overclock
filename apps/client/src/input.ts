@@ -138,6 +138,8 @@ const STALL_QUIET_MS = 300;
  * outside the game's own measured work); QA's freezes are 700-900 ms.
  */
 const FREEZE_MS = 450;
+/** On-time frames needed after a moderately late frame or timer (else 2). */
+const AFTER_LATE_FRAMES = 3;
 /** QA-S15-8: on a page that stalled, a lift waits for the page at most this long (ms), then lifts. */
 const CATCH_UP_MAX_MS = 1500;
 
@@ -186,10 +188,16 @@ function lateBy(from: number, ownFrom: number, t = performance.now()): number {
   return t - from - (ownMs - ownFrom);
 }
 
-function afterCatchUp(fn: () => void, stalledBefore = false): () => void {
+/**
+ * `stalledBefore`: a freeze (≥ `FREEZE_MS`) just ended: the full settle. `lateBefore`: a moderate late
+ * frame or timer (250 ms up to `FREEZE_MS`) just ended: one more on-time frame (architect 2026-11-23:
+ * on Chrome, input queued during a 300-400 ms task reached the page with the second frame after it,
+ * 1-7 ms before a 2-frame lift would have shown the card).
+ */
+function afterCatchUp(fn: () => void, stalledBefore = false, lateBefore = false): () => void {
   const raf = globalThis.requestAnimationFrame as typeof requestAnimationFrame | undefined;
   if (typeof raf !== 'function') return afterNextFrame(fn);
-  const need = 2;
+  let need = lateBefore ? AFTER_LATE_FRAMES : 2;
   const start = performance.now();
   let prev = start;
   let ownPrev = ownMs;
@@ -205,6 +213,7 @@ function afterCatchUp(fn: () => void, stalledBefore = false): () => void {
     if (late < CATCH_UP_GAP_MS) quick++;
     else {
       quick = 0;
+      need = AFTER_LATE_FRAMES;
       if (late >= FREEZE_MS) {
         stalled = true;
         lastSlow = t;
@@ -214,7 +223,8 @@ function afterCatchUp(fn: () => void, stalledBefore = false): () => void {
     ownPrev = ownMs;
     frames++;
     const ready = quick >= need && !inputPending() && (!stalled || t - lastSlow >= STALL_QUIET_MS);
-    const give = stalled ? t - start >= CATCH_UP_MAX_MS : frames >= CATCH_UP_FRAMES;
+    // Never give up on a late frame itself (input it held back comes next): on an on-time one, or at the cap.
+    const give = t - start >= CATCH_UP_MAX_MS || (!stalled && frames >= CATCH_UP_FRAMES && quick > 0);
     if (ready || give) fn();
     else id = raf(frame);
   };
@@ -345,7 +355,7 @@ export function attachPress(target: Container, handlers: PressHandlers, opts: Pr
         handlers.onLiftUndo?.();
         firstFrameUndone = true;
         liftable = true;
-        cancelFrame = afterCatchUp(fireLift, late >= FREEZE_MS);
+        cancelFrame = afterCatchUp(fireLift, late >= FREEZE_MS, true);
       });
       return () => globalThis.cancelAnimationFrame(id);
     })();
@@ -433,7 +443,10 @@ export function attachPress(target: Container, handlers: PressHandlers, opts: Pr
       timer = setTimeout(() => {
         timer = null;
         if (pointerId === null || !liftable) return;
-        cancelFrame = afterCatchUp(fireLift, lateBy(downAt, ownAtDown) >= liftMs + FREEZE_MS);
+        {
+          const lateTimer = lateBy(downAt, ownAtDown) - liftMs;
+          cancelFrame = afterCatchUp(fireLift, lateTimer >= FREEZE_MS, lateTimer >= CATCH_UP_GAP_MS);
+        }
       }, Math.max(0, liftMs - (performance.now() - downAt)));
     } else if (holdable) timer = setTimeout(longTimer, longPressMs);
   };

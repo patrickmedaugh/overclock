@@ -574,16 +574,50 @@ describe('attachPress: hold to lift (S-15-6 owner round 3: anything longer than 
     expect(log).toEqual(['down', 'lift', 'drag']);
   });
 
-  it('QA-S15-10: a moderately late frame (300 ms, a slow phone drawing the press) only needs two on-time frames after it', () => {
+  it('QA-S15-10: a moderately late frame (300 ms, a slow phone drawing the press) needs three on-time frames after it, no 0.3 s settle', () => {
     const { target, log } = liftSetup();
     target.emit('pointerdown', { timeStamp: now });
     pass(LIFT);
     stall(300);
     runFrame();
+    quickFrames(2);
+    expect(log, 'two on-time frames: not yet (input held back by the late frame comes with the second; architect 2026-11-23)').toEqual(['down']);
     quickFrames(1);
-    expect(log, 'one on-time frame: not yet').toEqual(['down']);
+    expect(log, 'three: lifted (~50 ms, not the 0.3 s settle)').toEqual(['down', 'lift', 'drag']);
+  });
+
+  it('a quick release handed over with the second on-time frame after a moderate stall is a tap: nothing ever lifts', () => {
+    const { target, log } = liftSetup();
+    const down = now;
+    target.emit('pointerdown', { timeStamp: down });
+    pass(LIFT);
+    stall(350);
+    runFrame();
+    quickFrames(2);
+    target.emit('pointerup', { timeStamp: down + 90 });
+    quickFrames(3);
+    expect(log).toEqual(['down', 'tap', 'release']);
+  });
+
+  it('the give-up after six frames never lifts on a late frame itself (only on an on-time one, or at the 1.5 s cap)', () => {
+    const { target, log } = liftSetup();
+    target.emit('pointerdown', { timeStamp: now });
+    pass(LIFT);
+    for (let k = 0; k < 5; k++) {
+      stall(280);
+      runFrame();
+    }
+    quickFrames(1); // frame 6, on time: the give-up
+    expect(log).toEqual(['down', 'lift', 'drag']);
+    const { target: t2, log: log2 } = liftSetup();
+    t2.emit('pointerdown', { timeStamp: now });
+    pass(LIFT);
     quickFrames(1);
-    expect(log, 'two: lifted, no 0.3 s settle').toEqual(['down', 'lift', 'drag']);
+    for (let k = 0; k < 5; k++) {
+      stall(280);
+      runFrame();
+    }
+    expect(log2, 'frame 6 is late: no give-up on it').toEqual(['down']);
   });
 
   it('QA-S15-10: a hold timer running moderately late (the press work) does not count as a freeze', () => {
@@ -592,6 +626,8 @@ describe('attachPress: hold to lift (S-15-6 owner round 3: anything longer than 
     stall(LIFT + 300); // the timer runs 300 ms late
     wakeTimers();
     quickFrames(2);
+    expect(log, 'one frame more than on time').toEqual(['down']);
+    quickFrames(1);
     expect(log).toEqual(['down', 'lift', 'drag']);
   });
 });
