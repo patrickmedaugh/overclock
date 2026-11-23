@@ -133,6 +133,8 @@ After playing the Sprint 15 demo (PR #34, 21:54 UTC) you said: *"it doesn't quit
 - Given the Corp and the Runner, in pass-the-phone and online (and in the Android app), when either side plays a card, then hold-to-play works the same way; online, the other phone never sees a card you're holding, only the card once it's played (face down if it's hidden). (Hidden-card part: automated check.)
 - Given you put your finger on a card, when you hold it, then the card reacts (rises a little) within a tenth of a second, it lifts as soon as the 0.25 seconds are up, and nothing (the hand shrinking, the card going back, the hand coming back up) stops you from playing for more than 0.6 seconds. (automated check, at 891×296, 844×390, 640×360 and on a computer)
 
+*(Changed after owner review 2026-11-22:)* *"Anything longer than a quick tap should grab the card."* The hold is now **0.12 s** (not 0.25 s) and a small move up or at a slant grabs at once; the held card is 1.5× bigger; a card can be dragged straight from the small hand with the hand view closed or open; and holding a card still in the small hand now picks it up (to read, tap the hand; hold-to-read stays in the discard step). Details: DECISIONS 2026-11-22.
+
 *Size:* L (most pieces exist from Sprint 7 and S-15-1: lifting, dragging and lit places. New: tap no longer plays, the quicker hold, the hand dropping away, dimmed cards with a reason, and trying the arrow. Much of the size is moving the team's automatic tests, which today play cards by tapping, over to holding and dragging.)
 
 *Questions for you in the new demo:*
