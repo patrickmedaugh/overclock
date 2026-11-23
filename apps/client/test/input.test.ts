@@ -2,7 +2,7 @@
 // (event timestamps), not by when the long-press timer got to run (QA-S3-7).
 import type { Container, FederatedPointerEvent } from 'pixi.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { attachPress, inputTime, type PressHandlers } from '../src/input';
+import { attachPress, inputTime, ownWork, type PressHandlers } from '../src/input';
 import { timing } from '../src/theme';
 
 const HOLD = timing.longPress;
@@ -537,4 +537,26 @@ describe('attachPress: hold to lift (S-15-6 owner round 3: anything longer than 
     target.emit('pointerup', { timeStamp: now });
     expect(log).toEqual(['down', 'no-lift', 'zoom', 'unzoom', 'release']);
   });
+
+  it('QA-S15-10: a late frame caused by the game\'s own work (a face bake) is no stall: the lift does not wait to settle', () => {
+    const { target, log } = liftSetup();
+    target.emit('pointerdown', { timeStamp: now });
+    pass(LIFT);
+    // The next frame is 300 ms late, all of it the game's own bake (not the page stalling).
+    ownWork(() => stall(300));
+    runFrame();
+    quickFrames(1);
+    expect(log, 'lifted on the next on-time frame, no 0.3 s settle').toEqual(['down', 'lift', 'drag']);
+  });
+
+  it('QA-S15-10: the same gap from something else (a real stall) still waits for the page to settle', () => {
+    const { target, log } = liftSetup();
+    target.emit('pointerdown', { timeStamp: now });
+    pass(LIFT);
+    stall(300);
+    runFrame();
+    quickFrames(1);
+    expect(log).toEqual(['down']);
+  });
 });
+

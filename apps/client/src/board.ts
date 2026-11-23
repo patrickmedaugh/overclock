@@ -28,7 +28,7 @@ import type { Decision, Presentation } from './session';
 import { choiceHint, collapseRepeats, conditionText, hintFor, rejectText } from './hints';
 import { EXPOSED_CAPTION, archivesHelpText, archivesTitle, lookDoneLabel, lookHelpText, lookInstallable, lookNotIceText, modeLabel, s12Notice } from './choiceText';
 import { basicOptionLabel, bidWaitText, isTraceChoice, linkText, meatDamageText, tagsChangedText, taggedText, taggedTrashText, traceNotices } from './traceText';
-import { attachPress, inputTime, noteRelease } from './input';
+import { attachPress, inputTime, noteRelease, ownWork } from './input';
 import type { FederatedPointerEvent } from 'pixi.js';
 import { BUILD_LINE, type BoardLayout, type BoardShape, CARD_RATIO, MIN_TOUCH, type SideRow, computeLayout } from './layout';
 import { LEAVE_TEXT, LEAVE_TEXT_ONLINE, LeaveDialog } from './leaveDialog';
@@ -5080,7 +5080,7 @@ export class Board {
     const def = id ? getCard(id) : undefined;
     if (id && def && !hasZoomFace(def, z.width, z.height)) {
       // Drawn into the cache; the sprite made here is not needed.
-      createZoomFace(def, z.width, z.height).root.destroy({ children: true });
+      ownWork(() => createZoomFace(def, z.width, z.height).root.destroy({ children: true }));
       if (this.zoom?.carousel?.upgrade(id)) this.callbacks.changed();
     }
     if (p.ids.length > 0) p.frame = requestAnimationFrame(() => this.predrawStep());

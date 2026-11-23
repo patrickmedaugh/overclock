@@ -151,12 +151,35 @@ function inputPending(): boolean {
   }
 }
 
+/** QA-S15-10: time (ms) the game spent so far in its own heavy work (`ownWork`): card face bakes. */
+let ownMs = 0;
+
+/**
+ * QA-S15-10: runs the game's own heavy work (a card face bake on a press) and counts its time, so a
+ * late frame it caused is not taken for a stall of the page (which would hold back input and make
+ * the hold-lift wait for the page to settle: on a slow phone every press paid that).
+ */
+export function ownWork<T>(fn: () => T): T {
+  const t = performance.now();
+  try {
+    return fn();
+  } finally {
+    ownMs += Math.max(0, performance.now() - t);
+  }
+}
+
+/** How much later than its own work explains `t` is, since `from` (ms, the game's work since `ownFrom` taken off). */
+function lateBy(from: number, ownFrom: number, t = performance.now()): number {
+  return t - from - (ownMs - ownFrom);
+}
+
 function afterCatchUp(fn: () => void, stalledBefore = false): () => void {
   const raf = globalThis.requestAnimationFrame as typeof requestAnimationFrame | undefined;
   if (typeof raf !== 'function') return afterNextFrame(fn);
   const need = 2;
   const start = performance.now();
   let prev = start;
+  let ownPrev = ownMs;
   let quick = 0;
   let frames = 0;
   let stalled = stalledBefore;
@@ -164,13 +187,15 @@ function afterCatchUp(fn: () => void, stalledBefore = false): () => void {
   let id = 0;
   const frame = () => {
     const t = performance.now();
-    if (t - prev < CATCH_UP_GAP_MS) quick++;
+    // A frame late only because of the game's own work (a face bake) is on time for this rule.
+    if (lateBy(prev, ownPrev, t) < CATCH_UP_GAP_MS) quick++;
     else {
       quick = 0;
       stalled = true;
       lastSlow = t;
     }
     prev = t;
+    ownPrev = ownMs;
     frames++;
     const ready = quick >= need && !inputPending() && (!stalled || t - lastSlow >= STALL_QUIET_MS);
     const give = stalled ? t - start >= CATCH_UP_MAX_MS : frames >= CATCH_UP_FRAMES;
@@ -224,6 +249,8 @@ export function attachPress(target: Container, handlers: PressHandlers, opts: Pr
    * event time, that the finger really stayed still for `liftMs` (QA-S3-7 / QA-S15-2 style).
    */
   let timerDrag = false;
+  /** QA-S15-10: the game's own work time (`ownMs`) when the press went down. */
+  let ownAtDown = 0;
   /** S-15-6: the drag began by the still hold (`onHoldLift`), and whether its finger has left the circle since. */
   let holdDrag = false;
   let leftCircle = false;
@@ -287,13 +314,14 @@ export function attachPress(target: Container, handlers: PressHandlers, opts: Pr
    * since, the lift is put back at once and waits for the page to catch up again.
    */
   const watchFirstFrame = (liftAt: number) => {
+    const ownAt = ownMs;
     const raf = globalThis.requestAnimationFrame as typeof requestAnimationFrame | undefined;
     if (typeof raf !== 'function' || firstFrameUndone) return;
     cancelFrame = (() => {
       const id = raf(() => {
         cancelFrame = null;
         if (pointerId === null || !dragging || !timerDrag || leftCircle) return;
-        if (performance.now() - liftAt < CATCH_UP_GAP_MS) return;
+        if (lateBy(liftAt, ownAt) < CATCH_UP_GAP_MS) return;
         dragging = false;
         timerDrag = false;
         holdDrag = false;
@@ -372,6 +400,7 @@ export function attachPress(target: Container, handlers: PressHandlers, opts: Pr
       offCancel = () => globalThis.removeEventListener('pointercancel', domCancel, true);
     }
     downAt = madeAt(stampOf(e), performance.now());
+    ownAtDown = ownMs;
     longFired = false;
     slid = false;
     dragging = false;
@@ -387,7 +416,7 @@ export function attachPress(target: Container, handlers: PressHandlers, opts: Pr
       timer = setTimeout(() => {
         timer = null;
         if (pointerId === null || !liftable) return;
-        cancelFrame = afterCatchUp(fireLift, performance.now() - downAt >= liftMs + CATCH_UP_GAP_MS);
+        cancelFrame = afterCatchUp(fireLift, lateBy(downAt, ownAtDown) >= liftMs + CATCH_UP_GAP_MS);
       }, Math.max(0, liftMs - (performance.now() - downAt)));
     } else if (holdable) timer = setTimeout(longTimer, longPressMs);
   };

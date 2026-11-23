@@ -6,7 +6,7 @@ import { Container, Graphics, Rectangle, Text } from 'pixi.js';
 import { centeredBox } from './geometry';
 import { createCardBack, createCardFace, createHeldFace, destroyHeldFace, glowRoundRect } from './cardFace';
 import type { AnimRecord, Box } from './hook-types';
-import { attachPress } from './input';
+import { attachPress, ownWork } from './input';
 import { type BoardLayout, handSlots, nearestSlot } from './layout';
 import { theme, timing } from './theme';
 import { ease, type Tweens } from './tween';
@@ -97,7 +97,7 @@ export class Hand {
     const def = getCard(card.cardId);
     if (!def) return;
     this.dropHeld(card);
-    const f = createHeldFace(def, Math.round(layout.card.width * scale), Math.round(layout.card.height * scale));
+    const f = ownWork(() => createHeldFace(def, Math.round(layout.card.width * scale), Math.round(layout.card.height * scale)));
     f.scale.set(1 / scale);
     f.visible = false;
     card.flip.addChildAt(f, card.flip.getChildIndex(card.face) + 1);
