@@ -29,8 +29,10 @@ on:
     paths-ignore: ['docs/**']
   workflow_dispatch:
 
+# Sprint 15 review: read-only by default; only the two publishing jobs may write
+# (Releases page, `play` branch). `build` runs npm ci + Gradle without a write token.
 permissions:
-  contents: write
+  contents: read
 
 env:
   # Certificate SHA-256 of apps/android/keystore/overclock.jks (never changes:
@@ -174,6 +176,8 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: write
     # One publish per branch at a time, and never cancelled half-way (a newer
     # one waits; an older one still waiting is replaced by the newer).
     concurrency:
@@ -227,6 +231,8 @@ jobs:
     if: needs.build.outputs.publish_site == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: write
     # One publish at a time, never cancelled half-way; last push wins (a newer
     # run still waiting replaces an older waiting one).
     concurrency:
