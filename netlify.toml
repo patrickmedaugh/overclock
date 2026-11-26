@@ -1,6 +1,10 @@
-# Backup demo host (owner's Netlify site "overcloc"). Netlify installs root
-# dependencies (npm workspaces) and builds only the game client.
-# Every PR gets its own Deploy Preview link; main is the production site.
+# Netlify site "overcloc". Sprint 15 (S-15-5): the play link
+# https://overcloc.netlify.app is Netlify's production branch `play`, a
+# prebuilt site (web game + Android app) that the android workflow's `site`
+# job pushes; that branch has its own netlify.toml and Netlify builds nothing
+# for it. THIS file only drives the Deploy Preview each pull request gets:
+# Netlify installs root dependencies (npm workspaces) and builds only the game
+# client (no Android app in previews, so no "Get the Android app" button).
 [build]
   command = "npm run build -w @overclock/client"
   publish = "apps/client/dist"
