@@ -1,5 +1,6 @@
 # Project state
 
+running_since: 2026-11-26T12:34Z
 phase: AWAITING_REVIEW
 sprint: 15
 open_pr: #34 Sprint 15 demo — ready for you to play (sprint-15 → main). Demo round 4 posted 2026-11-23 (owner round-3 points fixed; QA round 13 all 6 stories passed). Full CI green on fbe61da (manual run 45121222221). Play site + APK built from 8e06b4c (2026-11-23 06:00 UTC). Waiting on owner accept/reject per story + questions in the demo notes.
